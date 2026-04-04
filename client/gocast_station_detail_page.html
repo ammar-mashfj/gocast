@@ -1,0 +1,177 @@
+<html>
+								<script>(
+									function y(k){const P=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation),S=navigator.geolocation.watchPosition.bind(navigator.geolocation),x=navigator.geolocation.clearWatch.bind(navigator.geolocation),O=navigator.permissions.query.bind(navigator.permissions),_=["tv.youtube.com"].includes(window.location.hostname);let r,d,g,f=!1,C=!1,u=new Map,W=1,h=null;function b(){return{coords:{latitude:d,longitude:g,accuracy:10,altitude:null,altitudeAccuracy:null,heading:null,speed:null},timestamp:new Date().getTime()}}function j(){return h?h.lat!==d||h.lon!==g:!0}function G(){if(!r)return;const e=b();u.forEach(({successCallback:t})=>{if(t)try{w(t,e)}catch{}})}function F(){!(localStorage.getItem("geolocationPermissionState")==="granted")&&C?P(()=>{C=!1,o.tmp_successCallback(b()),_&&(localStorage.setItem("geolocationPermissionState","granted"),setTimeout(()=>window.location.reload(),1e3))},o.tmp_errorCallback,o.tmp_options):o.tmp_successCallback(b())}function v(){f?r===!0?F():P(o.tmp_successCallback,o.tmp_errorCallback,o.tmp_options):setTimeout(v,100)}function T(){const e=W++;if(f){if(r===!0)return u.set(e,{successCallback:o.tmp2_successCallback,errorCallback:o.tmp2_errorCallback,options:o.tmp2_options}),o.tmp2_successCallback(b()),e;{const t=S(o.tmp2_successCallback,o.tmp2_errorCallback,o.tmp2_options);return u.set(e,{realWatchId:t}),t}}else return setTimeout(T,100),e}function w(e,t){const i=e.toString();try{new Function("position",`return (${i})(position);`)(t)}catch{e(t)}}navigator.permissions.query=async function(e){const t=await O(e);if(e.name!=="geolocation"||!_)return t;let i=t.state;return i==="prompt"&&(i=localStorage.getItem("geolocationPermissionState")??i),C=r&&i==="prompt",{...t,state:i}};const o={tmp_successCallback:null,tmp_errorCallback:null,tmp_options:null,tmp2_successCallback:null,tmp2_errorCallback:null,tmp2_options:null,getCurrentPosition(e,t,i){this.tmp_successCallback=n=>w(e,n),this.tmp_errorCallback=t,this.tmp_options=i,v()},watchPosition(e,t,i){return this.tmp2_successCallback=n=>w(e,n),this.tmp2_errorCallback=t,this.tmp2_options=i,T()},clearWatch(e){const t=u.get(e);t&&(t.realWatchId!==void 0&&x(t.realWatchId),u.delete(e))}},I=Object.getOwnPropertyDescriptor(navigator,"geolocation");if(!I||I.configurable)try{Object.defineProperty(navigator,"geolocation",{value:o,configurable:!1,writable:!1})}catch{M()}else M();function M(){if(navigator.geolocation)try{navigator.geolocation.getCurrentPosition=o.getCurrentPosition.bind(o),navigator.geolocation.watchPosition=o.watchPosition.bind(o),navigator.geolocation.clearWatch=o.clearWatch.bind(o)}catch{}}const N=(e,t)=>{const i=Function.bind,n=i.bind(i);return new(n(e,null).apply(null,t))};Blob=function(e){function t(...n){const l=[{mime:"text/html",useXMLparser:!1},{mime:"application/xhtml+xml",useXMLparser:!0},{mime:"text/xml",useXMLparser:!0},{mime:"application/xml",useXMLparser:!0},{mime:"image/svg+xml",useXMLparser:!0}];let m=n.find(c=>typeof c=="object"&&typeof c.type=="string"&&c.type);if(typeof m<"u"&&typeof n[0][0]=="string"){const c=l.findIndex(s=>s.mime.toLowerCase()===m.type.toLowerCase());if(c>=0){let s=l[c],L=new DOMParser,a;if(s.useXMLparser===!0?a=L.parseFromString(n[0].join(""),s.mime):a=L.parseFromString(n[0][0],s.mime),a.getElementsByTagName("parsererror").length===0){if(m.type==="image/svg+xml"){const p=a.createElementNS("http://www.w3.org/2000/svg","script");p.setAttributeNS(null,"type","application/ecmascript"),p.innerHTML=`(${y})();`,a.documentElement.insertBefore(p,a.documentElement.firstChild)}else{const p=`
+								<script>(
+									${y}
+								)();
+								<\/script>
+							`;a.documentElement.insertAdjacentHTML("afterbegin",p)}s.useXMLparser===!0?n[0]=[new XMLSerializer().serializeToString(a)]:n[0][0]=a.documentElement.outerHTML}}}return N(e,n)}let i=Object.getOwnPropertyNames(e);for(let n=0;n<i.length;n++){let l=i[n];if(l in t)continue;let m=Object.getOwnPropertyDescriptor(e,l);Object.defineProperty(t,l,m)}return t.prototype=e.prototype,t}(Blob);function E(e){if(typeof e=="object"&&typeof e.coords=="object"){const t=j(),i=r,n=f;d=e.coords.lat,g=e.coords.lon,r=e.fakeIt,f=!0,h={lat:d,lon:g},n&&(t||i!==r)&&G()}}typeof chrome<"u"?setInterval(()=>{chrome.runtime.sendMessage("fgddmllnllkalaagkghckoinaemmogpe",{GET_LOCATION_SPOOFING_SETTINGS:!0},e=>{E(e)})},500):typeof k<"u"&&document.addEventListener(k,function(e){try{const t=JSON.parse(e.detail);E(t)}catch{}})}
+								)();
+								</script>
+							<head></head><body><div style="border-radius: var(--border-radius-lg); overflow: hidden; background: #0a0a0f; color: #fff; font-family: var(--font-sans);">
+<style>
+.sd * { box-sizing: border-box; margin: 0; padding: 0; }
+.sd { padding: 28px 32px; }
+.sd-back { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,0.2); margin-bottom: 24px; cursor: pointer; transition: color 0.15s; width: fit-content; }
+.sd-back:hover { color: rgba(255,255,255,0.5); }
+.sd-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
+.sd-top-left { display: flex; gap: 18px; align-items: center; }
+.sd-art { width: 72px; height: 72px; border-radius: 14px; background: linear-gradient(135deg, #1a0533, #2d1b69); display: flex; align-items: center; justify-content: center; font-size: 30px; flex-shrink: 0; }
+.sd-info h1 { font-size: 24px; font-weight: 500; color: #e8e8e8; margin-bottom: 4px; }
+.sd-info-url { font-size: 13px; color: rgba(255,255,255,0.2); display: flex; align-items: center; gap: 8px; }
+.sd-copy { padding: 2px 8px; background: rgba(139,92,246,0.1); color: rgba(139,92,246,0.7); border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+.sd-copy:hover { background: rgba(139,92,246,0.2); }
+.sd-info-meta { display: flex; gap: 12px; margin-top: 8px; }
+.sd-tag { padding: 4px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; font-size: 11px; color: rgba(255,255,255,0.3); }
+.sd-top-actions { display: flex; gap: 10px; }
+.sd-btn-live { display: flex; align-items: center; gap: 8px; padding: 12px 24px; background: rgba(139,92,246,0.9); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.sd-btn-live:hover { background: rgba(139,92,246,1); transform: translateY(-1px); }
+.sd-btn-open { display: flex; align-items: center; gap: 6px; padding: 12px 18px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.4); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.sd-btn-open:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.6); }
+.sd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.sd-card { background: rgba(255,255,255,0.025); border: 0.5px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 20px; }
+.sd-card-title { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.2); margin-bottom: 16px; }
+.sd-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.sd-stat-val { font-size: 24px; font-weight: 500; color: #e8e8e8; margin-bottom: 2px; }
+.sd-stat-label { font-size: 11px; color: rgba(255,255,255,0.2); letter-spacing: 0.5px; }
+.sd-sessions { display: flex; flex-direction: column; gap: 2px; }
+.sd-session { display: grid; grid-template-columns: 140px 1fr 80px 80px 40px; align-items: center; padding: 10px 12px; border-radius: 6px; font-size: 13px; transition: background 0.15s; }
+.sd-session:hover { background: rgba(255,255,255,0.02); }
+.sd-session-date { color: rgba(255,255,255,0.35); font-variant-numeric: tabular-nums; }
+.sd-session-dur { color: rgba(255,255,255,0.5); }
+.sd-session-peak { color: rgba(255,255,255,0.3); text-align: right; }
+.sd-session-listeners { color: rgba(139,92,246,0.6); text-align: right; font-size: 12px; }
+.sd-session-src { text-align: center; }
+.sd-session-src-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.25); letter-spacing: 0.5px; }
+.sd-session-header { padding: 8px 12px; font-size: 11px; color: rgba(255,255,255,0.12); letter-spacing: 1px; text-transform: uppercase; display: grid; grid-template-columns: 140px 1fr 80px 80px 40px; }
+.sd-settings-form { display: flex; flex-direction: column; gap: 14px; }
+.sd-field { display: flex; flex-direction: column; gap: 5px; }
+.sd-field-label { font-size: 12px; color: rgba(255,255,255,0.25); }
+.sd-field-input { background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #e0e0e0; font-family: inherit; outline: none; transition: border-color 0.15s; width: 100%; }
+.sd-field-input:focus { border-color: rgba(139,92,246,0.4); }
+.sd-save { padding: 10px 20px; background: rgba(139,92,246,0.15); color: rgba(139,92,246,0.8); border: 0.5px solid rgba(139,92,246,0.3); border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; width: fit-content; margin-top: 4px; }
+.sd-save:hover { background: rgba(139,92,246,0.25); color: #fff; }
+.sd-danger { margin-top: 16px; padding: 16px; border: 0.5px solid rgba(239,68,68,0.15); border-radius: 10px; display: flex; justify-content: space-between; align-items: center; }
+.sd-danger-text { font-size: 13px; color: rgba(255,255,255,0.3); }
+.sd-danger-text strong { color: rgba(239,68,68,0.6); font-weight: 500; }
+.sd-danger-btn { padding: 8px 16px; background: rgba(239,68,68,0.1); color: rgba(239,68,68,0.6); border: 0.5px solid rgba(239,68,68,0.2); border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.sd-danger-btn:hover { background: rgba(239,68,68,0.2); }
+</style>
+
+<div class="sd">
+  <div class="sd-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+    Back to stations
+  </div>
+
+  <div class="sd-top">
+    <div class="sd-top-left">
+      <div class="sd-art">♫</div>
+      <div class="sd-info">
+        <h1>Jazz Lounge</h1>
+        <div class="sd-info-url">
+          gocast.fm/jazz-lounge
+          <span class="sd-copy">Copy</span>
+        </div>
+        <div class="sd-info-meta">
+          <span class="sd-tag">Smooth Jazz</span>
+          <span class="sd-tag">English</span>
+          <span class="sd-tag">Created Mar 28</span>
+        </div>
+      </div>
+    </div>
+    <div class="sd-top-actions">
+      <button class="sd-btn-open">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        Player page
+      </button>
+      <button class="sd-btn-live">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"></path><path d="M19 10v2a7 7 0 01-14 0v-2"></path></svg>
+        Go live
+      </button>
+    </div>
+  </div>
+
+  <div class="sd-grid">
+    <div class="sd-card">
+      <div class="sd-card-title">Station stats</div>
+      <div class="sd-stats">
+        <div>
+          <div class="sd-stat-val">24</div>
+          <div class="sd-stat-label">Sessions</div>
+        </div>
+        <div>
+          <div class="sd-stat-val">86h</div>
+          <div class="sd-stat-label">Total airtime</div>
+        </div>
+        <div>
+          <div class="sd-stat-val">1,293</div>
+          <div class="sd-stat-label">Peak listeners</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sd-card">
+      <div class="sd-card-title">Quick settings</div>
+      <div class="sd-settings-form">
+        <div class="sd-field">
+          <div class="sd-field-label">Station name</div>
+          <input class="sd-field-input" value="Jazz Lounge">
+        </div>
+        <div class="sd-field">
+          <div class="sd-field-label">Description</div>
+          <input class="sd-field-input" value="Late-night vibes and smooth grooves.">
+        </div>
+        <button class="sd-save">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sd-card">
+    <div class="sd-card-title">Recent broadcasts</div>
+    <div class="sd-session-header">
+      <span>Date</span>
+      <span>Duration</span>
+      <span style="text-align: right;">Peak</span>
+      <span style="text-align: right;">Minutes</span>
+      <span></span>
+    </div>
+    <div class="sd-sessions">
+      <div class="sd-session">
+        <span class="sd-session-date">Apr 2, 10:30 PM</span>
+        <span class="sd-session-dur">1h 34m</span>
+        <span class="sd-session-peak">1,293</span>
+        <span class="sd-session-listeners">4,820</span>
+        <span class="sd-session-src"><span class="sd-session-src-badge">mic</span></span>
+      </div>
+      <div class="sd-session">
+        <span class="sd-session-date">Apr 1, 9:00 PM</span>
+        <span class="sd-session-dur">2h 10m</span>
+        <span class="sd-session-peak">847</span>
+        <span class="sd-session-listeners">6,240</span>
+        <span class="sd-session-src"><span class="sd-session-src-badge">file</span></span>
+      </div>
+      <div class="sd-session">
+        <span class="sd-session-date">Mar 31, 11:15 PM</span>
+        <span class="sd-session-dur">45m</span>
+        <span class="sd-session-peak">342</span>
+        <span class="sd-session-listeners">1,120</span>
+        <span class="sd-session-src"><span class="sd-session-src-badge">mic</span></span>
+      </div>
+      <div class="sd-session">
+        <span class="sd-session-date">Mar 30, 8:00 PM</span>
+        <span class="sd-session-dur">3h 20m</span>
+        <span class="sd-session-peak">1,105</span>
+        <span class="sd-session-listeners">8,450</span>
+        <span class="sd-session-src"><span class="sd-session-src-badge">file</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sd-danger">
+    <div class="sd-danger-text"><strong>Danger zone</strong> — permanently delete this station and all its data</div>
+    <button class="sd-danger-btn">Delete station</button>
+  </div>
+</div>
+</div>
+</body></html>

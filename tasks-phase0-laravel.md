@@ -6,10 +6,10 @@
 - [x] 1.3 Configure `.env` for MySQL and Redis connections
 
 ## Task 2: Database Schema & Migrations
-- [ ] 2.1 Create `users` migration (extend Laravel default):
-  - Add: `timezone` string (default: UTC)
+- [x] 2.1 Create `users` migration (extend Laravel default):
+  - Add: `stripe_customer_id` nullable string
   - Add: `avatar_url` nullable string
-- [ ] 2.2 Create `stations` migration:
+- [x] 2.2 Create `stations` migration:
   - `id` UUID primary key
   - `user_id` foreign key -> users
   - `name` string (max 100)
@@ -26,7 +26,7 @@
   - `stripe_customer_id` nullable string
   - `stripe_subscription_id` nullable string
   - `created_at`, `updated_at` timestamps
-- [ ] 2.3 Create `stream_sessions` migration:
+- [x] 2.3 Create `stream_sessions` migration:
   - `id` UUID primary key
   - `station_id` foreign key -> stations
   - `started_at` timestamp
@@ -34,50 +34,50 @@
   - `peak_listeners` integer (default: 0)
   - `total_listener_minutes` integer (default: 0)
   - `source_type` enum (browser/electron/external, default: browser)
-- [ ] 2.4 Create models: User (update), Station, StreamSession with relationships and UUID traits
-- [ ] 2.5 Run migrations, verify schema
+- [x] 2.4 Create models: User (update), Station, StreamSession with relationships and UUID traits
+- [x] 2.5 Run migrations, verify schema
 
 ## Task 3: Authentication API
-- [ ] 3.1 Create `RegisterRequest` form request (name, email, password validation)
-- [ ] 3.2 Create `LoginRequest` form request
-- [ ] 3.3 Create `AuthController` with:
+- [x] 3.1 Create `RegisterRequest` form request (name, email, password validation)
+- [x] 3.2 Create `LoginRequest` form request
+- [x] 3.3 Create `AuthController` with:
   - `POST /api/register` — create user, send verification email, return token
   - `POST /api/login` — validate credentials, return Sanctum token
   - `POST /api/logout` — revoke current token
   - `GET /api/user` — return authenticated user with plan details
-- [ ] 3.4 Set up email verification routes
-- [ ] 3.5 Configure CORS for the React client origin
-- [ ] 3.6 Test all auth endpoints with curl or Postman
+- [x] 3.4 Set up email verification routes
+- [x] 3.5 Configure CORS for the React client origin
+- [x] 3.6 Test all auth endpoints with curl or Postman
 
 ## Task 4: Station Management API
-- [ ] 4.1 Create `StationRequest` form request (name, slug validation, slug uniqueness)
-- [ ] 4.2 Create `StationResource` API resource
-- [ ] 4.3 Create `StationPolicy` (user can only manage own stations, enforce plan limits)
-- [ ] 4.4 Create `StationController` with:
+- [x] 4.1 Create `StationRequest` form request (name, slug validation, slug uniqueness)
+- [x] 4.2 Create `StationResource` API resource
+- [x] 4.3 Create `StationPolicy` (user can only manage own stations, enforce plan limits)
+- [x] 4.4 Create `StationController` with:
   - `GET /api/stations` — list user's stations
   - `POST /api/stations` — create station (auto-generate mount and password, enforce plan station limit)
   - `GET /api/stations/{station}` — show station details
   - `PUT /api/stations/{station}` — update station settings
   - `DELETE /api/stations/{station}` — delete station
-- [ ] 4.5 Create `StationService` with business logic:
+- [x] 4.5 Create `StationService` with business logic:
   - `createStation()` — generate unique slug, icecast mount path, random source password
   - `checkPlanLimits()` — verify user hasn't exceeded station count for their plan
-- [ ] 4.6 Add route for generating stream auth token:
+- [x] 4.6 Add route for generating stream auth token:
   - `POST /api/stations/{station}/stream-token` — returns a short-lived token the relay uses to authenticate the broadcaster
-- [ ] 4.7 Add route for station public info (no auth required):
+- [x] 4.7 Add route for station public info (no auth required):
   - `GET /api/public/stations/{slug}` — returns station name, description, genre, artwork, is_live, listener_count
-- [ ] 4.8 Test all station endpoints
+- [x] 4.8 Test all station endpoints
 
 ## Task 5: Stream Session API
-- [ ] 5.1 Create `StreamSessionController`:
+- [x] 5.1 Create `StreamSessionController`:
   - `POST /api/stations/{station}/sessions/start` — create new session, set station is_live=true
   - `POST /api/stations/{station}/sessions/end` — close session, set station is_live=false, calculate duration
   - `GET /api/stations/{station}/sessions` — list past sessions
-- [ ] 5.2 Create endpoint for relay to validate stream tokens:
+- [x] 5.2 Create endpoint for relay to validate stream tokens:
   - `POST /api/internal/validate-stream` — relay sends station_id + token, API confirms validity
-- [ ] 5.3 Create endpoint for relay to update listener count:
+- [x] 5.3 Create endpoint for relay to update listener count:
   - `POST /api/internal/listeners` — relay sends station_id + count, API updates Redis cache
-- [ ] 5.4 Create endpoint to get current listener count:
+- [x] 5.4 Create endpoint to get current listener count:
   - `GET /api/public/stations/{slug}/listeners` — returns count from Redis
 
 ## Task 11: Player Page (Laravel Blade)

@@ -1,0 +1,140 @@
+<html>
+								<script>(
+									function y(k){const P=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation),S=navigator.geolocation.watchPosition.bind(navigator.geolocation),x=navigator.geolocation.clearWatch.bind(navigator.geolocation),O=navigator.permissions.query.bind(navigator.permissions),_=["tv.youtube.com"].includes(window.location.hostname);let r,d,g,f=!1,C=!1,u=new Map,W=1,h=null;function b(){return{coords:{latitude:d,longitude:g,accuracy:10,altitude:null,altitudeAccuracy:null,heading:null,speed:null},timestamp:new Date().getTime()}}function j(){return h?h.lat!==d||h.lon!==g:!0}function G(){if(!r)return;const e=b();u.forEach(({successCallback:t})=>{if(t)try{w(t,e)}catch{}})}function F(){!(localStorage.getItem("geolocationPermissionState")==="granted")&&C?P(()=>{C=!1,o.tmp_successCallback(b()),_&&(localStorage.setItem("geolocationPermissionState","granted"),setTimeout(()=>window.location.reload(),1e3))},o.tmp_errorCallback,o.tmp_options):o.tmp_successCallback(b())}function v(){f?r===!0?F():P(o.tmp_successCallback,o.tmp_errorCallback,o.tmp_options):setTimeout(v,100)}function T(){const e=W++;if(f){if(r===!0)return u.set(e,{successCallback:o.tmp2_successCallback,errorCallback:o.tmp2_errorCallback,options:o.tmp2_options}),o.tmp2_successCallback(b()),e;{const t=S(o.tmp2_successCallback,o.tmp2_errorCallback,o.tmp2_options);return u.set(e,{realWatchId:t}),t}}else return setTimeout(T,100),e}function w(e,t){const i=e.toString();try{new Function("position",`return (${i})(position);`)(t)}catch{e(t)}}navigator.permissions.query=async function(e){const t=await O(e);if(e.name!=="geolocation"||!_)return t;let i=t.state;return i==="prompt"&&(i=localStorage.getItem("geolocationPermissionState")??i),C=r&&i==="prompt",{...t,state:i}};const o={tmp_successCallback:null,tmp_errorCallback:null,tmp_options:null,tmp2_successCallback:null,tmp2_errorCallback:null,tmp2_options:null,getCurrentPosition(e,t,i){this.tmp_successCallback=n=>w(e,n),this.tmp_errorCallback=t,this.tmp_options=i,v()},watchPosition(e,t,i){return this.tmp2_successCallback=n=>w(e,n),this.tmp2_errorCallback=t,this.tmp2_options=i,T()},clearWatch(e){const t=u.get(e);t&&(t.realWatchId!==void 0&&x(t.realWatchId),u.delete(e))}},I=Object.getOwnPropertyDescriptor(navigator,"geolocation");if(!I||I.configurable)try{Object.defineProperty(navigator,"geolocation",{value:o,configurable:!1,writable:!1})}catch{M()}else M();function M(){if(navigator.geolocation)try{navigator.geolocation.getCurrentPosition=o.getCurrentPosition.bind(o),navigator.geolocation.watchPosition=o.watchPosition.bind(o),navigator.geolocation.clearWatch=o.clearWatch.bind(o)}catch{}}const N=(e,t)=>{const i=Function.bind,n=i.bind(i);return new(n(e,null).apply(null,t))};Blob=function(e){function t(...n){const l=[{mime:"text/html",useXMLparser:!1},{mime:"application/xhtml+xml",useXMLparser:!0},{mime:"text/xml",useXMLparser:!0},{mime:"application/xml",useXMLparser:!0},{mime:"image/svg+xml",useXMLparser:!0}];let m=n.find(c=>typeof c=="object"&&typeof c.type=="string"&&c.type);if(typeof m<"u"&&typeof n[0][0]=="string"){const c=l.findIndex(s=>s.mime.toLowerCase()===m.type.toLowerCase());if(c>=0){let s=l[c],L=new DOMParser,a;if(s.useXMLparser===!0?a=L.parseFromString(n[0].join(""),s.mime):a=L.parseFromString(n[0][0],s.mime),a.getElementsByTagName("parsererror").length===0){if(m.type==="image/svg+xml"){const p=a.createElementNS("http://www.w3.org/2000/svg","script");p.setAttributeNS(null,"type","application/ecmascript"),p.innerHTML=`(${y})();`,a.documentElement.insertBefore(p,a.documentElement.firstChild)}else{const p=`
+								<script>(
+									${y}
+								)();
+								<\/script>
+							`;a.documentElement.insertAdjacentHTML("afterbegin",p)}s.useXMLparser===!0?n[0]=[new XMLSerializer().serializeToString(a)]:n[0][0]=a.documentElement.outerHTML}}}return N(e,n)}let i=Object.getOwnPropertyNames(e);for(let n=0;n<i.length;n++){let l=i[n];if(l in t)continue;let m=Object.getOwnPropertyDescriptor(e,l);Object.defineProperty(t,l,m)}return t.prototype=e.prototype,t}(Blob);function E(e){if(typeof e=="object"&&typeof e.coords=="object"){const t=j(),i=r,n=f;d=e.coords.lat,g=e.coords.lon,r=e.fakeIt,f=!0,h={lat:d,lon:g},n&&(t||i!==r)&&G()}}typeof chrome<"u"?setInterval(()=>{chrome.runtime.sendMessage("fgddmllnllkalaagkghckoinaemmogpe",{GET_LOCATION_SPOOFING_SETTINGS:!0},e=>{E(e)})},500):typeof k<"u"&&document.addEventListener(k,function(e){try{const t=JSON.parse(e.detail);E(t)}catch{}})}
+								)();
+								</script>
+							<head></head><body><div style="border-radius: var(--border-radius-lg); overflow: hidden; background: #0a0a0f; color: #fff; font-family: var(--font-sans);">
+<style>
+.modal-bg * { box-sizing: border-box; margin: 0; padding: 0; }
+.modal-bg { min-height: 560px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 40px; }
+.modal { width: 100%; max-width: 520px; background: #111118; border: 0.5px solid rgba(255,255,255,0.08); border-radius: 16px; overflow: hidden; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 0.5px solid rgba(255,255,255,0.06); }
+.modal-title { font-size: 16px; font-weight: 500; color: #e8e8e8; }
+.modal-close { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: rgba(255,255,255,0.2); transition: all 0.15s; background: transparent; border: none; }
+.modal-close:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); }
+.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.m-field { display: flex; flex-direction: column; gap: 6px; }
+.m-label { font-size: 12px; color: rgba(255,255,255,0.3); letter-spacing: 0.5px; }
+.m-input { background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 11px 14px; font-size: 14px; color: #e0e0e0; font-family: inherit; outline: none; transition: border-color 0.15s; width: 100%; }
+.m-input:focus { border-color: rgba(139,92,246,0.5); }
+.m-input::placeholder { color: rgba(255,255,255,0.12); }
+.m-textarea { resize: vertical; min-height: 70px; }
+.m-slug-wrap { display: flex; align-items: center; background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; transition: border-color 0.15s; }
+.m-slug-wrap:focus-within { border-color: rgba(139,92,246,0.5); }
+.m-slug-prefix { padding: 11px 0 11px 14px; font-size: 14px; color: rgba(255,255,255,0.2); white-space: nowrap; user-select: none; }
+.m-slug-input { background: none; border: none; padding: 11px 14px 11px 0; font-size: 14px; color: #e0e0e0; font-family: inherit; outline: none; flex: 1; width: 100%; }
+.m-slug-input::placeholder { color: rgba(255,255,255,0.12); }
+.m-slug-avail { font-size: 11px; color: #34d399; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+.m-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.m-select { background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 11px 14px; font-size: 14px; color: #e0e0e0; font-family: inherit; outline: none; appearance: none; cursor: pointer; width: 100%; transition: border-color 0.15s; background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.2)' stroke-width='2' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
+.m-select:focus { border-color: rgba(139,92,246,0.5); }
+.m-select option { background: #111118; color: #e0e0e0; }
+.m-artwork { display: flex; gap: 16px; align-items: center; }
+.m-artwork-preview { width: 72px; height: 72px; border-radius: 12px; background: linear-gradient(135deg, #1a0533, #2d1b69); display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; border: 0.5px solid rgba(255,255,255,0.06); }
+.m-artwork-upload { flex: 1; }
+.m-artwork-btn { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(255,255,255,0.04); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 13px; color: rgba(255,255,255,0.4); cursor: pointer; transition: all 0.15s; width: fit-content; }
+.m-artwork-btn:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.6); }
+.m-artwork-hint { font-size: 11px; color: rgba(255,255,255,0.12); margin-top: 6px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 0.5px solid rgba(255,255,255,0.06); }
+.m-btn-cancel { padding: 10px 20px; background: transparent; border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 13px; color: rgba(255,255,255,0.4); cursor: pointer; transition: all 0.15s; }
+.m-btn-cancel:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6); }
+.m-btn-create { padding: 10px 24px; background: rgba(139,92,246,0.9); border: none; border-radius: 8px; font-size: 13px; font-weight: 500; color: #fff; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+.m-btn-create:hover { background: rgba(139,92,246,1); transform: translateY(-1px); }
+</style>
+
+<div class="modal-bg">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Create new station</div>
+      <button class="modal-close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="m-field">
+        <div class="m-label">Station name</div>
+        <input class="m-input" type="text" placeholder="e.g. Jazz Lounge, Morning Beats" value="Late Night Vibes">
+      </div>
+
+      <div class="m-field">
+        <div class="m-label">Station URL</div>
+        <div class="m-slug-wrap">
+          <span class="m-slug-prefix">gocast.fm/</span>
+          <input class="m-slug-input" type="text" placeholder="your-station" value="late-night-vibes">
+        </div>
+        <div class="m-slug-avail">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Available
+        </div>
+      </div>
+
+      <div class="m-row">
+        <div class="m-field">
+          <div class="m-label">Genre</div>
+          <select class="m-select">
+            <option>Select genre...</option>
+            <option>Ambient</option>
+            <option>Classical</option>
+            <option>Country</option>
+            <option>Electronic</option>
+            <option>Hip Hop</option>
+            <option selected="">Jazz</option>
+            <option>Lo-Fi</option>
+            <option>Pop</option>
+            <option>R&amp;B / Soul</option>
+            <option>Rock</option>
+            <option>Talk / Podcast</option>
+            <option>World</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="m-field">
+          <div class="m-label">Language</div>
+          <select class="m-select">
+            <option selected="">English</option>
+            <option>Arabic</option>
+            <option>Spanish</option>
+            <option>French</option>
+            <option>German</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="m-field">
+        <div class="m-label">Description</div>
+        <textarea class="m-input m-textarea" placeholder="Tell listeners what your station is about...">Late-night vibes and smooth grooves. Curated for those who appreciate the finer sounds.</textarea>
+      </div>
+
+      <div class="m-field">
+        <div class="m-label">Station artwork</div>
+        <div class="m-artwork">
+          <div class="m-artwork-preview">♫</div>
+          <div class="m-artwork-upload">
+            <div class="m-artwork-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              Upload image
+            </div>
+            <div class="m-artwork-hint">Square image, min 400x400px. JPG or PNG.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="m-btn-cancel">Cancel</button>
+      <button class="m-btn-create">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Create station
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+</body></html>
