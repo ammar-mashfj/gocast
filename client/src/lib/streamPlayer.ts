@@ -54,7 +54,7 @@ export class StreamPlayer {
     this.audioEl!.src = URL.createObjectURL(this.mediaSource)
 
     await new Promise<void>((resolve) => {
-      this.mediaSource!.addEventListener('sourceopen', resolve, { once: true })
+      this.mediaSource!.addEventListener('sourceopen', () => resolve(), { once: true })
     })
 
     this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg')
@@ -63,13 +63,13 @@ export class StreamPlayer {
     const queue: Uint8Array[] = []
     let appending = false
 
-    const appendNext = () => {
+    const appendNext = (): void => {
       if (appending || queue.length === 0) return
       if (this.sourceBuffer!.updating) return
       appending = true
       const chunk = queue.shift()!
       try {
-        this.sourceBuffer!.appendBuffer(chunk)
+        this.sourceBuffer!.appendBuffer(chunk as ArrayBufferView<ArrayBuffer>)
       } catch {
         appending = false
       }
@@ -116,7 +116,7 @@ export class StreamPlayer {
       totalSize += value.length
 
       if (!this.audioEl!.src && totalSize >= 32000) {
-        const blob = new Blob(chunks, { type: 'audio/mpeg' })
+        const blob = new Blob(chunks as BlobPart[], { type: 'audio/mpeg' })
         this.audioEl!.src = URL.createObjectURL(blob)
         this.audioEl!.play()
         this.onStateChange(true)

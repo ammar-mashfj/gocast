@@ -89,7 +89,7 @@ export class AudioEngine {
     this.processor.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0)
       const chunk = this.encodeSamples(input)
-      if (chunk) this.onChunk(chunk.buffer)
+      if (chunk) this.onChunk(chunk.buffer as ArrayBuffer)
     }
     this.analyser.connect(this.processor)
     this.processor.connect(this.ctx.destination) // keep processor alive

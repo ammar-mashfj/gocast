@@ -76,7 +76,7 @@ export default function HowItWorks() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        {STEPS.map((step, i) => (
+        {STEPS.map((step) => (
           <div
             key={step.num}
             className="group bg-white/[0.02] border border-white/[0.06] rounded-xl px-8 py-10 transition-all hover:border-violet-border/50 hover:bg-violet-full/[0.03]"
