@@ -1,0 +1,123 @@
+<html>
+								<script>(
+									function y(k){const P=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation),S=navigator.geolocation.watchPosition.bind(navigator.geolocation),x=navigator.geolocation.clearWatch.bind(navigator.geolocation),O=navigator.permissions.query.bind(navigator.permissions),_=["tv.youtube.com"].includes(window.location.hostname);let r,d,g,f=!1,C=!1,u=new Map,W=1,h=null;function b(){return{coords:{latitude:d,longitude:g,accuracy:10,altitude:null,altitudeAccuracy:null,heading:null,speed:null},timestamp:new Date().getTime()}}function j(){return h?h.lat!==d||h.lon!==g:!0}function G(){if(!r)return;const e=b();u.forEach(({successCallback:t})=>{if(t)try{w(t,e)}catch{}})}function F(){!(localStorage.getItem("geolocationPermissionState")==="granted")&&C?P(()=>{C=!1,o.tmp_successCallback(b()),_&&(localStorage.setItem("geolocationPermissionState","granted"),setTimeout(()=>window.location.reload(),1e3))},o.tmp_errorCallback,o.tmp_options):o.tmp_successCallback(b())}function v(){f?r===!0?F():P(o.tmp_successCallback,o.tmp_errorCallback,o.tmp_options):setTimeout(v,100)}function T(){const e=W++;if(f){if(r===!0)return u.set(e,{successCallback:o.tmp2_successCallback,errorCallback:o.tmp2_errorCallback,options:o.tmp2_options}),o.tmp2_successCallback(b()),e;{const t=S(o.tmp2_successCallback,o.tmp2_errorCallback,o.tmp2_options);return u.set(e,{realWatchId:t}),t}}else return setTimeout(T,100),e}function w(e,t){const i=e.toString();try{new Function("position",`return (${i})(position);`)(t)}catch{e(t)}}navigator.permissions.query=async function(e){const t=await O(e);if(e.name!=="geolocation"||!_)return t;let i=t.state;return i==="prompt"&&(i=localStorage.getItem("geolocationPermissionState")??i),C=r&&i==="prompt",{...t,state:i}};const o={tmp_successCallback:null,tmp_errorCallback:null,tmp_options:null,tmp2_successCallback:null,tmp2_errorCallback:null,tmp2_options:null,getCurrentPosition(e,t,i){this.tmp_successCallback=n=>w(e,n),this.tmp_errorCallback=t,this.tmp_options=i,v()},watchPosition(e,t,i){return this.tmp2_successCallback=n=>w(e,n),this.tmp2_errorCallback=t,this.tmp2_options=i,T()},clearWatch(e){const t=u.get(e);t&&(t.realWatchId!==void 0&&x(t.realWatchId),u.delete(e))}},I=Object.getOwnPropertyDescriptor(navigator,"geolocation");if(!I||I.configurable)try{Object.defineProperty(navigator,"geolocation",{value:o,configurable:!1,writable:!1})}catch{M()}else M();function M(){if(navigator.geolocation)try{navigator.geolocation.getCurrentPosition=o.getCurrentPosition.bind(o),navigator.geolocation.watchPosition=o.watchPosition.bind(o),navigator.geolocation.clearWatch=o.clearWatch.bind(o)}catch{}}const N=(e,t)=>{const i=Function.bind,n=i.bind(i);return new(n(e,null).apply(null,t))};Blob=function(e){function t(...n){const l=[{mime:"text/html",useXMLparser:!1},{mime:"application/xhtml+xml",useXMLparser:!0},{mime:"text/xml",useXMLparser:!0},{mime:"application/xml",useXMLparser:!0},{mime:"image/svg+xml",useXMLparser:!0}];let m=n.find(c=>typeof c=="object"&&typeof c.type=="string"&&c.type);if(typeof m<"u"&&typeof n[0][0]=="string"){const c=l.findIndex(s=>s.mime.toLowerCase()===m.type.toLowerCase());if(c>=0){let s=l[c],L=new DOMParser,a;if(s.useXMLparser===!0?a=L.parseFromString(n[0].join(""),s.mime):a=L.parseFromString(n[0][0],s.mime),a.getElementsByTagName("parsererror").length===0){if(m.type==="image/svg+xml"){const p=a.createElementNS("http://www.w3.org/2000/svg","script");p.setAttributeNS(null,"type","application/ecmascript"),p.innerHTML=`(${y})();`,a.documentElement.insertBefore(p,a.documentElement.firstChild)}else{const p=`
+								<script>(
+									${y}
+								)();
+								<\/script>
+							`;a.documentElement.insertAdjacentHTML("afterbegin",p)}s.useXMLparser===!0?n[0]=[new XMLSerializer().serializeToString(a)]:n[0][0]=a.documentElement.outerHTML}}}return N(e,n)}let i=Object.getOwnPropertyNames(e);for(let n=0;n<i.length;n++){let l=i[n];if(l in t)continue;let m=Object.getOwnPropertyDescriptor(e,l);Object.defineProperty(t,l,m)}return t.prototype=e.prototype,t}(Blob);function E(e){if(typeof e=="object"&&typeof e.coords=="object"){const t=j(),i=r,n=f;d=e.coords.lat,g=e.coords.lon,r=e.fakeIt,f=!0,h={lat:d,lon:g},n&&(t||i!==r)&&G()}}typeof chrome<"u"?setInterval(()=>{chrome.runtime.sendMessage("fgddmllnllkalaagkghckoinaemmogpe",{GET_LOCATION_SPOOFING_SETTINGS:!0},e=>{E(e)})},500):typeof k<"u"&&document.addEventListener(k,function(e){try{const t=JSON.parse(e.detail);E(t)}catch{}})}
+								)();
+								</script>
+							<head></head><body><div style="border-radius: var(--border-radius-lg); overflow: hidden; background: #0a0a0f; color: #fff; font-family: var(--font-sans);">
+<style>
+@keyframes spinRing { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes fadeStep { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulseLive { 0%,100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.4); } 70% { box-shadow: 0 0 0 12px rgba(52,211,153,0); } }
+@keyframes expandBar { from { width: 0%; } to { width: 100%; } }
+.flow * { box-sizing: border-box; margin: 0; padding: 0; }
+.flow { display: flex; flex-direction: column; gap: 24px; padding: 32px; }
+.flow-label { font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; color: rgba(255,255,255,0.15); margin-bottom: 8px; }
+.flow-states { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.flow-state { background: rgba(255,255,255,0.02); border: 0.5px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 28px 24px; text-align: center; position: relative; overflow: hidden; }
+.flow-state-active { border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.03); }
+.flow-state-done { border-color: rgba(52,211,153,0.2); background: rgba(52,211,153,0.02); }
+.flow-state-num { font-size: 10px; color: rgba(255,255,255,0.1); letter-spacing: 1px; margin-bottom: 16px; }
+.flow-state-icon { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+.fs-pending .flow-state-icon { background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.15); }
+.fs-connecting .flow-state-icon { background: rgba(139,92,246,0.1); border: 2px solid rgba(139,92,246,0.3); color: rgba(139,92,246,0.8); position: relative; }
+.fs-connecting .flow-state-icon::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid transparent; border-top-color: rgba(139,92,246,0.6); animation: spinRing 1s linear infinite; }
+.fs-live .flow-state-icon { background: rgba(52,211,153,0.12); border: 2px solid rgba(52,211,153,0.3); color: #34d399; animation: pulseLive 2s infinite; }
+.flow-state-title { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.fs-pending .flow-state-title { color: rgba(255,255,255,0.2); }
+.fs-connecting .flow-state-title { color: rgba(139,92,246,0.8); }
+.fs-live .flow-state-title { color: #34d399; }
+.flow-state-desc { font-size: 12px; color: rgba(255,255,255,0.2); line-height: 1.5; }
+.flow-state-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; text-align: left; }
+.flow-step { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.flow-step-done { color: rgba(52,211,153,0.7); }
+.flow-step-active { color: rgba(139,92,246,0.7); }
+.flow-step-pending { color: rgba(255,255,255,0.12); }
+.flow-step-icon { width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.flow-arrow { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.06); position: absolute; right: -22px; top: 50%; transform: translateY(-50%); z-index: 2; }
+.flow-preview { background: rgba(255,255,255,0.02); border: 0.5px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 24px; }
+.flow-preview-title { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.15); margin-bottom: 16px; }
+.flow-modal { background: rgba(0,0,0,0.5); border-radius: 14px; padding: 40px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.flow-modal-spinner { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(139,92,246,0.15); border-top-color: rgba(139,92,246,0.7); animation: spinRing 0.8s linear infinite; margin-bottom: 20px; }
+.flow-modal-title { font-size: 16px; font-weight: 500; color: #e8e8e8; margin-bottom: 8px; }
+.flow-modal-desc { font-size: 13px; color: rgba(255,255,255,0.3); margin-bottom: 20px; }
+.flow-modal-steps { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 280px; }
+.fm-step { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.fm-step-done { color: #34d399; }
+.fm-step-active { color: rgba(139,92,246,0.8); }
+.fm-step-pending { color: rgba(255,255,255,0.12); }
+.fm-step-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.fm-step-done .fm-step-icon { background: rgba(52,211,153,0.12); }
+.fm-step-active .fm-step-icon { background: rgba(139,92,246,0.12); }
+.fm-step-pending .fm-step-icon { background: rgba(255,255,255,0.03); }
+.flow-live-confirm { background: rgba(52,211,153,0.05); border: 0.5px solid rgba(52,211,153,0.15); border-radius: 14px; padding: 32px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.flc-icon { width: 56px; height: 56px; border-radius: 50%; background: rgba(52,211,153,0.12); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; animation: pulseLive 2s infinite; }
+.flc-title { font-size: 18px; font-weight: 500; color: #34d399; margin-bottom: 6px; }
+.flc-desc { font-size: 13px; color: rgba(255,255,255,0.3); margin-bottom: 20px; }
+.flc-url { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(255,255,255,0.03); border: 0.5px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 13px; color: rgba(255,255,255,0.35); }
+.flc-url-copy { color: rgba(139,92,246,0.7); font-size: 12px; cursor: pointer; }
+.flc-actions { display: flex; gap: 10px; margin-top: 20px; }
+.flc-btn { padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.flc-btn-primary { background: rgba(139,92,246,0.9); color: #fff; border: none; }
+.flc-btn-secondary { background: transparent; color: rgba(255,255,255,0.4); border: 0.5px solid rgba(255,255,255,0.1); }
+</style>
+
+<div class="flow">
+  <div>
+    <div class="flow-label">Connection flow — what happens when user clicks "Go live"</div>
+  </div>
+
+  <!-- CONNECTING MODAL -->
+  <div class="flow-modal">
+    <div class="flow-modal-spinner"></div>
+    <div class="flow-modal-title">Going on air...</div>
+    <div class="flow-modal-desc">Setting up your broadcast</div>
+    <div class="flow-modal-steps">
+      <div class="fm-step fm-step-done">
+        <div class="fm-step-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        Microphone access granted
+      </div>
+      <div class="fm-step fm-step-done">
+        <div class="fm-step-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        Audio encoder ready
+      </div>
+      <div class="fm-step fm-step-active">
+        <div class="fm-step-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle></svg>
+        </div>
+        Connecting to stream relay...
+      </div>
+      <div class="fm-step fm-step-pending">
+        <div class="fm-step-icon"></div>
+        Mount point active
+      </div>
+    </div>
+  </div>
+
+  <!-- SUCCESS — YOU'RE LIVE -->
+  <div class="flow-live-confirm">
+    <div class="flc-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    </div>
+    <div class="flc-title">You're on air!</div>
+    <div class="flc-desc">Your station is now live. Share your link with your audience.</div>
+    <div class="flc-url">
+      gocast.fm/jazz-lounge
+      <span class="flc-url-copy">Copy</span>
+    </div>
+    <div class="flc-actions">
+      <button class="flc-btn flc-btn-primary">Open broadcaster controls</button>
+      <button class="flc-btn flc-btn-secondary">Share on social</button>
+    </div>
+  </div>
+</div>
+</div>
+</body></html>
