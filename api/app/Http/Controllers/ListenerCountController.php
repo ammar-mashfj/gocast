@@ -14,6 +14,6 @@ class ListenerCountController extends Controller
 
         $count = (int) Redis::get("listeners:{$station->id}") ?: 0;
 
-        return response()->json(['data' => ['count' => $count]]);
+        return response()->json(['data' => ['count' => $count, 'is_live' => $station->is_live]]);
     }
 }

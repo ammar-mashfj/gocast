@@ -26,7 +26,7 @@ export default function StationCard({ station }: StationCardProps) {
       </div>
       <div className="text-[15px] font-medium text-text-secondary mb-1">{station.name}</div>
       <div className="text-xs text-text-muted mb-1">{station.genre || 'No genre'}</div>
-      <div className="text-[11px] text-text-faint">gocast.fm/{station.slug}</div>
+      <div className="text-[11px] text-text-faint">{new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href}</div>
     </Link>
   )
 }

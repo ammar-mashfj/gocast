@@ -40,7 +40,7 @@ export class AudioEngine {
   private encoder: InstanceType<typeof lamejs.Mp3Encoder>
 
   // Mic
-  private micSource: MediaStreamAudioSourceNode
+  private micSource: MediaStreamAudioSourceNode | null = null
   private isTalking = false
 
   // File playback
@@ -54,7 +54,7 @@ export class AudioEngine {
   private onChunk: (data: ArrayBuffer) => void
   private onChange: () => void
 
-  constructor(micStream: MediaStream, onChunk: (data: ArrayBuffer) => void, onChange: () => void) {
+  constructor(micStream: MediaStream | null, onChunk: (data: ArrayBuffer) => void, onChange: () => void) {
     this.onChunk = onChunk
     this.onChange = onChange
 
@@ -75,9 +75,11 @@ export class AudioEngine {
     this.micGain.gain.value = 0
     this.micGain.connect(this.mixer)
 
-    // Wire mic through gain
-    this.micSource = this.ctx.createMediaStreamSource(micStream)
-    this.micSource.connect(this.micGain)
+    // Wire mic through gain (skip if no mic available)
+    if (micStream) {
+      this.micSource = this.ctx.createMediaStreamSource(micStream)
+      this.micSource.connect(this.micGain)
+    }
 
     // Analyser for level metering
     this.analyser = this.ctx.createAnalyser()
@@ -286,7 +288,7 @@ export class AudioEngine {
   destroy() {
     this.stopCurrent()
     this.flush()
-    this.micSource.disconnect()
+    this.micSource?.disconnect()
     this.processor.disconnect()
     this.analyser.disconnect()
     this.mixer.disconnect()

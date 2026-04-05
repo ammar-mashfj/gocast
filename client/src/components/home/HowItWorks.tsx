@@ -63,7 +63,7 @@ export default function HowItWorks() {
   return (
     <section className="px-10 py-24" id="features">
       <div className="text-center mb-16">
-        <div className="text-[11px] tracking-[3px] uppercase text-violet-muted mb-4">
+        <div className="text-[11px] tracking-[3px] uppercase text-violet mb-4">
           How it works
         </div>
         <h2 className="text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
