@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './contexts/AuthContext'
 import HomePage from './pages/HomePage'
 import DashboardPage from './pages/DashboardPage'
@@ -14,6 +15,8 @@ function App() {
   if (loading) return null
 
   return (
+    <>
+    <Toaster position="top-right" />
     <Routes>
       {/* Public player — must be before catch-all */}
       <Route path="/station/:slug" element={<PlayerPage />} />
@@ -29,6 +32,7 @@ function App() {
 
       <Route path="*" element={<Navigate to={user ? '/dashboard' : '/'} replace />} />
     </Routes>
+    </>
   )
 }
 

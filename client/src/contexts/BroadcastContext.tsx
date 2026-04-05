@@ -7,8 +7,9 @@ interface BroadcastContextValue {
   steps: BroadcastStepInfo[]
   error: string | null
   micStream: MediaStream | null
+  micDisabled: boolean
   engine: AudioEngine | null
-  start: (stationId: string) => Promise<void>
+  start: (stationId: string, options?: { skipMic?: boolean }) => Promise<void>
   stop: () => Promise<void>
   updateMetadata: (title: string, artist: string) => void
 }
@@ -21,9 +22,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
   const [engine, setEngine] = useState<AudioEngine | null>(null)
+  const [micDisabled, setMicDisabled] = useState(false)
   const managerRef = useRef<BroadcastManager | null>(null)
 
-  const start = useCallback(async (stationId: string) => {
+  const start = useCallback(async (stationId: string, options?: { skipMic?: boolean }) => {
     if (managerRef.current) {
       await managerRef.current.stop()
     }
@@ -44,7 +46,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       onError: setError,
     })
     managerRef.current = manager
-    await manager.start()
+    if (options?.skipMic) setMicDisabled(true)
+    await manager.start(options)
   }, [])
 
   const stop = useCallback(async () => {
@@ -53,6 +56,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       managerRef.current = null
     }
     setMicStream(null)
+    setMicDisabled(false)
     setEngine(null)
     setSteps([])
     setError(null)
@@ -63,7 +67,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <BroadcastContext.Provider value={{ state, steps, error, micStream, engine, start, stop, updateMetadata }}>
+    <BroadcastContext.Provider value={{ state, steps, error, micStream, micDisabled, engine, start, stop, updateMetadata }}>
       {children}
     </BroadcastContext.Provider>
   )

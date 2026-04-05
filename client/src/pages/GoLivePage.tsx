@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../lib/axios'
 import type { Station } from '../types/station'
 import { useBroadcast } from '../contexts/BroadcastContext'
@@ -99,9 +99,9 @@ function SuccessView({ station, onOpenControls }: SuccessViewProps) {
       </p>
 
       <div className="flex items-center gap-2 px-4 py-2.5 bg-surface-card border border-border-faint rounded-lg text-[13px] text-text-muted">
-        gocast.fm/{station.slug}
+        {new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href}
         <button
-          onClick={() => navigator.clipboard.writeText(`gocast.fm/${station.slug}`)}
+          onClick={() => navigator.clipboard.writeText(new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href)}
           className="text-violet-muted text-xs bg-transparent border-none cursor-pointer hover:text-violet"
         >
           Copy
@@ -126,6 +126,8 @@ function SuccessView({ station, onOpenControls }: SuccessViewProps) {
 export default function GoLivePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const micDisabled = (location.state as { micDisabled?: boolean })?.micDisabled ?? false
   const { state, steps, error, start } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
 
@@ -143,7 +145,7 @@ export default function GoLivePage() {
 
     // Small delay to avoid React strict mode double-fire
     const timer = setTimeout(() => {
-      if (!cancelled) start(station.id)
+      if (!cancelled) start(station.id, { skipMic: micDisabled })
     }, 50)
 
     return () => {

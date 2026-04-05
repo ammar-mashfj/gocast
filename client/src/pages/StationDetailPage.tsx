@@ -3,6 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { AxiosError } from 'axios'
 import api from '../lib/axios'
 import type { Station } from '../types/station'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -19,6 +28,17 @@ export default function StationDetailPage() {
   const [editDescription, setEditDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showMicModal, setShowMicModal] = useState(false)
+
+  async function handleGoLive() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((t) => t.stop())
+      navigate(`/dashboard/stations/${station!.id}/live`)
+    } catch {
+      setShowMicModal(true)
+    }
+  }
 
   useEffect(() => {
     api.get(`/stations/${id}`)
@@ -85,9 +105,9 @@ export default function StationDetailPage() {
             <div>
               <h1 className="text-2xl font-medium text-text-secondary mb-1">{station.name}</h1>
               <div className="text-[13px] text-text-ghost flex items-center gap-2">
-                gocast.fm/{station.slug}
+                {new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href}
                 <button
-                  onClick={() => navigator.clipboard.writeText(`gocast.fm/${station.slug}`)}
+                  onClick={() => navigator.clipboard.writeText(new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href)}
                   className="px-2 py-0.5 bg-violet-full/10 text-violet-muted rounded text-[11px] border-none cursor-pointer hover:bg-violet-full/20 transition-all"
                 >
                   Copy
@@ -121,7 +141,7 @@ export default function StationDetailPage() {
               Player page
             </a>
             <button
-              onClick={() => navigate(`/dashboard/stations/${station.id}/live`)}
+              onClick={handleGoLive}
               className="flex items-center gap-2 px-6 py-3 bg-violet text-white border-none rounded-lg text-sm font-medium cursor-pointer hover:bg-violet-full hover:-translate-y-px transition-all"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -223,6 +243,40 @@ export default function StationDetailPage() {
             {deleting ? 'Deleting...' : 'Delete station'}
           </button>
         </div>
+
+        <Dialog open={showMicModal} onOpenChange={(isOpen) => { if (!isOpen) setShowMicModal(false) }}>
+          <DialogContent className="bg-[#111118] border-white/[0.08] sm:max-w-[460px]">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold text-white">Microphone unavailable</DialogTitle>
+              <DialogDescription className="text-[13px] text-text-muted">
+                Your microphone is either not connected or access was denied.
+              </DialogDescription>
+            </DialogHeader>
+
+            <p className="text-[13px] text-text-muted leading-relaxed">
+              You will only be able to stream files. The microphone push-to-talk feature will be disabled for this session.
+            </p>
+
+            <DialogFooter className="border-t border-white/[0.06] pt-5">
+              <Button
+                variant="outline"
+                onClick={() => setShowMicModal(false)}
+                className="border-border-faint text-text-muted bg-transparent hover:bg-white/[0.04] hover:text-white/60"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowMicModal(false)
+                  navigate(`/dashboard/stations/${station.id}/live`, { state: { micDisabled: true } })
+                }}
+                className="bg-violet text-white hover:bg-violet-full"
+              >
+                I understand
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </div>
   )
 }

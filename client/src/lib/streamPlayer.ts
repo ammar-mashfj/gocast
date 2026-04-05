@@ -85,14 +85,6 @@ export class StreamPlayer {
         this.onStateChange(true)
       }
 
-      // Keep playback position near live edge to minimize latency
-      if (this.audioEl!.buffered.length > 0) {
-        const end = this.audioEl!.buffered.end(this.audioEl!.buffered.length - 1)
-        if (end - this.audioEl!.currentTime > 3) {
-          this.audioEl!.currentTime = end - 0.5
-        }
-      }
-
       appendNext()
     })
 

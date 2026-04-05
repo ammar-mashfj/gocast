@@ -59,25 +59,29 @@ export class BroadcastManager {
     this.callbacks.onStepChange([...this.steps])
   }
 
-  async start(): Promise<void> {
+  async start(options?: { skipMic?: boolean }): Promise<void> {
     this.authenticated = false
     this.steps = this.steps.map((s) => ({ ...s, status: 'pending' as StepStatus, errorMessage: undefined }))
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
 
     try {
-      // Step 1: Request microphone
-      this.setActiveStep('mic')
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 44100,
-          channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      })
-      this.updateStep('mic', 'done')
+      // Step 1: Request microphone (or skip if unavailable)
+      if (options?.skipMic) {
+        this.updateStep('mic', 'done')
+      } else {
+        this.setActiveStep('mic')
+        this.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 44100,
+            channelCount: 1,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        })
+        this.updateStep('mic', 'done')
+      }
 
       // Step 2: Set up lamejs MP3 encoder + audio engine
       this.setActiveStep('encoder')
