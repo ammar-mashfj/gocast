@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../lib/axios'
 import type { Station } from '../types/station'
@@ -138,21 +138,13 @@ export default function GoLivePage() {
       .catch(() => navigate('/dashboard'))
   }, [id, navigate])
 
-  // Start broadcasting once station is loaded
+  // Start broadcasting once station is loaded — only once
+  const startedRef = useRef(false)
   useEffect(() => {
-    if (!station || state !== 'idle') return
-    let cancelled = false
-
-    // Small delay to avoid React strict mode double-fire
-    const timer = setTimeout(() => {
-      if (!cancelled) start(station.id, { skipMic: micDisabled })
-    }, 50)
-
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [station, state, start])
+    if (!station || state !== 'idle' || startedRef.current) return
+    startedRef.current = true
+    start(station.id, { skipMic: micDisabled })
+  }, [station, state, start, micDisabled])
 
   if (!station) return null
 

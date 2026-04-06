@@ -13,7 +13,15 @@ class ListenerCountController extends Controller
         $station = Station::where('slug', $slug)->firstOrFail();
 
         $count = (int) Redis::get("listeners:{$station->id}") ?: 0;
+        $metadata = json_decode(Redis::get("metadata:{$station->id}") ?: '{}', true);
 
-        return response()->json(['data' => ['count' => $count, 'is_live' => $station->is_live]]);
+        return response()->json(['data' => [
+            'count' => $count,
+            'is_live' => $station->is_live,
+            'now_playing' => [
+                'title' => $metadata['title'] ?? null,
+                'artist' => $metadata['artist'] ?? null,
+            ],
+        ]]);
     }
 }

@@ -33,6 +33,8 @@ class StationController extends Controller
     {
         $this->authorize('view', $station);
 
+        $station->load('streamSessions');
+
         return new StationResource($station);
     }
 

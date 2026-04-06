@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { AxiosError } from 'axios'
 import api from '../lib/axios'
-import type { Station } from '../types/station'
+import type { Station, StreamSession } from '../types/station'
+import { useBroadcast } from '../contexts/BroadcastContext'
 import {
   Dialog,
   DialogContent,
@@ -17,20 +18,40 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function formatAirtime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  return `${minutes}m`
+}
+
+function formatSessionDuration(start: string, end: string): string {
+  const seconds = Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000)
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
 export default function StationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { state: broadcastState } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Quick settings form
-  const [editName, setEditName] = useState('')
-  const [editDescription, setEditDescription] = useState('')
-  const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showMicModal, setShowMicModal] = useState(false)
+  const [sessions, setSessions] = useState<StreamSession[]>([])
+  const [copiedField, setCopiedField] = useState<string | null>(null)
 
   async function handleGoLive() {
+    if (broadcastState === 'live') {
+      navigate(`/dashboard/stations/${station!.id}/studio`)
+      return
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       stream.getTracks().forEach((t) => t.stop())
@@ -41,29 +62,23 @@ export default function StationDetailPage() {
   }
 
   useEffect(() => {
-    api.get(`/stations/${id}`)
-      .then((res) => {
-        const s = res.data.data as Station
+    Promise.all([
+      api.get(`/stations/${id}`),
+      api.get(`/stations/${id}/sessions`),
+    ])
+      .then(([stationRes, sessionsRes]) => {
+        const s = stationRes.data.data as Station
         setStation(s)
-        setEditName(s.name)
-        setEditDescription(s.description || '')
+        setSessions(sessionsRes.data.data as StreamSession[])
       })
       .catch(() => navigate('/dashboard'))
       .finally(() => setLoading(false))
   }, [id, navigate])
 
-  async function handleSave() {
-    if (!station || !editName) return
-    setSaving(true)
-    try {
-      const { data } = await api.put(`/stations/${station.id}`, {
-        name: editName,
-        description: editDescription || undefined,
-      })
-      setStation(data.data)
-    } finally {
-      setSaving(false)
-    }
+  function copyToClipboard(text: string, field: string) {
+    navigator.clipboard.writeText(text)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 2000)
   }
 
   async function handleDelete() {
@@ -142,13 +157,26 @@ export default function StationDetailPage() {
             </a>
             <button
               onClick={handleGoLive}
-              className="flex items-center gap-2 px-6 py-3 bg-violet text-white border-none rounded-lg text-sm font-medium cursor-pointer hover:bg-violet-full hover:-translate-y-px transition-all"
+              className={`flex items-center gap-2 px-6 py-3 border-none rounded-lg text-sm font-medium cursor-pointer hover:-translate-y-px transition-all ${
+                broadcastState === 'live'
+                  ? 'bg-emerald-live/90 text-white hover:bg-emerald-live'
+                  : 'bg-violet text-white hover:bg-violet-full'
+              }`}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
-                <path d="M19 10v2a7 7 0 01-14 0v-2" />
-              </svg>
-              Go live
+              {broadcastState === 'live' ? (
+                <>
+                  <div className="w-2 h-2 bg-white rounded-full animate-live-dot" />
+                  Go to studio
+                </>
+              ) : (
+                <>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
+                    <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                  </svg>
+                  Go live
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -162,49 +190,85 @@ export default function StationDetailPage() {
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <div className="text-2xl font-medium text-text-secondary mb-0.5">0</div>
+                <div className="text-2xl font-medium text-text-secondary mb-0.5">{station.stats?.sessions ?? 0}</div>
                 <div className="text-[11px] text-text-ghost tracking-wide">Sessions</div>
               </div>
               <div>
-                <div className="text-2xl font-medium text-text-secondary mb-0.5">0h</div>
+                <div className="text-2xl font-medium text-text-secondary mb-0.5">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
                 <div className="text-[11px] text-text-ghost tracking-wide">Total airtime</div>
               </div>
               <div>
-                <div className="text-2xl font-medium text-text-secondary mb-0.5">0</div>
+                <div className="text-2xl font-medium text-text-secondary mb-0.5">{station.stats?.peak_listeners ?? 0}</div>
                 <div className="text-[11px] text-text-ghost tracking-wide">Peak listeners</div>
               </div>
             </div>
           </div>
 
-          {/* Quick settings card */}
+          {/* Stream & share card */}
           <div className="bg-white/[0.025] border border-border-subtle rounded-xl p-5">
             <div className="text-[11px] tracking-[2px] uppercase text-text-ghost mb-4">
-              Quick settings
+              Stream & share
             </div>
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-3">
+              {/* Direct stream URL */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-text-faint">Station name</label>
-                <input
-                  className="bg-surface-card border border-border-faint rounded-lg px-3 py-2.5 text-[13px] text-text-secondary font-[inherit] outline-none focus:border-violet-muted/40 transition-colors w-full"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                />
+                <label className="text-[11px] text-text-faint tracking-wide flex items-center gap-1.5">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-dim">
+                    <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" />
+                    <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.4" />
+                    <circle cx="12" cy="12" r="2" />
+                    <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.4" />
+                    <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" />
+                  </svg>
+                  Direct stream URL
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0 bg-surface-card border border-border-faint rounded-lg px-3 py-2 text-[12px] text-text-muted truncate select-all font-mono">
+                    {`${import.meta.env.VITE_ICECAST_URL}${station.icecast_mount}`}
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(`${import.meta.env.VITE_ICECAST_URL}${station.icecast_mount}`, 'stream')}
+                    className="shrink-0 px-2.5 py-2 bg-violet-full/10 text-violet-muted border border-violet-full/15 rounded-lg text-[11px] cursor-pointer hover:bg-violet-full/20 transition-all"
+                  >
+                    {copiedField === 'stream' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
               </div>
+
+              {/* Player page URL */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-text-faint">Description</label>
-                <input
-                  className="bg-surface-card border border-border-faint rounded-lg px-3 py-2.5 text-[13px] text-text-secondary font-[inherit] outline-none focus:border-violet-muted/40 transition-colors w-full"
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                />
+                <label className="text-[11px] text-text-faint tracking-wide flex items-center gap-1.5">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-dim">
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                  Player page
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0 bg-surface-card border border-border-faint rounded-lg px-3 py-2 text-[12px] text-text-muted truncate select-all font-mono">
+                    {new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href}
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(new URL(`/station/${station.slug}`, import.meta.env.VITE_APP_URL).href, 'player')}
+                    className="shrink-0 px-2.5 py-2 bg-violet-full/10 text-violet-muted border border-violet-full/15 rounded-lg text-[11px] cursor-pointer hover:bg-violet-full/20 transition-all"
+                  >
+                    {copiedField === 'player' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-fit px-5 py-2.5 bg-violet-subtle text-violet border border-violet-border rounded-lg text-[13px] cursor-pointer hover:bg-violet/25 hover:text-white transition-all disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save changes'}
-              </button>
+
+              {/* Stream details row */}
+              <div className="flex gap-4 pt-1.5 mt-0.5 border-t border-white/[0.04]">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-text-dim tracking-wide uppercase">Format</span>
+                  <span className="text-[12px] text-text-muted">MP3 128kbps</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-text-dim tracking-wide uppercase">Mount</span>
+                  <span className="text-[12px] text-text-muted font-mono">{station.icecast_mount}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -216,18 +280,32 @@ export default function StationDetailPage() {
           </div>
 
           {/* Header */}
-          <div className="grid grid-cols-[140px_1fr_80px_80px_40px] px-3 py-2 text-[11px] text-text-dim tracking-wide uppercase">
+          <div className="grid grid-cols-[140px_1fr_80px] px-3 py-2 text-[11px] text-text-dim tracking-wide uppercase">
             <span>Date</span>
             <span>Duration</span>
             <span className="text-right">Peak</span>
-            <span className="text-right">Minutes</span>
-            <span />
           </div>
 
-          {/* Empty state for now */}
-          <div className="px-3 py-6 text-center text-[13px] text-text-ghost">
-            No broadcasts yet. Go live to see your session history here.
-          </div>
+          {sessions.filter((s) => s.ended_at).length === 0 ? (
+            <div className="px-3 py-6 text-center text-[13px] text-text-ghost">
+              No broadcasts yet. Go live to see your session history here.
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {sessions
+                .filter((s) => s.ended_at)
+                .map((s) => (
+                  <div
+                    key={s.id}
+                    className="grid grid-cols-[140px_1fr_80px] px-3 py-2.5 border-t border-white/[0.03] text-[13px]"
+                  >
+                    <span className="text-text-muted">{formatDate(s.started_at)}</span>
+                    <span className="text-text-ghost">{formatSessionDuration(s.started_at, s.ended_at!)}</span>
+                    <span className="text-right text-text-ghost">{s.peak_listeners}</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* Danger zone */}

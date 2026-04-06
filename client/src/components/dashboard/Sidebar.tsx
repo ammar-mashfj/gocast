@@ -14,8 +14,6 @@ import {
 } from '@/components/ui/sidebar'
 import {
   IconLayoutDashboard,
-  IconBroadcast,
-  IconChartBar,
   IconLogout,
 } from '@tabler/icons-react'
 import logo from '../../assets/logo.svg'
@@ -26,11 +24,14 @@ interface NavItem {
   icon: React.ReactNode
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', to: '/dashboard', icon: <IconLayoutDashboard className="size-4" /> },
-  { label: 'Broadcast', to: '/dashboard', icon: <IconBroadcast className="size-4" /> },
-  { label: 'Analytics', to: '/dashboard', icon: <IconChartBar className="size-4" /> },
-]
+function useNavItems(): NavItem[] {
+  const location = useLocation()
+  const match = location.pathname.match(/\/dashboard\/stations\/([^/]+)/)
+  const id = match?.[1]
+  return id
+    ? [{ label: 'Studio', to: `/dashboard/stations/${id}/studio`, icon: <IconLayoutDashboard className="size-4" /> }]
+    : []
+}
 
 function getInitials(name: string): string {
   return name
@@ -44,6 +45,7 @@ function getInitials(name: string): string {
 export default function AppSidebar() {
   const { user, logout } = useAuth()
   const location = useLocation()
+  const navItems = useNavItems()
 
   return (
     <Sidebar collapsible="icon">
@@ -63,17 +65,15 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_ITEMS.map((item) => {
-                const isActive = item.to === '/dashboard'
-                  ? location.pathname === '/dashboard'
-                  : location.pathname.startsWith(item.to)
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.to
 
                 return (
                   <SidebarMenuItem key={item.label} className='mt-1'>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                      <NavLink to={item.to}>
+                      <NavLink to={item.to} caseSensitive>
                         {item.icon}
-                        <span>{item.label}</span>
+                        <span className='text-base'>{item.label}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

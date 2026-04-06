@@ -72,23 +72,23 @@ export default function NowPlaying() {
         <div className="flex-1 min-w-0">
           {micActive ? (
             <>
-              <div className="text-[10px] tracking-[1.5px] uppercase text-red-500 mb-0.5">Mic live — talk over</div>
-              <div className="text-[15px] font-medium text-text-secondary truncate">Speaking...</div>
+              <div className="text-[11px] tracking-[1.5px] uppercase text-red-500 mb-0.5">Mic live — talk over</div>
+              <div className="text-base font-medium text-text-secondary truncate">Speaking...</div>
             </>
           ) : track ? (
             <>
-              <div className="text-[10px] tracking-[1.5px] uppercase text-emerald-live mb-0.5">
+              <div className="text-[11px] tracking-[1.5px] uppercase text-emerald-live mb-0.5">
                 {playing ? 'Now playing' : 'Paused'}
               </div>
-              <div className="text-[15px] font-medium text-text-secondary truncate">{track.title}</div>
-              <div className="text-xs text-text-muted mt-px">{track.artist}</div>
+              <div className="text-base font-medium text-text-secondary truncate">{track.title}</div>
+              <div className="text-sm text-text-muted mt-px">{track.artist}</div>
             </>
           ) : (
             <>
-              <div className="text-[10px] tracking-[1.5px] uppercase text-text-ghost mb-0.5">
+              <div className="text-[11px] tracking-[1.5px] uppercase text-text-ghost mb-0.5">
                 {isLive ? 'On air' : 'Offline'}
               </div>
-              <div className="text-[15px] font-medium text-text-muted truncate">
+              <div className="text-base font-medium text-text-muted truncate">
                 {isLive ? 'Add files to queue to start playing' : 'Not broadcasting'}
               </div>
             </>

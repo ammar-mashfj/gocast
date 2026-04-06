@@ -71,13 +71,13 @@ export default function PushToTalk() {
       </button>
 
       <div className="flex-1">
-        <div className={`text-sm font-medium mb-0.5 ${micDisabled ? 'text-text-dim' : holding ? 'text-red-500' : 'text-text-secondary'}`}>
+        <div className={`text-[15px] font-medium mb-0.5 ${micDisabled ? 'text-text-dim' : holding ? 'text-red-500' : 'text-text-secondary'}`}>
           {micDisabled ? 'Microphone unavailable' : holding ? 'Mic is LIVE' : 'Hold to talk'}
         </div>
-        <div className="text-xs text-text-ghost leading-relaxed">
+        <div className="text-[13px] text-text-ghost leading-relaxed">
           {micDisabled
             ? 'Microphone access was not granted. You can only stream files.'
-            : 'Music ducks to 20% while you speak. Release to resume full volume.'}
+            : 'Music ducks while you speak. Release to resume full volume.'}
         </div>
         {!micDisabled && (
           <div className="inline-flex items-center px-2 py-0.5 bg-white/[0.04] border border-border-faint rounded text-[10px] text-text-ghost tracking-wide mt-1.5">

@@ -1,14 +1,18 @@
 import { Link } from 'react-router-dom'
 import type { Station } from '../../types/station'
+import { useBroadcast } from '../../contexts/BroadcastContext'
 
 interface StationCardProps {
   station: Station
 }
 
 export default function StationCard({ station }: StationCardProps) {
+  const { state } = useBroadcast()
+  const isLiveBroadcasting = station.is_live && state === 'live'
+
   return (
     <Link
-      to={`/dashboard/stations/${station.id}`}
+      to={isLiveBroadcasting ? `/dashboard/stations/${station.id}/studio` : `/dashboard/stations/${station.id}`}
       className="bg-surface-card border border-border-subtle rounded-xl p-5 cursor-pointer transition-all hover:border-violet-border hover:bg-violet-full/[0.04] no-underline block"
     >
       <div className="flex items-start justify-between mb-3.5">

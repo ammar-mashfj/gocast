@@ -16,7 +16,7 @@ function App() {
 
   return (
     <>
-    <Toaster position="top-right" />
+    <Toaster position="bottom-center" />
     <Routes>
       {/* Public player — must be before catch-all */}
       <Route path="/station/:slug" element={<PlayerPage />} />

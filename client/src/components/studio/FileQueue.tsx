@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useBroadcast } from '../../contexts/BroadcastContext'
 import type { QueueTrack } from '../../lib/audioEngine'
+import { IconMinus, IconPlus, IconX } from '@tabler/icons-react'
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -129,25 +130,24 @@ export default function FileQueue() {
 
       {/* Header */}
       <div className="flex justify-between items-center mb-2.5">
-        <div className="text-[10px] tracking-[2px] uppercase text-text-ghost">Up next</div>
+        <div className="text-sm tracking-[2px] uppercase text-text-ghost">Up next</div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-text-dim">
+          <span className="text-sm text-text-dim">
             {queue.length} track{queue.length !== 1 ? 's' : ''} · {formatDuration(totalDuration)}
           </span>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 text-[11px] text-violet-muted bg-transparent border-none cursor-pointer px-2.5 py-1 rounded hover:bg-violet-full/[0.08] hover:text-violet transition-all"
+            className="flex items-center gap-1 text-sm text-violet-muted bg-transparent border-none cursor-pointer px-2.5 py-1 rounded hover:bg-violet-full/[0.08] hover:text-violet transition-all"
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            Add files
+            <IconPlus size={20} />
+             Add files
           </button>
           {queue.length > 0 && (
             <button
               onClick={() => engine?.clearQueue()}
-              className="flex items-center gap-1 text-[11px] text-violet-muted bg-transparent border-none cursor-pointer px-2.5 py-1 rounded hover:bg-violet-full/[0.08] hover:text-violet transition-all"
+              className="flex items-center gap-1 text-sm text-violet-muted bg-transparent border-none cursor-pointer px-2.5 py-1 rounded hover:bg-violet-full/[0.08] hover:text-violet transition-all"
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M8 6V4h8v2" /></svg>
-              Clear
+             <IconMinus size={20}/> Clear
             </button>
           )}
         </div>
@@ -183,19 +183,19 @@ export default function FileQueue() {
                 {ICONS[i % ICONS.length]}
               </div>
               <div className="min-w-0">
-                <div className={`text-xs truncate ${isPlaying ? 'text-text-secondary font-medium' : 'text-text-secondary'}`}>
+                <div className={`text-sm truncate ${isPlaying ? 'text-text-secondary font-medium' : 'text-text-secondary'}`}>
                   {track.title}
                 </div>
-                <div className="text-[10px] text-text-ghost truncate">{track.artist}</div>
+                <div className="text-sm text-text-ghost truncate">{track.artist}</div>
               </div>
-              <div className="text-[10px] text-text-dim text-right tabular-nums">
+              <div className="text-sm text-text-dim text-right tabular-nums">
                 {formatDuration(track.duration)}
               </div>
               <button
                 onClick={() => engine?.removeTrack(track.id)}
                 className="w-[18px] h-[18px] rounded flex items-center justify-center cursor-pointer text-text-dim text-xs bg-transparent border-none hover:text-red-500/50 hover:bg-red-500/[0.06] transition-all"
               >
-                ×
+                <IconX />
               </button>
             </div>
           )
@@ -214,7 +214,7 @@ export default function FileQueue() {
             : 'border-white/[0.06] hover:border-violet-border/40 hover:bg-violet-full/[0.02]'
         }`}
       >
-        <div className="text-[11px] text-text-ghost">
+        <div className="text-sm text-text-ghost">
           Drop audio files here or <span className="text-violet-muted">browse</span>
         </div>
       </div>
