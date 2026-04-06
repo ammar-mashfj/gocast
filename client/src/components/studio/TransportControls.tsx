@@ -66,8 +66,6 @@ export default function TransportControls() {
       </button>
 
       <div className="flex-1" />
-
-      <span className="text-[10px] text-text-dim px-1.5 py-0.5 bg-white/[0.03] rounded">K</span>
     </div>
   )
 }

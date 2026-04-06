@@ -32,6 +32,17 @@ class StationResource extends JsonResource
             'theme_config' => $this->theme_config,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'stats' => $this->whenLoaded('streamSessions', function () {
+                $sessions = $this->streamSessions->whereNotNull('ended_at');
+
+                $totalAirtimeSeconds = $sessions->sum(fn ($s) => $s->started_at->diffInSeconds($s->ended_at));
+
+                return [
+                    'sessions' => $sessions->count(),
+                    'total_airtime_seconds' => $totalAirtimeSeconds,
+                    'peak_listeners' => $sessions->max('peak_listeners') ?? 0,
+                ];
+            }),
         ];
     }
 }

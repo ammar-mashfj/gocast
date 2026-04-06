@@ -40,6 +40,18 @@ async function validateStreamToken(stationId, token) {
   return json.valid ? json.station : null;
 }
 
+async function updateMetadata(stationId, title, artist) {
+  try {
+    await fetch(`${config.apiUrl}/internal/metadata`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ station_id: stationId, title, artist }),
+    });
+  } catch (err) {
+    log("error", "Failed to update metadata", { stationId, error: err.message });
+  }
+}
+
 async function updateListenerCount(stationId, count) {
   try {
     await fetch(`${config.apiUrl}/internal/listeners`, {
@@ -97,6 +109,21 @@ function connectToIcecast(mount) {
   });
 }
 
+async function connectToIcecastWithRetry(mount, retries = 5, delayMs = 2000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await connectToIcecast(mount);
+    } catch (err) {
+      if (err.message.includes("Mountpoint in use") && attempt < retries) {
+        log("warn", `Mount in use, retrying in ${delayMs}ms (attempt ${attempt}/${retries})`, { mount });
+        await new Promise((r) => setTimeout(r, delayMs));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 function updateIcecastMetadata(mount, title, artist) {
   const song = artist ? `${artist} - ${title}` : title;
   const path = `/admin/metadata?mount=${encodeURIComponent(mount)}&mode=updinfo&song=${encodeURIComponent(song)}`;
@@ -145,10 +172,29 @@ function startListenerPolling() {
   }, 10000);
 }
 
+// --- Silence buffer ---
+// Minimal valid silent MP3 frame (MPEG1 Layer3, 44100Hz, 128kbps, mono)
+// Generated once, reused for all silence streaming
+const SILENCE_FRAME = Buffer.from(
+  "fffb9004000000000000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+  "000000000000000000000000000000000000000000000000000000000000000000000000",
+  "hex",
+);
+const SILENCE_INTERVAL_MS = 100; // send silence every 100ms
+const SILENCE_TIMEOUT_MS = 30000; // keep mount alive for 30s
+
+// Pending mounts waiting for reconnect: mount -> { icecastSocket, silenceTimer, silenceInterval, stationId }
+const pendingMounts = new Map();
+
 // --- WebSocket server ---
 
 const wss = new WebSocketServer({ port: config.wsPort });
 const AUTH_TIMEOUT_MS = 10000;
+const activeConnections = new Map(); // mount -> ws
 
 wss.on("connection", (ws) => {
   let station = null;
@@ -163,10 +209,10 @@ wss.on("connection", (ws) => {
     }
   }, AUTH_TIMEOUT_MS);
 
-  ws.on("message", async (data) => {
-    // Binary data = audio, forward to Icecast
-    if (authenticated && Buffer.isBuffer(data)) {
-      if (icecastSocket && !icecastSocket.destroyed) {
+  ws.on("message", async (data, isBinary) => {
+    // Binary data = audio, forward to Icecast (or ignore if not yet authenticated)
+    if (isBinary) {
+      if (authenticated && icecastSocket && !icecastSocket.destroyed) {
         icecastSocket.write(data);
       }
       return;
@@ -177,6 +223,7 @@ wss.on("connection", (ws) => {
     try {
       msg = JSON.parse(data.toString());
     } catch {
+      log("warn", "Invalid message received", { isBinary, authenticated, dataLength: data.length, preview: data.toString().substring(0, 100) });
       ws.close(4002, "Invalid message format");
       return;
     }
@@ -191,19 +238,57 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      try {
-        icecastSocket = await connectToIcecast(station.icecast_mount);
-      } catch (err) {
-        log("error", "Icecast connection failed", { mount: station.icecast_mount, error: err.message });
-        ws.close(4004, "Icecast connection failed");
-        return;
+      // Check for pending mount (silence streaming after disconnect) — reclaim it
+      const pending = pendingMounts.get(station.icecast_mount);
+      if (pending && pending.icecastSocket && !pending.icecastSocket.destroyed) {
+        log("info", "Reclaiming pending mount", { mount: station.icecast_mount });
+        clearTimeout(pending.silenceTimer);
+        clearInterval(pending.silenceInterval);
+        pendingMounts.delete(station.icecast_mount);
+        icecastSocket = pending.icecastSocket;
+      } else {
+        // Kick previous active connection — close it and wait for its
+        // close handler to move the socket to pendingMounts, then reclaim
+        const prevWs = activeConnections.get(station.icecast_mount);
+        if (prevWs && prevWs.readyState === prevWs.OPEN) {
+          log("info", "Kicking previous broadcaster", { mount: station.icecast_mount });
+          prevWs.close(4006, "Replaced by new connection");
+          // Wait for close handler to fire and move socket to pendingMounts
+          await new Promise((r) => setTimeout(r, 500));
+
+          // Now reclaim from pendingMounts
+          const moved = pendingMounts.get(station.icecast_mount);
+          if (moved && moved.icecastSocket && !moved.icecastSocket.destroyed) {
+            log("info", "Reclaiming mount after kick", { mount: station.icecast_mount });
+            clearTimeout(moved.silenceTimer);
+            clearInterval(moved.silenceInterval);
+            pendingMounts.delete(station.icecast_mount);
+            icecastSocket = moved.icecastSocket;
+          }
+        }
+
+        // If we still don't have a socket, connect fresh
+        if (!icecastSocket) {
+          try {
+            icecastSocket = await connectToIcecastWithRetry(station.icecast_mount);
+          } catch (err) {
+            log("error", "Icecast connection failed", { mount: station.icecast_mount, error: err.message });
+            ws.close(4004, "Icecast connection failed");
+            return;
+          }
+        }
       }
 
       authenticated = true;
       activeMounts.set(station.icecast_mount, station.id);
+      activeConnections.set(station.icecast_mount, ws);
       log("info", "Broadcaster connected", { stationId: station.id, mount: station.icecast_mount });
 
       ws.send(JSON.stringify({ type: "authenticated", stationId: station.id }));
+
+      // Re-attach listeners (remove old ones from reclaimed sockets)
+      icecastSocket.removeAllListeners("close");
+      icecastSocket.removeAllListeners("error");
 
       icecastSocket.on("close", () => {
         log("info", "Icecast connection closed", { mount: station.icecast_mount });
@@ -222,6 +307,7 @@ wss.on("connection", (ws) => {
     if (msg.type === "metadata" && authenticated) {
       lastMetadata = { title: msg.title || "", artist: msg.artist || "" };
       updateIcecastMetadata(station.icecast_mount, lastMetadata.title, lastMetadata.artist);
+      updateMetadata(station.id, lastMetadata.title, lastMetadata.artist);
       log("info", "Metadata updated", { mount: station.icecast_mount, title: msg.title, artist: msg.artist });
       return;
     }
@@ -241,13 +327,56 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     clearTimeout(authTimer);
 
-    if (icecastSocket && !icecastSocket.destroyed) {
-      icecastSocket.destroy();
-    }
-
     if (station) {
-      activeMounts.delete(station.icecast_mount);
+      if (activeConnections.get(station.icecast_mount) === ws) {
+        activeConnections.delete(station.icecast_mount);
+      }
       log("info", "Broadcaster disconnected", { stationId: station.id });
+
+      // Keep Icecast socket alive with silence for 30s, waiting for reconnect
+      if (icecastSocket && !icecastSocket.destroyed) {
+        log("info", "Streaming silence, waiting for reconnect", { mount: station.icecast_mount });
+
+        const silenceInterval = setInterval(() => {
+          if (icecastSocket && !icecastSocket.destroyed) {
+            icecastSocket.write(SILENCE_FRAME);
+          }
+        }, SILENCE_INTERVAL_MS);
+
+        const silenceTimer = setTimeout(async () => {
+          clearInterval(silenceInterval);
+          const pending = pendingMounts.get(station.icecast_mount);
+          if (pending && pending.silenceTimer === silenceTimer) {
+            pendingMounts.delete(station.icecast_mount);
+            activeMounts.delete(station.icecast_mount);
+            if (icecastSocket && !icecastSocket.destroyed) {
+              icecastSocket.destroy();
+            }
+            log("info", "Silence timeout, mount released", { mount: station.icecast_mount });
+
+            try {
+              await fetch(`${config.apiUrl}/internal/stream-ended`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify({ station_id: station.id }),
+              });
+            } catch (err) {
+              log("error", "Failed to notify API of stream end", { stationId: station.id, error: err.message });
+            }
+          }
+        }, SILENCE_TIMEOUT_MS);
+
+        pendingMounts.set(station.icecast_mount, {
+          icecastSocket,
+          silenceTimer,
+          silenceInterval,
+          stationId: station.id,
+        });
+      } else {
+        activeMounts.delete(station.icecast_mount);
+      }
+    } else if (icecastSocket && !icecastSocket.destroyed) {
+      icecastSocket.destroy();
     }
   });
 

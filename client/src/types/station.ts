@@ -1,3 +1,9 @@
+export interface StationStats {
+  sessions: number
+  total_airtime_seconds: number
+  peak_listeners: number
+}
+
 export interface Station {
   id: string
   user_id: number
@@ -13,4 +19,15 @@ export interface Station {
   theme_config: Record<string, unknown> | null
   created_at: string
   updated_at: string
+  stats?: StationStats
+}
+
+export interface StreamSession {
+  id: string
+  station_id: string
+  started_at: string
+  ended_at: string | null
+  peak_listeners: number
+  total_listener_minutes: number
+  source_type: string
 }

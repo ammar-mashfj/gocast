@@ -13,13 +13,12 @@ const EQ_CLASSES = [
 
 function Vinyl({ playing }: { playing: boolean }) {
   return (
-    <div className="relative w-[200px] h-[200px] md:w-[320px] md:h-[320px] animate-vinyl-float">
+    <div className="relative w-full max-w-[200px] md:max-w-[320px] aspect-square animate-vinyl-float">
       <div className={`w-full h-full rounded-full bg-[conic-gradient(from_0deg,#1a1a2e,#16162a,#1a1a2e,#0f0f1f,#1a1a2e,#16162a,#1a1a2e)] flex items-center justify-center relative border border-white/5 ${playing ? 'animate-vinyl-spin' : ''}`}>
         <div className="absolute w-[87.5%] h-[87.5%] rounded-full border border-white/[0.04]" />
         <div className="absolute w-[75%] h-[75%] rounded-full border border-white/[0.03]" />
         <div className="w-[50%] h-[50%] rounded-full bg-gradient-to-br from-[#1a0533] via-[#2d1b69] to-[#1a0533] flex items-center justify-center border-2 border-white/10 relative overflow-hidden">
           <span className="text-[28px] md:text-[42px] opacity-70">♫</span>
-          <div className="absolute w-3 h-3 bg-dark-surface rounded-full border border-white/10" />
         </div>
       </div>
     </div>
@@ -70,6 +69,7 @@ export default function PlayerPage() {
   const [station, setStation] = useState<Station | null>(null)
   const [playing, setPlaying] = useState(false)
   const [listeners, setListeners] = useState(0)
+  const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const [notFound, setNotFound] = useState(false)
   const playerRef = useRef<StreamPlayer | null>(null)
 
@@ -87,6 +87,7 @@ export default function PlayerPage() {
       api.get(`/public/stations/${slug}/listeners`)
         .then((res) => {
           setListeners(res.data.data?.count ?? 0)
+          setNowPlaying(res.data.data?.now_playing ?? { title: null, artist: null })
           setStation((prev) => prev ? { ...prev, is_live: res.data.data?.is_live ?? prev.is_live } : prev)
         })
         .catch(() => {})
@@ -135,7 +136,7 @@ export default function PlayerPage() {
   if (!station) return null
 
   return (
-    <div className="relative min-h-screen bg-dark-surface text-white flex flex-col md:grid md:grid-cols-2 overflow-hidden">
+    <div className="relative h-screen bg-dark-surface text-white flex flex-col md:grid md:grid-cols-2 overflow-hidden">
       {!station.is_live && <Noise opacity={0.06} grainSize={2} fps={16} className="z-[1]" />}
       <div className="absolute -top-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_70%)] pointer-events-none" />
       <div className="absolute -bottom-[10%] -left-[10%] w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(236,72,153,0.1)_0%,transparent_70%)] pointer-events-none" />
@@ -144,11 +145,11 @@ export default function PlayerPage() {
         internet radio
       </div>
 
-      <div className="relative flex items-center justify-center p-8 pt-12 md:p-12 z-2">
+      <div className="relative flex items-center justify-center p-6 pt-10 md:p-12 z-2 shrink min-h-0">
         <Vinyl playing={playing} />
       </div>
 
-      <div className="relative flex flex-col items-center md:items-start justify-center px-6 md:pr-12 md:pl-4 py-6 md:py-12 z-2">
+      <div className="relative flex flex-col items-center md:items-start justify-center px-6 md:pr-12 md:pl-4 py-4 md:py-12 z-2 shrink-0">
         <EqBars playing={playing} />
 
         {station.is_live && (
@@ -178,25 +179,25 @@ export default function PlayerPage() {
           <div className="flex items-center gap-3 mb-10 px-4 py-3 bg-white/[0.04] rounded-xl border border-border-faint w-full md:w-auto">
             <div>
               <div className="text-[11px] tracking-[1.5px] uppercase text-text-muted mb-0.5">Now playing</div>
-              <div className="text-[15px] font-medium text-text-secondary">{station.name}</div>
-              <div className="text-[13px] text-text-muted">Live broadcast</div>
+              <div className="text-[15px] font-medium text-text-secondary">{nowPlaying.title || station.name}</div>
+              <div className="text-[13px] text-text-muted">{nowPlaying.artist || 'Live broadcast'}</div>
             </div>
           </div>
         )}
 
         <div className="flex items-center gap-5 mb-8">
-          <button
-            onClick={togglePlay}
-            className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-violet flex items-center justify-center shrink-0 border-none cursor-pointer hover:scale-[1.08] hover:bg-violet-full transition-all"
-          >
-            {playing ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-            ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><polygon points="8,4 20,12 8,20" /></svg>
-            )}
-          </button>
-
-          {!station.is_live && !playing && (
+          {(station.is_live || playing) ? (
+            <button
+              onClick={togglePlay}
+              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-violet flex items-center justify-center shrink-0 border-none cursor-pointer hover:scale-[1.08] hover:bg-violet-full transition-all"
+            >
+              {playing ? (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><polygon points="8,4 20,12 8,20" /></svg>
+              )}
+            </button>
+          ) : (
             <span className="text-sm text-text-muted">Station is offline</span>
           )}
         </div>
@@ -214,7 +215,7 @@ export default function PlayerPage() {
 
       <WaveDecoration />
 
-      <div className="relative md:absolute bottom-0 left-0 right-0 px-6 md:px-12 py-4 flex flex-col md:flex-row justify-between items-center gap-2 z-[3] border-t border-white/5 mt-auto">
+      <div className="relative md:absolute bottom-0 left-0 right-0 px-6 md:px-12 py-3 flex flex-col md:flex-row justify-between items-center gap-2 z-[3] border-t border-white/5 shrink-0">
         <div className="text-xs text-text-ghost">
           Powered by <Link to="/" className="text-violet-muted no-underline">GoCast.fm</Link> — Start your own station →
         </div>

@@ -3,6 +3,7 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import HeroSection from '../components/home/HeroSection'
 import HowItWorks from '../components/home/HowItWorks'
+import FeaturesSection from '../components/home/FeaturesSection'
 import LiveNow from '../components/home/LiveNow'
 import PricingSection from '../components/home/PricingSection'
 import CtaSection from '../components/home/CtaSection'
@@ -24,6 +25,7 @@ export default function HomePage() {
         <Navbar onOpenLogin={openLogin} onOpenRegister={openRegister} />
         <HeroSection onOpenRegister={openRegister} />
         <HowItWorks />
+        <FeaturesSection />
         <LiveNow />
         <PricingSection onOpenRegister={openRegister} />
         <CtaSection onOpenRegister={openRegister} />

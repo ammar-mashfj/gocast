@@ -4,10 +4,12 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\StationController;
+use App\Http\Controllers\StreamEndedController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\StreamTokenController;
 use App\Http\Controllers\StreamValidationController;
 use App\Http\Controllers\UpdateListenerCountController;
+use App\Http\Controllers\UpdateMetadataController;
 use App\Http\Controllers\UploadController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
@@ -46,4 +48,6 @@ Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class,
 
 // Internal (relay)
 Route::post('/internal/validate-stream', StreamValidationController::class);
+Route::post('/internal/stream-ended', StreamEndedController::class);
+Route::post('/internal/metadata', UpdateMetadataController::class);
 Route::post('/internal/listeners', UpdateListenerCountController::class);

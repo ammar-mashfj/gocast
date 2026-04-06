@@ -85,7 +85,7 @@ export class BroadcastManager {
 
       // Step 2: Set up lamejs MP3 encoder + audio engine
       this.setActiveStep('encoder')
-      this.engine = new AudioEngine(
+      this.engine = await AudioEngine.create(
         this.micStream,
         (data) => {
           // Send MP3 binary directly over WS
@@ -93,8 +93,15 @@ export class BroadcastManager {
             this.ws.send(data)
           }
         },
-        () => {},
+        () => {
+          // Auto-send track metadata to Icecast when track changes
+          const track = this.engine?.getCurrentTrack()
+          if (track && this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'metadata', title: track.title, artist: track.artist }))
+          }
+        },
       )
+      await this.engine.restoreQueue()
       this.updateStep('encoder', 'done')
 
       // Step 3: Get stream token + start session
@@ -135,7 +142,7 @@ export class BroadcastManager {
           this.ws?.close()
           reject(new Error('Connection timed out — is the relay server running?'))
         }
-      }, 10000)
+      }, 25000)
 
       const cleanup = () => clearTimeout(timeout)
 
