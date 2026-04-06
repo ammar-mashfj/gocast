@@ -196,11 +196,15 @@ const wss = new WebSocketServer({ port: config.wsPort });
 const AUTH_TIMEOUT_MS = 10000;
 const activeConnections = new Map(); // mount -> ws
 
+const KEEPALIVE_TIMEOUT_MS = 5000; // send silence if no audio for 5s
+
 wss.on("connection", (ws) => {
   let station = null;
   let icecastSocket = null;
   let authenticated = false;
   let lastMetadata = { title: "", artist: "" };
+  let lastAudioTime = 0;
+  let keepaliveInterval = null;
 
   const authTimer = setTimeout(() => {
     if (!authenticated) {
@@ -214,6 +218,7 @@ wss.on("connection", (ws) => {
     if (isBinary) {
       if (authenticated && icecastSocket && !icecastSocket.destroyed) {
         icecastSocket.write(data);
+        lastAudioTime = Date.now();
       }
       return;
     }
@@ -280,9 +285,17 @@ wss.on("connection", (ws) => {
       }
 
       authenticated = true;
+      lastAudioTime = Date.now();
       activeMounts.set(station.icecast_mount, station.id);
       activeConnections.set(station.icecast_mount, ws);
       log("info", "Broadcaster connected", { stationId: station.id, mount: station.icecast_mount });
+
+      // Keepalive: send silence to Icecast if no audio arrives for 5s
+      keepaliveInterval = setInterval(() => {
+        if (icecastSocket && !icecastSocket.destroyed && Date.now() - lastAudioTime > KEEPALIVE_TIMEOUT_MS) {
+          icecastSocket.write(SILENCE_FRAME);
+        }
+      }, 1000);
 
       ws.send(JSON.stringify({ type: "authenticated", stationId: station.id }));
 
@@ -326,6 +339,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clearTimeout(authTimer);
+    if (keepaliveInterval) clearInterval(keepaliveInterval);
 
     if (station) {
       if (activeConnections.get(station.icecast_mount) === ws) {

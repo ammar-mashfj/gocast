@@ -33,6 +33,7 @@ export class BroadcastManager {
   private sessionId: string | null = null
   private authenticated = false
   private engine: AudioEngine | null = null
+  private releaseLock: (() => void) | null = null
   private steps: BroadcastStepInfo[] = [
     { id: 'mic', label: 'Requesting microphone access', status: 'pending' },
     { id: 'encoder', label: 'Setting up audio engine', status: 'pending' },
@@ -123,6 +124,7 @@ export class BroadcastManager {
 
       await this.connectAndAuthenticate(streamToken)
 
+      this.acquireWakeLock()
       this.callbacks.onStateChange('live')
     } catch (err) {
       this.fail(err)
@@ -227,7 +229,24 @@ export class BroadcastManager {
     this.engine = null
     this.sessionId = null
     this.authenticated = false
+    this.releaseWakeLock()
     this.callbacks.onStateChange('idle')
+  }
+
+  private acquireWakeLock() {
+    if (!navigator.locks) return
+    navigator.locks.request('gocast-broadcast', () => {
+      return new Promise<void>((resolve) => {
+        this.releaseLock = resolve
+      })
+    })
+  }
+
+  private releaseWakeLock() {
+    if (this.releaseLock) {
+      this.releaseLock()
+      this.releaseLock = null
+    }
   }
 
   private fail(err: unknown) {
@@ -248,6 +267,7 @@ export class BroadcastManager {
 
     this.callbacks.onError(message)
     this.callbacks.onStateChange('error')
+    this.releaseWakeLock()
 
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.engine?.destroy()
