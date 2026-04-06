@@ -2,7 +2,7 @@
 
 return [
     'free' => [
-        'max_stations' => 1,
+        'max_stations' => 100,
         'max_listeners' => 30,
         'max_bitrate' => 96,
         'has_ads' => true,
