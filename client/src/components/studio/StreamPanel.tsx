@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useBroadcast } from '../../contexts/BroadcastContext'
 import api from '../../lib/axios'
 import type { Station } from '../../types/station'
-import { IconPlayerStopFilled, IconSquare, IconSquareF0Filled } from '@tabler/icons-react'
+import { IconPlayerStopFilled } from '@tabler/icons-react'
 
 const SHORTCUTS = [
   { action: 'Push to talk', key: 'Space' },
