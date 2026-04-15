@@ -7,8 +7,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
 
+/**
+ * Called by the relay to update real-time listener count in Redis and track peak listeners.
+ */
 class UpdateListenerCountController extends Controller
 {
+    /**
+     * Store the current listener count in Redis and update the session's
+     * peak_listeners watermark if the new count exceeds the previous peak.
+     */
     public function __invoke(Request $request): JsonResponse
     {
         $request->validate([

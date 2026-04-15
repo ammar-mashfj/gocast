@@ -1,0 +1,22 @@
+@keyframes orbit-1 {
+    from { transform: rotate(0deg) translateX(180px) rotate(0deg); }
+    to { transform: rotate(360deg) translateX(180px) rotate(-360deg); }
+  }
+  @keyframes orbit-2 {
+    from { transform: rotate(120deg) translateX(140px) rotate(-120deg); }
+    to { transform: rotate(480deg) translateX(140px) rotate(-480deg); }
+  }
+  @keyframes orbit-3 {
+    from { transform: rotate(240deg) translateX(220px) rotate(-240deg); }
+    to { transform: rotate(600deg) translateX(220px) rotate(-600deg); }
+  }
+
+  @keyframes live-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+  }
+  
+.animate-orbit-1 { animation: orbit-1 20s linear infinite; }
+.animate-orbit-2 { animation: orbit-2 15s linear infinite; }
+.animate-orbit-3 { animation: orbit-3 25s linear infinite; }
+.liveDot { animation: live-dot 1.5s infinite; }

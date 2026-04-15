@@ -5,6 +5,12 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * Validates station creation.
+ *
+ * Enforces plan-based station limits in authorize() — the user's highest
+ * plan ceiling is resolved dynamically so upgrades take effect immediately.
+ */
 class StoreStationRequest extends FormRequest
 {
     public function authorize(): bool
@@ -31,6 +37,7 @@ class StoreStationRequest extends FormRequest
             'slug' => ['required', 'string', 'max:60', 'unique:stations', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
+            'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],
         ];
     }
 }

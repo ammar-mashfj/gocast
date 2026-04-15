@@ -11,6 +11,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+/**
+ * CRUD operations for user-owned radio stations.
+ */
 class StationController extends Controller
 {
     use AuthorizesRequests;

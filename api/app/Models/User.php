@@ -12,7 +12,13 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password'])]
+/**
+ * Authenticated user who can own stations and broadcast.
+ *
+ * Implements email verification via MustVerifyEmail.
+ * The google_id column links accounts authenticated through Google OAuth.
+ */
+#[Fillable(['name', 'email', 'password', 'google_id', 'avatar_url'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail
 {

@@ -8,8 +8,30 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
+/**
+ * Represents a radio station owned by a user.
+ *
+ * Uses UUIDs as primary keys and slugs for route model binding.
+ *
+ * @property string $id
+ * @property string $user_id
+ * @property string $name
+ * @property string $slug
+ * @property string|null $description
+ * @property string|null $genre
+ * @property string|null $artwork_url
+ * @property string $plan
+ * @property bool $is_live
+ * @property string $icecast_mount
+ * @property string $icecast_password
+ * @property array|null $social_links
+ * @property array|null $theme_config
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ */
 class Station extends Model
 {
     /** @use HasFactory<StationFactory> */
@@ -17,6 +39,10 @@ class Station extends Model
 
     protected $guarded = [];
 
+    /**
+     * Auto-generate icecast_mount from the slug and a random password on creation.
+     * On update, keep the mount path in sync when the slug changes.
+     */
     protected static function booted(): void
     {
         static::creating(function (Station $station) {
@@ -35,9 +61,15 @@ class Station extends Model
     {
         return [
             'is_live' => 'boolean',
+            'featured' => 'boolean',
             'social_links' => 'array',
             'theme_config' => 'array',
         ];
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
     }
 
     public function user(): BelongsTo

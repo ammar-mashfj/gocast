@@ -10,6 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
+/**
+ * Handles email/password authentication (register, login, logout, user profile).
+ */
 class AuthController extends Controller
 {
     public function register(RegisterRequest $request): JsonResponse

@@ -6,6 +6,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
 
+/**
+ * Called by the relay to update now-playing metadata in Redis.
+ */
 class UpdateMetadataController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
