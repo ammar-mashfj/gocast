@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\PublicStationController;
+use App\Http\Controllers\ResetLiveStationsController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StreamEndedController;
 use App\Http\Controllers\StreamSessionController;
@@ -15,9 +17,16 @@ use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+// Auth routes — throttled aggressively to prevent brute-force attacks.
+Route::middleware('throttle:auth')->prefix('auth')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
 
+    Route::get('/google', [GoogleAuthController::class, 'redirect']);
+    Route::get('/google/callback', [GoogleAuthController::class, 'callback']);
+});
+
+// Authenticated routes — protected by Sanctum token; no extra throttle (Laravel's global limiter applies).
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
@@ -39,15 +48,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('stations.sessions', StreamSessionController::class)
         ->only(['index', 'store', 'destroy']);
     Route::post('/upload/{type}', UploadController::class)
+        ->middleware('throttle:uploads')
         ->whereIn('type', ['images', 'sounds']);
 });
 
-// Public
-Route::get('/public/stations/{slug}', [PublicStationController::class, 'show']);
-Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class, 'show']);
+// Public routes — unauthenticated, throttled per-IP to protect against scraping.
+Route::middleware('throttle:public')->group(function () {
+    Route::get('/public/featured', [PublicStationController::class, 'featured']);
+    Route::get('/public/stations/{slug}', [PublicStationController::class, 'show']);
+    Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class, 'show']);
+});
 
-// Internal (relay)
-Route::post('/internal/validate-stream', StreamValidationController::class);
-Route::post('/internal/stream-ended', StreamEndedController::class);
-Route::post('/internal/metadata', UpdateMetadataController::class);
-Route::post('/internal/listeners', UpdateListenerCountController::class);
+// Internal relay routes — authenticated by shared secret (VerifyInternalKey) and throttled at a higher ceiling.
+Route::middleware(['internal', 'throttle:internal'])->group(function () {
+    Route::post('/internal/validate-stream', StreamValidationController::class);
+    Route::post('/internal/stream-ended', StreamEndedController::class);
+    Route::post('/internal/metadata', UpdateMetadataController::class);
+    Route::post('/internal/listeners', UpdateListenerCountController::class);
+    Route::post('/internal/reset-live', ResetLiveStationsController::class);
+});

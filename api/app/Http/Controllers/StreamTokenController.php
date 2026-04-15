@@ -7,6 +7,13 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 
+/**
+ * Generates a one-time stream token for WebSocket authentication.
+ *
+ * The token is cached for 5 minutes and consumed by the relay server
+ * during stream validation. Once validated, the token is invalidated
+ * to prevent replay attacks.
+ */
 class StreamTokenController extends Controller
 {
     use AuthorizesRequests;

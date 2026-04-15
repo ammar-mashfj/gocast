@@ -6,6 +6,9 @@ use App\Models\Station;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Redis;
 
+/**
+ * Public endpoint returning real-time listener count and now-playing info for a station.
+ */
 class ListenerCountController extends Controller
 {
     public function show(string $slug): JsonResponse

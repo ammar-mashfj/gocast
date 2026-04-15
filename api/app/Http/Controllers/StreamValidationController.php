@@ -7,6 +7,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
+/**
+ * Called by the relay server to validate a stream token before allowing a broadcaster to connect.
+ *
+ * Looks up the station by slug, verifies the cached one-time token, then
+ * returns Icecast mount credentials so the relay can proxy the audio stream.
+ * The token is consumed (deleted from cache) after successful validation.
+ */
 class StreamValidationController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
@@ -16,7 +23,7 @@ class StreamValidationController extends Controller
             'token' => ['required', 'string'],
         ]);
 
-        $station = Station::findOrFail($request->station_id);
+        $station = Station::where('slug', $request->station_id)->firstOrFail();
         $cachedToken = Cache::get("stream-token:{$station->id}");
 
         if (! $cachedToken || $cachedToken !== $request->token) {

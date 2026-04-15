@@ -5,6 +5,11 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * Validates new user registration via email and password.
+ *
+ * Requires password confirmation to prevent typos during sign-up.
+ */
 class RegisterRequest extends FormRequest
 {
     /**

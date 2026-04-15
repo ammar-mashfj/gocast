@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
+
+    'relay_health_url' => env('RELAY_HEALTH_URL', 'http://localhost:8081/health'),
+
+    'internal_api_key' => env('INTERNAL_API_KEY'),
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
 ];

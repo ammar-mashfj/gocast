@@ -8,4 +8,5 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+// Run every 5 minutes to detect relay outages and mark orphaned live stations as offline.
 Schedule::command('app:clean-stale-streams')->everyFiveMinutes();

@@ -7,6 +7,9 @@ use App\Models\StreamSession;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 
+/**
+ * Manages broadcast sessions -- tracks when a station goes live and ends.
+ */
 class StreamSessionController extends Controller
 {
     use AuthorizesRequests;

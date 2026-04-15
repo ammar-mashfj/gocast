@@ -5,6 +5,12 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * Validates file uploads for images and sounds.
+ *
+ * MIME types and size limits are resolved from the TYPES constant based on
+ * the {type} route parameter, so a single endpoint handles both media kinds.
+ */
 class UploadRequest extends FormRequest
 {
     public const TYPES = [

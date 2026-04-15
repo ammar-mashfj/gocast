@@ -5,13 +5,14 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * API resource for station data.
+ *
+ * Includes computed stats (total sessions, cumulative airtime, peak listeners)
+ * only when the streamSessions relation is eager-loaded, keeping list responses lean.
+ */
 class StationResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
     /**
      * @return array<string, mixed>
      */
