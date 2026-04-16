@@ -263,6 +263,27 @@ export class AudioEngine {
     this.onChange()
   }
 
+  moveTrack(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return
+    if (fromIndex < 0 || fromIndex >= this.queue.length) return
+    if (toIndex < 0 || toIndex >= this.queue.length) return
+
+    const [moved] = this.queue.splice(fromIndex, 1)
+    this.queue.splice(toIndex, 0, moved)
+
+    // Update currentIndex to follow the playing track
+    if (this.currentIndex === fromIndex) {
+      this.currentIndex = toIndex
+    } else if (fromIndex < this.currentIndex && toIndex >= this.currentIndex) {
+      this.currentIndex--
+    } else if (fromIndex > this.currentIndex && toIndex <= this.currentIndex) {
+      this.currentIndex++
+    }
+
+    this.persistQueue()
+    this.onChange()
+  }
+
   clearQueue() {
     this.stopCurrent()
     this.queue = []

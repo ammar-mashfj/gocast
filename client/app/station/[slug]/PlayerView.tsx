@@ -16,6 +16,7 @@ import {
 import { Station } from "@/interfaces/Station"
 import { StreamPlayer } from "@/lib/streamPlayer"
 import { env } from "@/lib/env"
+import { shareOrCopy } from "@/lib/share"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -61,8 +62,8 @@ function ShareButtons({ slug }: { slug: string }) {
   const url = `${env.appUrl}/station/${slug}`
   const [copied, setCopied] = useState(false)
 
-  function handleCopy() {
-    navigator.clipboard.writeText(url)
+  async function handleShare() {
+    await shareOrCopy(url)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -85,7 +86,7 @@ function ShareButtons({ slug }: { slug: string }) {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={handleCopy}>
+            <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={handleShare}>
               {copied ? <IconCheck size={14} className="text-emerald-400" /> : <IconLink size={14} />}
             </Button>
           </TooltipTrigger>

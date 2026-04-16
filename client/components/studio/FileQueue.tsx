@@ -86,9 +86,7 @@ export function FileQueue() {
       setDragOverIdx(null)
       return
     }
-    const q = engine.getQueue()
-    const [moved] = q.splice(dragIdx, 1)
-    q.splice(toIdx, 0, moved)
+    engine.moveTrack(dragIdx, toIdx)
     setDragIdx(null)
     setDragOverIdx(null)
   }, [dragIdx, engine])

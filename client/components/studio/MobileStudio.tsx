@@ -284,24 +284,14 @@ export function MobileStudio() {
                   <button
                     className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0 bg-transparent border-none"
                     disabled={i === 0}
-                    onClick={() => {
-                      const q = engine?.getQueue()
-                      if (!q || i === 0) return
-                      const [moved] = q.splice(i, 1)
-                      q.splice(i - 1, 0, moved)
-                    }}
+                    onClick={() => engine?.moveTrack(i, i - 1)}
                   >
                     <IconChevronUp size={12} />
                   </button>
                   <button
                     className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0 bg-transparent border-none"
                     disabled={i === queue.length - 1}
-                    onClick={() => {
-                      const q = engine?.getQueue()
-                      if (!q || i === queue.length - 1) return
-                      const [moved] = q.splice(i, 1)
-                      q.splice(i + 1, 0, moved)
-                    }}
+                    onClick={() => engine?.moveTrack(i, i + 1)}
                   >
                     <IconChevronDown size={12} />
                   </button>
