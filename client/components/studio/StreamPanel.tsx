@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
   IconPlayerStopFilled,
-  IconCopy,
+  IconShare,
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import api from "@/lib/axios"
+import { shareOrCopy } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 
@@ -48,9 +49,9 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
 
   const playerUrl = station ? `${env.appUrl}/station/${station.slug}` : ""
 
-  function copyPlayerUrl() {
+  async function handleShare() {
     if (!playerUrl) return
-    navigator.clipboard.writeText(playerUrl)
+    await shareOrCopy(playerUrl, station?.name)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -116,9 +117,9 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
           <div className="text-xs tracking-widest uppercase text-muted-foreground mb-2">Player URL</div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground truncate">{playerUrl}</span>
-            <Button variant="ghost" size="sm" onClick={copyPlayerUrl}>
-              <IconCopy data-icon="inline-start" />
-              {copied ? "Copied!" : "Copy"}
+            <Button variant="ghost" size="sm" onClick={handleShare}>
+              <IconShare data-icon="inline-start" />
+              {copied ? "Done!" : "Share"}
             </Button>
           </div>
         </div>

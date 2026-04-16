@@ -54,7 +54,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       onError: setError,
     })
     managerRef.current = manager
-    if (options?.skipMic) setMicDisabled(true)
+    if (options?.skipMic) {
+      setMicDisabled(true)
+      try { sessionStorage.setItem('broadcast:micDisabled', 'true') } catch {}
+    }
     await manager.start(options)
   }, [])
 
@@ -65,6 +68,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     }
     setMicStream(null)
     setMicDisabled(false)
+    try { sessionStorage.removeItem('broadcast:micDisabled') } catch {}
     setEngine(null)
     setSteps([])
     setError(null)

@@ -8,8 +8,8 @@ import {
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
-import { toast } from "sonner"
 import { env } from "@/lib/env"
+import { shareOrCopy } from "@/lib/share"
 import api from "@/lib/axios"
 import type { Station } from "@/interfaces/Station"
 
@@ -59,10 +59,7 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
             variant="ghost"
             size="icon"
             className="size-8"
-            onClick={() => {
-              navigator.clipboard.writeText(playerUrl)
-              toast.success("Player link copied")
-            }}
+            onClick={() => shareOrCopy(playerUrl, station?.name)}
           >
             <IconShare size={15} />
           </Button>
