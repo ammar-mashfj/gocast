@@ -28,6 +28,13 @@ export default function RootLayout({
     >
       <head>
         <Script defer src="https://cloud.umami.is/script.js" data-website-id="892346df-9d2f-4c40-b76b-442a74ee4557" strategy="afterInteractive" />
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-44FJYHJWQR" strategy="afterInteractive" />
+        <Script id="gtag-init" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-44FJYHJWQR');`}
+        </Script>
       </head>
       <body className="min-h-full flex flex-col">
         {children}

@@ -14,6 +14,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react"
 import { Station } from "@/interfaces/Station"
+import { StreamPlayer } from "@/lib/streamPlayer"
 import { env } from "@/lib/env"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -95,29 +96,35 @@ function ShareButtons({ slug }: { slug: string }) {
   )
 }
 
-function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElement | null> }) {
+function VolumeControl({ playerRef }: { playerRef: React.RefObject<StreamPlayer | null> }) {
   const [volume, setVolume] = useState(80)
   const [muted, setMuted] = useState(false)
   const prevVolume = useRef(80)
+
+  function getAudio() {
+    return playerRef.current?.getAudioElement() ?? null
+  }
 
   function handleVolumeChange(value: number[]) {
     const v = value[0]
     setVolume(v)
     setMuted(v === 0)
-    if (audioRef.current) audioRef.current.volume = v / 100
+    const audio = getAudio()
+    if (audio) audio.volume = v / 100
   }
 
   function toggleMute() {
+    const audio = getAudio()
     if (muted) {
       const restore = prevVolume.current || 80
       setVolume(restore)
       setMuted(false)
-      if (audioRef.current) audioRef.current.volume = restore / 100
+      if (audio) audio.volume = restore / 100
     } else {
       prevVolume.current = volume
       setVolume(0)
       setMuted(true)
-      if (audioRef.current) audioRef.current.volume = 0
+      if (audio) audio.volume = 0
     }
   }
 
@@ -161,7 +168,7 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
   const [loading, setLoading] = useState(false)
   const [listeners, setListeners] = useState(0)
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const playerRef = useRef<StreamPlayer | null>(null)
 
   // Poll listener count + live status
   useEffect(() => {
@@ -183,32 +190,32 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
   }, [station.slug])
 
   const togglePlay = useCallback(() => {
-    if ((playing || loading) && audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.src = ""
-      audioRef.current = null
+    if ((playing || loading) && playerRef.current) {
+      playerRef.current.stop()
+      playerRef.current = null
       setPlaying(false)
       setLoading(false)
       return
     }
 
     setLoading(true)
-    const audio = new Audio(`${env.icecastUrl}${station.icecast_mount}`)
-    audio.volume = 0.8
-    audio.addEventListener("playing", () => { setPlaying(true); setLoading(false) })
-    audio.addEventListener("error", () => { setPlaying(false); setLoading(false) })
-    audioRef.current = audio
-    audio.play()
+    const player = new StreamPlayer({
+      onStateChange: (isPlaying) => {
+        setPlaying(isPlaying)
+        setLoading(false)
+      },
+      onError: () => {
+        setPlaying(false)
+        setLoading(false)
+      },
+    })
+    playerRef.current = player
+    player.play(`${env.icecastUrl}${station.icecast_mount}`)
   }, [station.icecast_mount, playing, loading])
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ""
-      }
-    }
+    return () => playerRef.current?.stop()
   }, [])
 
   return (
@@ -283,7 +290,7 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
                   <IconPlayerPlayFilled size={26} />
                 )}
               </Button>
-              {playing && <VolumeControl audioRef={audioRef} />}
+              {playing && <VolumeControl playerRef={playerRef} />}
             </>
           ) : (
             <Badge variant="secondary" className="text-sm px-4 py-2">Station is offline</Badge>
