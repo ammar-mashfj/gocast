@@ -96,7 +96,7 @@ export function FileQueue() {
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
 
   return (
-    <Card className="flex-1 flex flex-col min-h-0">
+    <Card className="flex-1 flex flex-col min-h-0 py-2 md:py-4 gap-0">
       <input
         ref={fileInputRef}
         type="file"
@@ -109,7 +109,7 @@ export function FileQueue() {
         }}
       />
 
-      <CardHeader className="flex-row items-center justify-between py-3">
+      <CardHeader className="flex-row items-center justify-between py-2 md:py-3">
         <CardTitle className="text-xs tracking-widest uppercase text-muted-foreground font-normal">
           Up next
         </CardTitle>
@@ -185,7 +185,7 @@ export function FileQueue() {
         onDragOver={(e) => { e.preventDefault(); setDragOverZone(true) }}
         onDragLeave={() => setDragOverZone(false)}
         onDrop={handleDropZone}
-        className={`border border-dashed rounded-lg py-4 text-center cursor-pointer mx-4 mb-4 transition-all ${
+        className={`border border-dashed rounded-lg py-3 md:py-4 text-center cursor-pointer mx-3 md:mx-4 mb-3 md:mb-4 transition-all ${
           dragOverZone
             ? "border-primary bg-primary/[0.04]"
             : "border-border hover:border-primary/40 hover:bg-primary/[0.02]"

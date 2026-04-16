@@ -120,8 +120,8 @@ export function TransportControls() {
   const hasTrack = !!engine?.getCurrentTrack()
 
   return (
-    <Card>
-      <CardContent className="p-3 flex flex-col gap-2">
+    <Card className="py-2 md:py-4 gap-0">
+      <CardContent className="px-3 md:px-4 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"

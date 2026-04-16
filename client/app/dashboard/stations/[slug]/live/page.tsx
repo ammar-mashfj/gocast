@@ -83,19 +83,19 @@ function SuccessView({ station, onOpenControls }: { station: Station; onOpenCont
           Your station is now live. Share your link with your audience.
         </p>
 
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-muted rounded-lg text-sm text-muted-foreground mb-5">
-          {playerUrl}
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-muted rounded-lg text-sm text-muted-foreground mb-5 max-w-full">
+          <span className="truncate">{playerUrl}</span>
           <button
             onClick={() => navigator.clipboard.writeText(playerUrl)}
-            className="text-primary bg-transparent border-none cursor-pointer hover:text-primary/80"
+            className="text-primary bg-transparent border-none cursor-pointer hover:text-primary/80 shrink-0"
           >
             <IconCopy size={14} />
           </button>
         </div>
 
-        <div className="flex gap-2.5">
-          <Button onClick={onOpenControls}>Open broadcaster controls</Button>
-          <Button variant="outline" asChild>
+        <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
+          <Button className="w-full sm:w-auto" onClick={onOpenControls}>Open broadcaster controls</Button>
+          <Button className="w-full sm:w-auto" variant="outline" asChild>
             <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
               View player page
             </a>
@@ -146,11 +146,11 @@ export default function GoLivePage() {
       )}
 
       {state === "error" && (
-        <div className="flex gap-2.5 justify-center">
-          <Button onClick={() => { startedRef.current = false; start(station.slug) }}>
+        <div className="flex flex-col sm:flex-row gap-2.5 sm:justify-center">
+          <Button className="w-full sm:w-auto" onClick={() => { startedRef.current = false; start(station.slug) }}>
             Try again
           </Button>
-          <Button variant="outline" asChild>
+          <Button className="w-full sm:w-auto" variant="outline" asChild>
             <Link href={`/dashboard/stations/${slug}`}>Go back</Link>
           </Button>
         </div>

@@ -16,7 +16,7 @@ import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 
 const SHORTCUTS = [
-  { action: "Push to talk", key: "Space" },
+  { action: "Push to talk", key: "Space", micOnly: true },
   { action: "Play / pause", key: "K" },
   { action: "Next track", key: "N" },
   { action: "Previous track", key: "P" },
@@ -36,7 +36,7 @@ interface StreamPanelProps {
 
 export function StreamPanel({ stationId }: StreamPanelProps) {
   const router = useRouter()
-  const { state, stop, engine } = useBroadcast()
+  const { state, stop, engine, micDisabled } = useBroadcast()
   const [elapsed, setElapsed] = useState(0)
   const [station, setStation] = useState<Station | null>(null)
   const [copied, setCopied] = useState(false)
@@ -90,7 +90,7 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
   const queueLen = engine?.getQueue().length ?? 0
 
   return (
-    <div className="border-l p-5 flex flex-col gap-4 overflow-y-auto h-full">
+    <div className="border-l p-5 flex flex-col gap-4 overflow-y-auto h-full w-full">
       <div>
         <div className="text-xs tracking-widest uppercase text-muted-foreground mb-2">Stream info</div>
         <div className="flex flex-col">
@@ -129,7 +129,7 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
       <div>
         <div className="text-xs tracking-widest uppercase text-muted-foreground mb-3">Keyboard shortcuts</div>
         <div className="flex flex-col gap-1.5">
-          {SHORTCUTS.map((s) => (
+          {SHORTCUTS.filter((s) => !s.micOnly || !micDisabled).map((s) => (
             <div key={s.action} className="flex justify-between text-sm">
               <span className="text-muted-foreground">{s.action}</span>
               <Badge variant="secondary" className="text-[10px]">{s.key}</Badge>

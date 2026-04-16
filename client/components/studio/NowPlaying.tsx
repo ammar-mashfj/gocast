@@ -54,8 +54,8 @@ export function NowPlaying() {
   const micActive = engine?.isMicActive() ?? false
 
   return (
-    <Card>
-      <CardContent className="p-4">
+    <Card className="py-2.5 md:py-4 gap-0">
+      <CardContent className="px-3 md:px-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="size-12 rounded-[10px] bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center shrink-0 relative">
             {track ? (

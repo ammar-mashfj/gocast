@@ -17,16 +17,16 @@ export default async function Navbar() {
     : null
 
   return (
-    <nav className="flex items-center justify-between px-10 py-5 relative z-10">
+    <nav className="flex items-center justify-between px-4 md:px-10 py-4 md:py-5 relative z-10">
       <Link href="/" className="-tracking-wide">
-        <Image src="/logo.svg" alt="GoCast" width={100} height={100} />
+        <Image src="/logo.svg" alt="GoCast" width={80} height={80} className="md:w-[100px]" />
       </Link>
-      <div className="flex items-center gap-8">
+      <div className="flex items-center gap-4 md:gap-8">
         {NAV_LINKS.map((link) => (
           <a
             key={link.label}
             href={link.href}
-            className="text-white text-[15px] no-underline tracking-wide hover:text-white/80 transition-colors"
+            className="hidden sm:inline text-white text-[15px] no-underline tracking-wide hover:text-white/80 transition-colors"
           >
             {link.label}
           </a>
@@ -36,7 +36,7 @@ export default async function Navbar() {
         ) : (
           <Link
             href="/auth/login"
-            className="text-text-muted text-[15px] tracking-wide bg-transparent border-none cursor-pointer hover:text-white/80 transition-colors"
+            className="text-text-muted text-sm md:text-[15px] tracking-wide bg-transparent border-none cursor-pointer hover:text-white/80 transition-colors"
           >
             Sign in
           </Link>

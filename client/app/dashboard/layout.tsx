@@ -1,7 +1,8 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/AppSidebar"
+import { DashboardHeader } from "@/components/dashboard/DashboardHeader"
 import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { User } from "@/interfaces/User"
 
@@ -25,9 +26,7 @@ export default async function DashboardLayout({
       <SidebarProvider>
         <AppSidebar user={user} />
         <SidebarInset>
-          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-            <SidebarTrigger className="-ml-1" />
-          </header>
+          <DashboardHeader user={user} />
           <main className="flex-1 p-6">
             {children}
           </main>

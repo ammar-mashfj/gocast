@@ -16,18 +16,18 @@ const ORBIT_STATIONS: OrbitStation[] = [
 export default function HeroSection() {
   return (
     <div className={styles.heroSection}>
-      <section className="relative grid grid-cols-2 gap-10 items-center min-h-[540px] px-10 pt-20 pb-24 overflow-hidden">
+      <section className="relative grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 items-center min-h-0 md:min-h-[540px] px-4 md:px-10 pt-12 md:pt-20 pb-12 md:pb-24 overflow-hidden">
         {/* Background glow */}
-        <div className="absolute top-1/2 left-1/2 w-[700px] h-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.08)_0%,transparent_65%)] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 w-[350px] md:w-[700px] h-[350px] md:h-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.08)_0%,transparent_65%)] pointer-events-none" />
 
         {/* Left: copy */}
-        <div className="relative z-2">
+        <div className="relative z-2 text-center md:text-left">
           <div className="inline-flex items-center gap-2 bg-white/[0.03] border border-white/[0.06] px-3.5 py-1.5 rounded-full text-xs text-text-muted tracking-wide mb-7">
             <div className={`w-1.5 h-1.5 bg-emerald-live rounded-full ${styles.liveDot}`} />
             Stations are live right now
           </div>
 
-          <h1 className="text-[64px] font-semibold -tracking-[2px] leading-[1.05] mb-5">
+          <h1 className="text-[32px] md:text-[48px] lg:text-[64px] font-semibold -tracking-[2px] leading-[1.05] mb-5">
             Your voice.
             <br />
             On air in
@@ -37,23 +37,23 @@ export default function HeroSection() {
             </em>
           </h1>
 
-          <p className="text-[17px] text-text-muted leading-[1.7] mb-9 max-w-[400px]">
+          <p className="text-sm md:text-[17px] text-text-muted leading-[1.7] mb-9 max-w-[400px] mx-auto md:mx-0">
             Hit go live. Get a player page your audience can tune into instantly.
             No servers. No downloads.
           </p>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-center md:justify-start gap-4">
             <a
               href="/auth/register"
-              className="group bg-violet-full text-white px-8 py-3.5 rounded-lg text-[15px] font-medium no-underline cursor-pointer shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:-translate-y-px hover:shadow-[0_8px_30px_rgba(139,92,246,0.4)] transition-all"
+              className="group bg-violet-full text-white px-6 md:px-8 py-3 md:py-3.5 rounded-lg text-sm md:text-[15px] font-medium no-underline cursor-pointer shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:-translate-y-px hover:shadow-[0_8px_30px_rgba(139,92,246,0.4)] transition-all"
             >
               Start broadcasting — free
             </a>
           </div>
         </div>
 
-        {/* Right: orbit */}
-        <div className="relative z-2 flex justify-center items-center h-[420px]">
+        {/* Right: orbit — hidden on mobile */}
+        <div className="hidden md:flex relative z-2 justify-center items-center h-[420px]">
           {/* Rings */}
           <div className="absolute w-[280px] h-[280px] rounded-full border border-border-subtle top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
           <div className="absolute w-[360px] h-[360px] rounded-full border border-white/[0.04] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
