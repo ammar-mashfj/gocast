@@ -70,7 +70,7 @@ export class StreamPlayer {
       appending = true
       const chunk = queue.shift()!
       try {
-        this.sourceBuffer!.appendBuffer(chunk)
+        this.sourceBuffer!.appendBuffer(chunk.buffer as ArrayBuffer)
       } catch {
         appending = false
       }
