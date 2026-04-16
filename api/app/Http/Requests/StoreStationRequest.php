@@ -8,23 +8,15 @@ use Illuminate\Foundation\Http\FormRequest;
 /**
  * Validates station creation.
  *
- * Enforces plan-based station limits in authorize() — the user's highest
- * plan ceiling is resolved dynamically so upgrades take effect immediately.
+ * Enforces plan-based station limits in authorize() using the user's plan.
  */
 class StoreStationRequest extends FormRequest
 {
     public function authorize(): bool
     {
         $user = $this->user();
-        $maxStations = config('plans.free.max_stations');
 
-        foreach (config('plans') as $plan => $limits) {
-            if ($user->stations()->where('plan', $plan)->exists()) {
-                $maxStations = max($maxStations, $limits['max_stations']);
-            }
-        }
-
-        return $user->stations()->count() < $maxStations;
+        return $user->stations()->count() < $user->plan->max_stations;
     }
 
     /**

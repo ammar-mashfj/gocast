@@ -6,7 +6,6 @@ export interface Station {
   description: string | null
   genre: string | null
   artwork_url: string | null
-  plan: string | null
   is_live: boolean
   icecast_mount: string
   social_links: Record<string, string> | null

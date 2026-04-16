@@ -23,7 +23,6 @@ use Illuminate\Support\Str;
  * @property string|null $description
  * @property string|null $genre
  * @property string|null $artwork_url
- * @property string $plan
  * @property bool $is_live
  * @property string $icecast_mount
  * @property string $icecast_password
