@@ -26,7 +26,6 @@ class StationResource extends JsonResource
             'description' => $this->description,
             'genre' => $this->genre,
             'artwork_url' => $this->artwork_url,
-            'plan' => $this->plan,
             'is_live' => $this->is_live,
             'icecast_mount' => $this->icecast_mount,
             'social_links' => $this->social_links,

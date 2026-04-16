@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -17,8 +18,10 @@ use Laravel\Sanctum\HasApiTokens;
  *
  * Implements email verification via MustVerifyEmail.
  * The google_id column links accounts authenticated through Google OAuth.
+ *
+ * @property int $plan_id
  */
-#[Fillable(['name', 'email', 'password', 'google_id', 'avatar_url'])]
+#[Fillable(['name', 'email', 'password', 'google_id', 'avatar_url', 'plan_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements MustVerifyEmail
 {
@@ -36,6 +39,11 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function plan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class);
     }
 
     public function stations(): HasMany
