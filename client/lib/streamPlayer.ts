@@ -109,7 +109,7 @@ export class StreamPlayer {
       totalSize += value.length
 
       if (!this.audioEl!.src && totalSize >= 32000) {
-        const blob = new Blob(chunks, { type: "audio/mpeg" })
+        const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" })
         this.audioEl!.src = URL.createObjectURL(blob)
         this.audioEl!.play()
         this.onStateChange(true)
