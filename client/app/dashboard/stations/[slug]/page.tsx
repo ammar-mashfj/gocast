@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { IconArrowLeft, IconExternalLink, IconArrowRight, IconCode } from "@tabler/icons-react"
+import { IconArrowLeft, IconExternalLink, IconArrowRight } from "@tabler/icons-react"
 import { apiFetch } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
@@ -71,75 +71,92 @@ export default async function StationDetailPage({
       </Link>
 
       {/* Header */}
-      <div className="flex justify-between items-start mb-8">
-        <div className="flex gap-4 items-center">
-          <div className="size-[72px] rounded-[14px] bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center text-[30px] shrink-0 overflow-hidden">
+      <div className="mb-8">
+        <div className="flex gap-4 items-start">
+          <div className="size-16 md:size-[72px] rounded-[14px] bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center text-[26px] md:text-[30px] shrink-0 overflow-hidden">
             {station.artwork_url ? (
               <img src={station.artwork_url} alt={station.name} className="size-full object-cover" />
             ) : (
               "♫"
             )}
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-medium">{station.name}</h1>
+              <h1 className="text-xl md:text-2xl font-medium truncate">{station.name}</h1>
               {station.is_live && (
-                <Badge variant="secondary" className="text-emerald-400 gap-1">
+                <Badge variant="secondary" className="text-emerald-400 gap-1 shrink-0">
                   <span className="size-1.5 bg-emerald-400 rounded-full" />
                   Live
                 </Badge>
               )}
             </div>
             {station.description && (
-              <p className="text-[13px] text-muted-foreground mb-1 max-w-md">{station.description}</p>
+              <p className="text-[13px] text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
             )}
-            <div className="flex gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-2">
               {station.genre && (
                 <Badge variant="secondary">{station.genre}</Badge>
               )}
               <Badge variant="secondary">Created {formatDate(station.created_at)}</Badge>
             </div>
           </div>
+
+          {/* Desktop: buttons next to station info */}
+          <div className="hidden md:flex items-center gap-2 shrink-0">
+            <Button variant="outline" asChild>
+              <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
+                <IconExternalLink data-icon="inline-start" />
+                Player page
+              </a>
+            </Button>
+            <StationActions station={station} mode="edit" />
+            <StationActions station={station} mode="live" />
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
-              <IconExternalLink data-icon="inline-start" />
-              Player page
-            </a>
-          </Button>
-          <StationActions station={station} />
+        {/* Mobile: buttons below */}
+        <div className="flex flex-col gap-2 mt-4 md:hidden">
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" asChild>
+              <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
+                <IconExternalLink data-icon="inline-start" />
+                Player page
+              </a>
+            </Button>
+            <StationActions station={station} mode="edit" />
+          </div>
+          <StationActions station={station} mode="live" />
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground mb-1">Sessions</div>
-            <div className="text-3xl font-medium">{station.stats?.sessions ?? 0}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground mb-1">Total airtime</div>
-            <div className="text-3xl font-medium">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground mb-1">Peak listeners</div>
-            <div className="text-3xl font-medium">{station.stats?.peak_listeners ?? 0}</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats + Share */}
+      <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-stretch">
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-2 md:flex md:gap-3 shrink-0">
+          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
+            <CardContent className="px-2 md:px-4 text-center">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Sessions</div>
+              <div className="text-2xl md:text-xl font-medium">{station.stats?.sessions ?? 0}</div>
+            </CardContent>
+          </Card>
+          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
+            <CardContent className="px-2 md:px-4 text-center">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Airtime</div>
+              <div className="text-2xl md:text-xl font-medium">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
+            </CardContent>
+          </Card>
+          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
+            <CardContent className="px-2 md:px-4 text-center">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Peak</div>
+              <div className="text-2xl md:text-xl font-medium">{station.stats?.peak_listeners ?? 0}</div>
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* Share + Embed */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <Card>
+        {/* Share */}
+        <Card className="flex-1">
           <CardHeader>
-            <CardTitle className="text-xs tracking-widest uppercase text-muted-foreground font-normal">
+            <CardTitle className="text-muted-foreground font-normal text-primary">
               Share your station
             </CardTitle>
           </CardHeader>
@@ -153,33 +170,13 @@ export default async function StationDetailPage({
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xs tracking-widest uppercase text-muted-foreground font-normal flex items-center gap-1.5">
-              <IconCode size={14} />
-              Embed player
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">
-              Add this snippet to your website to embed the player.
-            </p>
-            <div className="flex items-center justify-between gap-2">
-              <code className="text-xs text-muted-foreground truncate">
-                {`<iframe src="${playerUrl}" ...>`}
-              </code>
-              <CopyButton text={`<iframe src="${playerUrl}" width="100%" height="180" frameborder="0" allow="autoplay" style="border-radius:12px"></iframe>`} />
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Recent broadcasts */}
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-xs tracking-widest uppercase text-muted-foreground font-normal">
-            Recent broadcasts
+          <CardTitle className="text-muted-foreground font-normal text-primary">
+            Recent Broadcasts
           </CardTitle>
           <Link
             href="/dashboard/broadcasts"
@@ -190,7 +187,7 @@ export default async function StationDetailPage({
           </Link>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-[140px_1fr_80px] px-3 py-2 text-xs text-muted-foreground tracking-wide uppercase">
+          <div className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2 text-muted-foreground text-primary">
             <span>Date</span>
             <span>Duration</span>
             <span className="text-right">Peak</span>
@@ -205,7 +202,7 @@ export default async function StationDetailPage({
             recentSessions.map((s) => (
               <div
                 key={s.id}
-                className="grid grid-cols-[140px_1fr_80px] px-3 py-2.5 border-t border-border text-sm"
+                className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2.5 border-t border-border"
               >
                 <span className="text-muted-foreground">{formatDate(s.started_at)}</span>
                 <span className="text-muted-foreground">{formatSessionDuration(s.started_at, s.ended_at!)}</span>

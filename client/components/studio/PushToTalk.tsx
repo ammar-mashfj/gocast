@@ -46,14 +46,14 @@ export function PushToTalk() {
   const micLevel = holding ? Math.max(micLevels.left, micLevels.right) : 0
 
   return (
-    <Card className={micDisabled ? "opacity-50" : ""}>
-      <CardContent className="flex items-center gap-4 p-4">
+    <Card className={`py-2.5 md:py-4 gap-0 ${micDisabled ? "opacity-50" : ""}`}>
+      <CardContent className="flex items-center gap-3 md:gap-4 px-3 md:px-4">
         <button
           onMouseDown={activate}
           onMouseUp={deactivate}
           onMouseLeave={deactivate}
           disabled={micDisabled}
-          className={`size-16 rounded-full border-2 flex items-center justify-center shrink-0 select-none transition-all ${
+          className={`size-12 md:size-16 rounded-full border-2 flex items-center justify-center shrink-0 select-none transition-all ${
             micDisabled
               ? "bg-muted border-border cursor-not-allowed"
               : holding
@@ -88,7 +88,7 @@ export function PushToTalk() {
               className="w-full rounded-sm transition-[height] duration-75"
               style={{
                 height: `${micLevel * 100}%`,
-                background: micLevel > 0.8 ? "hsl(var(--destructive))" : micLevel > 0.5 ? "#fbbf24" : "#34d399",
+                background: micLevel > 0.8 ? "var(--destructive)" : micLevel > 0.5 ? "#fbbf24" : "#34d399",
               }}
             />
           </div>

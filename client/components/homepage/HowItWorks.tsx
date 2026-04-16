@@ -61,25 +61,25 @@ function ClockIcon() {
 
 export default function HowItWorks() {
   return (
-    <section className="px-10 py-24" id="features">
-      <div className="text-center mb-16">
+    <section className="px-4 md:px-10 py-12 md:py-24" id="features">
+      <div className="text-center mb-10 md:mb-16">
         <div className="text-[11px] tracking-[3px] uppercase text-violet mb-4">
           How it works
         </div>
-        <h2 className="text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
+        <h2 className="text-2xl md:text-[32px] lg:text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
           Three steps. Zero complexity.
         </h2>
-        <p className="text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
+        <p className="text-sm md:text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
           Everything happens in your browser. No software to install, no servers
           to manage.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {STEPS.map((step) => (
           <div
             key={step.num}
-            className="group bg-white/[0.02] border border-white/[0.06] rounded-xl px-8 py-10 transition-all hover:border-violet-border/50 hover:bg-violet-full/[0.03]"
+            className="group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-10 transition-all hover:border-violet-border/50 hover:bg-violet-full/[0.03]"
           >
             <div className="w-12 h-12 rounded-xl bg-violet-full/10 border border-violet-full/15 flex items-center justify-center text-violet-muted mb-6 group-hover:text-violet group-hover:border-violet-border/50 transition-colors">
               {step.icon}

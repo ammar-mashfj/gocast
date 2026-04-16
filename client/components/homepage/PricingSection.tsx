@@ -86,15 +86,15 @@ const ADDONS: AddOn[] = [
 
 export default function PricingSection() {
   return (
-    <section className="px-10 py-24" id="pricing">
-      <div className="text-center mb-16">
+    <section className="px-4 md:px-10 py-12 md:py-24" id="pricing">
+      <div className="text-center mb-10 md:mb-16">
         <div className="text-[11px] tracking-[3px] uppercase text-violet-muted mb-4">
           Pricing
         </div>
-        <h2 className="text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
+        <h2 className="text-2xl md:text-[32px] lg:text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
           Start free. Upgrade when you're ready.
         </h2>
-        <p className="text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
+        <p className="text-sm md:text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
           No credit card required. No trial period. Broadcast for free, forever.
         </p>
       </div>
@@ -104,7 +104,7 @@ export default function PricingSection() {
         {PLANS.map((plan) => (
           <div
             key={plan.name}
-            className={`relative bg-white/[0.02] border rounded-xl px-7 py-9 transition-all flex flex-col hover:-translate-y-0.5 ${
+            className={`relative bg-white/[0.02] border rounded-xl px-5 md:px-7 py-7 md:py-9 transition-all flex flex-col hover:-translate-y-0.5 ${
               plan.popular
                 ? "border-violet-border/70 bg-violet-full/[0.04] shadow-[0_0_40px_rgba(139,92,246,0.1)]"
                 : "border-white/[0.06]"
@@ -176,7 +176,7 @@ export default function PricingSection() {
           {ADDONS.filter((a) => a.name !== "Custom Domain").map((addon) => (
             <div
               key={addon.name}
-              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-8 py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
             >
               <div className="flex items-baseline justify-between mb-3">
                 <div className="text-base font-medium text-text-secondary">
@@ -203,7 +203,7 @@ export default function PricingSection() {
         {ADDONS.filter((a) => a.name === "Custom Domain").map((addon) => (
           <div
             key={addon.name}
-            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-8 py-7 flex items-center justify-between gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
           >
             <div className="flex-1">
               <div className="flex items-baseline gap-3 mb-1.5">

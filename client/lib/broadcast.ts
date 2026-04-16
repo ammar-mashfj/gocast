@@ -43,12 +43,20 @@ export class BroadcastManager {
   private authenticated = false
   private engine: AudioEngine | null = null
   private releaseLock: (() => void) | null = null
-  private steps: BroadcastStepInfo[] = [
-    { id: 'mic', label: 'Requesting microphone access', status: 'pending' },
-    { id: 'encoder', label: 'Setting up audio engine', status: 'pending' },
-    { id: 'relay', label: 'Connecting to stream relay', status: 'pending' },
-    { id: 'mount', label: 'Activating mount point', status: 'pending' },
-  ]
+  private steps: BroadcastStepInfo[] = []
+
+  private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
+    const steps: BroadcastStepInfo[] = []
+    if (!skipMic) {
+      steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
+    }
+    steps.push(
+      { id: 'encoder', label: 'Setting up audio engine', status: 'pending' },
+      { id: 'relay', label: 'Connecting to stream relay', status: 'pending' },
+      { id: 'mount', label: 'Activating mount point', status: 'pending' },
+    )
+    return steps
+  }
 
   constructor(stationId: string, callbacks: BroadcastCallbacks) {
     this.stationId = stationId
@@ -77,15 +85,13 @@ export class BroadcastManager {
    */
   async start(options?: { skipMic?: boolean }): Promise<void> {
     this.authenticated = false
-    this.steps = this.steps.map((s) => ({ ...s, status: 'pending' as StepStatus, errorMessage: undefined }))
+    this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
 
     try {
-      // Step 1: Request microphone (or skip if unavailable)
-      if (options?.skipMic) {
-        this.updateStep('mic', 'done')
-      } else {
+      // Step 1: Request microphone (skipped entirely in files-only mode)
+      if (!options?.skipMic) {
         this.setActiveStep('mic')
         this.micStream = await navigator.mediaDevices.getUserMedia({
           audio: {

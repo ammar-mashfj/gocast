@@ -52,24 +52,24 @@ export default async function LiveNow() {
   if (stations.length === 0) return null
 
   return (
-    <section className="px-10 py-24" id="live">
-      <div className="text-center mb-16">
+    <section className="px-4 md:px-10 py-12 md:py-24" id="live">
+      <div className="text-center mb-10 md:mb-16">
         <div className="text-[11px] tracking-[3px] uppercase text-violet-muted mb-4">
           Live now
         </div>
-        <h2 className="text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
+        <h2 className="text-2xl md:text-[32px] lg:text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
           Discover what&apos;s on air.
         </h2>
-        <p className="text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
+        <p className="text-sm md:text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
           Stations broadcasting right now, powered by GoCast.
         </p>
       </div>
 
-      <div className={`grid gap-3 ${
-        stations.length === 1 ? "grid-cols-1 max-w-sm mx-auto"
-          : stations.length === 2 ? "grid-cols-2 max-w-2xl mx-auto"
-          : stations.length === 3 ? "grid-cols-3"
-          : "grid-cols-4"
+      <div className={`grid gap-3 grid-cols-1 sm:grid-cols-2 ${
+        stations.length === 1 ? "sm:grid-cols-1 max-w-sm mx-auto"
+          : stations.length === 2 ? "lg:grid-cols-2 max-w-2xl mx-auto"
+          : stations.length === 3 ? "lg:grid-cols-3"
+          : "lg:grid-cols-4"
       }`}>
         {stations.map((station, i) => (
           <Link

@@ -15,7 +15,7 @@ const SOCIALS = [
 
 export default function Footer() {
   return (
-    <footer className="border-t border-border-subtle px-10 py-8 flex items-center justify-between">
+    <footer className="border-t border-border-subtle px-4 md:px-10 py-6 md:py-8 flex flex-col md:flex-row items-center justify-between gap-4">
       <div className="flex items-center gap-4">
         <div className="flex items-center">
           <Image src="/logo.svg" alt="GoCast" width={75} height={75} />
