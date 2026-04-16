@@ -8,7 +8,7 @@ import {
   IconX,
   IconLoader2,
   IconCircleDot,
-  IconCopy,
+  IconShare,
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import api from "@/lib/axios"
+import { shareOrCopy } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
 import type { BroadcastStepInfo, StepStatus } from "@/lib/broadcast"
 import { env } from "@/lib/env"
@@ -86,10 +87,10 @@ function SuccessView({ station, onOpenControls }: { station: Station; onOpenCont
         <div className="flex items-center gap-2 px-4 py-2.5 bg-muted rounded-lg text-sm text-muted-foreground mb-5 max-w-full">
           <span className="truncate">{playerUrl}</span>
           <button
-            onClick={() => navigator.clipboard.writeText(playerUrl)}
+            onClick={() => shareOrCopy(playerUrl, station.name)}
             className="text-primary bg-transparent border-none cursor-pointer hover:text-primary/80 shrink-0"
           >
-            <IconCopy size={14} />
+            <IconShare size={14} />
           </button>
         </div>
 
@@ -111,7 +112,9 @@ export default function GoLivePage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const slug = params.slug
-  const micDisabled = searchParams.get("micDisabled") === "true"
+  const micDisabledParam = searchParams.get("micDisabled") === "true"
+  const micDisabledStorage = typeof window !== 'undefined' && (() => { try { return sessionStorage.getItem('broadcast:micDisabled') === 'true' } catch { return false } })()
+  const micDisabled = micDisabledParam || !!micDisabledStorage
   const { state, steps, error, start } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
   const startedRef = useRef(false)
