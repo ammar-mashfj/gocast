@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
+import { IconLoader2 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { NowPlaying } from "@/components/studio/NowPlaying"
 import { TransportControls } from "@/components/studio/TransportControls"
@@ -28,13 +29,22 @@ export default function StudioPage() {
   }, [state, slug, router])
 
   useEffect(() => {
-    if (state !== "live") return
+    if (state !== "live" && state !== "reconnecting") return
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
     }
     window.addEventListener("beforeunload", handleBeforeUnload)
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [state])
+
+  if (state === "reconnecting") {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 h-[calc(100vh-3.5rem)] -m-6">
+        <IconLoader2 size={32} className="text-primary animate-spin" />
+        <p className="text-sm text-muted-foreground">Reconnecting to stream relay...</p>
+      </div>
+    )
+  }
 
   if (state !== "live") return null
 

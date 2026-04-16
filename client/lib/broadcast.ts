@@ -4,7 +4,7 @@ import { AudioEngine } from './audioEngine'
 
 export type BroadcastStep = 'mic' | 'encoder' | 'relay' | 'mount'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
-export type BroadcastState = 'idle' | 'connecting' | 'live' | 'error'
+export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
 
 export interface BroadcastStepInfo {
   id: BroadcastStep
@@ -42,8 +42,10 @@ export class BroadcastManager {
   private sessionId: string | null = null
   private authenticated = false
   private engine: AudioEngine | null = null
-  private releaseLock: (() => void) | null = null
+  private wakeLock: WakeLockSentinel | null = null
   private steps: BroadcastStepInfo[] = []
+  private reconnecting = false
+  private visibilityHandler: (() => void) | null = null
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = []
@@ -210,12 +212,59 @@ export class BroadcastManager {
             || (event.code >= 4000 ? `Relay error (${event.code})` : 'Connection to relay lost')
           reject(new Error(reason))
         } else if (this.authenticated) {
-          this.updateStep('mount', 'error', 'Connection to relay lost')
-          this.callbacks.onError('Connection to relay lost')
-          this.callbacks.onStateChange('error')
+          this.authenticated = false
+          this.scheduleReconnect()
         }
       }
     })
+  }
+
+  /**
+   * Schedule a reconnect attempt. If the page is visible, reconnect immediately.
+   * Otherwise, wait for a visibilitychange event to reconnect.
+   */
+  private scheduleReconnect() {
+    if (this.reconnecting) return
+    this.reconnecting = true
+    this.callbacks.onStateChange('reconnecting' as BroadcastState)
+
+    if (document.visibilityState === 'visible') {
+      this.attemptReconnect()
+    } else {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === 'visible') {
+          this.removeVisibilityHandler()
+          this.attemptReconnect()
+        }
+      }
+      document.addEventListener('visibilitychange', this.visibilityHandler)
+    }
+  }
+
+  private removeVisibilityHandler() {
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler)
+      this.visibilityHandler = null
+    }
+  }
+
+  /**
+   * Attempt to reconnect the WebSocket with a new stream token.
+   * The audio engine and mic stream are preserved.
+   */
+  private async attemptReconnect() {
+    try {
+      const tokenRes = await api.post(`/stations/${this.stationId}/stream-token`)
+      const streamToken = tokenRes.data.data.token as string
+      await this.connectAndAuthenticate(streamToken)
+      this.reconnecting = false
+      this.callbacks.onError('')
+      this.callbacks.onStateChange('live')
+    } catch {
+      this.reconnecting = false
+      this.callbacks.onError('Connection to relay lost')
+      this.callbacks.onStateChange('error')
+    }
   }
 
   updateMetadata(title: string, artist: string) {
@@ -242,6 +291,8 @@ export class BroadcastManager {
    * internal state back to idle.
    */
   async stop(): Promise<void> {
+    this.removeVisibilityHandler()
+    this.reconnecting = false
     this.engine?.destroy()
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.ws?.close()
@@ -261,20 +312,16 @@ export class BroadcastManager {
     this.callbacks.onStateChange('idle')
   }
 
-  private acquireWakeLock() {
-    if (!navigator.locks) return
-    navigator.locks.request('gocast-broadcast', () => {
-      return new Promise<void>((resolve) => {
-        this.releaseLock = resolve
-      })
-    })
+  private async acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return
+    try {
+      this.wakeLock = await navigator.wakeLock.request('screen')
+    } catch { /* device may not support it */ }
   }
 
   private releaseWakeLock() {
-    if (this.releaseLock) {
-      this.releaseLock()
-      this.releaseLock = null
-    }
+    this.wakeLock?.release()
+    this.wakeLock = null
   }
 
   /**
