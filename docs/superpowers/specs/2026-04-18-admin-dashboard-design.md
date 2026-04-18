@@ -217,7 +217,9 @@ Every destructive action uses a Filament confirmation modal that requires the op
 | `rappasoft/laravel-authentication-log` | login tracking |
 | `opcodesio/log-viewer` + Filament plugin | in-panel Laravel log reader |
 
-All packages installed via Composer in `api/`. No npm/node dependencies added.
+All packages installed via Composer in `api/`.
+
+**Frontend assets:** Filament ships pre-compiled CSS/JS (Livewire + Alpine + Tailwind output) that `php artisan filament:install` publishes to `public/`. Laravel serves them directly — no build step, no `npm install`, no `package.json` in `api/`. Branding in v1 is configured via PHP only (`->colors(['primary' => ...])` on the panel provider, logo set via `->brandLogo(asset('...'))`). If a fully custom theme is ever wanted, that's a follow-up migration to a Vite-based theme build; explicitly out of scope here.
 
 ---
 
