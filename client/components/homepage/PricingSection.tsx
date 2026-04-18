@@ -1,5 +1,7 @@
 import Link from "next/link"
 import { IconCheck } from "@tabler/icons-react"
+import ComingSoonBadge from "./ComingSoonBadge"
+import WaitlistButton from "./WaitlistButton"
 
 interface Plan {
   name: string
@@ -11,6 +13,7 @@ interface Plan {
   ctaHref: string
   popular?: boolean
   primaryCta?: boolean
+  waitlist?: boolean
 }
 
 interface AddOn {
@@ -56,10 +59,11 @@ const PLANS: Plan[] = [
       "Direct stream URL for third-party players",
       "Priority support",
     ],
-    cta: "Contact us to upgrade",
-    ctaHref: "mailto:hello@gocast.fm?subject=GoCast%20Pro%20Plan&body=Hi%2C%0A%0AI'd%20like%20to%20upgrade%20to%20the%20Pro%20plan%20(%2429%2Fmo).%0A%0AMy%20account%20email%3A%20%0AMy%20station%3A%20%0A%0AThanks!",
+    cta: "Join the waitlist",
+    ctaHref: "",
     popular: true,
     primaryCta: true,
+    waitlist: true,
   },
 ]
 
@@ -108,8 +112,9 @@ export default function PricingSection() {
               plan.popular
                 ? "border-violet-border/70 bg-violet-full/[0.04] shadow-[0_0_40px_rgba(139,92,246,0.1)]"
                 : "border-white/[0.06]"
-            }`}
+            } ${plan.waitlist ? "opacity-85" : ""}`}
           >
+            {plan.waitlist && <ComingSoonBadge />}
             <div className="text-[13px] tracking-[2px] uppercase text-text-muted/85 mb-3">
               {plan.name}
             </div>
@@ -131,7 +136,14 @@ export default function PricingSection() {
                 </li>
               ))}
             </ul>
-            {plan.ctaHref.startsWith("mailto:") ? (
+            {plan.waitlist ? (
+              <WaitlistButton
+                plan="pro"
+                className="block w-full mt-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all"
+              >
+                {plan.cta}
+              </WaitlistButton>
+            ) : plan.ctaHref.startsWith("mailto:") ? (
               <a
                 href={plan.ctaHref}
                 className={`block w-full mt-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline transition-all ${
@@ -176,7 +188,7 @@ export default function PricingSection() {
           {ADDONS.filter((a) => a.name !== "Custom Domain").map((addon) => (
             <div
               key={addon.name}
-              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)] opacity-80"
             >
               <div className="flex items-baseline justify-between mb-3">
                 <div className="text-base font-medium text-text-secondary">
@@ -189,12 +201,9 @@ export default function PricingSection() {
               <div className="text-[13px] text-text-faint leading-[1.7] mb-6 flex-1">
                 {addon.description}
               </div>
-              <a
-                href={addon.ctaHref}
-                className="block w-full py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline bg-transparent text-text-muted border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-all"
-              >
-                Get in touch
-              </a>
+              <div className="text-[11px] tracking-[2px] uppercase text-text-faint text-center py-3">
+                Coming soon
+              </div>
             </div>
           ))}
         </div>
@@ -203,7 +212,7 @@ export default function PricingSection() {
         {ADDONS.filter((a) => a.name === "Custom Domain").map((addon) => (
           <div
             key={addon.name}
-            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)] opacity-80"
           >
             <div className="flex-1">
               <div className="flex items-baseline gap-3 mb-1.5">
@@ -218,12 +227,9 @@ export default function PricingSection() {
                 {addon.description}
               </div>
             </div>
-            <a
-              href={addon.ctaHref}
-              className="shrink-0 px-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline bg-transparent text-text-muted border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-all"
-            >
-              Get in touch
-            </a>
+            <div className="shrink-0 text-[11px] tracking-[2px] uppercase text-text-faint text-center md:text-right px-2">
+              Coming soon
+            </div>
           </div>
         ))}
       </div>
