@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* Production optimizations */
   compress: true,
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
