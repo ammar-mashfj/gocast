@@ -11,7 +11,7 @@
 ### Goals
 - Give the founder a production-grade admin panel to manage users, stations, broadcasts, plans, and the waitlist.
 - Provide operational visibility: dashboard metrics, activity log, authentication log, Laravel log viewer.
-- Support the core destructive actions needed for trust & safety: suspend user, force-stop a live broadcast, soft-delete user/station.
+- Support the core destructive actions needed for trust & safety: suspend user, soft-delete user/station.
 - Lay groundwork for future multi-admin / RBAC without forcing it today.
 
 ### Non-goals (explicitly deferred)
@@ -41,12 +41,12 @@
 - Admin sessions: 8-hour idle timeout, "remember me" disabled.
 - Production-only IP allowlist is **not** enforced at app level in v1 (can be added at nginx/Cloudflare later without app changes — one of the reasons for the subdomain).
 
-### Relay coordination contract (new)
-The Node relay gets a minimal internal HTTP control server, same shared-secret auth as the existing relay→API `/internal/*` routes (`INTERNAL_KEY` header).
+### Relay: no coordination in v1
+The admin panel does **not** talk to the Node relay in this version, and does **not** write to `stations.is_live`. `is_live` is owned exclusively by the relay (set true on producer connect via `/internal/validate-stream`, set false on disconnect via `/internal/stream-ended`). The admin panel reads it; nothing more.
 
-- `POST {RELAY_CONTROL_URL}/control/kick` — body `{ station_id: int, reason: string }`. Response: `204 No Content`. Server-side behavior: find any active producer WebSocket for that station, send close frame with code `4003` and reason in payload, drop the connection. Idempotent — kicking a non-live station returns 204.
+**Known v1 limitation (documented, accepted):** if an admin suspends or soft-deletes a user while that user is actively broadcasting, the producer's open WebSocket → relay → Icecast pipeline keeps flowing audio to listeners until the broadcast ends naturally (tab closed, network drop, etc.). The user's Sanctum tokens are revoked so they cannot start a *new* broadcast, but the active session is not interrupted. Effect is bounded to the current broadcast.
 
-The browser broadcaster (already reconnects on abnormal close) is updated: on close code `4003`, show a non-dismissable banner "Broadcast stopped by a moderator — reason: {reason}" and do **not** auto-reconnect. User must manually start a new broadcast (which may fail if they're also suspended).
+**Future work (not v1):** add a relay control endpoint (`POST /control/kick` with `INTERNAL_KEY` auth) that closes the producer WebSocket with a dedicated close code, plus a client handler that surfaces a "Broadcast stopped by a moderator" banner and disables auto-reconnect. Deferred by explicit scope decision — the v1 panel is a pure data/management layer with no runtime ops.
 
 ---
 
@@ -109,7 +109,7 @@ The browser broadcaster (already reconnects on abnormal close) is updated: on cl
 ### StationResource
 - **Columns:** name, slug, owner (linked), live/offline badge, current listener count, is_featured, created_at.
 - **Filters:** featured, live/offline, owner (autocomplete).
-- **Row actions:** view, edit, feature/unfeature, force-stop (visible only when live), soft-delete.
+- **Row actions:** view, edit, feature/unfeature, soft-delete.
 - **Edit form:** name, slug, description, artwork, `is_featured` toggle.
 - **Detail panels:** station metadata · owner link · stream sessions (last 50) · activity log (subject=this station).
 
@@ -174,29 +174,26 @@ Every destructive action uses a Filament confirmation modal that requires the op
 
 ### Suspend user
 1. `users.suspended_at = now()`, `suspension_reason` required (min 3 chars).
-2. Delete all of that user's Sanctum tokens (`$user->tokens()->delete()`) → forces logout on next request.
-3. For each of the user's stations currently live: call `POST {RELAY_CONTROL_URL}/control/kick` with reason `"Owner account suspended"`. Log each kick attempt (success or failure) to the activity log.
-4. Record activity row: causer=admin, subject=user, event=`suspended`, properties=`{ reason }`.
-5. Middleware `EnsureUserNotSuspended` runs on every `auth:sanctum`-protected route. On hit: return 403 with body `{ error: "account_suspended", reason }`. SPA intercepts this specific code → full logout + non-dismissable message screen.
+2. Delete all of that user's Sanctum tokens (`$user->tokens()->delete()`) → forces logout on next request, blocks new broadcast token issuance.
+3. Record activity row: causer=admin, subject=user, event=`suspended`, properties=`{ reason }`.
+4. Middleware `EnsureUserNotSuspended` runs on every `auth:sanctum`-protected route. On hit: return 403 with body `{ error: "account_suspended", reason }`. SPA intercepts this specific code → full logout + non-dismissable message screen.
+
+`stations.is_live` is owned by the relay — admin actions never write to it. A currently-broadcasting suspended user keeps streaming until the natural end of their session (see §2 limitation); token revocation prevents them from starting a *new* broadcast.
 
 ### Unsuspend user
 - Null `suspended_at` and `suspension_reason`. Log activity. User can log in again; no token reissue needed.
 
 ### Force-stop a live broadcast
-- Admin clicks "Force stop" on a live station → confirmation modal (type slug) → `ForceStopStationAction` runs:
-  1. Call `POST {RELAY_CONTROL_URL}/control/kick` with 2s timeout.
-  2. Set station's live flag false in DB regardless of relay response (so DB state doesn't drift if relay is down).
-  3. Log activity — on relay success: event=`force_stopped`. On relay failure: event=`force_stopped_with_relay_error`, properties include the error.
-- Admin sees a notification reflecting success or the partial-failure case. No silent failures.
+- **Not in v1.** Requires relay coordination, which is out of scope. Listed under §2 future work.
 
 ### Soft-delete user
-- Runs suspend flow first (tokens revoked, lives kicked).
+- Runs suspend flow first (tokens revoked, `suspended_at` set).
 - Soft-deletes the user and cascades to their stations (`$user->stations()->delete()` on the soft-deleted relation).
+- `stations.is_live` is not modified. If the user is mid-broadcast when deleted, the stream continues until natural end; relay will flip `is_live` to false via the existing `/internal/stream-ended` route at that point.
 - **No UI-level "restore"** in v1. Recovery via `php artisan user:restore {id}` — keeps mis-click recovery out of the same interface that caused the mis-click.
 
 ### Soft-delete station
-- If live, kick first.
-- Soft-delete. Owner's `stations_count` goes down accordingly.
+- Soft-delete only. No relay interaction. `is_live` is not modified; natural stream end will flip it.
 - No UI restore; `php artisan station:restore {id}`.
 
 ---
@@ -205,7 +202,7 @@ Every destructive action uses a Filament confirmation modal that requires the op
 
 ### Activity log (spatie/laravel-activitylog)
 - Globally enabled on `User`, `Station`, `Admin`, `Plan` (log name `default`, logs `created`, `updated`, `deleted`, `restored`).
-- Explicitly called in every custom Filament action (suspend, unsuspend, force-stop, feature/unfeature, etc.) with a hand-chosen event name.
+- Explicitly called in every custom Filament action (suspend, unsuspend, feature/unfeature, resend-verify, mark-verified, etc.) with a hand-chosen event name.
 - Causer morph map defined so DB stores short keys (`admin`, `user`) not FQCNs.
 - Surfaced via `ActivityLogResource` and inline on User / Station detail pages.
 
@@ -225,8 +222,6 @@ Small, targeted changes only:
 
 - **Suspension response handler** — a response interceptor in the existing API client: on 403 with `{ error: "account_suspended" }`, clear auth state, redirect to `/suspended` page showing the reason.
 - **New `/suspended` page** — server component that reads the reason from query param (sanitized).
-- **Broadcaster close code 4003 handler** — in the existing broadcaster reconnect logic, treat 4003 as terminal: stop reconnect, show banner with reason from the close payload.
-
 No admin UI in the client. The panel is entirely on `admin.gocast.ai`.
 
 ---
@@ -245,10 +240,9 @@ No admin UI in the client. The panel is entirely on `admin.gocast.ai`.
 ## 10. Testing strategy
 
 - **Pest feature tests** for every admin action that has side effects:
-  - Suspend → user cannot make authenticated requests, tokens revoked, live stations kicked (relay call mocked).
+  - Suspend → user cannot make authenticated requests, tokens revoked, activity logged.
   - Unsuspend → user can log in again.
-  - Force-stop → relay called, DB flag updated, activity logged. Both success and relay-failure paths.
-  - Soft-delete user → cascades to stations, tokens revoked.
+  - Soft-delete user → cascades to stations, tokens revoked, `is_live` untouched.
 - **Policy tests** — non-admin User with valid Sanctum token cannot access any `admin.gocast.ai` route (returns 403 or redirect).
 - **Pest browser smoke tests** (Pest 4) — login page loads, dashboard loads, each resource's list page loads, no JS errors.
 - **Pest arch tests** — no admin code imports `App\Models\User` except through approved boundaries; `admins` table is only referenced by the `admin` guard.
