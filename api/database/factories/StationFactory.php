@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Station;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,8 +18,16 @@ class StationFactory extends Factory
      */
     public function definition(): array
     {
+        $slug = fake()->unique()->slug(2);
+
         return [
-            //
+            'user_id' => User::factory(),
+            'name' => fake()->words(2, asText: true),
+            'slug' => $slug,
+            'description' => fake()->optional()->sentence(),
+            'genre' => fake()->optional()->word(),
+            'is_live' => false,
+            'featured' => false,
         ];
     }
 }

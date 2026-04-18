@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 /**
  * @property int $id
@@ -14,10 +17,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Plan extends Model
 {
+    use HasFactory;
+    use LogsActivity;
+
     protected $guarded = [];
 
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['name', 'slug', 'max_stations', 'max_listeners'])
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges();
     }
 }

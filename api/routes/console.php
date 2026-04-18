@@ -10,3 +10,8 @@ Artisan::command('inspire', function () {
 
 // Run every 5 minutes to detect relay outages and mark orphaned live stations as offline.
 Schedule::command('app:clean-stale-streams')->everyFiveMinutes();
+
+Schedule::command('admin:detect-login-abuse')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

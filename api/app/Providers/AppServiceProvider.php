@@ -2,8 +2,16 @@
 
 namespace App\Providers;
 
+use App\Listeners\RecordAdminLastLogin;
+use App\Models\Admin;
+use App\Models\Plan;
+use App\Models\Station;
+use App\Models\User;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -41,5 +49,14 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('uploads', function (Request $request) {
             return Limit::perMinute(20)->by($request->user()->id);
         });
+
+        Relation::enforceMorphMap([
+            'admin' => Admin::class,
+            'user' => User::class,
+            'station' => Station::class,
+            'plan' => Plan::class,
+        ]);
+
+        Event::listen(Login::class, RecordAdminLastLogin::class);
     }
 }
