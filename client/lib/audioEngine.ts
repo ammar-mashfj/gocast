@@ -1,13 +1,5 @@
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback } from './queueStore'
 
-// lamejs is loaded via <script> in index.html (no ESM support)
-declare const lamejs: {
-  Mp3Encoder: new (channels: number, sampleRate: number, bitrate: number) => {
-    encodeBuffer(left: Int16Array): Int16Array
-    flush(): Int16Array
-  }
-}
-
 export interface QueueTrack {
   id: string
   file: File
@@ -23,13 +15,16 @@ const MIC_BOOST = 3
 
 /**
  * Single AudioContext mixer. Files and mic both route through gain nodes
- * into one AudioWorkletNode that captures PCM and posts it to the main
- * thread for MP3 encoding.
+ * into an AudioWorkletNode that captures PCM and forwards it — via a
+ * MessagePort — directly to an encoder Web Worker. Encoded MP3 chunks
+ * arrive on the main thread only to be handed to the WebSocket sender.
  *
  * Chain:
  *   fileSource → fileGain ─┐
- *                           ├→ analyser → workletNode → (main thread encode → onChunk)
- *   micSource  → micGain  ─┘
+ *                           ├→ analyser → workletNode ──port──► Worker (lamejs)
+ *   micSource  → micGain  ─┘                                        │
+ *                                                                    ▼
+ *                                                              main → onChunk
  *
  * PTT: micGain 0→MIC_BOOST, fileGain 1→0.2. Release: reverse.
  */
@@ -40,7 +35,7 @@ export class AudioEngine {
   private fileGain: GainNode
   private micGain: GainNode
   private mixer: GainNode
-  private encoder: InstanceType<typeof lamejs.Mp3Encoder>
+  private encoderWorker: Worker
 
   // Mic
   private micSource: MediaStreamAudioSourceNode | null = null
@@ -63,15 +58,23 @@ export class AudioEngine {
   private constructor(
     ctx: AudioContext,
     workletNode: AudioWorkletNode,
+    encoderWorker: Worker,
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     onChange: () => void,
   ) {
     this.ctx = ctx
     this.workletNode = workletNode
+    this.encoderWorker = encoderWorker
     this.onChunk = onChunk
     this.onChange = onChange
-    this.encoder = new lamejs.Mp3Encoder(1, SAMPLE_RATE, MP3_BITRATE) as InstanceType<typeof lamejs.Mp3Encoder>
+
+    // Encoded chunks arrive from the worker; pass straight through to the sender.
+    this.encoderWorker.addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.type === 'chunk') {
+        this.onChunk(e.data.data as ArrayBuffer)
+      }
+    })
 
     // Mixer node — everything merges here
     this.mixer = this.ctx.createGain()
@@ -98,12 +101,6 @@ export class AudioEngine {
     this.analyser.fftSize = 2048
     this.mixer.connect(this.analyser)
 
-    // AudioWorkletNode captures the mixed output — encoding happens on main thread
-    this.workletNode.port.onmessage = (e: MessageEvent) => {
-      const channelData = e.data as Float32Array
-      const chunk = this.encodeSamples(channelData)
-      if (chunk) this.onChunk(chunk.buffer as ArrayBuffer)
-    }
     this.analyser.connect(this.workletNode)
     this.workletNode.connect(this.ctx.destination) // keep node alive
 
@@ -117,8 +114,10 @@ export class AudioEngine {
   }
 
   /**
-   * Factory that creates an AudioEngine with a running AudioContext and
-   * PCM capture worklet. Prefer this over the private constructor.
+   * Factory that creates an AudioEngine with a running AudioContext,
+   * PCM capture worklet, and encoder Worker. Establishes a MessageChannel
+   * so the worklet forwards PCM directly to the worker without bouncing
+   * through the main thread.
    */
   static async create(
     micStream: MediaStream | null,
@@ -128,19 +127,34 @@ export class AudioEngine {
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
     await ctx.audioWorklet.addModule('/pcm-worklet.js')
     const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
-    return new AudioEngine(ctx, workletNode, micStream, onChunk, onChange)
-  }
 
-  private encodeSamples(channelData: Float32Array): Uint8Array | null {
-    const len = channelData.length
-    const samples = new Int16Array(len)
-    for (let i = 0; i < len; i++) {
-      const s = Math.max(-1, Math.min(1, channelData[i]))
-      samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-    }
-    const mp3Data = this.encoder.encodeBuffer(samples)
-    if (mp3Data.length > 0) return new Uint8Array(mp3Data)
-    return null
+    const worker = new Worker('/encoder-worker.js')
+    const ready = new Promise<void>((resolve, reject) => {
+      const onReady = (e: MessageEvent) => {
+        if (e.data?.type === 'ready') {
+          worker.removeEventListener('message', onReady)
+          worker.removeEventListener('error', onError)
+          resolve()
+        }
+      }
+      const onError = (e: ErrorEvent) => {
+        worker.removeEventListener('message', onReady)
+        worker.removeEventListener('error', onError)
+        reject(new Error(`Encoder worker failed to load: ${e.message}`))
+      }
+      worker.addEventListener('message', onReady)
+      worker.addEventListener('error', onError)
+    })
+
+    const channel = new MessageChannel()
+    workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
+    worker.postMessage(
+      { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+      [channel.port2],
+    )
+    await ready
+
+    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk, onChange)
   }
 
   // ── PTT ──
@@ -407,18 +421,28 @@ export class AudioEngine {
     }
   }
 
-  flush(): void {
-    const remaining = this.encoder.flush()
-    if (remaining.length > 0) {
-      this.onChunk(new Uint8Array(remaining).buffer)
-    }
+  /** Ask the encoder worker to flush; resolves once the final chunk has been dispatched. */
+  flush(): Promise<void> {
+    return new Promise((resolve) => {
+      const handler = (e: MessageEvent) => {
+        if (e.data?.type === 'flushed') {
+          this.encoderWorker.removeEventListener('message', handler)
+          resolve()
+        }
+      }
+      this.encoderWorker.addEventListener('message', handler)
+      this.encoderWorker.postMessage({ type: 'flush' })
+    })
   }
 
-  /** Flush remaining MP3 data, disconnect all audio nodes, and close the AudioContext. */
-  destroy() {
+  /** Flush remaining MP3 data, tear down the worker + audio graph, and close the AudioContext. */
+  async destroy(): Promise<void> {
     if (this.progressTimer) clearInterval(this.progressTimer)
     this.stopCurrent()
-    this.flush()
+    try {
+      await this.flush()
+    } catch { /* worker already gone */ }
+    this.encoderWorker.terminate()
     this.micSource?.disconnect()
     this.workletNode.port.onmessage = null
     this.workletNode.disconnect()
@@ -426,6 +450,6 @@ export class AudioEngine {
     this.mixer.disconnect()
     this.fileGain.disconnect()
     this.micGain.disconnect()
-    if (this.ctx.state !== 'closed') this.ctx.close()
+    if (this.ctx.state !== 'closed') await this.ctx.close()
   }
 }
