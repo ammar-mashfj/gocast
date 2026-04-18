@@ -1,5 +1,7 @@
 import Link from "next/link"
 import { IconCheck } from "@tabler/icons-react"
+import ComingSoonBadge from "./ComingSoonBadge"
+import WaitlistButton from "./WaitlistButton"
 
 interface Plan {
   name: string
@@ -11,6 +13,7 @@ interface Plan {
   ctaHref: string
   popular?: boolean
   primaryCta?: boolean
+  waitlist?: boolean
 }
 
 interface AddOn {
@@ -56,10 +59,11 @@ const PLANS: Plan[] = [
       "Direct stream URL for third-party players",
       "Priority support",
     ],
-    cta: "Contact us to upgrade",
-    ctaHref: "mailto:hello@gocast.fm?subject=GoCast%20Pro%20Plan&body=Hi%2C%0A%0AI'd%20like%20to%20upgrade%20to%20the%20Pro%20plan%20(%2429%2Fmo).%0A%0AMy%20account%20email%3A%20%0AMy%20station%3A%20%0A%0AThanks!",
+    cta: "Join the waitlist",
+    ctaHref: "",
     popular: true,
     primaryCta: true,
+    waitlist: true,
   },
 ]
 
@@ -108,8 +112,9 @@ export default function PricingSection() {
               plan.popular
                 ? "border-violet-border/70 bg-violet-full/[0.04] shadow-[0_0_40px_rgba(139,92,246,0.1)]"
                 : "border-white/[0.06]"
-            }`}
+            } ${plan.waitlist ? "opacity-85" : ""}`}
           >
+            {plan.waitlist && <ComingSoonBadge />}
             <div className="text-[13px] tracking-[2px] uppercase text-text-muted/85 mb-3">
               {plan.name}
             </div>
@@ -131,7 +136,14 @@ export default function PricingSection() {
                 </li>
               ))}
             </ul>
-            {plan.ctaHref.startsWith("mailto:") ? (
+            {plan.waitlist ? (
+              <WaitlistButton
+                plan="pro"
+                className="block w-full mt-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all"
+              >
+                {plan.cta}
+              </WaitlistButton>
+            ) : plan.ctaHref.startsWith("mailto:") ? (
               <a
                 href={plan.ctaHref}
                 className={`block w-full mt-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline transition-all ${
