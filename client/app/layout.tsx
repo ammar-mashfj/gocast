@@ -11,9 +11,6 @@ const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-sans' });
 export const metadata: Metadata = {
   title: "GoCast — Live Radio Streaming",
   description: "Your voice, on air in 60 seconds. Broadcast live radio from your browser.",
-  icons: {
-    icon: "/favicon.svg",
-  },
 };
 
 export default function RootLayout({
