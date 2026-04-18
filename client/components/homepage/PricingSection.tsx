@@ -188,7 +188,7 @@ export default function PricingSection() {
           {ADDONS.filter((a) => a.name !== "Custom Domain").map((addon) => (
             <div
               key={addon.name}
-              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+              className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-9 flex flex-col transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)] opacity-80"
             >
               <div className="flex items-baseline justify-between mb-3">
                 <div className="text-base font-medium text-text-secondary">
@@ -201,12 +201,9 @@ export default function PricingSection() {
               <div className="text-[13px] text-text-faint leading-[1.7] mb-6 flex-1">
                 {addon.description}
               </div>
-              <a
-                href={addon.ctaHref}
-                className="block w-full py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline bg-transparent text-text-muted border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-all"
-              >
-                Get in touch
-              </a>
+              <div className="text-[11px] tracking-[2px] uppercase text-text-faint text-center py-3">
+                Coming soon
+              </div>
             </div>
           ))}
         </div>
@@ -215,7 +212,7 @@ export default function PricingSection() {
         {ADDONS.filter((a) => a.name === "Custom Domain").map((addon) => (
           <div
             key={addon.name}
-            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)]"
+            className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-8 transition-all hover:-translate-y-0.5 shadow-[0_0_40px_rgba(139,92,246,0.1)] opacity-80"
           >
             <div className="flex-1">
               <div className="flex items-baseline gap-3 mb-1.5">
@@ -230,12 +227,9 @@ export default function PricingSection() {
                 {addon.description}
               </div>
             </div>
-            <a
-              href={addon.ctaHref}
-              className="shrink-0 px-6 py-3 rounded-lg text-[13px] text-center cursor-pointer font-medium no-underline bg-transparent text-text-muted border border-white/[0.08] hover:border-white/[0.15] hover:text-white transition-all"
-            >
-              Get in touch
-            </a>
+            <div className="shrink-0 text-[11px] tracking-[2px] uppercase text-text-faint text-center md:text-right px-2">
+              Coming soon
+            </div>
           </div>
         ))}
       </div>
