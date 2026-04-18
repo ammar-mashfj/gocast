@@ -219,6 +219,36 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
     return () => playerRef.current?.stop()
   }, [])
 
+  // OS Media Session — drives the lock screen card, notification, and Bluetooth/headset remotes.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return
+
+    if (!playing) {
+      navigator.mediaSession.playbackState = "none"
+      navigator.mediaSession.metadata = null
+      return
+    }
+
+    const artworkUrl = station.artwork_url || `${env.appUrl}/media-icon-512.png`
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: nowPlaying.title || station.name,
+      artist: nowPlaying.artist || station.name,
+      album: `Live on GoCast${station.genre ? ` · ${station.genre}` : ""}`,
+      artwork: [{ src: artworkUrl, sizes: "512x512", type: "image/png" }],
+    })
+
+    navigator.mediaSession.playbackState = "playing"
+    navigator.mediaSession.setActionHandler("play", togglePlay)
+    navigator.mediaSession.setActionHandler("pause", togglePlay)
+    navigator.mediaSession.setActionHandler("stop", togglePlay)
+    // Live radio — disable seeking, there's no timeline to scrub.
+    navigator.mediaSession.setActionHandler("seekbackward", null)
+    navigator.mediaSession.setActionHandler("seekforward", null)
+    navigator.mediaSession.setActionHandler("seekto", null)
+    navigator.mediaSession.setActionHandler("previoustrack", null)
+    navigator.mediaSession.setActionHandler("nexttrack", null)
+  }, [playing, station, nowPlaying, togglePlay])
+
   return (
     <div className="relative h-screen bg-background text-foreground flex flex-col md:grid md:grid-cols-2 overflow-hidden">
       <div className="absolute -top-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_70%)] pointer-events-none" />

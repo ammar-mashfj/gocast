@@ -148,7 +148,7 @@ export class BroadcastManager {
       this.acquireWakeLock()
       this.callbacks.onStateChange('live')
     } catch (err) {
-      this.fail(err)
+      await this.fail(err)
     }
   }
 
@@ -293,7 +293,7 @@ export class BroadcastManager {
   async stop(): Promise<void> {
     this.removeVisibilityHandler()
     this.reconnecting = false
-    this.engine?.destroy()
+    await this.engine?.destroy()
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.ws?.close()
 
@@ -328,7 +328,7 @@ export class BroadcastManager {
    * Handle a broadcast failure. Marks the currently active step as errored,
    * notifies callbacks, releases resources, and transitions state to 'error'.
    */
-  private fail(err: unknown) {
+  private async fail(err: unknown) {
     const activeStep = this.steps.find((s) => s.status === 'active')
 
     let message = 'Something went wrong'
@@ -349,7 +349,7 @@ export class BroadcastManager {
     this.releaseWakeLock()
 
     this.micStream?.getTracks().forEach((t) => t.stop())
-    this.engine?.destroy()
+    await this.engine?.destroy()
     this.ws?.close()
   }
 }
