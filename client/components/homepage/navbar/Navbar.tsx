@@ -7,6 +7,7 @@ import UserMenu from "./UserMenu"
 const NAV_LINKS = [
   { label: "How it works", href: "#features" },
   { label: "Pricing", href: "#pricing" },
+  { label: "Roadmap", href: "/roadmap" },
 ] as const
 
 export default async function Navbar() {
