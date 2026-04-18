@@ -1,11 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { IconPlus, IconMinus, IconX, IconGripVertical } from "@tabler/icons-react"
+import { useState, useRef, useCallback } from "react"
+import { useParams } from "next/navigation"
+import { IconPlus, IconMinus, IconX, IconGripVertical, IconLoader2 } from "@tabler/icons-react"
+import { toast } from "sonner"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { QueueTrack } from "@/lib/audioEngine"
+import api from "@/lib/axios"
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -23,29 +25,44 @@ const GRADIENTS = [
 const ICONS = ["♫", "♬", "♩", "♪", "♫"]
 
 export function FileQueue() {
-  const { engine } = useBroadcast()
+  const { slug } = useParams<{ slug: string }>()
+  const { studio, sendCommand } = useBroadcast()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [queue, setQueue] = useState<QueueTrack[]>([])
-  const [currentIndex, setCurrentIndex] = useState(-1)
-  const [, forceUpdate] = useState(0)
+  const [uploading, setUploading] = useState(false)
   const [dragOverZone, setDragOverZone] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (!engine) return
-    const timer = setInterval(() => {
-      setQueue([...engine.getQueue()])
-      setCurrentIndex(engine.getCurrentIndex())
-      forceUpdate((n) => n + 1)
-    }, 300)
-    return () => clearInterval(timer)
-  }, [engine])
+  const queue = studio?.queue ?? []
+  const currentIndex = studio?.currentIndex ?? -1
 
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    if (!engine) return
-    await engine.addFiles(files)
-  }, [engine])
+  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+    const audioFiles = Array.from(files).filter((f) => f.type.startsWith("audio/"))
+    if (audioFiles.length === 0) return
+
+    setUploading(true)
+    const newTrackIds: string[] = []
+
+    for (const file of audioFiles) {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      try {
+        const res = await api.post(`/stations/${slug}/tracks`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+        newTrackIds.push(res.data.data.id)
+      } catch {
+        toast.error(`Failed to upload: ${file.name}`)
+      }
+    }
+
+    if (newTrackIds.length > 0) {
+      sendCommand({ type: "queue_add", trackIds: newTrackIds })
+    }
+
+    setUploading(false)
+  }, [slug, sendCommand])
 
   const handleDropZone = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -63,8 +80,8 @@ export function FileQueue() {
     } else if (e.dataTransfer.files.length > 0) {
       files.push(...Array.from(e.dataTransfer.files))
     }
-    if (files.length > 0) handleFiles(files)
-  }, [handleFiles])
+    if (files.length > 0) uploadFiles(files)
+  }, [uploadFiles])
 
   const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
     setDragIdx(idx)
@@ -81,15 +98,15 @@ export function FileQueue() {
   const handleDropOnItem = useCallback((e: React.DragEvent, toIdx: number) => {
     e.preventDefault()
     e.stopPropagation()
-    if (dragIdx === null || dragIdx === toIdx || !engine) {
+    if (dragIdx === null || dragIdx === toIdx) {
       setDragIdx(null)
       setDragOverIdx(null)
       return
     }
-    engine.moveTrack(dragIdx, toIdx)
+    sendCommand({ type: "queue_reorder", from: dragIdx, to: toIdx })
     setDragIdx(null)
     setDragOverIdx(null)
-  }, [dragIdx, engine])
+  }, [dragIdx, sendCommand])
 
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
 
@@ -102,7 +119,7 @@ export function FileQueue() {
         multiple
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) handleFiles(e.target.files)
+          if (e.target.files) uploadFiles(e.target.files)
           e.target.value = ""
         }}
       />
@@ -115,12 +132,12 @@ export function FileQueue() {
           <span className="text-xs text-muted-foreground">
             {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatDuration(totalDuration)}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <IconPlus data-icon="inline-start" />
-            Add files
+          <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? <IconLoader2 data-icon="inline-start" className="animate-spin" /> : <IconPlus data-icon="inline-start" />}
+            {uploading ? "Uploading..." : "Add files"}
           </Button>
           {queue.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => engine?.clearQueue()}>
+            <Button variant="ghost" size="sm" onClick={() => sendCommand({ type: "queue_set", trackIds: [] })}>
               <IconMinus data-icon="inline-start" />
               Clear
             </Button>
@@ -169,7 +186,7 @@ export function FileQueue() {
                 variant="ghost"
                 size="icon"
                 className="size-5"
-                onClick={() => engine?.removeTrack(track.id)}
+                onClick={() => sendCommand({ type: "queue_remove", trackId: track.id })}
               >
                 <IconX size={12} />
               </Button>

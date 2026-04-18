@@ -37,7 +37,7 @@ interface StreamPanelProps {
 
 export function StreamPanel({ stationId }: StreamPanelProps) {
   const router = useRouter()
-  const { state, stop, engine, micDisabled } = useBroadcast()
+  const { state, stop, studio, sendCommand, micDisabled } = useBroadcast()
   const [elapsed, setElapsed] = useState(0)
   const [station, setStation] = useState<Station | null>(null)
   const [copied, setCopied] = useState(false)
@@ -68,27 +68,27 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target !== document.body) return
-      const queueLen = engine?.getQueue().length ?? 0
-      const currentIdx = engine?.getCurrentIndex() ?? -1
+      const queueLen = studio?.queue.length ?? 0
+      const currentIdx = studio?.currentIndex ?? -1
       switch (e.code) {
-        case "KeyK": engine?.togglePlay(); break
+        case "KeyK": sendCommand({ type: studio?.playing ? 'pause' : 'play' }); break
         case "KeyN":
-          if (queueLen > 1 && currentIdx < queueLen - 1) engine?.next()
+          if (queueLen > 1 && currentIdx < queueLen - 1) sendCommand({ type: 'next' })
           else toast.info(queueLen <= 1 ? "Add more tracks to the queue" : "Already on the last track")
           break
         case "KeyP":
-          if (queueLen > 1 && currentIdx > 0) engine?.prev()
+          if (queueLen > 1 && currentIdx > 0) sendCommand({ type: 'prev' })
           else toast.info(queueLen <= 1 ? "Add more tracks to the queue" : "Already on the first track")
           break
-        case "KeyR": engine?.toggleRepeat(); break
+        case "KeyR": sendCommand({ type: 'repeat', enabled: !(studio?.repeat ?? true) }); break
       }
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [engine])
+  }, [studio, sendCommand])
 
   const isLive = state === "live"
-  const queueLen = engine?.getQueue().length ?? 0
+  const queueLen = studio?.queue.length ?? 0
 
   return (
     <div className="border-l p-5 flex flex-col gap-4 overflow-y-auto h-full w-full">

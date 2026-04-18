@@ -36,7 +36,7 @@ class StationController extends Controller
     {
         $this->authorize('view', $station);
 
-        $station->load('streamSessions');
+        $station->setAttribute('stats', $station->computeStats());
 
         return new StationResource($station);
     }

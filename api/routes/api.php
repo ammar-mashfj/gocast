@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GoogleAuthController;
+use App\Http\Controllers\InternalTrackController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\ResetLiveStationsController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\StreamEndedController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\StreamTokenController;
 use App\Http\Controllers\StreamValidationController;
+use App\Http\Controllers\TrackController;
 use App\Http\Controllers\UpdateListenerCountController;
 use App\Http\Controllers\UpdateMetadataController;
 use App\Http\Controllers\UploadController;
@@ -47,6 +49,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/stations/{station}/stream-token', StreamTokenController::class);
     Route::apiResource('stations.sessions', StreamSessionController::class)
         ->only(['index', 'store', 'destroy']);
+    Route::apiResource('stations.tracks', TrackController::class)
+        ->only(['index', 'store', 'destroy']);
+    Route::put('/stations/{station}/tracks/reorder', [TrackController::class, 'reorder']);
+
     Route::post('/upload/{type}', UploadController::class)
         ->middleware('throttle:uploads')
         ->whereIn('type', ['images', 'sounds']);
@@ -66,4 +72,5 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
     Route::post('/internal/metadata', UpdateMetadataController::class);
     Route::post('/internal/listeners', UpdateListenerCountController::class);
     Route::post('/internal/reset-live', ResetLiveStationsController::class);
+    Route::get('/internal/tracks/{track}', InternalTrackController::class);
 });

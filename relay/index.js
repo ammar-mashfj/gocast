@@ -1,515 +1,34 @@
 /**
- * GoCast WebSocket Relay Server
+ * GoCast Relay Server
  *
- * Sits between browser-based broadcasters and Icecast. Broadcasters connect
- * via WebSocket, authenticate with a one-time token verified against the
- * Laravel API, and stream MP3 audio which is proxied to an Icecast SOURCE
- * mount over raw TCP. The relay also handles metadata updates (pushed to
- * both Icecast and the API), polls Icecast for per-mount listener counts,
- * and keeps mounts alive with silence during brief disconnects so listeners
- * are not dropped.
+ * Thin WebSocket command server that spawns one Liquidsoap process per live
+ * station. Liquidsoap handles all audio (file decoding, Ogg/Opus encoding,
+ * Icecast output, real-time timing); the relay is pure control plane.
  */
 
-require("dotenv").config();
-const net = require("net");
 const http = require("http");
-const { WebSocketServer } = require("ws");
+const config = require("./src/config");
+const log = require("./src/log");
+const api = require("./src/api");
+const ws = require("./src/ws");
+const { startListenerPolling } = require("./src/listeners");
 
-// Environment-driven configuration for ports, Icecast credentials, and API URL
-const config = {
-  wsPort: parseInt(process.env.WS_PORT || "8080"),
-  healthPort: parseInt(process.env.HEALTH_PORT || "8081"),
-  icecast: {
-    host: process.env.ICECAST_HOST || "localhost",
-    port: parseInt(process.env.ICECAST_PORT || "8888"),
-    sourcePassword: process.env.ICECAST_SOURCE_PASSWORD || "hackme",
-    adminUser: process.env.ICECAST_ADMIN_USER || "admin",
-    adminPassword: process.env.ICECAST_ADMIN_PASSWORD || "hackme",
-  },
-  apiUrl: process.env.API_URL || "http://localhost:8000/api",
-  internalApiKey: process.env.INTERNAL_API_KEY || "",
-};
+// Start WebSocket server
+const wss = ws.start();
 
-/**
- * Structured JSON logger for production observability.
- * @param {"info"|"warn"|"error"} level - Log severity
- * @param {string} msg - Human-readable message
- * @param {Object} [data] - Additional key-value pairs merged into the log entry
- */
-function log(level, msg, data = {}) {
-  const entry = {
-    time: new Date().toISOString(),
-    level,
-    msg,
-    ...data,
-  };
-  console.log(JSON.stringify(entry));
-}
+// Start listener count polling
+startListenerPolling(() => ws.getActiveMounts());
 
-// --- API client ---
-
-/**
- * Authenticates a broadcaster by exchanging their one-time stream token
- * with the Laravel API. Returns the station object (including Icecast
- * mount credentials) on success, or null if the token is invalid/expired.
- * @param {number} stationId
- * @param {string} token - One-time token issued when the broadcaster clicks "Go Live"
- * @returns {Promise<Object|null>} Station object with icecast_mount, or null
- */
-async function validateStreamToken(stationId, token) {
-  const res = await fetch(`${config.apiUrl}/internal/validate-stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-    body: JSON.stringify({ station_id: stationId, token }),
-  });
-
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json.valid ? json.station : null;
-}
-
-/**
- * Notifies the API of track metadata changes so the frontend can display
- * the current title and artist in real time.
- * @param {number} stationId
- * @param {string} title
- * @param {string} artist
- */
-async function updateMetadata(stationId, title, artist) {
-  try {
-    await fetch(`${config.apiUrl}/internal/metadata`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-      body: JSON.stringify({ station_id: stationId, title, artist }),
-    });
-  } catch (err) {
-    log("error", "Failed to update metadata", { stationId, error: err.message });
-  }
-}
-
-/**
- * Reports current listener count to the API for real-time display on
- * the broadcaster dashboard and public station pages.
- * @param {number} stationId
- * @param {number} count
- */
-async function updateListenerCount(stationId, count) {
-  try {
-    await fetch(`${config.apiUrl}/internal/listeners`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-      body: JSON.stringify({ station_id: stationId, count }),
-    });
-  } catch (err) {
-    log("error", "Failed to update listener count", { stationId, error: err.message });
-  }
-}
-
-// --- Icecast source connection ---
-
-/**
- * Opens a raw TCP SOURCE connection to Icecast using the HTTP/1.0 SOURCE
- * protocol. Resolves with the connected socket on "200 OK", rejects on
- * error, rejection response, or 5s timeout.
- * @param {string} mount - Icecast mount path (e.g. "/live-abc123")
- * @returns {Promise<net.Socket>} Connected TCP socket ready for audio data
- */
-function connectToIcecast(mount) {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection(config.icecast.port, config.icecast.host, () => {
-      const headers = [
-        `SOURCE ${mount} HTTP/1.0`,
-        `Authorization: Basic ${Buffer.from(`source:${config.icecast.sourcePassword}`).toString("base64")}`,
-        "Content-Type: audio/mpeg",
-        `User-Agent: GoCast-Relay/1.0`,
-        "",
-        "",
-      ].join("\r\n");
-
-      socket.write(headers);
-    });
-
-    let responseBuffer = "";
-    let resolved = false;
-
-    socket.once("data", (data) => {
-      responseBuffer += data.toString();
-      if (responseBuffer.includes("200 OK")) {
-        resolved = true;
-        resolve(socket);
-      } else {
-        resolved = true;
-        socket.destroy();
-        reject(new Error(`Icecast rejected connection: ${responseBuffer.trim()}`));
-      }
-    });
-
-    socket.on("error", (err) => {
-      if (!resolved) reject(err);
-    });
-
-    socket.setTimeout(5000, () => {
-      if (!resolved) {
-        socket.destroy();
-        reject(new Error("Icecast connection timeout"));
-      }
-    });
-  });
-}
-
-/**
- * Wraps connectToIcecast with retry logic for "Mountpoint in use" errors.
- * This happens during reconnection when Icecast hasn't released the old
- * mount yet. Retries up to 5 times with a 2s delay between attempts.
- * @param {string} mount
- * @param {number} [retries=5]
- * @param {number} [delayMs=2000]
- * @returns {Promise<net.Socket>}
- */
-async function connectToIcecastWithRetry(mount, retries = 5, delayMs = 2000) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await connectToIcecast(mount);
-    } catch (err) {
-      if (err.message.includes("Mountpoint in use") && attempt < retries) {
-        log("warn", `Mount in use, retrying in ${delayMs}ms (attempt ${attempt}/${retries})`, { mount });
-        await new Promise((r) => setTimeout(r, delayMs));
-      } else {
-        throw err;
-      }
-    }
-  }
-}
-
-/**
- * Updates the "now playing" song info on the Icecast mount via the admin
- * metadata API. Fire-and-forget — errors are logged but not propagated.
- * @param {string} mount
- * @param {string} title
- * @param {string} artist
- */
-function updateIcecastMetadata(mount, title, artist) {
-  const song = artist ? `${artist} - ${title}` : title;
-  const path = `/admin/metadata?mount=${encodeURIComponent(mount)}&mode=updinfo&song=${encodeURIComponent(song)}`;
-  const auth = Buffer.from(`${config.icecast.adminUser}:${config.icecast.adminPassword}`).toString("base64");
-
-  const req = http.request({
-    hostname: config.icecast.host,
-    port: config.icecast.port,
-    path,
-    method: "GET",
-    headers: { Authorization: `Basic ${auth}` },
-  });
-
-  req.on("error", (err) => {
-    log("error", "Failed to update metadata", { mount, error: err.message });
-  });
-
-  req.setTimeout(5000, () => {
-    req.destroy();
-    log("error", "Icecast metadata request timed out", { mount });
-  });
-
-  req.end();
-}
-
-// --- Listener count polling ---
-
-const activeMounts = new Map(); // mount -> stationId
-
-/**
- * Polls Icecast stats every 10 seconds and reports per-mount listener
- * counts to the API. Only queries when there are active mounts.
- */
-function startListenerPolling() {
-  setInterval(async () => {
-    if (activeMounts.size === 0) return;
-
-    try {
-      const res = await fetch(`http://${config.icecast.host}:${config.icecast.port}/status-json.xsl`);
-      const json = await res.json();
-
-      const sources = json.icestats?.source;
-      if (!sources) return;
-
-      const sourceList = Array.isArray(sources) ? sources : [sources];
-
-      for (const [mount, stationId] of activeMounts) {
-        const source = sourceList.find((s) => s.listenurl?.includes(mount));
-        const count = source ? source.listeners || 0 : 0;
-        await updateListenerCount(stationId, count);
-      }
-    } catch (err) {
-      log("error", "Failed to poll Icecast stats", { error: err.message });
-    }
-  }, 10000);
-}
-
-// --- Silence buffer ---
-// Minimal valid silent MP3 frame (MPEG1 Layer3, 44100Hz, 128kbps, mono).
-// Streamed to Icecast during brief disconnects to keep the mount alive so
-// listeners don't lose their connection while the broadcaster reconnects.
-const SILENCE_FRAME = Buffer.from(
-  "fffb9004000000000000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
-  "000000000000000000000000000000000000000000000000000000000000000000000000",
-  "hex",
-);
-const SILENCE_INTERVAL_MS = 100;  // send a silence frame every 100ms
-const SILENCE_TIMEOUT_MS = 30000; // give the broadcaster 30s to reconnect before releasing the mount
-
-// Mounts currently streaming silence while awaiting broadcaster reconnect
-const pendingMounts = new Map(); // mount -> { icecastSocket, silenceTimer, silenceInterval, stationId }
-
-// --- WebSocket server ---
-
-const wss = new WebSocketServer({
-  port: config.wsPort,
-  maxPayload: 1024 * 1024, // 1MB — prevents memory exhaustion from oversized messages
-});
-const AUTH_TIMEOUT_MS = 10000;
-const activeConnections = new Map(); // mount -> ws
-
-const KEEPALIVE_TIMEOUT_MS = 5000; // send silence if no audio for 5s
-
-/*
- * WebSocket connection lifecycle:
- *  1. Client connects — a 10s auth timer starts.
- *  2. Client sends { type: "auth", stationId, token }. Token is validated
- *     against the API. If a pending (silence-streaming) mount exists for
- *     this station, it is reclaimed; otherwise a fresh Icecast SOURCE
- *     connection is opened (with retry for mount-in-use).
- *  3. Binary frames from the client are forwarded directly to Icecast.
- *  4. JSON { type: "metadata" } messages update both Icecast and the API.
- *  5. On disconnect, silence is streamed for 30s to keep the mount alive.
- *     If the broadcaster reconnects within that window, the same Icecast
- *     socket is reused seamlessly. Otherwise the mount is released and
- *     the API is notified the stream ended.
- */
-wss.on("connection", (ws) => {
-  let station = null;
-  let icecastSocket = null;
-  let authenticated = false;
-  let lastMetadata = { title: "", artist: "" };
-  let lastAudioTime = 0;
-  let keepaliveInterval = null;
-
-  const authTimer = setTimeout(() => {
-    if (!authenticated) {
-      log("warn", "Auth timeout, closing connection");
-      ws.close(4001, "Authentication timeout");
-    }
-  }, AUTH_TIMEOUT_MS);
-
-  ws.on("message", async (data, isBinary) => {
-    // Binary data = audio, forward to Icecast (or ignore if not yet authenticated)
-    if (isBinary) {
-      if (authenticated && icecastSocket && !icecastSocket.destroyed) {
-        icecastSocket.write(data);
-        lastAudioTime = Date.now();
-      }
-      return;
-    }
-
-    // Text data = JSON control messages
-    let msg;
-    try {
-      msg = JSON.parse(data.toString());
-    } catch {
-      log("warn", "Invalid message received", { isBinary, authenticated, dataLength: data.length, preview: data.toString().substring(0, 100) });
-      ws.close(4002, "Invalid message format");
-      return;
-    }
-
-    if (msg.type === "auth" && !authenticated) {
-      clearTimeout(authTimer);
-
-      if (!msg.stationId || typeof msg.stationId !== "string" || !msg.token || typeof msg.token !== "string") {
-        log("warn", "Invalid auth message", { stationId: msg.stationId });
-        ws.close(4002, "Invalid auth message");
-        return;
-      }
-
-      station = await validateStreamToken(msg.stationId, msg.token);
-      if (!station) {
-        log("warn", "Auth failed", { stationId: msg.stationId });
-        ws.close(4003, "Authentication failed");
-        return;
-      }
-
-      // Check for pending mount (silence streaming after disconnect) — reclaim it
-      const pending = pendingMounts.get(station.icecast_mount);
-      if (pending && pending.icecastSocket && !pending.icecastSocket.destroyed) {
-        log("info", "Reclaiming pending mount", { mount: station.icecast_mount });
-        clearTimeout(pending.silenceTimer);
-        clearInterval(pending.silenceInterval);
-        pendingMounts.delete(station.icecast_mount);
-        icecastSocket = pending.icecastSocket;
-      } else {
-        // Kick previous active connection — close it and wait for its
-        // close handler to move the socket to pendingMounts, then reclaim
-        const prevWs = activeConnections.get(station.icecast_mount);
-        if (prevWs && prevWs.readyState === prevWs.OPEN) {
-          log("info", "Kicking previous broadcaster", { mount: station.icecast_mount });
-          prevWs.close(4006, "Replaced by new connection");
-          // Wait for close handler to fire and move socket to pendingMounts
-          await new Promise((r) => setTimeout(r, 500));
-
-          // Now reclaim from pendingMounts
-          const moved = pendingMounts.get(station.icecast_mount);
-          if (moved && moved.icecastSocket && !moved.icecastSocket.destroyed) {
-            log("info", "Reclaiming mount after kick", { mount: station.icecast_mount });
-            clearTimeout(moved.silenceTimer);
-            clearInterval(moved.silenceInterval);
-            pendingMounts.delete(station.icecast_mount);
-            icecastSocket = moved.icecastSocket;
-          }
-        }
-
-        // If we still don't have a socket, connect fresh
-        if (!icecastSocket) {
-          try {
-            icecastSocket = await connectToIcecastWithRetry(station.icecast_mount);
-          } catch (err) {
-            log("error", "Icecast connection failed", { mount: station.icecast_mount, error: err.message });
-            ws.close(4004, "Icecast connection failed");
-            return;
-          }
-        }
-      }
-
-      authenticated = true;
-      lastAudioTime = Date.now();
-      activeMounts.set(station.icecast_mount, station.id);
-      activeConnections.set(station.icecast_mount, ws);
-      log("info", "Broadcaster connected", { stationId: station.id, mount: station.icecast_mount });
-
-      // Keepalive: send silence to Icecast if no audio arrives for 5s
-      keepaliveInterval = setInterval(() => {
-        if (icecastSocket && !icecastSocket.destroyed && Date.now() - lastAudioTime > KEEPALIVE_TIMEOUT_MS) {
-          icecastSocket.write(SILENCE_FRAME);
-        }
-      }, 1000);
-
-      ws.send(JSON.stringify({ type: "authenticated", stationId: station.id }));
-
-      // Re-attach listeners (remove old ones from reclaimed sockets)
-      icecastSocket.removeAllListeners("close");
-      icecastSocket.removeAllListeners("error");
-
-      icecastSocket.on("close", () => {
-        log("info", "Icecast connection closed", { mount: station.icecast_mount });
-        if (ws.readyState === ws.OPEN) {
-          ws.close(4005, "Icecast connection lost");
-        }
-      });
-
-      icecastSocket.on("error", (err) => {
-        log("error", "Icecast socket error", { mount: station.icecast_mount, error: err.message });
-      });
-
-      return;
-    }
-
-    if (msg.type === "metadata" && authenticated) {
-      // Validate metadata length to prevent abuse
-      const title = (msg.title || "").slice(0, 255);
-      const artist = (msg.artist || "").slice(0, 255);
-      lastMetadata = { title, artist };
-      updateIcecastMetadata(station.icecast_mount, title, artist);
-      updateMetadata(station.id, title, artist);
-      log("info", "Metadata updated", { mount: station.icecast_mount, title, artist });
-      return;
-    }
-
-    if (msg.type === "metadata_ping" && authenticated) {
-      // Validate metadata length to prevent abuse
-      const pingT = (String(msg.t || "")).slice(0, 255);
-      const pingSong = `PING-${pingT}`;
-      updateIcecastMetadata(station.icecast_mount, pingSong, "");
-
-      // Revert to real metadata after 2s so listeners never see the ping
-      setTimeout(() => {
-        updateIcecastMetadata(station.icecast_mount, lastMetadata.title, lastMetadata.artist);
-      }, 2000);
-      return;
-    }
-  });
-
-  ws.on("close", () => {
-    clearTimeout(authTimer);
-    if (keepaliveInterval) clearInterval(keepaliveInterval);
-
-    if (station) {
-      if (activeConnections.get(station.icecast_mount) === ws) {
-        activeConnections.delete(station.icecast_mount);
-      }
-      log("info", "Broadcaster disconnected", { stationId: station.id });
-
-      // Keep Icecast socket alive with silence for 30s, waiting for reconnect
-      if (icecastSocket && !icecastSocket.destroyed) {
-        log("info", "Streaming silence, waiting for reconnect", { mount: station.icecast_mount });
-
-        const silenceInterval = setInterval(() => {
-          if (icecastSocket && !icecastSocket.destroyed) {
-            icecastSocket.write(SILENCE_FRAME);
-          }
-        }, SILENCE_INTERVAL_MS);
-
-        const silenceTimer = setTimeout(async () => {
-          clearInterval(silenceInterval);
-          const pending = pendingMounts.get(station.icecast_mount);
-          if (pending && pending.silenceTimer === silenceTimer) {
-            pendingMounts.delete(station.icecast_mount);
-            activeMounts.delete(station.icecast_mount);
-            if (icecastSocket && !icecastSocket.destroyed) {
-              icecastSocket.destroy();
-            }
-            log("info", "Silence timeout, mount released", { mount: station.icecast_mount });
-
-            try {
-              await fetch(`${config.apiUrl}/internal/stream-ended`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-                body: JSON.stringify({ station_id: station.id }),
-              });
-            } catch (err) {
-              log("error", "Failed to notify API of stream end", { stationId: station.id, error: err.message });
-            }
-          }
-        }, SILENCE_TIMEOUT_MS);
-
-        pendingMounts.set(station.icecast_mount, {
-          icecastSocket,
-          silenceTimer,
-          silenceInterval,
-          stationId: station.id,
-        });
-      } else {
-        activeMounts.delete(station.icecast_mount);
-      }
-    } else if (icecastSocket && !icecastSocket.destroyed) {
-      icecastSocket.destroy();
-    }
-  });
-
-  ws.on("error", (err) => {
-    log("error", "WebSocket error", { error: err.message });
-  });
-});
-
-// --- Health check ---
-
+// Health check HTTP server
 const healthServer = http.createServer((req, res) => {
   if (req.url === "/health") {
+    const sessions = ws.getSessions();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       status: "ok",
       connections: wss.clients.size,
-      activeMounts: activeMounts.size,
+      activeSessions: sessions.size,
+      activeMounts: ws.getActiveMounts().size,
     }));
   } else {
     res.writeHead(404);
@@ -519,17 +38,16 @@ const healthServer = http.createServer((req, res) => {
 
 healthServer.listen(config.healthPort);
 
-// --- Graceful shutdown ---
-
-/**
- * Graceful shutdown — closes all WebSocket clients with a 1001 code,
- * then shuts down the WS and health HTTP servers. Forces exit after 5s
- * if something hangs.
- */
+// Graceful shutdown
 function shutdown() {
   log("info", "Shutting down...");
 
-  wss.clients.forEach((ws) => ws.close(1001, "Server shutting down"));
+  // Destroy all sessions (kills ffmpeg processes)
+  for (const [, session] of ws.getSessions()) {
+    session.destroy();
+  }
+
+  wss.clients.forEach((client) => client.close(1001, "Server shutting down"));
 
   wss.close(() => {
     healthServer.close(() => {
@@ -547,25 +65,11 @@ function shutdown() {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-// --- Start ---
+// Reset stale live stations on startup
+api.resetLiveStations();
 
-/**
- * Called on startup to mark all stations as offline via the API, cleaning
- * up any stale "is_live" state left over from a previous crash or restart.
- */
-async function resetLiveStations() {
-  try {
-    const res = await fetch(`${config.apiUrl}/internal/reset-live`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-    });
-    const json = await res.json();
-    log("info", "Reset stale live stations", { count: json.count });
-  } catch (err) {
-    log("error", "Failed to reset live stations", { error: err.message });
-  }
-}
-
-resetLiveStations();
-startListenerPolling();
-log("info", "Relay started", { wsPort: config.wsPort, healthPort: config.healthPort, icecast: `${config.icecast.host}:${config.icecast.port}` });
+log("info", "Relay v2 started", {
+  wsPort: config.wsPort,
+  healthPort: config.healthPort,
+  icecast: `${config.icecast.host}:${config.icecast.port}`,
+});

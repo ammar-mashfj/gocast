@@ -8,21 +8,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
 export function PushToTalk() {
-  const { engine, micStream, micDisabled } = useBroadcast()
+  const { sendCommand, micStream, micDisabled } = useBroadcast()
   const micLevels = useAudioLevels(micStream)
   const [holding, setHolding] = useState(false)
 
   const activate = useCallback(() => {
     if (micDisabled) return
-    engine?.pttDown()
+    sendCommand({ type: 'ptt_down' })
     setHolding(true)
-  }, [engine, micDisabled])
+  }, [sendCommand, micDisabled])
 
   const deactivate = useCallback(() => {
     if (micDisabled) return
-    engine?.pttUp()
+    sendCommand({ type: 'ptt_up' })
     setHolding(false)
-  }, [engine, micDisabled])
+  }, [sendCommand, micDisabled])
 
   useEffect(() => {
     if (micDisabled) return

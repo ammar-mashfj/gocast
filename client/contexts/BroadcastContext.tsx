@@ -1,8 +1,7 @@
 "use client"
 
 import { createContext, useContext, useRef, useState, useCallback, type ReactNode } from 'react'
-import { BroadcastManager, type BroadcastState, type BroadcastStepInfo } from '@/lib/broadcast'
-import type { AudioEngine } from '@/lib/audioEngine'
+import { BroadcastManager, type BroadcastState, type BroadcastStepInfo, type StudioState } from '@/lib/broadcast'
 
 interface BroadcastContextValue {
   state: BroadcastState
@@ -10,18 +9,12 @@ interface BroadcastContextValue {
   error: string | null
   micStream: MediaStream | null
   micDisabled: boolean
-  engine: AudioEngine | null
+  studio: StudioState | null
+  sendCommand: (cmd: Record<string, unknown>) => void
   start: (stationId: string, options?: { skipMic?: boolean }) => Promise<void>
   stop: () => Promise<void>
-  updateMetadata: (title: string, artist: string) => void
 }
 
-/**
- * Provides broadcast state (idle / connecting / live / error), connection
- * step progress, the audio engine, and mic stream to all dashboard pages.
- * Wrap the dashboard layout with {@link BroadcastProvider} and consume
- * via {@link useBroadcast}.
- */
 const BroadcastContext = createContext<BroadcastContextValue | null>(null)
 
 export function BroadcastProvider({ children }: { children: ReactNode }) {
@@ -29,7 +22,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const [steps, setSteps] = useState<BroadcastStepInfo[]>([])
   const [error, setError] = useState<string | null>(null)
   const [micStream, setMicStream] = useState<MediaStream | null>(null)
-  const [engine, setEngine] = useState<AudioEngine | null>(null)
+  const [studio, setStudio] = useState<StudioState | null>(null)
   const [micDisabled, setMicDisabled] = useState(false)
   const managerRef = useRef<BroadcastManager | null>(null)
 
@@ -45,13 +38,13 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         setState(s)
         if (s === 'live') {
           setMicStream(manager.getMicStream())
-          setEngine(manager.getEngine())
         } else if (s === 'idle') {
           setMicStream(null)
-          setEngine(null)
+          setStudio(null)
         }
       },
       onError: setError,
+      onStudioState: setStudio,
     })
     managerRef.current = manager
     if (options?.skipMic) {
@@ -69,17 +62,17 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     setMicStream(null)
     setMicDisabled(false)
     try { sessionStorage.removeItem('broadcast:micDisabled') } catch {}
-    setEngine(null)
+    setStudio(null)
     setSteps([])
     setError(null)
   }, [])
 
-  const updateMetadata = useCallback((title: string, artist: string) => {
-    managerRef.current?.updateMetadata(title, artist)
+  const sendCommand = useCallback((cmd: Record<string, unknown>) => {
+    managerRef.current?.sendCommand(cmd)
   }, [])
 
   return (
-    <BroadcastContext.Provider value={{ state, steps, error, micStream, micDisabled, engine, start, stop, updateMetadata }}>
+    <BroadcastContext.Provider value={{ state, steps, error, micStream, micDisabled, studio, sendCommand, start, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

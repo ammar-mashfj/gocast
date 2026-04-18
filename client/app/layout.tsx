@@ -39,8 +39,6 @@ gtag('config', 'G-44FJYHJWQR');`}
       <body className="min-h-full flex flex-col">
         {children}
         <Toaster />
-        {/* lamejs MP3 encoder — loads after hydration, available before broadcasting starts */}
-        <Script src="/lame.min.js" strategy="afterInteractive" />
       </body>
     </html>
   );

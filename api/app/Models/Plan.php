@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $name
  * @property int $max_stations
  * @property int $max_listeners
+ * @property int $max_storage_mb
  */
 class Plan extends Model
 {

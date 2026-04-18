@@ -80,4 +80,31 @@ class Station extends Model
     {
         return $this->hasMany(StreamSession::class);
     }
+
+    /**
+     * Compute broadcast stats with a single aggregate query instead of
+     * loading all session rows into memory.
+     *
+     * @return array{sessions: int, total_airtime_seconds: int, peak_listeners: int}
+     */
+    public function computeStats(): array
+    {
+        $stats = $this->streamSessions()
+            ->whereNotNull('ended_at')
+            ->selectRaw('COUNT(*) as sessions')
+            ->selectRaw('COALESCE(SUM(TIMESTAMPDIFF(SECOND, started_at, ended_at)), 0) as total_airtime_seconds')
+            ->selectRaw('COALESCE(MAX(peak_listeners), 0) as peak_listeners')
+            ->first();
+
+        return [
+            'sessions' => (int) $stats->sessions,
+            'total_airtime_seconds' => (int) $stats->total_airtime_seconds,
+            'peak_listeners' => (int) $stats->peak_listeners,
+        ];
+    }
+
+    public function tracks(): HasMany
+    {
+        return $this->hasMany(Track::class)->orderBy('sort_order');
+    }
 }

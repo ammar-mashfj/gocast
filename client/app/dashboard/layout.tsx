@@ -3,7 +3,6 @@ import { redirect } from "next/navigation"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/AppSidebar"
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader"
-import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { User } from "@/interfaces/User"
 
 export default async function DashboardLayout({
@@ -22,16 +21,14 @@ export default async function DashboardLayout({
   const user: User = JSON.parse(decodeURIComponent(userCookie))
 
   return (
-    <BroadcastProvider>
-      <SidebarProvider>
-        <AppSidebar user={user} />
-        <SidebarInset>
-          <DashboardHeader user={user} />
-          <main className="flex-1 p-6">
-            {children}
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
-    </BroadcastProvider>
+    <SidebarProvider>
+      <AppSidebar user={user} />
+      <SidebarInset>
+        <DashboardHeader user={user} />
+        <main className="flex-1 p-6">
+          {children}
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

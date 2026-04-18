@@ -1,8 +1,7 @@
 import api from './axios'
 import { env } from './env'
-import { AudioEngine } from './audioEngine'
 
-export type BroadcastStep = 'mic' | 'encoder' | 'relay' | 'mount'
+export type BroadcastStep = 'mic' | 'relay' | 'mount'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
 
@@ -13,10 +12,28 @@ export interface BroadcastStepInfo {
   errorMessage?: string
 }
 
+export interface StudioTrack {
+  id: string
+  title: string
+  artist: string
+  duration: number
+}
+
+export interface StudioState {
+  playing: boolean
+  currentTrackId: string | null
+  currentIndex: number
+  elapsed: number
+  duration: number
+  repeat: boolean
+  queue: StudioTrack[]
+}
+
 interface BroadcastCallbacks {
   onStepChange: (steps: BroadcastStepInfo[]) => void
   onStateChange: (state: BroadcastState) => void
   onError: (message: string) => void
+  onStudioState: (state: StudioState) => void
 }
 
 const WS_CLOSE_REASONS: Record<number, string> = {
@@ -27,25 +44,30 @@ const WS_CLOSE_REASONS: Record<number, string> = {
 }
 
 /**
- * Manages the full broadcast lifecycle: connect -> authenticate -> stream -> stop.
+ * Manages the broadcast lifecycle: connect → authenticate → control.
  *
- * On {@link start}, acquires the microphone, initialises the audio engine (MP3 encoder),
- * obtains a one-time stream token from the API, opens a WebSocket to the relay,
- * authenticates, and begins streaming encoded audio chunks. {@link stop} tears
- * everything down and ends the server-side session.
+ * v2: The browser is a lightweight remote control. All audio encoding
+ * and playback happens server-side. This manager handles:
+ * - WebSocket connection to the relay
+ * - Authentication with one-time stream token
+ * - Sending playback commands (play, pause, next, prev, etc.)
+ * - Receiving studio state updates from the relay
+ * - Optional mic capture for PTT
  */
 export class BroadcastManager {
   private stationId: string
   private callbacks: BroadcastCallbacks
-  private micStream: MediaStream | null = null
   private ws: WebSocket | null = null
   private sessionId: string | null = null
   private authenticated = false
-  private engine: AudioEngine | null = null
+  private micStream: MediaStream | null = null
   private wakeLock: WakeLockSentinel | null = null
   private steps: BroadcastStepInfo[] = []
   private reconnecting = false
   private visibilityHandler: (() => void) | null = null
+  private elapsedInterval: ReturnType<typeof setInterval> | null = null
+  private lastStudioState: StudioState | null = null
+  private lastStateTimestamp = 0
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = []
@@ -53,7 +75,6 @@ export class BroadcastManager {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
     steps.push(
-      { id: 'encoder', label: 'Setting up audio engine', status: 'pending' },
       { id: 'relay', label: 'Connecting to stream relay', status: 'pending' },
       { id: 'mount', label: 'Activating mount point', status: 'pending' },
     )
@@ -79,12 +100,6 @@ export class BroadcastManager {
     this.callbacks.onStepChange([...this.steps])
   }
 
-  /**
-   * Begin broadcasting. Requests the microphone, sets up the MP3 encoder,
-   * fetches a stream token, connects to the relay WebSocket, and transitions
-   * state to 'live'. If any step fails, {@link fail} is called and the state
-   * moves to 'error'.
-   */
   async start(options?: { skipMic?: boolean }): Promise<void> {
     this.authenticated = false
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
@@ -92,12 +107,12 @@ export class BroadcastManager {
     this.callbacks.onStepChange([...this.steps])
 
     try {
-      // Step 1: Request microphone (skipped entirely in files-only mode)
+      // Step 1: Request microphone (skipped in files-only mode)
       if (!options?.skipMic) {
         this.setActiveStep('mic')
         this.micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            sampleRate: 44100,
+            sampleRate: 48000,
             channelCount: 1,
             echoCancellation: false,
             noiseSuppression: false,
@@ -107,26 +122,7 @@ export class BroadcastManager {
         this.updateStep('mic', 'done')
       }
 
-      // Step 2: Set up lamejs MP3 encoder + audio engine
-      this.setActiveStep('encoder')
-      this.engine = await AudioEngine.create(
-        this.micStream,
-        (data) => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(data)
-          }
-        },
-        () => {
-          const track = this.engine?.getCurrentTrack()
-          if (track && this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'metadata', title: track.title, artist: track.artist }))
-          }
-        },
-      )
-      await this.engine.restoreQueue()
-      this.updateStep('encoder', 'done')
-
-      // Step 3: Get stream token + start session
+      // Step 2: Get stream token + start session
       this.setActiveStep('relay')
 
       const listing = await api.get(`/stations/${this.stationId}/sessions`)
@@ -145,6 +141,7 @@ export class BroadcastManager {
 
       await this.connectAndAuthenticate(streamToken)
 
+      this.startElapsedInterpolation()
       this.acquireWakeLock()
       this.callbacks.onStateChange('live')
     } catch (err) {
@@ -152,11 +149,6 @@ export class BroadcastManager {
     }
   }
 
-  /**
-   * Open a WebSocket to the relay server, send the auth message, and wait
-   * for an 'authenticated' reply. Rejects if the connection fails, closes
-   * unexpectedly, or the 25-second timeout elapses.
-   */
   private connectAndAuthenticate(token: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(env.wsUrl)
@@ -186,12 +178,31 @@ export class BroadcastManager {
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string)
+
           if (msg.type === 'authenticated' && !settled) {
             settled = true
             cleanup()
             this.authenticated = true
             this.updateStep('mount', 'done')
             resolve()
+          }
+
+          if (msg.type === 'state') {
+            this.lastStudioState = {
+              playing: msg.playing,
+              currentTrackId: msg.currentTrackId,
+              currentIndex: msg.currentIndex,
+              elapsed: msg.elapsed,
+              duration: msg.duration,
+              repeat: msg.repeat,
+              queue: msg.queue,
+            }
+            this.lastStateTimestamp = Date.now()
+            this.callbacks.onStudioState(this.lastStudioState)
+          }
+
+          if (msg.type === 'error') {
+            this.callbacks.onError(msg.message)
           }
         } catch { /* non-JSON */ }
       }
@@ -219,10 +230,6 @@ export class BroadcastManager {
     })
   }
 
-  /**
-   * Schedule a reconnect attempt. If the page is visible, reconnect immediately.
-   * Otherwise, wait for a visibilitychange event to reconnect.
-   */
   private scheduleReconnect() {
     if (this.reconnecting) return
     this.reconnecting = true
@@ -248,10 +255,6 @@ export class BroadcastManager {
     }
   }
 
-  /**
-   * Attempt to reconnect the WebSocket with a new stream token.
-   * The audio engine and mic stream are preserved.
-   */
   private async attemptReconnect() {
     try {
       const tokenRes = await api.post(`/stations/${this.stationId}/stream-token`)
@@ -267,14 +270,16 @@ export class BroadcastManager {
     }
   }
 
-  updateMetadata(title: string, artist: string) {
+  // ── Commands (sent to relay) ──
+
+  sendCommand(cmd: Record<string, unknown>) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'metadata', title, artist }))
+      this.ws.send(JSON.stringify(cmd))
     }
   }
 
-  getEngine(): AudioEngine | null {
-    return this.engine
+  updateMetadata(title: string, artist: string) {
+    this.sendCommand({ type: 'metadata', title, artist })
   }
 
   getMicStream(): MediaStream | null {
@@ -285,15 +290,37 @@ export class BroadcastManager {
     return this.sessionId
   }
 
+  // ── Elapsed interpolation ──
+
   /**
-   * Tear down the broadcast: destroy the audio engine, stop mic tracks,
-   * close the WebSocket, and end the server-side session. Resets all
-   * internal state back to idle.
+   * Locally interpolate elapsed time between server state updates (1Hz)
+   * so the progress bar moves smoothly.
    */
+  private startElapsedInterpolation() {
+    this.elapsedInterval = setInterval(() => {
+      if (!this.lastStudioState?.playing) return
+      const delta = (Date.now() - this.lastStateTimestamp) / 1000
+      const interpolated = {
+        ...this.lastStudioState,
+        elapsed: this.lastStudioState.elapsed + delta,
+      }
+      this.callbacks.onStudioState(interpolated)
+    }, 250)
+  }
+
+  // ── Teardown ──
+
   async stop(): Promise<void> {
     this.removeVisibilityHandler()
     this.reconnecting = false
-    this.engine?.destroy()
+    this.authenticated = false
+
+    if (this.elapsedInterval) {
+      clearInterval(this.elapsedInterval)
+      this.elapsedInterval = null
+    }
+
+    this.sendCommand({ type: 'stop_broadcast' })
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.ws?.close()
 
@@ -305,9 +332,8 @@ export class BroadcastManager {
 
     this.micStream = null
     this.ws = null
-    this.engine = null
     this.sessionId = null
-    this.authenticated = false
+    this.lastStudioState = null
     this.releaseWakeLock()
     this.callbacks.onStateChange('idle')
   }
@@ -324,10 +350,6 @@ export class BroadcastManager {
     this.wakeLock = null
   }
 
-  /**
-   * Handle a broadcast failure. Marks the currently active step as errored,
-   * notifies callbacks, releases resources, and transitions state to 'error'.
-   */
   private fail(err: unknown) {
     const activeStep = this.steps.find((s) => s.status === 'active')
 
@@ -349,7 +371,6 @@ export class BroadcastManager {
     this.releaseWakeLock()
 
     this.micStream?.getTracks().forEach((t) => t.stop())
-    this.engine?.destroy()
     this.ws?.close()
   }
 }

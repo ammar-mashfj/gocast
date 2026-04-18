@@ -1,13 +1,9 @@
 /**
- * Plays an Icecast MP3 stream via fetch() + MediaSource Extensions.
- * Falls back to blob-based playback if MSE doesn't support audio/mpeg.
- * Starts playback as soon as the first chunk is buffered — near-instant.
+ * Plays an Icecast Ogg/Opus stream via native <audio> element.
+ * Browsers handle Ogg/Opus demuxing natively — no MSE needed.
  */
 export class StreamPlayer {
   private audioEl: HTMLAudioElement | null = null
-  private mediaSource: MediaSource | null = null
-  private sourceBuffer: SourceBuffer | null = null
-  private abortController: AbortController | null = null
   private playing = false
   private onStateChange: (playing: boolean) => void
   private onError: (message: string) => void
@@ -26,94 +22,32 @@ export class StreamPlayer {
 
     if (this.audioEl) this.audioEl.remove()
     this.audioEl = document.createElement("audio")
+    this.audioEl.preload = "none"
+    this.audioEl.src = streamUrl
 
-    this.abortController = new AbortController()
+    this.audioEl.onplaying = () => {
+      this.onStateChange(true)
+    }
+
+    this.audioEl.onerror = () => {
+      if (this.playing) {
+        this.onError("Stream playback failed")
+        this.stop()
+      }
+    }
+
+    // Icecast may close the stream when the broadcaster stops
+    this.audioEl.onended = () => {
+      if (this.playing) this.stop()
+    }
 
     try {
-      const response = await fetch(streamUrl, { signal: this.abortController.signal })
-      if (!response.ok) throw new Error("HTTP " + response.status)
-
-      const mseSupported = MediaSource.isTypeSupported("audio/mpeg")
-      if (mseSupported) {
-        await this.playWithMSE(response)
-      } else {
-        await this.playWithBlob(response)
-      }
+      await this.audioEl.play()
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        // Normal stop
-      } else {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
         this.onError(err instanceof Error ? err.message : "Stream failed")
       }
-    }
-
-    if (this.playing) this.stop()
-  }
-
-  private async playWithMSE(response: Response): Promise<void> {
-    this.mediaSource = new MediaSource()
-    this.audioEl!.src = URL.createObjectURL(this.mediaSource)
-
-    await new Promise<void>((resolve) => {
-      this.mediaSource!.addEventListener("sourceopen", () => resolve(), { once: true })
-    })
-
-    this.sourceBuffer = this.mediaSource.addSourceBuffer("audio/mpeg")
-    const reader = response.body!.getReader()
-    let started = false
-    const queue: Uint8Array[] = []
-    let appending = false
-
-    const appendNext = (): void => {
-      if (appending || queue.length === 0) return
-      if (this.sourceBuffer!.updating) return
-      appending = true
-      const chunk = queue.shift()!
-      try {
-        this.sourceBuffer!.appendBuffer(chunk.buffer as ArrayBuffer)
-      } catch {
-        appending = false
-      }
-    }
-
-    this.sourceBuffer.addEventListener("updateend", () => {
-      appending = false
-
-      // Start playback as soon as we have some data buffered
-      if (!started && this.audioEl!.buffered.length > 0) {
-        this.audioEl!.play()
-        started = true
-        this.onStateChange(true)
-      }
-
-      appendNext()
-    })
-
-    while (this.playing) {
-      const { done, value } = await reader.read()
-      if (done) break
-      queue.push(value)
-      appendNext()
-    }
-  }
-
-  private async playWithBlob(response: Response): Promise<void> {
-    const reader = response.body!.getReader()
-    const chunks: Uint8Array[] = []
-    let totalSize = 0
-
-    while (this.playing) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      totalSize += value.length
-
-      if (!this.audioEl!.src && totalSize >= 32000) {
-        const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" })
-        this.audioEl!.src = URL.createObjectURL(blob)
-        this.audioEl!.play()
-        this.onStateChange(true)
-      }
+      if (this.playing) this.stop()
     }
   }
 
@@ -123,21 +57,13 @@ export class StreamPlayer {
 
   stop() {
     this.playing = false
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
-    }
     if (this.audioEl) {
       this.audioEl.pause()
-      if (this.audioEl.src) URL.revokeObjectURL(this.audioEl.src)
+      this.audioEl.removeAttribute("src")
+      this.audioEl.load()
       this.audioEl.remove()
       this.audioEl = null
     }
-    if (this.mediaSource && this.mediaSource.readyState === "open") {
-      try { this.mediaSource.endOfStream() } catch { /* already ended */ }
-    }
-    this.mediaSource = null
-    this.sourceBuffer = null
     this.onStateChange(false)
   }
 

@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, type MouseEvent } from "react"
 import {
   IconPlayerPlayFilled,
   IconPlayerPauseFilled,
@@ -18,84 +17,21 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`
 }
 
-function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroadcast>["engine"]> }) {
-  const barRef = useRef<HTMLDivElement>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
-  const elapsedRef = useRef<HTMLSpanElement>(null)
-  const [dragging, setDragging] = useState(false)
+function ProgressBar() {
+  const { studio } = useBroadcast()
 
-  // Update progress bar via rAF for smooth movement
-  useEffect(() => {
-    let raf = 0
-    function tick() {
-      const track = engine.getCurrentTrack()
-      const elapsed = engine.getElapsed()
-      const duration = track?.duration ?? 0
-      const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
-
-      if (barRef.current && !dragging) {
-        barRef.current.style.width = `${pct}%`
-      }
-      if (elapsedRef.current) {
-        elapsedRef.current.textContent = formatTime(elapsed)
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [engine, dragging])
-
-  const handleSeek = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (!trackRef.current) return
-    const rect = trackRef.current.getBoundingClientRect()
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const track = engine.getCurrentTrack()
-    if (track) {
-      engine.seek(pct * track.duration)
-    }
-  }, [engine])
-
-  const track = engine.getCurrentTrack()
-  const duration = track?.duration ?? 0
+  const elapsed = studio?.elapsed ?? 0
+  const duration = studio?.duration ?? 0
+  const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
 
   return (
     <div className="flex items-center gap-2 w-full">
-      <span ref={elapsedRef} className="text-[11px] text-muted-foreground tabular-nums w-8 text-right shrink-0">
-        0:00
+      <span className="text-[11px] text-muted-foreground tabular-nums w-8 text-right shrink-0">
+        {formatTime(elapsed)}
       </span>
-      <div
-        ref={trackRef}
-        className="flex-1 h-5 flex items-center cursor-pointer group"
-        onClick={handleSeek}
-        onMouseDown={(e) => {
-          setDragging(true)
-          handleSeek(e)
-          const handleMove = (ev: globalThis.MouseEvent) => {
-            if (!trackRef.current) return
-            const rect = trackRef.current.getBoundingClientRect()
-            const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-            if (barRef.current) barRef.current.style.width = `${pct * 100}%`
-          }
-          const handleUp = (ev: globalThis.MouseEvent) => {
-            if (!trackRef.current) return
-            const rect = trackRef.current.getBoundingClientRect()
-            const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-            const t = engine.getCurrentTrack()
-            if (t) engine.seek(pct * t.duration)
-            setDragging(false)
-            window.removeEventListener("mousemove", handleMove)
-            window.removeEventListener("mouseup", handleUp)
-          }
-          window.addEventListener("mousemove", handleMove)
-          window.addEventListener("mouseup", handleUp)
-        }}
-      >
-        <div className="w-full h-1 bg-muted rounded-full overflow-hidden group-hover:h-1.5 transition-all">
-          <div
-            ref={barRef}
-            className="h-full rounded-full bg-primary"
-            style={{ width: "0%" }}
-          />
+      <div className="flex-1 h-5 flex items-center">
+        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+          <div className="h-full rounded-full bg-primary transition-[width] duration-200" style={{ width: `${pct}%` }} />
         </div>
       </div>
       <span className="text-[11px] text-muted-foreground tabular-nums w-8 shrink-0">
@@ -106,18 +42,12 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
 }
 
 export function TransportControls() {
-  const { engine } = useBroadcast()
-  const [, forceUpdate] = useState(0)
+  const { studio, sendCommand } = useBroadcast()
 
-  useEffect(() => {
-    const timer = setInterval(() => forceUpdate((n) => n + 1), 300)
-    return () => clearInterval(timer)
-  }, [])
-
-  const playing = engine?.isPlaying() ?? false
-  const repeat = engine?.isRepeat() ?? false
-  const hasQueue = (engine?.getQueue().length ?? 0) > 0
-  const hasTrack = !!engine?.getCurrentTrack()
+  const playing = studio?.playing ?? false
+  const repeat = studio?.repeat ?? false
+  const hasQueue = (studio?.queue.length ?? 0) > 0
+  const hasTrack = studio ? studio.currentIndex >= 0 : false
 
   return (
     <Card className="py-2 md:py-4 gap-0">
@@ -126,7 +56,7 @@ export function TransportControls() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => engine?.prev()}
+            onClick={() => sendCommand({ type: 'prev' })}
             disabled={!hasQueue}
           >
             <IconPlayerSkipBackFilled size={14} />
@@ -136,7 +66,7 @@ export function TransportControls() {
             variant={hasQueue ? "default" : "ghost"}
             size="icon"
             className="size-10"
-            onClick={() => engine?.togglePlay()}
+            onClick={() => sendCommand({ type: playing ? 'pause' : 'play' })}
             disabled={!hasQueue}
           >
             {playing ? <IconPlayerPauseFilled size={16} /> : <IconPlayerPlayFilled size={16} />}
@@ -145,7 +75,7 @@ export function TransportControls() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => engine?.next()}
+            onClick={() => sendCommand({ type: 'next' })}
             disabled={!hasQueue}
           >
             <IconPlayerSkipForwardFilled size={14} />
@@ -154,13 +84,13 @@ export function TransportControls() {
           <Button
             variant={repeat ? "secondary" : "ghost"}
             size="icon"
-            onClick={() => engine?.toggleRepeat()}
+            onClick={() => sendCommand({ type: 'repeat', enabled: !repeat })}
           >
             <IconRepeat size={14} />
           </Button>
         </div>
 
-        {hasTrack && engine && <ProgressBar engine={engine} />}
+        {hasTrack && <ProgressBar />}
       </CardContent>
     </Card>
   )
