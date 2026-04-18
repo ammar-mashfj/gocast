@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   IconCheck,
@@ -109,12 +109,11 @@ function SuccessView({ station, onOpenControls }: { station: Station; onOpenCont
 
 export default function GoLivePage() {
   const params = useParams<{ slug: string }>()
-  const searchParams = useSearchParams()
   const router = useRouter()
   const slug = params.slug
-  const micDisabledParam = searchParams.get("micDisabled") === "true"
-  const micDisabledStorage = typeof window !== 'undefined' && (() => { try { return sessionStorage.getItem('broadcast:micDisabled') === 'true' } catch { return false } })()
-  const micDisabled = micDisabledParam || !!micDisabledStorage
+  const micDisabled = typeof window !== 'undefined' && (() => {
+    try { return localStorage.getItem(`broadcast:micDisabled:${slug}`) === 'true' } catch { return false }
+  })()
   const { state, steps, error, start } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
   const startedRef = useRef(false)
@@ -150,7 +149,7 @@ export default function GoLivePage() {
 
       {state === "error" && (
         <div className="flex flex-col sm:flex-row gap-2.5 sm:justify-center">
-          <Button className="w-full sm:w-auto" onClick={() => { startedRef.current = false; start(station.slug) }}>
+          <Button className="w-full sm:w-auto" onClick={() => { startedRef.current = false; start(station.slug, { skipMic: micDisabled }) }}>
             Try again
           </Button>
           <Button className="w-full sm:w-auto" variant="outline" asChild>

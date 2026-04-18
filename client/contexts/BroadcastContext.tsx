@@ -32,6 +32,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const [engine, setEngine] = useState<AudioEngine | null>(null)
   const [micDisabled, setMicDisabled] = useState(false)
   const managerRef = useRef<BroadcastManager | null>(null)
+  const stationIdRef = useRef<string | null>(null)
 
   const start = useCallback(async (stationId: string, options?: { skipMic?: boolean }) => {
     if (managerRef.current) {
@@ -54,10 +55,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       onError: setError,
     })
     managerRef.current = manager
-    if (options?.skipMic) {
-      setMicDisabled(true)
-      try { sessionStorage.setItem('broadcast:micDisabled', 'true') } catch {}
-    }
+    stationIdRef.current = stationId
+    setMicDisabled(!!options?.skipMic)
     await manager.start(options)
   }, [])
 
@@ -66,9 +65,12 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       await managerRef.current.stop()
       managerRef.current = null
     }
+    if (stationIdRef.current) {
+      try { localStorage.removeItem(`broadcast:micDisabled:${stationIdRef.current}`) } catch {}
+      stationIdRef.current = null
+    }
     setMicStream(null)
     setMicDisabled(false)
-    try { sessionStorage.removeItem('broadcast:micDisabled') } catch {}
     setEngine(null)
     setSteps([])
     setError(null)

@@ -39,6 +39,8 @@ return [
 
     'relay_health_url' => env('RELAY_HEALTH_URL', 'http://localhost:8081/health'),
 
+    'relay_stations_url' => env('RELAY_STATIONS_URL', 'http://localhost:8081/stations'),
+
     'internal_api_key' => env('INTERNAL_API_KEY'),
 
     'google' => [

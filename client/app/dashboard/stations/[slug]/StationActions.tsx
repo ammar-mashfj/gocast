@@ -69,6 +69,7 @@ export function StationActions({ station, mode }: StationActionsProps) {
             <button
               onClick={() => {
                 setShowModeSelect(false)
+                try { localStorage.removeItem(`broadcast:micDisabled:${station.slug}`) } catch {}
                 router.push(`/dashboard/stations/${station.slug}/live`)
               }}
               className="flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent bg-transparent cursor-pointer"
@@ -87,7 +88,8 @@ export function StationActions({ station, mode }: StationActionsProps) {
             <button
               onClick={() => {
                 setShowModeSelect(false)
-                router.push(`/dashboard/stations/${station.slug}/live?micDisabled=true`)
+                try { localStorage.setItem(`broadcast:micDisabled:${station.slug}`, 'true') } catch {}
+                router.push(`/dashboard/stations/${station.slug}/live`)
               }}
               className="flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent bg-transparent cursor-pointer"
             >

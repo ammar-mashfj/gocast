@@ -511,6 +511,11 @@ const healthServer = http.createServer((req, res) => {
       connections: wss.clients.size,
       activeMounts: activeMounts.size,
     }));
+  } else if (req.url === "/stations") {
+    // Station IDs the relay currently considers live — includes mounts
+    // in the 30s silence grace window so the API doesn't kill them mid-reconnect.
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ stations: Array.from(activeMounts.values()) }));
   } else {
     res.writeHead(404);
     res.end();

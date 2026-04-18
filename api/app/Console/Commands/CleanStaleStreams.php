@@ -10,52 +10,71 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Redis;
 
 #[Signature('app:clean-stale-streams')]
-#[Description('Mark live stations as offline when the relay is unreachable')]
+#[Description('Mark live stations as offline when the relay no longer has them')]
 /**
  * Scheduled every 5 minutes to act as a circuit-breaker for stale streams.
  *
- * Pings the relay health endpoint — if unreachable, marks all live stations as
- * offline and closes any open sessions, preventing ghost "live" states when the
- * relay goes down unexpectedly.
+ * - If the relay is unreachable, mark every live station offline.
+ * - If the relay is reachable, cross-reference its active station list and
+ *   mark any DB-live stations the relay doesn't know about as offline
+ *   (handles closed tabs where the silence-timeout notification never arrived).
  */
 class CleanStaleStreams extends Command
 {
     public function handle(): void
     {
-        if ($this->relayIsHealthy()) {
-            $this->info('Relay is healthy, nothing to clean.');
+        $relayStations = $this->fetchRelayStations();
+
+        $liveStations = Station::where('is_live', true)->get();
+
+        if ($liveStations->isEmpty()) {
+            $this->info('No live stations to check.');
 
             return;
         }
 
-        $stations = Station::where('is_live', true)->get();
+        $stale = $relayStations === null
+            ? $liveStations
+            : $liveStations->reject(fn (Station $s) => in_array($s->id, $relayStations, true));
 
-        if ($stations->isEmpty()) {
-            $this->info('No live stations to clean.');
+        if ($stale->isEmpty()) {
+            $this->info('All live stations are active on the relay.');
 
             return;
         }
 
-        foreach ($stations as $station) {
+        foreach ($stale as $station) {
             $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
             $station->update(['is_live' => false]);
             Redis::del("metadata:{$station->id}");
             Redis::del("listeners:{$station->id}");
         }
 
-        $this->info("Cleaned {$stations->count()} stale station(s).");
+        $reason = $relayStations === null ? 'relay unreachable' : 'not present on relay';
+        $this->info("Cleaned {$stale->count()} stale station(s) ({$reason}).");
     }
 
-    private function relayIsHealthy(): bool
+    /**
+     * Fetch the list of station IDs the relay currently considers live.
+     *
+     * @return array<int, string>|null Array of station IDs, or null if relay is unreachable.
+     */
+    private function fetchRelayStations(): ?array
     {
         try {
             $response = Http::timeout(3)
                 ->connectTimeout(2)
-                ->get(config('services.relay_health_url'));
+                ->get(config('services.relay_stations_url'));
 
-            return $response->ok() && $response->json('status') === 'ok';
+            if (! $response->ok()) {
+                return null;
+            }
+
+            $stations = $response->json('stations');
+
+            return is_array($stations) ? array_values($stations) : null;
         } catch (\Throwable) {
-            return false;
+            return null;
         }
     }
 }
