@@ -11,7 +11,7 @@
 ### Goals
 - Give the founder a production-grade admin panel to manage users, stations, broadcasts, plans, and the waitlist.
 - Provide operational visibility: dashboard metrics, activity log, authentication log, Laravel log viewer.
-- Support the core destructive actions needed for trust & safety: suspend user, force-stop a live broadcast, soft-delete user/station, impersonate a user.
+- Support the core destructive actions needed for trust & safety: suspend user, force-stop a live broadcast, soft-delete user/station.
 - Lay groundwork for future multi-admin / RBAC without forcing it today.
 
 ### Non-goals (explicitly deferred)
@@ -20,6 +20,7 @@
 - In-panel email sending to waitlist (export CSV; email from existing tooling).
 - Double opt-in flow for waitlist (schema already supports adding `confirmed_at` later).
 - Custom dashboard widget builder or configurable time ranges (hardcoded 30-day windows for v1).
+- Impersonation ("log in as user"). If support workload ever demands it, add it as a separate focused project with its own cross-domain token bridge design.
 
 ---
 
@@ -68,19 +69,6 @@ The browser broadcaster (already reconnects on abnormal close) is updated: on cl
 | remember_token | string nullable | |
 | timestamps | | |
 
-**`impersonation_sessions`**
-| column | type | notes |
-| --- | --- | --- |
-| id | bigint PK | |
-| admin_id | fk → admins.id | cascade on delete |
-| user_id | fk → users.id | cascade on delete |
-| token_jti | string | matches Sanctum token id for revocation |
-| started_at | timestamp | |
-| ended_at | timestamp nullable | set when token revoked or expires |
-| ip | string nullable | |
-| user_agent | string nullable | |
-| timestamps | | |
-
 **`activity_log`** — created by `php artisan vendor:publish --provider="Spatie\Activitylog\ActivitylogServiceProvider"`. `causer_id`/`causer_type` are polymorphic (Admin or User).
 
 **`authentication_log`** — created by `php artisan vendor:publish --tag=authentication-log-migrations`.
@@ -102,7 +90,6 @@ The browser broadcaster (already reconnects on abnormal close) is updated: on cl
 
 ### Models
 - New `App\Models\Admin` (extends `Authenticatable`, implements `FilamentUser` + Filament `HasTwoFactorAuthentication`).
-- New `App\Models\ImpersonationSession`.
 - `App\Models\User` — add `SoftDeletes` trait, `suspended_at`/`suspension_reason` fillable, `isSuspended()` helper.
 - `App\Models\Station` — add `SoftDeletes` trait.
 
@@ -113,7 +100,7 @@ The browser broadcaster (already reconnects on abnormal close) is updated: on cl
 ### UserResource (full)
 - **Table columns:** name, email, plan (badge), stations_count (with_count), status (badge: active/suspended/unverified), created_at, last_login_at.
 - **Filters:** plan, status (active/suspended/unverified), verified y/n, signup date range.
-- **Row actions:** view, edit, suspend/unsuspend, resend verification, mark verified, impersonate, soft-delete.
+- **Row actions:** view, edit, suspend/unsuspend, resend verification, mark verified, soft-delete.
 - **Bulk actions:** suspend (requires reason), soft-delete.
 - **Edit form:** name, email, plan_id, `email_verified_at` toggle.
 - **Detail page panels:** profile · stations owned (inline table) · stream session history (inline table, last 50) · activity on this user (inline list from activity_log where `subject=this user`) · auth log (inline list from authentication_log where `user=this user`, last 50).
@@ -212,22 +199,13 @@ Every destructive action uses a Filament confirmation modal that requires the op
 - Soft-delete. Owner's `stations_count` goes down accordingly.
 - No UI restore; `php artisan station:restore {id}`.
 
-### Impersonate user
-1. Admin clicks "Impersonate" on a user → confirmation modal (type email).
-2. Laravel creates a single-use, 15-minute Sanctum token for the target user, with ability `impersonation:*` (distinguishable in logs). Writes an `impersonation_sessions` row.
-3. Redirect admin's browser to `app.gocast.ai/auth/impersonate?token={token}`.
-4. SPA's `/auth/impersonate` route stores the token in its normal auth store + stores a flag `isImpersonating=true` with the `admin_id` and `impersonation_session_id`. The SPA displays a persistent red banner at the top: "Impersonating {user.email} as {admin.email} — [End impersonation]".
-5. "End impersonation" button: SPA calls `POST /api/impersonation/end` — authenticated by the impersonation token, gated by the `impersonation:*` ability. The endpoint revokes the current token and sets `impersonation_sessions.ended_at`. SPA then clears local state and redirects to `admin.gocast.ai`.
-6. Token auto-expires after 15 minutes if not explicitly ended.
-7. Activity row on start: causer=admin, subject=user, event=`impersonation_started`. On end: event=`impersonation_ended` with duration.
-
 ---
 
 ## 7. Audit & auth logging
 
 ### Activity log (spatie/laravel-activitylog)
 - Globally enabled on `User`, `Station`, `Admin`, `Plan` (log name `default`, logs `created`, `updated`, `deleted`, `restored`).
-- Explicitly called in every custom Filament action (suspend, unsuspend, force-stop, impersonate, feature/unfeature, etc.) with a hand-chosen event name.
+- Explicitly called in every custom Filament action (suspend, unsuspend, force-stop, feature/unfeature, etc.) with a hand-chosen event name.
 - Causer morph map defined so DB stores short keys (`admin`, `user`) not FQCNs.
 - Surfaced via `ActivityLogResource` and inline on User / Station detail pages.
 
@@ -248,8 +226,6 @@ Small, targeted changes only:
 - **Suspension response handler** — a response interceptor in the existing API client: on 403 with `{ error: "account_suspended" }`, clear auth state, redirect to `/suspended` page showing the reason.
 - **New `/suspended` page** — server component that reads the reason from query param (sanitized).
 - **Broadcaster close code 4003 handler** — in the existing broadcaster reconnect logic, treat 4003 as terminal: stop reconnect, show banner with reason from the close payload.
-- **New `/auth/impersonate` route** — consumes a one-shot token from the query, stores it, sets `isImpersonating` flag + admin identifier, redirects to the user dashboard.
-- **Impersonation banner** — global component rendered when `isImpersonating` flag is set, with "End impersonation" button.
 
 No admin UI in the client. The panel is entirely on `admin.gocast.ai`.
 
@@ -262,10 +238,7 @@ No admin UI in the client. The panel is entirely on `admin.gocast.ai`.
 | `filament/filament` (^4) | admin panel |
 | `spatie/laravel-activitylog` | audit trail |
 | `rappasoft/laravel-authentication-log` | login tracking |
-| `stephenjude/filament-impersonate` (or equivalent maintained plugin) | impersonation UI; wrapped so the bridge flow above is used |
 | `opcodesio/log-viewer` + Filament plugin | in-panel Laravel log reader |
-
-If the impersonation plugin can't host our cross-domain bridge flow cleanly, we implement impersonation ourselves (a custom Filament action — it's ~80 lines) rather than bending the plugin. Decision in the plan phase.
 
 ---
 
@@ -276,7 +249,6 @@ If the impersonation plugin can't host our cross-domain bridge flow cleanly, we 
   - Unsuspend → user can log in again.
   - Force-stop → relay called, DB flag updated, activity logged. Both success and relay-failure paths.
   - Soft-delete user → cascades to stations, tokens revoked.
-  - Impersonation → token issued with correct ability + expiry, session row created; end impersonation revokes token and sets `ended_at`.
 - **Policy tests** — non-admin User with valid Sanctum token cannot access any `admin.gocast.ai` route (returns 403 or redirect).
 - **Pest browser smoke tests** (Pest 4) — login page loads, dashboard loads, each resource's list page loads, no JS errors.
 - **Pest arch tests** — no admin code imports `App\Models\User` except through approved boundaries; `admins` table is only referenced by the `admin` guard.
