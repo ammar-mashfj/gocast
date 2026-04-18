@@ -13,6 +13,7 @@ use App\Http\Controllers\StreamValidationController;
 use App\Http\Controllers\UpdateListenerCountController;
 use App\Http\Controllers\UpdateMetadataController;
 use App\Http\Controllers\UploadController;
+use App\Http\Controllers\WaitlistController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -57,6 +58,11 @@ Route::middleware('throttle:public')->group(function () {
     Route::get('/public/featured', [PublicStationController::class, 'featured']);
     Route::get('/public/stations/{slug}', [PublicStationController::class, 'show']);
     Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class, 'show']);
+});
+
+// Waitlist signup — public, tightly throttled to 5 requests per IP per hour.
+Route::middleware('throttle:5,60')->group(function () {
+    Route::post('/waitlist', [WaitlistController::class, 'store']);
 });
 
 // Internal relay routes — authenticated by shared secret (VerifyInternalKey) and throttled at a higher ceiling.
