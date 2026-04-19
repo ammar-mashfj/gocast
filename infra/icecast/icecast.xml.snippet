@@ -25,12 +25,23 @@
 
     Replace the commented-out <mount type="default"> example in the file
     with this live block.
+
+    <burst-size> and <queue-size> are tuned DOWN from Icecast defaults
+    (65536 / 524288) to reduce the perceptible silence gap during the
+    fallback transition. At 320 kbps MP3 these are ~0.4s and ~3.3s of
+    buffer respectively — enough to keep the transition watertight,
+    short enough that listeners don't sit in ~20s of dead air waiting
+    for the live→standby swap to complete. Slow listeners (<350 kbps
+    sustained) will get dropped more aggressively; modern listeners
+    won't notice.
 -->
 <mount type="default">
     <fallback-mount>/standby.mp3</fallback-mount>
     <fallback-override>1</fallback-override>
     <hidden>0</hidden>
     <public>0</public>
+    <burst-size>16384</burst-size>
+    <queue-size>131072</queue-size>
 </mount>
 
 
