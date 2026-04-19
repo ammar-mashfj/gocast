@@ -1,0 +1,24 @@
+<ezstream>
+    <!--
+        Feeds the /standby.mp3 mount on Icecast. Icecast is configured (via
+        <mount type="default"><fallback-mount>/standby.mp3</fallback-mount>)
+        to transparently route listeners of any dynamic /stream/* mount to
+        this stream whenever a broadcaster's SOURCE disconnects. When the
+        broadcaster reconnects, listeners are moved back to the live stream.
+
+        Deployed to: /etc/gocast/standby.xml on the production host.
+        Run by: /etc/systemd/system/gocast-standby.service (see standby.systemd).
+    -->
+    <url>http://localhost:8888/standby.mp3</url>
+    <sourceuser>source</sourceuser>
+    <sourcepassword>06011995</sourcepassword>
+
+    <format>MP3</format>
+    <filename>/srv/gocast/standby.mp3</filename>
+    <stream_once>0</stream_once>
+
+    <svrinfoname>GoCast standby</svrinfoname>
+    <svrinfopublic>0</svrinfopublic>
+
+    <reencode>0</reencode>
+</ezstream>

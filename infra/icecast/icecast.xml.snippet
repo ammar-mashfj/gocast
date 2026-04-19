@@ -1,0 +1,49 @@
+<!--
+    Merge these changes into the existing /etc/icecast2/icecast.xml.
+    This is NOT a full config — only the blocks that need to change.
+-->
+
+<!--
+    CHANGE 1 — raise the SOURCE ceiling.
+
+    The current file has:
+        <sources>2</sources>
+    Each live broadcaster consumes one SOURCE slot; the always-on standby
+    ezstream consumes one more. Lift the cap so concurrent broadcasters
+    aren't squeezed out.
+-->
+<sources>50</sources>
+
+
+<!--
+    CHANGE 2 — default mount config.
+
+    Applies to every dynamically-created mount (/stream/<slug>).
+    When a broadcaster's SOURCE drops, listeners are transparently routed
+    to /standby.mp3. When the broadcaster reconnects, fallback-override
+    moves them back to the live stream.
+
+    Replace the commented-out <mount type="default"> example in the file
+    with this live block.
+-->
+<mount type="default">
+    <fallback-mount>/standby.mp3</fallback-mount>
+    <fallback-override>1</fallback-override>
+    <hidden>0</hidden>
+    <public>0</public>
+</mount>
+
+
+<!--
+    CHANGE 3 — explicit standby mount.
+
+    Declared as type="normal" so it does NOT inherit the default's
+    fallback-mount (which would create a self-loop). Hidden from public
+    listings so it doesn't show up in the YP directory.
+-->
+<mount type="normal">
+    <mount-name>/standby.mp3</mount-name>
+    <hidden>1</hidden>
+    <public>0</public>
+    <burst-size>65536</burst-size>
+</mount>

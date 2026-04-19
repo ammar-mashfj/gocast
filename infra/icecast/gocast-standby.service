@@ -1,0 +1,15 @@
+[Unit]
+Description=GoCast Icecast standby stream
+After=icecast2.service
+Wants=icecast2.service
+Requires=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ezstream -c /etc/gocast/standby.xml
+Restart=always
+RestartSec=5
+User=gocast
+Group=gocast
+
+[Install]
+WantedBy=multi-user.target
