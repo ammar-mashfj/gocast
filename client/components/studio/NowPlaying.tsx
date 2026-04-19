@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useEffect, useRef } from "react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useEngineVersion } from "@/lib/useEngine"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
@@ -36,18 +37,12 @@ function useAudioLevel(analyser: AnalyserNode | null, barRef: React.RefObject<HT
 
 export function NowPlaying() {
   const { engine, state } = useBroadcast()
+  useEngineVersion(engine)
   const analyser = engine?.getAnalyser() ?? null
   const barRef = useRef<HTMLDivElement>(null)
-  const [, forceUpdate] = useState(0)
   const isLive = state === "live"
 
   useAudioLevel(analyser, barRef)
-
-  useEffect(() => {
-    if (!isLive) return
-    const timer = setInterval(() => forceUpdate((n) => n + 1), 500)
-    return () => clearInterval(timer)
-  }, [isLive])
 
   const track = engine?.getCurrentTrack() ?? null
   const playing = engine?.isPlaying() ?? false

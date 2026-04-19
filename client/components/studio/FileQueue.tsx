@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useMemo } from "react"
 import { IconPlus, IconMinus, IconX, IconGripVertical } from "@tabler/icons-react"
 import {
   DndContext,
@@ -17,10 +17,10 @@ import {
   useSortable,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useEngineVersion } from "@/lib/useEngine"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { QueueTrack } from "@/lib/audioEngine"
@@ -102,10 +102,8 @@ function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
 
 export function FileQueue() {
   const { engine } = useBroadcast()
+  const version = useEngineVersion(engine)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [queue, setQueue] = useState<QueueTrack[]>([])
-  const [currentIndex, setCurrentIndex] = useState(-1)
-  const [, forceUpdate] = useState(0)
   const [dragOverZone, setDragOverZone] = useState(false)
 
   const sensors = useSensors(
@@ -114,15 +112,11 @@ export function FileQueue() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  useEffect(() => {
-    if (!engine) return
-    const timer = setInterval(() => {
-      setQueue([...engine.getQueue()])
-      setCurrentIndex(engine.getCurrentIndex())
-      forceUpdate((n) => n + 1)
-    }, 300)
-    return () => clearInterval(timer)
-  }, [engine])
+  // `version` is the real dependency — engine mutates its queue array in place,
+  // so we rely on the version bump from useEngineVersion to force a new memo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const queue = useMemo(() => engine?.getQueue() ?? [], [engine, version])
+  const currentIndex = engine?.getCurrentIndex() ?? -1
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!engine) return
@@ -154,9 +148,6 @@ export function FileQueue() {
     const from = queue.findIndex((t) => t.id === active.id)
     const to = queue.findIndex((t) => t.id === over.id)
     if (from === -1 || to === -1) return
-    // Optimistically reorder local state so the row doesn't snap back
-    // before the 300ms poll picks up the engine's new order.
-    setQueue((prev) => arrayMove(prev, from, to))
     engine.moveTrack(from, to)
   }, [engine, queue])
 

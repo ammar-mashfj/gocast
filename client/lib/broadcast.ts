@@ -116,13 +116,14 @@ export class BroadcastManager {
             this.ws.send(data)
           }
         },
-        () => {
-          const track = this.engine?.getCurrentTrack()
-          if (track && this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'metadata', title: track.title, artist: track.artist }))
-          }
-        },
       )
+      // Push track metadata to the relay whenever engine state changes.
+      this.engine.subscribe(() => {
+        const track = this.engine?.getCurrentTrack()
+        if (track && this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'metadata', title: track.title, artist: track.artist }))
+        }
+      })
       await this.engine.restoreQueue()
       this.updateStep('encoder', 'done')
 

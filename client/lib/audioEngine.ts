@@ -1,5 +1,7 @@
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback } from './queueStore'
 
+export type RepeatMode = 'off' | 'all' | 'one'
+
 export interface QueueTrack {
   id: string
   file: File
@@ -7,11 +9,41 @@ export interface QueueTrack {
   artist: string
   duration: number
   buffer: AudioBuffer | null
+  /** In-flight decode promise — dedupes concurrent decode requests. */
+  decoding?: Promise<void>
 }
 
 const SAMPLE_RATE = 44100
 const MP3_BITRATE = 320
 const MIC_BOOST = 3
+/** How many tracks either side of `currentIndex` keep their decoded buffer. */
+const BUFFER_WINDOW = 1
+
+/** Read a file's duration from its container header without decoding PCM. Cheap. */
+function readDurationFromFile(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const audio = new Audio()
+    const cleanup = () => {
+      audio.removeEventListener('loadedmetadata', onLoad)
+      audio.removeEventListener('error', onError)
+      URL.revokeObjectURL(url)
+    }
+    const onLoad = () => {
+      const d = Number.isFinite(audio.duration) ? audio.duration : 0
+      cleanup()
+      resolve(d)
+    }
+    const onError = () => {
+      cleanup()
+      reject(new Error(`Failed to read metadata for ${file.name}`))
+    }
+    audio.addEventListener('loadedmetadata', onLoad)
+    audio.addEventListener('error', onError)
+    audio.preload = 'metadata'
+    audio.src = url
+  })
+}
 
 /**
  * Single AudioContext mixer. Files and mic both route through gain nodes
@@ -46,14 +78,21 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
-  private repeat = false
+  private repeatMode: RepeatMode = 'all'
   private trackStartTime = 0 // ctx.currentTime when track started
   private trackOffset = 0 // offset into the track (for resume)
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
   // Callbacks
   private onChunk: (data: ArrayBuffer) => void
-  private onChange: () => void
+
+  // Reactive state: listeners are notified on any engine state change.
+  // `version` is a monotonic counter that React's `useSyncExternalStore`
+  // reads as its snapshot — incrementing it guarantees a new primitive
+  // value each change, so components re-render reliably even though
+  // internal structures (queue array, etc.) are mutated in place.
+  private listeners = new Set<() => void>()
+  private version = 0
 
   private constructor(
     ctx: AudioContext,
@@ -61,13 +100,11 @@ export class AudioEngine {
     encoderWorker: Worker,
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
-    onChange: () => void,
   ) {
     this.ctx = ctx
     this.workletNode = workletNode
     this.encoderWorker = encoderWorker
     this.onChunk = onChunk
-    this.onChange = onChange
 
     // Encoded chunks arrive from the worker; pass straight through to the sender.
     this.encoderWorker.addEventListener('message', (e: MessageEvent) => {
@@ -122,7 +159,6 @@ export class AudioEngine {
   static async create(
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
-    onChange: () => void,
   ): Promise<AudioEngine> {
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
     await ctx.audioWorklet.addModule('/pcm-worklet.js')
@@ -154,7 +190,7 @@ export class AudioEngine {
     )
     await ready
 
-    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk, onChange)
+    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk)
   }
 
   // ── PTT ──
@@ -166,7 +202,7 @@ export class AudioEngine {
     // Duck files to 20%, bring mic up with boost
     this.fileGain.gain.setTargetAtTime(0.2, this.ctx.currentTime, 0.05)
     this.micGain.gain.setTargetAtTime(MIC_BOOST, this.ctx.currentTime, 0.02)
-    this.onChange()
+    this.notify()
   }
 
   /** Release push-to-talk: mute the mic and restore file playback to 100%. */
@@ -176,7 +212,7 @@ export class AudioEngine {
     // Restore files to 100%, mute mic
     this.fileGain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.05)
     this.micGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02)
-    this.onChange()
+    this.notify()
   }
 
   isMicActive(): boolean {
@@ -192,8 +228,29 @@ export class AudioEngine {
   getQueue(): QueueTrack[] { return this.queue }
   getCurrentIndex(): number { return this.currentIndex }
   isPlaying(): boolean { return this.playing }
-  isRepeat(): boolean { return this.repeat }
-  toggleRepeat() { this.repeat = !this.repeat; this.onChange() }
+  getRepeatMode(): RepeatMode { return this.repeatMode }
+
+  // ── Reactive subscription ──
+
+  /** Bound for referential stability — safe to pass directly to useSyncExternalStore. */
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn)
+    return () => { this.listeners.delete(fn) }
+  }
+
+  /** Bound for referential stability. Increments on every state change. */
+  getVersion = (): number => this.version
+
+  private notify() {
+    this.version++
+    this.listeners.forEach((fn) => {
+      try { fn() } catch (err) { console.error('[AudioEngine] listener threw:', err) }
+    })
+  }
+  cycleRepeatMode() {
+    this.repeatMode = this.repeatMode === 'off' ? 'all' : this.repeatMode === 'all' ? 'one' : 'off'
+    this.notify()
+  }
 
   getCurrentTrack(): QueueTrack | null {
     return this.queue[this.currentIndex] ?? null
@@ -208,15 +265,14 @@ export class AudioEngine {
     const stored = await loadQueue()
     if (stored.length === 0) return
     for (const track of stored) {
-      const arrayBuffer = await track.file.arrayBuffer()
-      const buffer = await this.ctx.decodeAudioData(arrayBuffer)
+      const duration = await readDurationFromFile(track.file).catch(() => 0)
       this.queue.push({
         id: track.id,
         file: track.file,
         title: track.title,
         artist: track.artist,
-        duration: buffer.duration,
-        buffer,
+        duration,
+        buffer: null,
       })
     }
 
@@ -224,36 +280,36 @@ export class AudioEngine {
     const playback = await loadPlayback()
     if (playback && playback.currentIndex >= 0 && playback.currentIndex < this.queue.length) {
       const track = this.queue[playback.currentIndex]
-      const offset = Math.min(playback.offset, track.duration - 0.5)
+      const offset = Math.min(playback.offset, Math.max(0, track.duration - 0.5))
       if (offset > 0) {
-        this.playIndexAtOffset(playback.currentIndex, offset)
+        await this.playIndexAtOffset(playback.currentIndex, offset)
       } else {
-        this.playIndex(playback.currentIndex)
+        await this.playIndex(playback.currentIndex)
       }
     }
 
-    this.onChange()
+    this.notify()
   }
 
-  /** Decode audio files and append them to the playback queue. Starts playback if idle. */
+  /** Append audio files to the queue. Reads duration metadata but defers PCM decoding
+   *  until a track is about to play — keeps memory bounded on large queues. */
   async addFiles(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('audio/')) continue
-      const arrayBuffer = await file.arrayBuffer()
-      const buffer = await this.ctx.decodeAudioData(arrayBuffer)
+      const duration = await readDurationFromFile(file).catch(() => 0)
       this.queue.push({
         id: crypto.randomUUID(),
         file,
         title: file.name.replace(/\.[^.]+$/, ''),
         artist: 'Unknown',
-        duration: buffer.duration,
-        buffer,
+        duration,
+        buffer: null,
       })
     }
     this.persistQueue()
-    this.onChange()
+    this.notify()
     if (!this.playing && this.queue.length > 0 && this.currentIndex === -1) {
-      this.playIndex(0)
+      await this.playIndex(0)
     }
   }
 
@@ -274,7 +330,7 @@ export class AudioEngine {
       if (idx < this.currentIndex) this.currentIndex--
     }
     this.persistQueue()
-    this.onChange()
+    this.notify()
   }
 
   moveTrack(fromIndex: number, toIndex: number) {
@@ -295,7 +351,7 @@ export class AudioEngine {
     }
 
     this.persistQueue()
-    this.onChange()
+    this.notify()
   }
 
   clearQueue() {
@@ -304,18 +360,18 @@ export class AudioEngine {
     this.currentIndex = -1
     this.playing = false
     clearStoredQueue()
-    this.onChange()
+    this.notify()
   }
 
   // ── Playback ──
 
-  play() {
+  async play() {
     if (this.queue.length === 0) return
     if (this.ctx.state === 'suspended') this.ctx.resume()
     if (this.currentIndex === -1) {
-      this.playIndex(0)
+      await this.playIndex(0)
     } else if (!this.playing) {
-      this.playIndex(this.currentIndex)
+      await this.playIndex(this.currentIndex)
     }
   }
 
@@ -323,7 +379,7 @@ export class AudioEngine {
     if (!this.playing) return
     this.ctx.suspend()
     this.playing = false
-    this.onChange()
+    this.notify()
   }
 
   togglePlay() {
@@ -332,37 +388,37 @@ export class AudioEngine {
     } else if (this.ctx.state === 'suspended' && this.currentSource) {
       this.ctx.resume()
       this.playing = true
-      this.onChange()
+      this.notify()
     } else {
-      this.play()
+      void this.play()
     }
   }
 
-  next() {
+  async next() {
     if (this.ctx.state === 'suspended') this.ctx.resume()
     this.stopCurrent()
     const nextIdx = this.currentIndex + 1
     if (nextIdx < this.queue.length) {
-      this.playIndex(nextIdx)
-    } else if (this.repeat && this.queue.length > 0) {
-      this.playIndex(0)
+      await this.playIndex(nextIdx)
+    } else if (this.repeatMode === 'all' && this.queue.length > 0) {
+      await this.playIndex(0)
     } else {
       this.playing = false
       this.currentIndex = -1
-      this.onChange()
+      this.notify()
     }
   }
 
-  prev() {
+  async prev() {
     if (this.ctx.state === 'suspended') this.ctx.resume()
     this.stopCurrent()
     const prevIdx = this.currentIndex - 1
     if (prevIdx >= 0) {
-      this.playIndex(prevIdx)
-    } else if (this.repeat && this.queue.length > 0) {
-      this.playIndex(this.queue.length - 1)
+      await this.playIndex(prevIdx)
+    } else if (this.repeatMode === 'all' && this.queue.length > 0) {
+      await this.playIndex(this.queue.length - 1)
     } else {
-      this.playIndex(0)
+      await this.playIndex(0)
     }
   }
 
@@ -371,24 +427,77 @@ export class AudioEngine {
     return this.trackOffset + (this.ctx.currentTime - this.trackStartTime)
   }
 
-  seek(seconds: number) {
+  async seek(seconds: number) {
     if (this.currentIndex < 0) return
     const track = this.queue[this.currentIndex]
-    if (!track?.buffer) return
-    const clamped = Math.max(0, Math.min(seconds, track.duration - 0.1))
-    this.playIndexAtOffset(this.currentIndex, clamped)
+    if (!track) return
+    const duration = track.duration || (track.buffer?.duration ?? 0)
+    const clamped = Math.max(0, Math.min(seconds, duration - 0.1))
+    await this.playIndexAtOffset(this.currentIndex, clamped)
   }
 
-  private playIndex(index: number) {
-    this.playIndexAtOffset(index, 0)
+  /** Ensure the track at `index` has a decoded AudioBuffer. Dedupes concurrent
+   *  calls by caching the in-flight promise on the track. */
+  private decodeTrack(index: number): Promise<void> {
+    const track = this.queue[index]
+    if (!track) return Promise.resolve()
+    if (track.buffer) return Promise.resolve()
+    if (track.decoding) return track.decoding
+    track.decoding = (async () => {
+      try {
+        const arrayBuffer = await track.file.arrayBuffer()
+        // Re-check after await — the track may have been removed or queue cleared.
+        if (this.queue[index] !== track) return
+        const buffer = await this.ctx.decodeAudioData(arrayBuffer)
+        if (this.queue[index] !== track) return
+        track.buffer = buffer
+        // If the duration read from metadata was off, trust the decoded value.
+        if (!track.duration || Math.abs(track.duration - buffer.duration) > 0.5) {
+          track.duration = buffer.duration
+        }
+      } finally {
+        track.decoding = undefined
+      }
+    })()
+    return track.decoding
   }
 
-  private playIndexAtOffset(index: number, offset: number) {
+  /** Drop buffers outside the [index-WINDOW, index+WINDOW] window so GC can reclaim
+   *  the PCM memory. Keeps worst-case memory to ~3 decoded tracks. */
+  private evictFarBuffers(index: number) {
+    const lo = index - BUFFER_WINDOW
+    const hi = index + BUFFER_WINDOW
+    for (let i = 0; i < this.queue.length; i++) {
+      if (i < lo || i > hi) {
+        const t = this.queue[i]
+        if (t.buffer) t.buffer = null
+      }
+    }
+  }
+
+  private async playIndex(index: number) {
+    await this.playIndexAtOffset(index, 0)
+  }
+
+  private async playIndexAtOffset(index: number, offset: number) {
     this.stopCurrent()
     this.currentIndex = index
 
     const track = this.queue[index]
-    if (!track?.buffer) return
+    if (!track) return
+
+    // Decode on demand if this track's buffer was evicted or never loaded.
+    if (!track.buffer) {
+      this.notify() // let UI reflect currentIndex change during the (possibly audible) decode wait
+      try {
+        await this.decodeTrack(index)
+      } catch (err) {
+        console.error('[AudioEngine] decode failed for', track.file.name, err)
+        return
+      }
+      // Abort if the user moved on while we were decoding.
+      if (this.currentIndex !== index || this.queue[index] !== track || !track.buffer) return
+    }
 
     const source = this.ctx.createBufferSource()
     source.buffer = track.buffer
@@ -396,10 +505,10 @@ export class AudioEngine {
 
     source.onended = () => {
       if (this.currentSource === source) {
-        if (this.repeat) {
-          this.playIndex(this.currentIndex)
+        if (this.repeatMode === 'one') {
+          void this.playIndex(this.currentIndex)
         } else {
-          this.next()
+          void this.next()
         }
       }
     }
@@ -410,7 +519,16 @@ export class AudioEngine {
     this.trackOffset = offset
     this.playing = true
     savePlayback({ currentIndex: index, offset })
-    this.onChange()
+    this.notify()
+
+    // Pre-warm the next track so auto-advance is gap-free, and drop far buffers.
+    this.evictFarBuffers(index)
+    const nextIdx = index + 1 < this.queue.length
+      ? index + 1
+      : (this.repeatMode === 'all' && this.queue.length > 1 ? 0 : -1)
+    if (nextIdx >= 0) {
+      void this.decodeTrack(nextIdx).catch(() => { /* pre-warm is best-effort */ })
+    }
   }
 
   private stopCurrent() {

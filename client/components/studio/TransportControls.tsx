@@ -7,8 +7,10 @@ import {
   IconPlayerSkipForwardFilled,
   IconPlayerSkipBackFilled,
   IconRepeat,
+  IconRepeatOnce,
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useEngineVersion } from "@/lib/useEngine"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -107,15 +109,10 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
 
 export function TransportControls() {
   const { engine } = useBroadcast()
-  const [, forceUpdate] = useState(0)
-
-  useEffect(() => {
-    const timer = setInterval(() => forceUpdate((n) => n + 1), 300)
-    return () => clearInterval(timer)
-  }, [])
+  useEngineVersion(engine)
 
   const playing = engine?.isPlaying() ?? false
-  const repeat = engine?.isRepeat() ?? false
+  const repeatMode = engine?.getRepeatMode() ?? 'off'
   const hasQueue = (engine?.getQueue().length ?? 0) > 0
   const hasTrack = !!engine?.getCurrentTrack()
 
@@ -152,11 +149,12 @@ export function TransportControls() {
           </Button>
 
           <Button
-            variant={repeat ? "secondary" : "ghost"}
+            variant={repeatMode === 'off' ? "ghost" : "secondary"}
             size="icon"
-            onClick={() => engine?.toggleRepeat()}
+            onClick={() => engine?.cycleRepeatMode()}
+            title={`Repeat: ${repeatMode}`}
           >
-            <IconRepeat size={14} />
+            {repeatMode === 'one' ? <IconRepeatOnce size={14} /> : <IconRepeat size={14} />}
           </Button>
         </div>
 

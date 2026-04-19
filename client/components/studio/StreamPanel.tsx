@@ -21,7 +21,7 @@ const SHORTCUTS = [
   { action: "Play / pause", key: "K" },
   { action: "Next track", key: "N" },
   { action: "Previous track", key: "P" },
-  { action: "Toggle repeat", key: "R" },
+  { action: "Cycle repeat (off/all/one)", key: "R" },
 ]
 
 function formatDuration(seconds: number): string {
@@ -70,17 +70,18 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
       if (e.target !== document.body) return
       const queueLen = engine?.getQueue().length ?? 0
       const currentIdx = engine?.getCurrentIndex() ?? -1
+      const wraps = engine?.getRepeatMode() === 'all'
       switch (e.code) {
         case "KeyK": engine?.togglePlay(); break
         case "KeyN":
-          if (queueLen > 1 && currentIdx < queueLen - 1) engine?.next()
+          if (queueLen > 1 && (wraps || currentIdx < queueLen - 1)) engine?.next()
           else toast.info(queueLen <= 1 ? "Add more tracks to the queue" : "Already on the last track")
           break
         case "KeyP":
-          if (queueLen > 1 && currentIdx > 0) engine?.prev()
+          if (queueLen > 1 && (wraps || currentIdx > 0)) engine?.prev()
           else toast.info(queueLen <= 1 ? "Add more tracks to the queue" : "Already on the first track")
           break
-        case "KeyR": engine?.toggleRepeat(); break
+        case "KeyR": engine?.cycleRepeatMode(); break
       }
     }
     document.addEventListener("keydown", onKey)

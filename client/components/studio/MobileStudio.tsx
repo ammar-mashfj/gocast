@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, type MouseEvent } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, type MouseEvent } from "react"
 import {
   IconMicrophone,
   IconPlayerPlayFilled,
@@ -8,6 +8,7 @@ import {
   IconPlayerSkipForwardFilled,
   IconPlayerSkipBackFilled,
   IconRepeat,
+  IconRepeatOnce,
   IconPlus,
   IconMinus,
   IconX,
@@ -26,10 +27,10 @@ import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useEngineVersion } from "@/lib/useEngine"
 import { useAudioLevels } from "@/lib/useAudioLevels"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -134,12 +135,15 @@ function SortableMobileRow({ track, isPlaying, onRemove }: SortableMobileRowProp
 
 export function MobileStudio() {
   const { engine, state, micStream, micDisabled } = useBroadcast()
+  const version = useEngineVersion(engine)
   const micLevels = useAudioLevels(micStream)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [holding, setHolding] = useState(false)
-  const [queue, setQueue] = useState<QueueTrack[]>([])
-  const [currentIndex, setCurrentIndex] = useState(-1)
-  const [, forceUpdate] = useState(0)
+  // `version` is the real dependency — engine mutates its queue array in place,
+  // so we rely on the version bump from useEngineVersion to force a new memo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const queue = useMemo(() => engine?.getQueue() ?? [], [engine, version])
+  const currentIndex = engine?.getCurrentIndex() ?? -1
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -152,7 +156,6 @@ export function MobileStudio() {
     const from = queue.findIndex((t) => t.id === active.id)
     const to = queue.findIndex((t) => t.id === over.id)
     if (from === -1 || to === -1) return
-    setQueue((prev) => arrayMove(prev, from, to))
     engine.moveTrack(from, to)
   }, [engine, queue])
 
@@ -160,7 +163,7 @@ export function MobileStudio() {
   const track = engine?.getCurrentTrack() ?? null
   const playing = engine?.isPlaying() ?? false
   const micActive = engine?.isMicActive() ?? false
-  const repeat = engine?.isRepeat() ?? false
+  const repeatMode = engine?.getRepeatMode() ?? 'off'
   const hasQueue = (engine?.getQueue().length ?? 0) > 0
   const hasTrack = !!track
   const micLevel = holding ? Math.max(micLevels.left, micLevels.right) : 0
@@ -205,17 +208,6 @@ export function MobileStudio() {
     engine?.pttUp()
     setHolding(false)
   }, [engine, micDisabled])
-
-  // Queue sync
-  useEffect(() => {
-    if (!engine) return
-    const timer = setInterval(() => {
-      setQueue([...engine.getQueue()])
-      setCurrentIndex(engine.getCurrentIndex())
-      forceUpdate((n) => n + 1)
-    }, 300)
-    return () => clearInterval(timer)
-  }, [engine])
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!engine) return
@@ -315,8 +307,14 @@ export function MobileStudio() {
             <Button variant="ghost" size="icon" className="flex-1" onClick={() => engine?.next()} disabled={!hasQueue}>
               <IconPlayerSkipForwardFilled size={14} />
             </Button>
-            <Button variant={repeat ? "secondary" : "ghost"} size="icon" className="flex-1" onClick={() => engine?.toggleRepeat()}>
-              <IconRepeat size={14} />
+            <Button
+              variant={repeatMode === 'off' ? "ghost" : "secondary"}
+              size="icon"
+              className="flex-1"
+              onClick={() => engine?.cycleRepeatMode()}
+              title={`Repeat: ${repeatMode}`}
+            >
+              {repeatMode === 'one' ? <IconRepeatOnce size={14} /> : <IconRepeat size={14} />}
             </Button>
           </div>
 
