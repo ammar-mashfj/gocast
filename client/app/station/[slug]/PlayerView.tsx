@@ -12,9 +12,10 @@ import {
   IconVolumeOff,
   IconCheck,
   IconLoader2,
+  IconMusic,
 } from "@tabler/icons-react"
+import IcecastMetadataPlayer, { type IcyMetadata } from "icecast-metadata-player"
 import { Station } from "@/interfaces/Station"
-import { StreamPlayer } from "@/lib/streamPlayer"
 import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
 import { Badge } from "@/components/ui/badge"
@@ -23,11 +24,14 @@ import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import styles from "./player.module.css"
 
-const EQ_CLASSES = [
-  styles.bar1, styles.bar2, styles.bar3, styles.bar4,
-  styles.bar5, styles.bar6, styles.bar7, styles.bar8,
-  styles.bar9, styles.bar10, styles.bar11, styles.bar12,
-] as const
+const METADATA_PLACEHOLDERS = new Set(["", "unknown", "n/a", "-", "none", "null", "untitled"])
+
+function cleanMetadata(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (METADATA_PLACEHOLDERS.has(trimmed.toLowerCase())) return null
+  return trimmed
+}
 
 function Vinyl({ playing, artworkUrl }: { playing: boolean; artworkUrl?: string | null }) {
   return (
@@ -39,7 +43,7 @@ function Vinyl({ playing, artworkUrl }: { playing: boolean; artworkUrl?: string 
           {artworkUrl ? (
             <img src={artworkUrl} alt="Station artwork" className="absolute inset-0 size-full object-cover" />
           ) : (
-            <span className="text-[28px] md:text-[42px] opacity-70">♫</span>
+            <IconMusic size={36} className="text-red-400/70 md:size-12" strokeWidth={1.5} />
           )}
         </div>
       </div>
@@ -47,13 +51,12 @@ function Vinyl({ playing, artworkUrl }: { playing: boolean; artworkUrl?: string 
   )
 }
 
-function EqBars({ playing }: { playing: boolean }) {
-  if (!playing) return null
+function MiniEq() {
   return (
-    <div className="flex items-end gap-[3px] h-11 mb-6">
-      {EQ_CLASSES.map((cls, i) => (
-        <div key={i} className={`w-1 rounded-sm bg-primary/80 ${cls}`} />
-      ))}
+    <div className="flex items-end gap-[2px] h-4 w-3 shrink-0">
+      <span className={`w-[3px] h-full rounded-sm bg-primary/80 ${styles.miniBarA}`} />
+      <span className={`w-[3px] h-full rounded-sm bg-primary/80 ${styles.miniBarB}`} />
+      <span className={`w-[3px] h-full rounded-sm bg-primary/80 ${styles.miniBarC}`} />
     </div>
   )
 }
@@ -79,7 +82,7 @@ function ShareButtons({ slug }: { slug: string }) {
               className="rounded-full"
               onClick={() => window.open(`https://x.com/intent/tweet?text=Listening+to+${encodeURIComponent(url)}`, "_blank")}
             >
-              <IconBrandX size={14} />
+              <IconBrandX size={18} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Share on X</TooltipContent>
@@ -97,13 +100,13 @@ function ShareButtons({ slug }: { slug: string }) {
   )
 }
 
-function VolumeControl({ playerRef }: { playerRef: React.RefObject<StreamPlayer | null> }) {
+function VolumeControl({ playerRef }: { playerRef: React.RefObject<IcecastMetadataPlayer | null> }) {
   const [volume, setVolume] = useState(80)
   const [muted, setMuted] = useState(false)
   const prevVolume = useRef(80)
 
   function getAudio() {
-    return playerRef.current?.getAudioElement() ?? null
+    return playerRef.current?.audioElement ?? null
   }
 
   function handleVolumeChange(value: number[]) {
@@ -169,7 +172,7 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
   const [loading, setLoading] = useState(false)
   const [listeners, setListeners] = useState(0)
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
-  const playerRef = useRef<StreamPlayer | null>(null)
+  const playerRef = useRef<IcecastMetadataPlayer | null>(null)
 
   // Poll listener count + live status
   useEffect(() => {
@@ -180,7 +183,6 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
         .then((res) => res.json())
         .then((res) => {
           setListeners(res.data?.count ?? 0)
-          setNowPlaying(res.data?.now_playing ?? { title: null, artist: null })
           setStation((prev) => ({ ...prev, is_live: res.data?.is_live ?? prev.is_live }))
         })
         .catch(() => { /* listener poll failed — non-critical, retry on next interval */ })
@@ -196,27 +198,47 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
       playerRef.current = null
       setPlaying(false)
       setLoading(false)
+      setNowPlaying({ title: null, artist: null })
       return
     }
 
     setLoading(true)
-    const player = new StreamPlayer({
-      onStateChange: (isPlaying) => {
-        setPlaying(isPlaying)
+    const player = new IcecastMetadataPlayer(`${env.icecastUrl}${station.icecast_mount}`, {
+      metadataTypes: ["icy"],
+      onPlay: () => {
+        setPlaying(true)
+        setLoading(false)
+      },
+      onStop: () => {
+        setPlaying(false)
         setLoading(false)
       },
       onError: () => {
         setPlaying(false)
         setLoading(false)
       },
+      onMetadata: (metadata: IcyMetadata) => {
+        const raw = (metadata.StreamTitle ?? "").trim()
+        const dash = raw.indexOf(" - ")
+        if (dash >= 0) {
+          setNowPlaying({
+            artist: cleanMetadata(raw.slice(0, dash)),
+            title: cleanMetadata(raw.slice(dash + 3)),
+          })
+        } else {
+          setNowPlaying({ title: cleanMetadata(raw), artist: null })
+        }
+      },
     })
     playerRef.current = player
-    player.play(`${env.icecastUrl}${station.icecast_mount}`)
+    player.play()
   }, [station.icecast_mount, playing, loading])
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => playerRef.current?.stop()
+    return () => {
+      playerRef.current?.stop()
+    }
   }, [])
 
   // OS Media Session — drives the lock screen card, notification, and Bluetooth/headset remotes.
@@ -258,24 +280,19 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
         internet radio
       </div>
 
+      {/* Mobile: vinyl + content centered together as one unit; desktop: two grid columns */}
+      <div className="flex flex-1 flex-col items-center justify-center min-h-0 md:contents">
+
       {/* Vinyl — smaller on mobile */}
-      <div className="relative flex items-center justify-center p-6 pt-10 md:p-12 z-2 shrink min-h-0">
+      <div className="relative w-full flex items-center justify-center pb-14 md:p-12 z-2 shrink-0 md:min-h-0">
         <Vinyl playing={playing} artworkUrl={station.artwork_url} />
       </div>
 
       {/* Content */}
-      <div className="relative flex flex-col items-center md:items-start justify-center px-6 md:pr-12 md:pl-4 py-4 md:py-12 z-2 shrink-0">
-        <EqBars playing={playing} />
-
-        {station.is_live && (
-          <Badge variant="destructive" className={styles.liveBadge}>
-            <span className="size-2 bg-current rounded-full" />
-            LIVE
-          </Badge>
-        )}
+      <div className="relative w-full flex flex-col items-center md:items-start md:justify-center px-6 md:pr-12 md:pl-4 pb-4 md:py-12 z-2 shrink-0">
 
         {station.genre && (
-          <div className="text-xs mt-3 tracking-[3px] uppercase text-primary/80 font-medium mb-3">
+          <div className="text-xs mt-3 tracking-[3px] uppercase text-primary/80 font-medium mb-3 max-w-[340px] text-center md:text-left">
             {station.genre}
           </div>
         )}
@@ -290,15 +307,26 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
           </p>
         )}
 
-        {/* Now Playing */}
-        {station.is_live && (nowPlaying.title || nowPlaying.artist) && (
-          <div className="flex items-center gap-3 mb-8 px-4 py-3 bg-white/[0.04] rounded-xl border border-white/[0.06] w-full md:w-auto max-w-sm">
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <div className="text-[11px] tracking-[1.5px] uppercase text-muted-foreground">Now playing</div>
-              <div className="text-sm font-medium truncate">{nowPlaying.title || station.name}</div>
-              {nowPlaying.artist && (
-                <div className="text-xs text-muted-foreground truncate">{nowPlaying.artist}</div>
-              )}
+        {/* Now Playing — reserved slot so layout doesn't shift when metadata arrives */}
+        {station.is_live && (
+          <div className="flex items-center gap-3 mb-8 px-4 py-3 bg-white/[0.04] rounded-xl border border-white/[0.06] w-full md:w-auto md:min-w-[260px] max-w-sm overflow-hidden">
+            <div
+              key={`${nowPlaying.title ?? ""}|${nowPlaying.artist ?? ""}`}
+              className={`flex items-center gap-3 min-w-0 w-full`}
+            >
+               <MiniEq />
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <div className="text-[11px] tracking-[1.5px] uppercase text-muted-foreground">Now playing</div>
+                {nowPlaying.title ? (
+                  <>
+                    <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`}>{nowPlaying.title}</div>
+                  </>
+                ) : (
+                  <>
+                    <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`}>Start playing to see what's on air</div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -309,19 +337,28 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
             <>
               <Button
                 size="icon"
-                className="size-14 md:size-16 rounded-full shadow-lg shadow-primary/20"
+                className={`size-14 md:size-16 rounded-full shadow-lg shadow-primary/20 ${!playing && !loading ? styles.playPulse : ""}`}
                 onClick={togglePlay}
                 disabled={false}
               >
                 {loading ? (
                   <IconLoader2 size={26} className="animate-spin" />
                 ) : playing ? (
-                  <IconPlayerPauseFilled size={26} />
+                  <IconPlayerPauseFilled size={26}  />
                 ) : (
                   <IconPlayerPlayFilled size={26} />
                 )}
               </Button>
-              {playing && <VolumeControl playerRef={playerRef} />}
+              <div
+                className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  playing
+                    ? "max-w-32 opacity-100 translate-x-0"
+                    : "max-w-0 opacity-0 -translate-x-1.5 pointer-events-none"
+                }`}
+                aria-hidden={!playing}
+              >
+                <VolumeControl playerRef={playerRef} />
+              </div>
             </>
           ) : (
             <Badge variant="secondary" className="text-sm px-4 py-2">Station is offline</Badge>
@@ -331,7 +368,7 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
         {/* Listeners + Share */}
         <div className="flex items-center gap-4">
           {station.is_live && (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            <div className="flex items-center gap-2 text-[15px] text-muted-foreground">
               <div className="size-1.5 bg-emerald-400 rounded-full" />
               {listeners.toLocaleString()} listening
             </div>
@@ -340,18 +377,17 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
         </div>
       </div>
 
+      </div>
+
       <WaveDecoration />
 
       {/* Footer */}
-      <div className="relative md:absolute bottom-0 left-0 right-0 px-6 md:px-12 py-3 flex flex-col md:flex-row justify-between items-center gap-2 z-[3] border-t border-white/5 shrink-0">
-        <div className="text-xs text-muted-foreground">
+      <div className="mt-auto md:mt-0 md:absolute bottom-0 left-0 right-0 px-6 md:px-12 py-3.5 md:py-3 flex flex-col md:flex-row justify-center items-center gap-2 z-[3] border-t border-white/5 shrink-0 bg-background/40 backdrop-blur-sm">
+        <div className="text-[14px] text-muted-foreground">
           Powered by{" "}
-          <Link href="/" className="text-primary no-underline hover:underline">GoCast</Link>
+          <Link href="/" className="text-primary no-underline hover:underline font-medium" target="_blank">GoCast</Link>
           {" — "}
-          <Link href="/auth/register" className="text-primary no-underline hover:underline">Start your own station</Link>
-        </div>
-        <div className="text-xs text-muted-foreground hidden md:block">
-          {env.appUrl}/station/{station.slug}
+          <Link href="/auth/register" className="text-primary no-underline hover:underline font-medium" target="_blank">Start your own station</Link>
         </div>
       </div>
     </div>

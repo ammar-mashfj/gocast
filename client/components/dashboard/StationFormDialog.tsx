@@ -38,7 +38,6 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState(station?.name ?? "")
-  const [slug, setSlug] = useState(station?.slug ?? "")
   const [description, setDescription] = useState(station?.description ?? "")
   const [genre, setGenre] = useState(station?.genre ?? "")
   const [artworkUrl, setArtworkUrl] = useState(station?.artwork_url ?? "")
@@ -46,20 +45,6 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string[]>>({})
-
-  function generateSlug(value: string) {
-    return value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-  }
-
-  function handleNameChange(value: string) {
-    setName(value)
-    if (!isEdit) {
-      setSlug(generateSlug(value))
-    }
-  }
 
   async function handleArtworkChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -97,7 +82,6 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
 
     const payload = {
       name,
-      slug,
       description: description || null,
       genre: genre || null,
       artwork_url: artworkUrl || null,
@@ -185,7 +169,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="My Radio Station"
                 required
                 maxLength={100}
@@ -194,21 +178,12 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
               {errors.name && <FieldError>{errors.name[0]}</FieldError>}
             </Field>
 
-            <Field data-invalid={!!errors.slug}>
-              <FieldLabel htmlFor="slug">URL slug</FieldLabel>
-              <Input
-                id="slug"
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                placeholder="my-radio-station"
-                required
-                maxLength={60}
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                aria-invalid={!!errors.slug}
-              />
-              <FieldDescription>gocast.fm/station/{slug || "your-slug"}</FieldDescription>
-              {errors.slug && <FieldError>{errors.slug[0]}</FieldError>}
-            </Field>
+            {isEdit && station && (
+              <Field>
+                <FieldLabel>Station URL</FieldLabel>
+                <FieldDescription>gocast.fm/station/{station.slug}</FieldDescription>
+              </Field>
+            )}
 
             <Field>
               <FieldLabel htmlFor="genre">Genre</FieldLabel>

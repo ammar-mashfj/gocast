@@ -114,7 +114,7 @@ export default function GoLivePage() {
   const micDisabled = typeof window !== 'undefined' && (() => {
     try { return localStorage.getItem(`broadcast:micDisabled:${slug}`) === 'true' } catch { return false }
   })()
-  const { state, steps, error, start } = useBroadcast()
+  const { state, steps, error, start, engine } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
   const startedRef = useRef(false)
 
@@ -141,7 +141,10 @@ export default function GoLivePage() {
       {state === "live" ? (
         <SuccessView
           station={station}
-          onOpenControls={() => router.push(`/dashboard/stations/${slug}/studio`)}
+          onOpenControls={async () => {
+            await engine?.resume()
+            router.push(`/dashboard/stations/${slug}/studio`)
+          }}
         />
       ) : (
         <ConnectingView steps={steps} error={error} />

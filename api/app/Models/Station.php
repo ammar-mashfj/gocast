@@ -42,21 +42,42 @@ class Station extends Model
     protected $guarded = [];
 
     /**
-     * Auto-generate icecast_mount from the slug and a random password on creation.
-     * On update, keep the mount path in sync when the slug changes.
+     * Generate a unique slug from the station name on creation, then derive
+     * the Icecast mount and a random source password. Slug is immutable
+     * after creation — there is no update hook to regenerate it.
      */
     protected static function booted(): void
     {
         static::creating(function (Station $station) {
+            if (empty($station->slug)) {
+                $station->slug = static::generateUniqueSlug($station->name);
+            }
             $station->icecast_mount ??= '/stream/'.$station->slug;
             $station->icecast_password ??= Str::random(32);
         });
+    }
 
-        static::updating(function (Station $station) {
-            if ($station->isDirty('slug')) {
-                $station->icecast_mount = '/stream/'.$station->slug;
-            }
-        });
+    /**
+     * Slugify the given name and append -2, -3, ... until the slug is free.
+     *
+     * Names that produce an empty slug (e.g. emoji-only) fall back to "station".
+     */
+    protected static function generateUniqueSlug(string $name): string
+    {
+        $base = Str::slug($name);
+        if ($base === '') {
+            $base = 'station';
+        }
+        $base = Str::limit($base, 55, '');
+
+        $slug = $base;
+        $suffix = 2;
+        while (static::withTrashed()->where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $slug;
     }
 
     protected function casts(): array

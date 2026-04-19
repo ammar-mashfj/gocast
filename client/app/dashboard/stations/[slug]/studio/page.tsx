@@ -15,7 +15,7 @@ import { MobileStudio } from "@/components/studio/MobileStudio"
 export default function StudioPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
-  const { state, micDisabled } = useBroadcast()
+  const { state, micDisabled, engine } = useBroadcast()
   const wasLive = useRef(false)
 
   useEffect(() => {
@@ -36,6 +36,17 @@ export default function StudioPage() {
     window.addEventListener("beforeunload", handleBeforeUnload)
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [state])
+
+  useEffect(() => {
+    if (!engine) return
+    const resume = () => { engine.resume() }
+    window.addEventListener("pointerdown", resume, { once: true })
+    window.addEventListener("keydown", resume, { once: true })
+    return () => {
+      window.removeEventListener("pointerdown", resume)
+      window.removeEventListener("keydown", resume)
+    }
+  }, [engine])
 
   if (state === "reconnecting") {
     return (

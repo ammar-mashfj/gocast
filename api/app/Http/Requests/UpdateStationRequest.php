@@ -8,8 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 /**
  * Validates station updates.
  *
- * Slug uniqueness check excludes the current station so the owner can keep
- * their existing slug while updating other fields.
+ * Slug is system-owned and immutable — it is generated once on creation and
+ * never exposed for update. Any "slug" key in the payload is ignored.
  */
 class UpdateStationRequest extends FormRequest
 {
@@ -25,7 +25,6 @@ class UpdateStationRequest extends FormRequest
     {
         return [
             'name' => ['sometimes', 'string', 'max:100'],
-            'slug' => ['sometimes', 'string', 'max:60', 'unique:stations,slug,'.$this->route('station')->id, 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
             'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],

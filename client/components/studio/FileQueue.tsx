@@ -2,6 +2,24 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { IconPlus, IconMinus, IconX, IconGripVertical } from "@tabler/icons-react"
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,6 +40,66 @@ const GRADIENTS = [
 ]
 const ICONS = ["♫", "♬", "♩", "♪", "♫"]
 
+interface SortableRowProps {
+  track: QueueTrack
+  index: number
+  isPlaying: boolean
+  onRemove: () => void
+}
+
+function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`grid grid-cols-[24px_32px_1fr_40px_24px] items-center gap-2 px-2.5 py-2 rounded-md border transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
+        isDragging ? "opacity-50 z-10 relative shadow-lg" : ""
+      } ${
+        isPlaying
+          ? "bg-primary/[0.04] border-primary/10"
+          : "border-transparent hover:bg-muted/50"
+      }`}
+    >
+      <div className="flex items-center justify-center size-6 text-muted-foreground">
+        <IconGripVertical size={14} />
+      </div>
+      <div
+        className="size-8 rounded-md flex items-center justify-center text-xs shrink-0"
+        style={{ background: GRADIENTS[index % GRADIENTS.length] }}
+      >
+        {ICONS[index % ICONS.length]}
+      </div>
+      <div className="min-w-0">
+        <div className={`text-sm truncate ${isPlaying ? "font-medium" : ""}`}>
+          {track.title}
+        </div>
+        <div className="text-xs text-muted-foreground truncate">{track.artist}</div>
+      </div>
+      <div className="text-xs text-muted-foreground text-right tabular-nums">
+        {formatDuration(track.duration)}
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-5"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onRemove}
+      >
+        <IconX size={12} />
+      </Button>
+    </div>
+  )
+}
+
 export function FileQueue() {
   const { engine } = useBroadcast()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -29,8 +107,12 @@ export function FileQueue() {
   const [currentIndex, setCurrentIndex] = useState(-1)
   const [, forceUpdate] = useState(0)
   const [dragOverZone, setDragOverZone] = useState(false)
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   useEffect(() => {
     if (!engine) return
@@ -66,30 +148,17 @@ export function FileQueue() {
     if (files.length > 0) handleFiles(files)
   }, [handleFiles])
 
-  const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
-    setDragIdx(idx)
-    e.dataTransfer.effectAllowed = "move"
-    e.dataTransfer.setData("text/plain", String(idx))
-  }, [])
-
-  const handleDragOverItem = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = "move"
-    setDragOverIdx(idx)
-  }, [])
-
-  const handleDropOnItem = useCallback((e: React.DragEvent, toIdx: number) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (dragIdx === null || dragIdx === toIdx || !engine) {
-      setDragIdx(null)
-      setDragOverIdx(null)
-      return
-    }
-    engine.moveTrack(dragIdx, toIdx)
-    setDragIdx(null)
-    setDragOverIdx(null)
-  }, [dragIdx, engine])
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id || !engine) return
+    const from = queue.findIndex((t) => t.id === active.id)
+    const to = queue.findIndex((t) => t.id === over.id)
+    if (from === -1 || to === -1) return
+    // Optimistically reorder local state so the row doesn't snap back
+    // before the 300ms poll picks up the engine's new order.
+    setQueue((prev) => arrayMove(prev, from, to))
+    engine.moveTrack(from, to)
+  }, [engine, queue])
 
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
 
@@ -114,6 +183,7 @@ export function FileQueue() {
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground">
             {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatDuration(totalDuration)}
+            {queue.length > 1 && " · hold to reorder"}
           </span>
           <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
             <IconPlus data-icon="inline-start" />
@@ -129,53 +199,19 @@ export function FileQueue() {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-0.5 overflow-y-auto flex-1 pt-0">
-        {queue.map((track, i) => {
-          const isPlaying = i === currentIndex
-          const isDragging = dragIdx === i
-          const isDragOver = dragOverIdx === i
-          return (
-            <div
-              key={track.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, i)}
-              onDragOver={(e) => handleDragOverItem(e, i)}
-              onDrop={(e) => handleDropOnItem(e, i)}
-              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null) }}
-              className={`grid grid-cols-[16px_32px_1fr_40px_24px] items-center gap-2 px-2.5 py-2 rounded-md border transition-all ${
-                isDragging ? "opacity-30" : ""
-              } ${isDragOver ? "border-primary bg-primary/5" : ""} ${
-                isPlaying
-                  ? "bg-primary/[0.04] border-primary/10"
-                  : "border-transparent hover:bg-muted/50"
-              }`}
-            >
-              <IconGripVertical size={12} className="text-muted-foreground cursor-grab" />
-              <div
-                className="size-8 rounded-md flex items-center justify-center text-xs shrink-0"
-                style={{ background: GRADIENTS[i % GRADIENTS.length] }}
-              >
-                {ICONS[i % ICONS.length]}
-              </div>
-              <div className="min-w-0">
-                <div className={`text-sm truncate ${isPlaying ? "font-medium" : ""}`}>
-                  {track.title}
-                </div>
-                <div className="text-xs text-muted-foreground truncate">{track.artist}</div>
-              </div>
-              <div className="text-xs text-muted-foreground text-right tabular-nums">
-                {formatDuration(track.duration)}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-5"
-                onClick={() => engine?.removeTrack(track.id)}
-              >
-                <IconX size={12} />
-              </Button>
-            </div>
-          )
-        })}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+            {queue.map((track, i) => (
+              <SortableRow
+                key={track.id}
+                track={track}
+                index={i}
+                isPlaying={i === currentIndex}
+                onRemove={() => engine?.removeTrack(track.id)}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       </CardContent>
 
       <div

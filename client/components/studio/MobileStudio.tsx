@@ -11,9 +11,24 @@ import {
   IconPlus,
   IconMinus,
   IconX,
-  IconChevronUp,
-  IconChevronDown,
+  IconGripVertical,
 } from "@tabler/icons-react"
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useAudioLevels } from "@/lib/useAudioLevels"
 import { Button } from "@/components/ui/button"
@@ -73,6 +88,50 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
   )
 }
 
+interface SortableMobileRowProps {
+  track: QueueTrack
+  isPlaying: boolean
+  onRemove: () => void
+}
+
+function SortableMobileRow({ track, isPlaying, onRemove }: SortableMobileRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`flex items-center gap-1.5 px-1 py-1 rounded-md border transition-colors touch-none select-none ${
+        isDragging ? "opacity-60 z-10 relative shadow-lg bg-card" : ""
+      } ${isPlaying ? "bg-primary/[0.04] border-primary/10" : "border-transparent"}`}
+    >
+      <div className="flex items-center justify-center size-9 text-muted-foreground shrink-0">
+        <IconGripVertical size={18} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className={`text-xs truncate ${isPlaying ? "font-medium" : ""}`}>{track.title}</div>
+      </div>
+      <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{formatTime(track.duration)}</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onRemove}
+      >
+        <IconX size={14} />
+      </Button>
+    </div>
+  )
+}
+
 export function MobileStudio() {
   const { engine, state, micStream, micDisabled } = useBroadcast()
   const micLevels = useAudioLevels(micStream)
@@ -81,6 +140,21 @@ export function MobileStudio() {
   const [queue, setQueue] = useState<QueueTrack[]>([])
   const [currentIndex, setCurrentIndex] = useState(-1)
   const [, forceUpdate] = useState(0)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  )
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id || !engine) return
+    const from = queue.findIndex((t) => t.id === active.id)
+    const to = queue.findIndex((t) => t.id === over.id)
+    if (from === -1 || to === -1) return
+    setQueue((prev) => arrayMove(prev, from, to))
+    engine.moveTrack(from, to)
+  }, [engine, queue])
 
   const isLive = state === "live"
   const track = engine?.getCurrentTrack() ?? null
@@ -254,6 +328,7 @@ export function MobileStudio() {
         <div className="flex items-center justify-between px-3 py-1.5 border-t mt-1">
           <span className="text-[11px] tracking-widest uppercase text-muted-foreground">
             Queue · {queue.length} · {formatTime(totalDuration)}
+            {queue.length > 1 && <span className="normal-case tracking-normal"> · hold to reorder</span>}
           </span>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5" onClick={() => fileInputRef.current?.click()}>
@@ -271,41 +346,18 @@ export function MobileStudio() {
 
         {/* Queue list */}
         <div className="flex flex-col gap-0.5 overflow-y-auto flex-1 px-3">
-          {queue.map((qTrack, i) => {
-            const isPlaying = i === currentIndex
-            return (
-              <div
-                key={qTrack.id}
-                className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border transition-all ${
-                  isPlaying ? "bg-primary/[0.04] border-primary/10" : "border-transparent"
-                }`}
-              >
-                <div className="flex flex-col shrink-0">
-                  <button
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0 bg-transparent border-none"
-                    disabled={i === 0}
-                    onClick={() => engine?.moveTrack(i, i - 1)}
-                  >
-                    <IconChevronUp size={12} />
-                  </button>
-                  <button
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0 bg-transparent border-none"
-                    disabled={i === queue.length - 1}
-                    onClick={() => engine?.moveTrack(i, i + 1)}
-                  >
-                    <IconChevronDown size={12} />
-                  </button>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className={`text-xs truncate ${isPlaying ? "font-medium" : ""}`}>{qTrack.title}</div>
-                </div>
-                <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{formatTime(qTrack.duration)}</span>
-                <Button variant="ghost" size="icon" className="size-5" onClick={() => engine?.removeTrack(qTrack.id)}>
-                  <IconX size={10} />
-                </Button>
-              </div>
-            )
-          })}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+              {queue.map((qTrack, i) => (
+                <SortableMobileRow
+                  key={qTrack.id}
+                  track={qTrack}
+                  isPlaying={i === currentIndex}
+                  onRemove={() => engine?.removeTrack(qTrack.id)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
 
         <div className="px-3 py-2 border-t mt-auto shrink-0">

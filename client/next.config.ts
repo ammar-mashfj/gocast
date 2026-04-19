@@ -18,6 +18,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async rewrites() {
+    // Dev-only: route /stream-proxy/* to the local Icecast so the browser avoids
+    // CORS preflight (stock Icecast 2.x does not answer OPTIONS). In prod, nginx
+    // fronts Icecast and NEXT_PUBLIC_ICECAST_URL points at that host directly.
+    if (process.env.NODE_ENV !== "development") return []
+    return [
+      { source: "/stream-proxy/:path*", destination: "http://localhost:8888/:path*" },
+    ]
+  },
   async headers() {
     return [
       {

@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
-import { PlayerView } from "@/app/station/[slug]/PlayerView"
+import PlayerViewClient from "@/app/station/[slug]/PlayerViewClient"
 
 async function getStation(slug: string): Promise<Station | null> {
   try {
@@ -65,5 +65,5 @@ export default async function StationPage({
     notFound()
   }
 
-  return <PlayerView station={station} />
+  return <PlayerViewClient station={station} />
 }

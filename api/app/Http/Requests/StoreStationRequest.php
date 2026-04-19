@@ -26,7 +26,6 @@ class StoreStationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:100'],
-            'slug' => ['required', 'string', 'max:60', 'unique:stations', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
             'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],

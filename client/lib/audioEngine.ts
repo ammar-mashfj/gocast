@@ -46,7 +46,7 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
-  private repeat = true
+  private repeat = false
   private trackStartTime = 0 // ctx.currentTime when track started
   private trackOffset = 0 // offset into the track (for resume)
   private progressTimer: ReturnType<typeof setInterval> | null = null
@@ -433,6 +433,11 @@ export class AudioEngine {
       this.encoderWorker.addEventListener('message', handler)
       this.encoderWorker.postMessage({ type: 'flush' })
     })
+  }
+
+  /** Resume the AudioContext if suspended by the browser's autoplay policy. Safe to call repeatedly. */
+  async resume(): Promise<void> {
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
   }
 
   /** Flush remaining MP3 data, tear down the worker + audio graph, and close the AudioContext. */
