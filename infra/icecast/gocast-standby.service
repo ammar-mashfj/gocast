@@ -1,15 +1,18 @@
 [Unit]
-Description=GoCast Icecast standby stream
+Description=GoCast Icecast standby stream (Liquidsoap)
 After=icecast2.service
 Wants=icecast2.service
 Requires=network-online.target
 
 [Service]
-ExecStart=/usr/bin/ezstream -c /etc/gocast/standby.xml
+ExecStart=/usr/bin/liquidsoap /etc/gocast/standby.liq
 Restart=always
 RestartSec=5
 User=gocast
 Group=gocast
+
+# Liquidsoap writes to /var/log/gocast/. The directory must exist and be
+# writable by the gocast user — see the deploy sequence in README.md.
 
 [Install]
 WantedBy=multi-user.target
