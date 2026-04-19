@@ -25,13 +25,16 @@ settings.log.file.path.set("/var/log/gocast/standby.log")
 settings.log.stdout.set(true)
 settings.log.level.set(3)
 
-# The loop source. A single-entry playlist with mode "normal" plays the
-# file top-to-bottom and restarts at the end, forever. Using playlist()
-# (not single()) guarantees loop behaviour across 2.0.x versions.
+# The loop source. playlist() in Liquidsoap 2.0.2 takes a path to an m3u/pls
+# file on disk (not a list literal — that's newer API). Companion file:
+#   /etc/gocast/standby.m3u  — one line: /srv/gocast/standby.mp3
+# mode="normal" plays top-to-bottom; reload_mode="never" means we don't
+# watch the file for changes (it's static). The loop happens because the
+# playlist naturally restarts when it reaches the end.
 standby = playlist(
-  mode         = "normal",
-  reload_mode  = "never",
-  ["/srv/gocast/standby.mp3"]
+  mode        = "normal",
+  reload_mode = "never",
+  "/etc/gocast/standby.m3u"
 )
 
 # Output to local Icecast. Re-encoding to 128 kbps mono MP3 is intentional:

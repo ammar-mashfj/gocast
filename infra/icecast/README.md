@@ -17,7 +17,9 @@ auto-DJ / scheduled-show features — same tool, more features unlocked later.
 
 - `standby.liq` — Liquidsoap script that loops `/srv/gocast/standby.mp3` into
   the `/standby.mp3` mount at 128 kbps mono MP3. Deploy to
-  `/etc/gocast/standby.liq`.
+  `/etc/gocast/standby.liq`. Reads its playlist from `/etc/gocast/standby.m3u`
+  (a one-line `.m3u` file containing the path to the MP3 — see the deploy
+  sequence below).
 - `gocast-standby.service` — systemd unit that runs Liquidsoap on boot.
   Deploy to `/etc/systemd/system/gocast-standby.service`.
 - `icecast.xml.snippet` — the `<sources>`, `<mount type="default">`, and
@@ -43,6 +45,11 @@ sudo cp infra/icecast/gocast-standby.service /etc/systemd/system/
 sudo chown gocast:gocast /srv/gocast/standby.mp3
 sudo chown root:gocast   /etc/gocast/standby.liq
 sudo chmod 640           /etc/gocast/standby.liq
+
+# Write the one-line playlist Liquidsoap reads on loop.
+echo '/srv/gocast/standby.mp3' | sudo tee /etc/gocast/standby.m3u >/dev/null
+sudo chown root:gocast /etc/gocast/standby.m3u
+sudo chmod 644         /etc/gocast/standby.m3u
 
 # Sanity-check the script BEFORE handing it to systemd. This parses the
 # config, checks types, and exits without starting the stream. If it errors,
