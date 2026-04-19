@@ -31,11 +31,18 @@ settings.log.level.set(3)
 # mode="normal" plays top-to-bottom; reload_mode="never" means we don't
 # watch the file for changes (it's static). The loop happens because the
 # playlist naturally restarts when it reaches the end.
-standby = playlist(
+standby_source = playlist(
   mode        = "normal",
   reload_mode = "never",
   "/etc/gocast/standby.m3u"
 )
+
+# output.icecast requires an infallible source (one that's guaranteed to
+# produce audio). playlist() is fallible — if the file is ever unreadable,
+# Liquidsoap would have no audio to output. mksafe() wraps a fallible source
+# with a silence fallback, so the mount always has *something* to publish,
+# even if the playlist or its referenced MP3 goes missing.
+standby = mksafe(standby_source)
 
 # Output to local Icecast. Re-encoding to 128 kbps mono MP3 is intentional:
 # the standby bed is atmospheric, not musical, and halving the bitrate cuts
