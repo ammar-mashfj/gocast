@@ -9,7 +9,12 @@ longer needed.
 ## Files
 
 - `standby.ezstream.xml` — ezstream config that feeds `/standby.mp3`.
-  Deploy to `/etc/gocast/standby.xml`.
+  Deploy to `/etc/gocast/standby.xml`. Uses the ezstream 1.0+ schema
+  (Ubuntu 22.04 ships 1.0.2).
+- The intake points at a one-line playlist at `/etc/gocast/standby.m3u`
+  containing the absolute path to the MP3. A playlist (rather than a
+  `type="file"` intake) guarantees the stream loops forever via
+  `stream_once=0`.
 - `gocast-standby.service` — systemd unit that runs ezstream on boot.
   Deploy to `/etc/systemd/system/gocast-standby.service`.
 - `icecast.xml.snippet` — the `<mount type="default">` / `<mount type="normal">`
@@ -34,6 +39,11 @@ sudo cp infra/icecast/gocast-standby.service /etc/systemd/system/
 sudo chown gocast:gocast /srv/gocast/standby.mp3
 sudo chown root:gocast   /etc/gocast/standby.xml
 sudo chmod 640           /etc/gocast/standby.xml
+
+# Write the one-line playlist ezstream reads on loop.
+echo '/srv/gocast/standby.mp3' | sudo tee /etc/gocast/standby.m3u >/dev/null
+sudo chown root:gocast /etc/gocast/standby.m3u
+sudo chmod 644         /etc/gocast/standby.m3u
 
 # Edit the existing /etc/icecast2/icecast.xml manually, merging in the
 # blocks from infra/icecast/icecast.xml.snippet. Then:

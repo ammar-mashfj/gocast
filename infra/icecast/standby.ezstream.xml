@@ -6,19 +6,44 @@
         this stream whenever a broadcaster's SOURCE disconnects. When the
         broadcaster reconnects, listeners are moved back to the live stream.
 
+        Schema: ezstream 1.0+ (Ubuntu 22.04 ships 1.0.2).
         Deployed to: /etc/gocast/standby.xml on the production host.
-        Run by: /etc/systemd/system/gocast-standby.service (see standby.systemd).
+        Run by:      /etc/systemd/system/gocast-standby.service.
+
+        Companion file: /etc/gocast/standby.m3u — a one-line playlist that
+        points at the MP3. Using a playlist intake (not type="file") gives
+        us guaranteed looping via stream_once=0.
     -->
-    <url>http://localhost:8888/standby.mp3</url>
-    <sourceuser>source</sourceuser>
-    <sourcepassword>06011995</sourcepassword>
 
-    <format>MP3</format>
-    <filename>/srv/gocast/standby.mp3</filename>
-    <stream_once>0</stream_once>
+    <servers>
+        <server>
+            <name>icecast-local</name>
+            <protocol>http</protocol>
+            <hostname>localhost</hostname>
+            <port>8888</port>
+            <user>source</user>
+            <password>06011995</password>
+        </server>
+    </servers>
 
-    <svrinfoname>GoCast standby</svrinfoname>
-    <svrinfopublic>0</svrinfopublic>
+    <streams>
+        <stream>
+            <mountpoint>/standby.mp3</mountpoint>
+            <intake>standby-loop</intake>
+            <server>icecast-local</server>
+            <public>No</public>
+            <format>MP3</format>
+            <stream_name>GoCast standby</stream_name>
+        </stream>
+    </streams>
 
-    <reencode>0</reencode>
+    <intakes>
+        <intake>
+            <name>standby-loop</name>
+            <type>playlist</type>
+            <filename>/etc/gocast/standby.m3u</filename>
+            <shuffle>No</shuffle>
+            <stream_once>0</stream_once>
+        </intake>
+    </intakes>
 </ezstream>
