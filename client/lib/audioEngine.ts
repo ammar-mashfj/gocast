@@ -8,16 +8,11 @@ export interface QueueTrack {
   title: string
   artist: string
   duration: number
-  buffer: AudioBuffer | null
-  /** In-flight decode promise — dedupes concurrent decode requests. */
-  decoding?: Promise<void>
 }
 
 const SAMPLE_RATE = 44100
 const MP3_BITRATE = 320
 const MIC_BOOST = 3
-/** How many tracks either side of `currentIndex` keep their decoded buffer. */
-const BUFFER_WINDOW = 1
 
 /** Read a file's duration from its container header without decoding PCM. Cheap. */
 function readDurationFromFile(file: File): Promise<number> {
@@ -73,14 +68,17 @@ export class AudioEngine {
   private micSource: MediaStreamAudioSourceNode | null = null
   private isTalking = false
 
-  // File playback
-  private currentSource: AudioBufferSourceNode | null = null
+  // File playback — each track is streamed through an HTMLAudioElement so the
+  // browser demuxes/decodes incrementally. This keeps memory flat regardless
+  // of file size (a full decode-to-AudioBuffer would allocate ~10× the source
+  // file size in PCM, which hangs the tab for anything over ~30 min).
+  private currentAudio: HTMLAudioElement | null = null
+  private currentMediaSource: MediaElementAudioSourceNode | null = null
+  private currentObjectUrl: string | null = null
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
   private repeatMode: RepeatMode = 'all'
-  private trackStartTime = 0 // ctx.currentTime when track started
-  private trackOffset = 0 // offset into the track (for resume)
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
   // Callbacks
@@ -143,9 +141,8 @@ export class AudioEngine {
 
     // Save playback progress every 5 seconds
     this.progressTimer = setInterval(() => {
-      if (this.playing && this.currentIndex >= 0) {
-        const offset = this.trackOffset + (this.ctx.currentTime - this.trackStartTime)
-        savePlayback({ currentIndex: this.currentIndex, offset })
+      if (this.playing && this.currentIndex >= 0 && this.currentAudio) {
+        savePlayback({ currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
       }
     }, 5000)
   }
@@ -272,7 +269,6 @@ export class AudioEngine {
         title: track.title,
         artist: track.artist,
         duration,
-        buffer: null,
       })
     }
 
@@ -291,8 +287,8 @@ export class AudioEngine {
     this.notify()
   }
 
-  /** Append audio files to the queue. Reads duration metadata but defers PCM decoding
-   *  until a track is about to play — keeps memory bounded on large queues. */
+  /** Append audio files to the queue. Reads duration metadata only — the actual
+   *  audio data is streamed from the File on demand at play time. */
   async addFiles(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('audio/')) continue
@@ -303,7 +299,6 @@ export class AudioEngine {
         title: file.name.replace(/\.[^.]+$/, ''),
         artist: 'Unknown',
         duration,
-        buffer: null,
       })
     }
     this.persistQueue()
@@ -367,17 +362,27 @@ export class AudioEngine {
 
   async play() {
     if (this.queue.length === 0) return
-    if (this.ctx.state === 'suspended') this.ctx.resume()
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
     if (this.currentIndex === -1) {
       await this.playIndex(0)
     } else if (!this.playing) {
-      await this.playIndex(this.currentIndex)
+      if (this.currentAudio) {
+        try {
+          await this.currentAudio.play()
+          this.playing = true
+          this.notify()
+        } catch (err) {
+          console.error('[AudioEngine] play() rejected:', err)
+        }
+      } else {
+        await this.playIndex(this.currentIndex)
+      }
     }
   }
 
   pause() {
     if (!this.playing) return
-    this.ctx.suspend()
+    this.currentAudio?.pause()
     this.playing = false
     this.notify()
   }
@@ -385,24 +390,19 @@ export class AudioEngine {
   togglePlay() {
     if (this.playing) {
       this.pause()
-    } else if (this.ctx.state === 'suspended' && this.currentSource) {
-      this.ctx.resume()
-      this.playing = true
-      this.notify()
     } else {
       void this.play()
     }
   }
 
   async next() {
-    if (this.ctx.state === 'suspended') this.ctx.resume()
-    this.stopCurrent()
     const nextIdx = this.currentIndex + 1
     if (nextIdx < this.queue.length) {
       await this.playIndex(nextIdx)
     } else if (this.repeatMode === 'all' && this.queue.length > 0) {
       await this.playIndex(0)
     } else {
+      this.stopCurrent()
       this.playing = false
       this.currentIndex = -1
       this.notify()
@@ -410,8 +410,6 @@ export class AudioEngine {
   }
 
   async prev() {
-    if (this.ctx.state === 'suspended') this.ctx.resume()
-    this.stopCurrent()
     const prevIdx = this.currentIndex - 1
     if (prevIdx >= 0) {
       await this.playIndex(prevIdx)
@@ -423,56 +421,19 @@ export class AudioEngine {
   }
 
   getElapsed(): number {
-    if (!this.playing || this.currentIndex < 0) return 0
-    return this.trackOffset + (this.ctx.currentTime - this.trackStartTime)
+    if (this.currentIndex < 0 || !this.currentAudio) return 0
+    return this.currentAudio.currentTime
   }
 
   async seek(seconds: number) {
-    if (this.currentIndex < 0) return
+    if (this.currentIndex < 0 || !this.currentAudio) return
     const track = this.queue[this.currentIndex]
     if (!track) return
-    const duration = track.duration || (track.buffer?.duration ?? 0)
-    const clamped = Math.max(0, Math.min(seconds, duration - 0.1))
-    await this.playIndexAtOffset(this.currentIndex, clamped)
-  }
-
-  /** Ensure the track at `index` has a decoded AudioBuffer. Dedupes concurrent
-   *  calls by caching the in-flight promise on the track. */
-  private decodeTrack(index: number): Promise<void> {
-    const track = this.queue[index]
-    if (!track) return Promise.resolve()
-    if (track.buffer) return Promise.resolve()
-    if (track.decoding) return track.decoding
-    track.decoding = (async () => {
-      try {
-        const arrayBuffer = await track.file.arrayBuffer()
-        // Re-check after await — the track may have been removed or queue cleared.
-        if (this.queue[index] !== track) return
-        const buffer = await this.ctx.decodeAudioData(arrayBuffer)
-        if (this.queue[index] !== track) return
-        track.buffer = buffer
-        // If the duration read from metadata was off, trust the decoded value.
-        if (!track.duration || Math.abs(track.duration - buffer.duration) > 0.5) {
-          track.duration = buffer.duration
-        }
-      } finally {
-        track.decoding = undefined
-      }
-    })()
-    return track.decoding
-  }
-
-  /** Drop buffers outside the [index-WINDOW, index+WINDOW] window so GC can reclaim
-   *  the PCM memory. Keeps worst-case memory to ~3 decoded tracks. */
-  private evictFarBuffers(index: number) {
-    const lo = index - BUFFER_WINDOW
-    const hi = index + BUFFER_WINDOW
-    for (let i = 0; i < this.queue.length; i++) {
-      if (i < lo || i > hi) {
-        const t = this.queue[i]
-        if (t.buffer) t.buffer = null
-      }
-    }
+    const duration = track.duration || this.currentAudio.duration || 0
+    const clamped = Math.max(0, Math.min(seconds, Math.max(0, duration - 0.1)))
+    this.currentAudio.currentTime = clamped
+    savePlayback({ currentIndex: this.currentIndex, offset: clamped })
+    this.notify()
   }
 
   private async playIndex(index: number) {
@@ -486,57 +447,88 @@ export class AudioEngine {
     const track = this.queue[index]
     if (!track) return
 
-    // Decode on demand if this track's buffer was evicted or never loaded.
-    if (!track.buffer) {
-      this.notify() // let UI reflect currentIndex change during the (possibly audible) decode wait
-      try {
-        await this.decodeTrack(index)
-      } catch (err) {
-        console.error('[AudioEngine] decode failed for', track.file.name, err)
-        return
-      }
-      // Abort if the user moved on while we were decoding.
-      if (this.currentIndex !== index || this.queue[index] !== track || !track.buffer) return
-    }
+    // Let the UI reflect the currentIndex change while the new element loads.
+    this.notify()
 
-    const source = this.ctx.createBufferSource()
-    source.buffer = track.buffer
+    const audio = new Audio()
+    audio.preload = 'auto'
+    const url = URL.createObjectURL(track.file)
+    audio.src = url
+
+    // Route through fileGain so PTT ducking, mixing, and the PCM capture
+    // worklet all continue to operate exactly as before.
+    const source = this.ctx.createMediaElementSource(audio)
     source.connect(this.fileGain)
 
-    source.onended = () => {
-      if (this.currentSource === source) {
-        if (this.repeatMode === 'one') {
-          void this.playIndex(this.currentIndex)
-        } else {
-          void this.next()
-        }
+    this.currentAudio = audio
+    this.currentMediaSource = source
+    this.currentObjectUrl = url
+
+    audio.addEventListener('ended', () => {
+      // Ignore ended events from a superseded element (track switch in flight).
+      if (this.currentAudio !== audio) return
+      if (this.repeatMode === 'one') {
+        void this.playIndex(this.currentIndex)
+      } else {
+        void this.next()
+      }
+    })
+
+    // Wait for metadata so the initial seek (resume offset) lands accurately.
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        audio.removeEventListener('loadedmetadata', done)
+        audio.removeEventListener('error', done)
+        resolve()
+      }
+      audio.addEventListener('loadedmetadata', done, { once: true })
+      audio.addEventListener('error', done, { once: true })
+    })
+    // User moved on while metadata was loading — bail without starting playback.
+    if (this.currentAudio !== audio) return
+
+    // Trust the decoded duration if the header-only probe was off.
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      if (!track.duration || Math.abs(track.duration - audio.duration) > 0.5) {
+        track.duration = audio.duration
       }
     }
 
-    source.start(0, offset)
-    this.currentSource = source
-    this.trackStartTime = this.ctx.currentTime
-    this.trackOffset = offset
+    if (offset > 0 && Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(offset, Math.max(0, audio.duration - 0.1))
+    }
+
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    try {
+      await audio.play()
+    } catch (err) {
+      console.error('[AudioEngine] play() rejected for', track.file.name, err)
+      return
+    }
+    if (this.currentAudio !== audio) return
+
     this.playing = true
     savePlayback({ currentIndex: index, offset })
     this.notify()
-
-    // Pre-warm the next track so auto-advance is gap-free, and drop far buffers.
-    this.evictFarBuffers(index)
-    const nextIdx = index + 1 < this.queue.length
-      ? index + 1
-      : (this.repeatMode === 'all' && this.queue.length > 1 ? 0 : -1)
-    if (nextIdx >= 0) {
-      void this.decodeTrack(nextIdx).catch(() => { /* pre-warm is best-effort */ })
-    }
   }
 
   private stopCurrent() {
-    if (this.currentSource) {
-      try { this.currentSource.stop() } catch { /* already stopped */ }
-      this.currentSource.disconnect()
-      this.currentSource = null
+    if (this.currentAudio) {
+      this.currentAudio.pause()
+      // Detach src + load() so the browser tears down the media pipeline and
+      // stops holding a file handle.
+      this.currentAudio.removeAttribute('src')
+      try { this.currentAudio.load() } catch { /* best effort */ }
     }
+    if (this.currentMediaSource) {
+      try { this.currentMediaSource.disconnect() } catch { /* already disconnected */ }
+    }
+    if (this.currentObjectUrl) {
+      URL.revokeObjectURL(this.currentObjectUrl)
+    }
+    this.currentAudio = null
+    this.currentMediaSource = null
+    this.currentObjectUrl = null
   }
 
   /** Ask the encoder worker to flush; resolves once the final chunk has been dispatched. */
