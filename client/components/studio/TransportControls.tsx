@@ -62,7 +62,7 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
 
   return (
     <div className="flex items-center gap-2 w-full">
-      <span ref={elapsedRef} className="text-[11px] text-muted-foreground tabular-nums w-8 text-right shrink-0">
+      <span ref={elapsedRef} className="text-xs text-muted-foreground tabular-nums w-8 text-right shrink-0">
         0:00
       </span>
       <div
@@ -100,7 +100,7 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
           />
         </div>
       </div>
-      <span className="text-[11px] text-muted-foreground tabular-nums w-8 shrink-0">
+      <span className="text-xs text-muted-foreground tabular-nums w-8 shrink-0">
         {formatTime(duration)}
       </span>
     </div>

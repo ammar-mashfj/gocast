@@ -4,7 +4,7 @@ import { useState, useRef, type FormEvent, type ChangeEvent } from "react"
 import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
-import { IconUpload, IconX } from "@tabler/icons-react"
+import { IconUpload, IconX, IconLoader2 } from "@tabler/icons-react"
 import api from "@/lib/axios"
 import { Station } from "@/interfaces/Station"
 import {
@@ -80,7 +80,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
     setLoading(true)
     setErrors({})
 
-    const payload = {
+    const payload: Record<string, string | null> = {
       name,
       description: description || null,
       genre: genre || null,
@@ -91,12 +91,19 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
       if (isEdit) {
         await api.put(`/stations/${station.slug}`, payload)
         toast.success("Station updated")
+        onClose()
+        router.refresh()
       } else {
-        await api.post("/stations", payload)
-        toast.success("Station created")
+        const res = await api.post("/stations", payload)
+        const created: Station | undefined = res.data?.data
+        toast.success("Station created — ready to go live?")
+        onClose()
+        if (created?.slug) {
+          router.push(`/dashboard/stations/${created.slug}`)
+        } else {
+          router.refresh()
+        }
       }
-      onClose()
-      router.refresh()
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 403) {
         toast.error("You've reached your station limit. Upgrade to Pro for more stations.")
@@ -131,17 +138,24 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="size-16 rounded-xl bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border hover:border-primary/50 transition-colors cursor-pointer"
+                  disabled={uploading}
+                  className="relative size-16 rounded-xl bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border hover:border-primary/50 transition-colors cursor-pointer disabled:cursor-wait"
                 >
                   {artworkPreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- preview is a local data URL
                     <img src={artworkPreview} alt="Artwork" className="size-full object-cover" />
                   ) : (
-                    <IconUpload size={20} className="text-muted-foreground" />
+                    <IconUpload size={18} className="text-muted-foreground" />
+                  )}
+                  {uploading && (
+                    <div className="absolute inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center">
+                      <IconLoader2 size={18} className="animate-spin text-primary" />
+                    </div>
                   )}
                 </button>
                 <div className="flex flex-col gap-1">
                   {artworkPreview ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={removeArtwork}>
+                    <Button type="button" variant="ghost" size="sm" onClick={removeArtwork} disabled={uploading}>
                       <IconX size={14} />
                       Remove
                     </Button>
@@ -149,9 +163,6 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
                     <FieldDescription>
                       Square image, max 2 MB. Shown on your player page.
                     </FieldDescription>
-                  )}
-                  {uploading && (
-                    <span className="text-xs text-muted-foreground">Uploading...</span>
                   )}
                 </div>
                 <input
@@ -191,7 +202,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
                 id="genre"
                 value={genre}
                 onChange={(e) => setGenre(e.target.value)}
-                placeholder="Jazz, Lo-Fi, Talk..."
+                placeholder="Jazz, lo-fi, talk"
                 maxLength={255}
               />
             </Field>
@@ -206,6 +217,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
                 rows={3}
               />
             </Field>
+
           </FieldGroup>
 
           <DialogFooter className="mt-6">
@@ -213,7 +225,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
               Cancel
             </Button>
             <Button type="submit" disabled={loading || uploading}>
-              {loading ? (isEdit ? "Saving..." : "Creating...") : (isEdit ? "Save changes" : "Create station")}
+              {loading ? (isEdit ? "Saving…" : "Creating…") : (isEdit ? "Save changes" : "Create station")}
             </Button>
           </DialogFooter>
         </form>

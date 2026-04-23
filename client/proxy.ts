@@ -4,15 +4,27 @@ import type { NextRequest } from "next/server"
 const protectedRoutes = ["/dashboard"]
 const authRoutes = ["/auth/login", "/auth/register"]
 
+function isVerifiedUserCookie(value?: string): boolean {
+  if (!value) return false
+
+  try {
+    const user = JSON.parse(decodeURIComponent(value))
+    return Boolean(user?.email_verified_at)
+  } catch {
+    return false
+  }
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const token = request.cookies.get("token")?.value
+  const isVerified = isVerifiedUserCookie(request.cookies.get("user")?.value)
 
-  if (authRoutes.some((route) => pathname.startsWith(route)) && token) {
-    return NextResponse.redirect(new URL("/", request.url))
+  if (authRoutes.some((route) => pathname.startsWith(route)) && token && isVerified) {
+    return NextResponse.redirect(new URL("/dashboard/stations", request.url))
   }
 
-  if (protectedRoutes.some((route) => pathname.startsWith(route)) && !token) {
+  if (protectedRoutes.some((route) => pathname.startsWith(route)) && (!token || !isVerified)) {
     return NextResponse.redirect(new URL("/auth/login", request.url))
   }
 

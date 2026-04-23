@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { IconMusic, IconMicrophone } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { Card, CardContent } from "@/components/ui/card"
@@ -52,14 +53,11 @@ export function NowPlaying() {
     <Card className="py-2.5 md:py-4 gap-0">
       <CardContent className="px-3 md:px-4">
         <div className="flex items-center gap-3 mb-3">
-          <div className="size-12 rounded-[10px] bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center shrink-0 relative">
+          <div className="size-12 rounded-xl bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center shrink-0 relative text-violet-300/80">
             {track ? (
-              <span className="text-xl">♫</span>
+              <IconMusic size={18} strokeWidth={1.5} />
             ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.8)" strokeWidth="1.5">
-                <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
-                <path d="M19 10v2a7 7 0 01-14 0v-2" />
-              </svg>
+              <IconMicrophone size={18} strokeWidth={1.5} />
             )}
           </div>
 
@@ -67,7 +65,7 @@ export function NowPlaying() {
             {micActive ? (
               <>
                 <Badge variant="destructive" className="mb-0.5 text-[10px]">Mic live</Badge>
-                <div className="text-base font-medium truncate">Speaking...</div>
+                <div className="text-base font-medium truncate">Speaking…</div>
               </>
             ) : track ? (
               <>

@@ -6,8 +6,14 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/station/"],
-        disallow: ["/dashboard/", "/auth/", "/api/"],
+        allow: ["/", "/station/", "/roadmap"],
+        disallow: [
+          "/dashboard/",
+          "/auth/",
+          "/api/",
+          // Sentry tunnel — error reporting endpoint, not a page
+          "/monitoring",
+        ],
       },
     ],
     sitemap: `${env.appUrl}/sitemap.xml`,

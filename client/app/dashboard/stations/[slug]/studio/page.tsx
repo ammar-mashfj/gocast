@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { IconLoader2 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
+import api from "@/lib/axios"
 import { NowPlaying } from "@/components/studio/NowPlaying"
 import { TransportControls } from "@/components/studio/TransportControls"
 import { PushToTalk } from "@/components/studio/PushToTalk"
@@ -17,6 +19,22 @@ export default function StudioPage() {
   const router = useRouter()
   const { state, micDisabled, engine } = useBroadcast()
   const wasLive = useRef(false)
+  const [stationName, setStationName] = useState<string | null>(null)
+
+  // Fetch the station name once for the tab title — independent of the
+  // panels which already fetch their own copies.
+  useEffect(() => {
+    api.get(`/stations/${slug}`)
+      .then((res) => setStationName(res.data?.data?.name ?? null))
+      .catch(() => { /* tab title will fall back to default */ })
+  }, [slug])
+
+  // Pulsing red-dot prefix is universally recognized as "live recording".
+  useDocumentTitle(
+    state === "live" || state === "reconnecting"
+      ? `● LIVE · ${stationName ?? slug} | GoCast`
+      : null,
+  )
 
   useEffect(() => {
     if (state === "live") wasLive.current = true
@@ -48,19 +66,20 @@ export default function StudioPage() {
     }
   }, [engine])
 
-  if (state === "reconnecting") {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 h-[calc(100vh-3.5rem)] -m-6">
-        <IconLoader2 size={32} className="text-primary animate-spin" />
-        <p className="text-sm text-muted-foreground">Reconnecting to stream relay...</p>
-      </div>
-    )
-  }
-
-  if (state !== "live") return null
+  // Keep the layout mounted across `reconnecting` so the queue, now-playing,
+  // and engine-bound UI don't tear down on a transient WS hiccup. We show a
+  // thin banner instead.
+  if (state !== "live" && state !== "reconnecting") return null
 
   return (
     <div className="w-[calc(100%+3rem)] h-[calc(100vh-3.5rem)] flex flex-col lg:grid lg:grid-cols-[1fr_400px] min-h-0 -m-6 overflow-hidden">
+      {state === "reconnecting" && (
+        <div className="lg:col-span-2 flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 text-amber-500 text-xs border-b border-amber-500/20">
+          <IconLoader2 size={14} className="animate-spin" />
+          Reconnecting to stream relay…
+        </div>
+      )}
+
       {/* Mobile: compact bar + dedicated mobile layout */}
       <MobileStreamBar stationId={slug} />
       <MobileStudio />

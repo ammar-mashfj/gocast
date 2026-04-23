@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — GoCast",
+  title: "Privacy Policy",
   description: "How GoCast collects, uses, and protects your data.",
 }
 
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
             <h3 className="text-sm font-medium text-foreground mt-4 mb-2">Station Data</h3>
             <p>
               When you create a station, we store the station name, slug, description, genre, and any
-              artwork you upload. This information is publicly visible on your station's player page.
+              artwork you upload. This information is publicly visible on your station&apos;s player page.
             </p>
 
             <h3 className="text-sm font-medium text-foreground mt-4 mb-2">Broadcast Data</h3>
@@ -90,8 +90,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-medium text-foreground mb-3">Third-Party Services</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>
-                <strong className="text-foreground">Google OAuth</strong> — used for "Sign in with Google."
-                We receive your name, email, and profile photo. Google's privacy policy applies to data
+                <strong className="text-foreground">Google OAuth</strong> — used for &ldquo;Sign in with Google.&rdquo;
+                We receive your name, email, and profile photo. Google&apos;s privacy policy applies to data
                 they collect during the sign-in flow.
               </li>
               <li>
@@ -157,7 +157,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-medium text-foreground mb-3">Changes to This Policy</h2>
             <p>
               We may update this policy as the service evolves. Significant changes will be communicated
-              via email or an in-app notice. The "last updated" date at the top reflects the most recent revision.
+              via email or an in-app notice. The &ldquo;last updated&rdquo; date at the top reflects the most recent revision.
             </p>
           </section>
 

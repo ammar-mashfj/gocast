@@ -2,11 +2,10 @@
 
 import { Fragment, useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { toast } from "sonner"
-import { IconLogout } from "@tabler/icons-react"
+import { usePathname } from "next/navigation"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,31 +14,18 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { User } from "@/interfaces/User"
 import api from "@/lib/axios"
-import { clearAuth } from "@/actions/auth"
 
 const SEGMENT_LABELS: Record<string, string> = {
   stations: "Stations",
   broadcasts: "Broadcasts",
-  live: "Go Live",
+  settings: "Settings",
+  live: "Go live",
   studio: "Studio",
 }
 
-interface DashboardHeaderProps {
-  user: User
-}
-
-export function DashboardHeader({ user }: DashboardHeaderProps) {
+export function DashboardHeader() {
   const pathname = usePathname()
-  const router = useRouter()
   const [stationName, setStationName] = useState<string | null>(null)
 
   // Extract path segments after /dashboard
@@ -50,6 +36,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
 
   useEffect(() => {
     if (!stationSlug) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStationName(null)
       return
     }
@@ -60,28 +47,18 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
     })
   }, [stationSlug])
 
-  async function handleSignOut() {
-    try {
-      await api.post("/logout")
-    } finally {
-      clearAuth()
-      toast.success("Signed out successfully")
-      router.push("/")
-    }
-  }
-
-  // Build breadcrumb items from segments
-  function buildCrumbs() {
-    const crumbs: { label: string; href: string }[] = []
+  // Build breadcrumb items from segments. Mark the station-name crumb as
+  // `pending` so the renderer can show a Skeleton instead of flashing the raw slug.
+  function buildCrumbs(): { label: string; href: string; pending?: boolean }[] {
+    const crumbs: { label: string; href: string; pending?: boolean }[] = []
     let href = "/dashboard"
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
       href += `/${seg}`
 
-      // Station slug segment — use fetched name
       if (segments[0] === "stations" && i === 1) {
-        crumbs.push({ label: stationName ?? seg, href })
+        crumbs.push({ label: stationName ?? "", href, pending: !stationName })
         continue
       }
 
@@ -104,14 +81,17 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
             <BreadcrumbList>
               {crumbs.map((crumb, i) => {
                 const isLast = i === crumbs.length - 1
+                const label = crumb.pending
+                  ? <Skeleton className="h-4 w-24 inline-block align-middle" />
+                  : crumb.label
                 return (
                   <Fragment key={crumb.href}>
                     <BreadcrumbItem>
                       {isLast ? (
-                        <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                        <BreadcrumbPage className="text-sm">{label}</BreadcrumbPage>
                       ) : (
                         <BreadcrumbLink asChild>
-                          <Link href={crumb.href}>{crumb.label}</Link>
+                          <Link href={crumb.href} className="text-sm">{label}</Link>
                         </BreadcrumbLink>
                       )}
                     </BreadcrumbItem>
@@ -123,30 +103,6 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
           </Breadcrumb>
         </>
       )}
-
-      {/* User avatar + dropdown */}
-      <div className="ml-auto">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Avatar className="size-8">
-                <AvatarImage src={user.avatar_url} alt={user.name} />
-                <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <div className="px-2 py-1.5">
-              <p className="text-sm font-medium truncate">{user.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-            </div>
-            <DropdownMenuItem onClick={handleSignOut}>
-              <IconLogout size={16} />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
     </header>
   )
 }

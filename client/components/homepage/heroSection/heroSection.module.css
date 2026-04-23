@@ -16,7 +16,18 @@
     70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
   }
   
-.animate-orbit-1 { animation: orbit-1 20s linear infinite; }
-.animate-orbit-2 { animation: orbit-2 15s linear infinite; }
-.animate-orbit-3 { animation: orbit-3 25s linear infinite; }
+.animate-orbit-1 { animation: orbit-1 32s linear infinite; }
+.animate-orbit-2 { animation: orbit-2 24s linear infinite; }
+.animate-orbit-3 { animation: orbit-3 40s linear infinite; }
 .liveDot { animation: live-dot 1.5s infinite; }
+
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vinylSpin { animation: vinyl-spin 14s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-orbit-1, .animate-orbit-2, .animate-orbit-3, .vinylSpin { animation: none; }
+}

@@ -39,7 +39,7 @@ export default function WaitlistButton({ plan, className, children }: Props) {
     try {
       await api.post("/waitlist", { email, plan })
       setSubmitted(true)
-      toast.success("You're on the list! We'll email you when Pro is ready.")
+      toast.success("You're on the list. We'll email you when Pro is ready.")
     } catch (err: unknown) {
       const status =
         typeof err === "object" && err && "response" in err
@@ -93,15 +93,15 @@ export default function WaitlistButton({ plan, className, children }: Props) {
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5 text-[13px] text-text-primary placeholder:text-text-faint focus:outline-none focus:border-violet-border/70"
+              className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:outline-none focus:border-violet-border/70"
               disabled={submitting}
             />
-            {error && <div className="text-[12px] text-red-400">{error}</div>}
+            {error && <div className="text-xs text-red-400">{error}</div>}
             <DialogFooter>
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 rounded-lg text-[13px] font-medium bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full py-3 rounded-lg text-sm font-medium bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {submitting ? "Submitting…" : "Join the waitlist"}
               </button>

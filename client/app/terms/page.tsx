@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
-  title: "Terms of Service — GoCast",
+  title: "Terms of Service",
   description: "Terms and conditions for using the GoCast live radio streaming platform.",
 }
 
@@ -84,7 +84,7 @@ export default function TermsPage() {
               <li>Do not use the service to relay or rebroadcast content from other platforms without authorization.</li>
               <li>Do not use automated tools to create stations, inflate listener counts, or abuse the platform.</li>
               <li>Do not attempt to circumvent rate limits, authentication, or access controls.</li>
-              <li>Do not interfere with other users' broadcasts or the operation of the service.</li>
+              <li>Do not interfere with other users&apos; broadcasts or the operation of the service.</li>
             </ul>
           </section>
 
@@ -99,7 +99,7 @@ export default function TermsPage() {
               <li>Paid subscriptions are billed monthly and renew automatically.</li>
               <li>You may cancel at any time — your plan remains active until the end of the billing period.</li>
               <li>Refunds are not provided for partial billing periods.</li>
-              <li>We reserve the right to change pricing with 30 days' notice.</li>
+              <li>We reserve the right to change pricing with 30 days&apos; notice.</li>
             </ul>
           </section>
 
@@ -126,7 +126,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-medium text-foreground mb-3">9. Limitation of Liability</h2>
             <p>
-              GoCast is provided "as is" without warranties of any kind, express or implied. To the
+              GoCast is provided &ldquo;as is&rdquo; without warranties of any kind, express or implied. To the
               fullest extent permitted by law, we shall not be liable for any indirect, incidental,
               special, consequential, or punitive damages, including but not limited to loss of
               revenue, data, or business opportunities arising from your use of the service.

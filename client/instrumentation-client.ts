@@ -10,22 +10,19 @@ Sentry.init({
   // Add optional integrations for additional features
   integrations: [Sentry.replayIntegration()],
 
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
+  // Sample 20% of client transactions in production to stay within free-tier quota.
+  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.2 : 1,
   // Enable logs to be sent to Sentry
   enableLogs: true,
 
-  // Define how likely Replay events are sampled.
-  // This sets the sample rate to be 10%. You may want this to be 100% while
-  // in development and sample at a lower rate in production
-  replaysSessionSampleRate: 0.1,
+  // Replay quota burns fast on launch traffic — keep sampling low in production
+  // to preserve free-tier headroom; capture full sessions in development.
+  replaysSessionSampleRate: process.env.NODE_ENV === "production" ? 0.02 : 1.0,
+  replaysOnErrorSampleRate: process.env.NODE_ENV === "production" ? 0.5 : 1.0,
 
-  // Define how likely Replay events are sampled when an error occurs.
-  replaysOnErrorSampleRate: 1.0,
-
-  // Enable sending user PII (Personally Identifiable Information)
-  // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
-  sendDefaultPii: true,
+  // Disable sending user PII (Personally Identifiable Information).
+  // Privacy policy commits to "no personal data is intentionally sent" to Sentry.
+  sendDefaultPii: false,
 });
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

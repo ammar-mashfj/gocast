@@ -7,14 +7,46 @@ const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "tr
 const nextConfig: NextConfig = {
   /* Production optimizations */
   compress: true,
+  // Emits a self-contained .next/standalone directory with only the files
+  // the server actually needs at runtime — lets the prod Docker image copy
+  // ~30 MB instead of the full node_modules tree (~600 MB). Ignored in dev.
+  output: "standalone",
   deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   images: {
     formats: ["image/avif", "image/webp"],
+    // Allow loopback/private IPs as upstream image hosts in development —
+    // Next's optimizer SSRF-protects against private IPs by default, which
+    // would otherwise block fetching artwork from `localhost:8000` during
+    // local dev. In production the API lives on a public domain so this
+    // guard naturally re-engages.
+    dangerouslyAllowLocalIP: process.env.NODE_ENV === "development",
+    // Per the Next.js docs example, every field is explicit. `pathname: "/**"`
+    // matches any path; the empty `search` forbids query strings (Laravel
+    // storage URLs don't use them).
     remotePatterns: [
+      // Production API — station artwork uploads (served from /storage)
+      {
+        protocol: "https",
+        hostname: "api.gocast.fm",
+        port: "",
+        pathname: "/storage/**",
+        search: "",
+      },
+      // Google profile photos for OAuth-signup user avatars
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+        port: "",
+        pathname: "/**",
+        search: "",
+      },
+      // Local dev — Laravel API
       {
         protocol: "http",
         hostname: "localhost",
         port: "8000",
+        pathname: "/storage/**",
+        search: "",
       },
     ],
   },
@@ -25,6 +57,16 @@ const nextConfig: NextConfig = {
     if (process.env.NODE_ENV !== "development") return []
     return [
       { source: "/stream-proxy/:path*", destination: "http://localhost:8888/:path*" },
+    ]
+  },
+  async redirects() {
+    return [
+      // Discover is hidden until there's enough live-station volume to make
+      // the page feel useful — a mostly-empty grid hurts first-impression
+      // conversion. Temporary (307) so search engines keep the URL indexed
+      // for when we re-enable it. The `app/discover/*` files are left in
+      // place so flipping this back on is a one-entry revert.
+      { source: "/discover", destination: "/", permanent: false },
     ]
   },
   async headers() {

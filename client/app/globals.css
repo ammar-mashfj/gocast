@@ -8,6 +8,21 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
+
+  /* Brand color tokens used across the marketing site.
+     Defined as solid colors so Tailwind's /opacity modifiers work. */
+  --color-violet-full: #8b5cf6;
+  --color-violet-muted: #a78bfa;
+  --color-violet: #c4b5fd;
+  --color-violet-subtle: #1f1145;
+  --color-violet-border: #8b5cf6;
+  --color-emerald-live: #10b981;
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #d4d4d8;
+  --color-text-muted: #a1a1aa;
+  --color-text-faint: #71717a;
+  --color-border-subtle: #27272a;
+  --color-dark: #08080d;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

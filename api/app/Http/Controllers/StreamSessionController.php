@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use App\Models\StreamSession;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -31,11 +32,18 @@ class StreamSessionController extends Controller
             return response()->json(['message' => 'Station is already live.'], 409);
         }
 
+        $wasLive = $station->is_live;
+
         $session = $station->streamSessions()->create([
             'started_at' => now(),
         ]);
 
         $station->update(['is_live' => true]);
+
+        if (! $wasLive) {
+            SendStationLiveNotifications::dispatch($station->id, $session->id)
+                ->delay(now()->addMinutes(2));
+        }
 
         return response()->json([
             'data' => $session,

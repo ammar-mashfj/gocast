@@ -1,8 +1,7 @@
 import { User } from "@/interfaces/User"
 import { setCookie, getCookie, removeCookie } from "@/lib/cookies"
 
-export function saveAuth(token: string, user: User) {
-  setCookie("token", token)
+export function saveAuth(_token: string | null | undefined, user: User) {
   setCookie("user", JSON.stringify(user))
 }
 
@@ -16,6 +15,8 @@ export function getUser(): User | null {
 }
 
 export function clearAuth() {
+  // Removes legacy non-HttpOnly token cookies from older sessions. Current
+  // sessions clear the HttpOnly token via POST /logout.
   removeCookie("token")
   removeCookie("user")
 }

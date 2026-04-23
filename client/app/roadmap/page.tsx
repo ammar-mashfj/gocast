@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
-  title: "Roadmap — GoCast",
+  title: "Roadmap",
   description: "What's live, what's next, and what's on the horizon for GoCast.",
 }
 
@@ -47,7 +47,7 @@ function Section({
     <section className={dimmed ? "opacity-60" : ""}>
       <div className="flex items-center gap-3 mb-6">
         <span className={`inline-block w-2 h-2 rounded-full ${accent}`} aria-hidden />
-        <h2 className="text-[11px] tracking-[3px] uppercase text-text-muted/85">
+        <h2 className="text-xs tracking-[3px] uppercase text-text-muted">
           {label}
         </h2>
       </div>
@@ -55,7 +55,7 @@ function Section({
         {items.map((item) => (
           <li
             key={item}
-            className="text-[14px] text-text-muted flex items-center gap-3"
+            className="text-sm text-text-muted flex items-center gap-3"
           >
             <span
               className={`inline-block w-1.5 h-1.5 rounded-full ${accent} shrink-0`}
@@ -80,10 +80,10 @@ export default function RoadmapPage() {
           &larr; Back to GoCast
         </Link>
 
-        <h1 className="text-3xl md:text-[40px] font-semibold -tracking-wide mt-8 mb-2">
+        <h1 className="text-3xl md:text-4xl font-semibold -tracking-wide mt-8 mb-2">
           Roadmap
         </h1>
-        <p className="text-sm text-text-faint mb-14 leading-[1.7]">
+        <p className="text-sm text-text-faint mb-14 leading-relaxed">
           What&apos;s live, what&apos;s next, and what&apos;s on the horizon.
         </p>
 
@@ -98,7 +98,7 @@ export default function RoadmapPage() {
           />
         </div>
 
-        <p className="text-sm text-text-faint mt-20 leading-[1.7]">
+        <p className="text-sm text-text-faint mt-20 leading-relaxed">
           Have a feature request? Email{" "}
           <a
             href="mailto:hello@gocast.fm"

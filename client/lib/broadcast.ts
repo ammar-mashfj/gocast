@@ -45,6 +45,7 @@ export class BroadcastManager {
   private wakeLock: WakeLockSentinel | null = null
   private steps: BroadcastStepInfo[] = []
   private reconnecting = false
+  private stopping = false
   private visibilityHandler: (() => void) | null = null
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
@@ -87,6 +88,7 @@ export class BroadcastManager {
    */
   async start(options?: { skipMic?: boolean }): Promise<void> {
     this.authenticated = false
+    this.stopping = false
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
@@ -145,6 +147,11 @@ export class BroadcastManager {
       this.sessionId = sessionRes.data.data.id as string
 
       await this.connectAndAuthenticate(streamToken)
+
+      // Relay is open and authenticated — safe to resume playback now.
+      // Starting earlier would encode audio that gets dropped because the
+      // WebSocket isn't OPEN yet, clipping the first seconds of the stream.
+      await this.engine.resumePlayback()
 
       this.acquireWakeLock()
       this.callbacks.onStateChange('live')
@@ -212,7 +219,7 @@ export class BroadcastManager {
           const reason = WS_CLOSE_REASONS[event.code]
             || (event.code >= 4000 ? `Relay error (${event.code})` : 'Connection to relay lost')
           reject(new Error(reason))
-        } else if (this.authenticated) {
+        } else if (this.authenticated && !this.stopping) {
           this.authenticated = false
           this.scheduleReconnect()
         }
@@ -225,7 +232,7 @@ export class BroadcastManager {
    * Otherwise, wait for a visibilitychange event to reconnect.
    */
   private scheduleReconnect() {
-    if (this.reconnecting) return
+    if (this.reconnecting || this.stopping) return
     this.reconnecting = true
     this.callbacks.onStateChange('reconnecting' as BroadcastState)
 
@@ -256,13 +263,16 @@ export class BroadcastManager {
   private async attemptReconnect() {
     try {
       const tokenRes = await api.post(`/stations/${this.stationId}/stream-token`)
+      if (this.stopping) { this.reconnecting = false; return }
       const streamToken = tokenRes.data.data.token as string
       await this.connectAndAuthenticate(streamToken)
       this.reconnecting = false
+      if (this.stopping) return
       this.callbacks.onError('')
       this.callbacks.onStateChange('live')
     } catch {
       this.reconnecting = false
+      if (this.stopping) return
       this.callbacks.onError('Connection to relay lost')
       this.callbacks.onStateChange('error')
     }
@@ -292,6 +302,8 @@ export class BroadcastManager {
    * internal state back to idle.
    */
   async stop(): Promise<void> {
+    this.stopping = true
+    this.authenticated = false
     this.removeVisibilityHandler()
     this.reconnecting = false
     await this.engine?.destroy()
@@ -350,7 +362,24 @@ export class BroadcastManager {
     this.releaseWakeLock()
 
     this.micStream?.getTracks().forEach((t) => t.stop())
-    await this.engine?.destroy()
-    this.ws?.close()
+    try { await this.engine?.destroy() } catch { /* already torn down */ }
+    try { this.ws?.close() } catch { /* already closed */ }
+
+    // End the server-side session if one was created before the failure.
+    // Without this, the API keeps the station marked live until the next
+    // start/stop cycle runs its stale-session sweep.
+    if (this.sessionId) {
+      try {
+        await api.delete(`/stations/${this.stationId}/sessions/${this.sessionId}`)
+      } catch { /* best-effort */ }
+    }
+
+    // Clear refs so a subsequent stop() (triggered by Try again → start →
+    // stop on the failed manager) doesn't double-destroy and throw.
+    this.micStream = null
+    this.engine = null
+    this.ws = null
+    this.sessionId = null
+    this.authenticated = false
   }
 }

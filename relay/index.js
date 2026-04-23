@@ -20,6 +20,21 @@ const net = require("net");
 const http = require("http");
 const { WebSocketServer } = require("ws");
 
+function requiredEnv(name, forbiddenValues = []) {
+  const value = process.env[name];
+  if (!value || forbiddenValues.includes(value)) {
+    console.error(JSON.stringify({
+      time: new Date().toISOString(),
+      level: "error",
+      msg: "Missing or unsafe required environment variable",
+      name,
+    }));
+    process.exit(1);
+  }
+
+  return value;
+}
+
 // Environment-driven configuration for ports, Icecast credentials, and API URL
 const config = {
   wsPort: parseInt(process.env.WS_PORT || "8080"),
@@ -27,12 +42,12 @@ const config = {
   icecast: {
     host: process.env.ICECAST_HOST || "localhost",
     port: parseInt(process.env.ICECAST_PORT || "8888"),
-    sourcePassword: process.env.ICECAST_SOURCE_PASSWORD || "hackme",
+    sourcePassword: requiredEnv("ICECAST_SOURCE_PASSWORD", ["hackme"]),
     adminUser: process.env.ICECAST_ADMIN_USER || "admin",
-    adminPassword: process.env.ICECAST_ADMIN_PASSWORD || "hackme",
+    adminPassword: requiredEnv("ICECAST_ADMIN_PASSWORD", ["hackme"]),
   },
   apiUrl: process.env.API_URL || "http://localhost:8000/api",
-  internalApiKey: process.env.INTERNAL_API_KEY || "",
+  internalApiKey: requiredEnv("INTERNAL_API_KEY"),
 };
 
 /**
@@ -240,8 +255,18 @@ function startListenerPolling() {
 
       const sourceList = Array.isArray(sources) ? sources : [sources];
 
+      // Index sources by URL pathname so /stream/foo doesn't match /stream/foo-2
+      // (substring matching on listenurl conflates similar slugs).
+      const byPath = new Map();
+      for (const s of sourceList) {
+        if (!s.listenurl) continue;
+        try {
+          byPath.set(new URL(s.listenurl).pathname, s);
+        } catch { /* malformed listenurl — skip */ }
+      }
+
       for (const [mount, stationId] of activeMounts) {
-        const source = sourceList.find((s) => s.listenurl?.includes(mount));
+        const source = byPath.get(mount);
         const count = source ? source.listeners || 0 : 0;
         await updateListenerCount(stationId, count);
       }

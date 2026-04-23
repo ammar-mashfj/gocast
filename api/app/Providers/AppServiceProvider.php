@@ -7,7 +7,9 @@ use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
+use App\Notifications\WelcomeNotification;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
@@ -58,5 +60,14 @@ class AppServiceProvider extends ServiceProvider
         ]);
 
         Event::listen(Login::class, RecordAdminLastLogin::class);
+
+        // Send the welcome email the moment a user verifies. Anchored on
+        // verification (not registration) so the email is reachable, and so
+        // OAuth signups still get a welcome since their email is auto-verified.
+        Event::listen(Verified::class, function (Verified $event) {
+            if ($event->user instanceof User) {
+                $event->user->notify(new WelcomeNotification);
+            }
+        });
     }
 }

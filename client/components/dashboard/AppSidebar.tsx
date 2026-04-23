@@ -1,14 +1,17 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { usePathname } from "next/navigation"
 import {
   IconRadio,
-  IconBroadcast,
+  IconHistory,
   IconLogout,
   IconChevronUp,
+  IconSettings,
+  IconLoader2,
 } from "@tabler/icons-react"
+import { useSignOut } from "@/hooks/useSignOut"
 import {
   Sidebar,
   SidebarContent,
@@ -24,19 +27,16 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { User } from "@/interfaces/User"
-import api from "@/lib/axios"
-import { clearAuth } from "@/actions/auth"
 
 const NAV_ITEMS = [
   { title: "Stations", href: "/dashboard/stations", icon: IconRadio },
-  { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconBroadcast },
+  { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconHistory },
+  { title: "Settings", href: "/dashboard/settings", icon: IconSettings },
 ]
 
 interface AppSidebarProps {
@@ -45,17 +45,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
-
-  async function handleSignOut() {
-    try {
-      await api.post("/logout")
-    } finally {
-      clearAuth()
-      toast.success("Signed out successfully")
-      router.push("/")
-    }
-  }
+  const { signOut, signingOut } = useSignOut()
 
   return (
     <Sidebar>
@@ -64,7 +54,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <img src="/logo.svg" alt="GoCast" className="h-4 w-auto" />
+                <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="h-4 w-auto" priority />
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -80,7 +70,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
                     <Link href={item.href} className="cursor-pointer">
-                      <item.icon size={50} />
+                      <item.icon size={18} />
                       <span className="text-sm">{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
@@ -116,9 +106,17 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 align="end"
                 sideOffset={4}
               >
-                <DropdownMenuItem onClick={handleSignOut}>
-                  <IconLogout />
-                  Sign out
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/settings">
+                    <IconSettings />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={signingOut} onClick={() => signOut()}>
+                  {signingOut
+                    ? <IconLoader2 className="animate-spin" />
+                    : <IconLogout />}
+                  {signingOut ? "Signing out…" : "Sign out"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

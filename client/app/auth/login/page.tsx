@@ -1,7 +1,10 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { Suspense, useEffect, useState, type FormEvent } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { AxiosError } from "axios"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,28 +18,87 @@ import {
 } from "@/components/ui/card"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
-import { useRouter } from "next/navigation"
-import { AxiosError } from "axios"
-import { toast } from "sonner"
-import { saveAuth } from "@/actions/auth"
-import { env } from "@/lib/env"
+import { saveAuth, getUser } from "@/actions/auth"
+import { signInWithGoogle } from "@/lib/google-auth"
+import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
 
 
+function ExpiredToast() {
+  const searchParams = useSearchParams()
+  // Triggered by the axios 401 interceptor when a session expires mid-use.
+  useEffect(() => {
+    if (searchParams.get("expired") === "1") {
+      toast.info("Your session expired. Please sign in again.")
+    }
+  }, [searchParams])
+  return null
+}
 
-
-
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [verifyEmail, setVerifyEmail] = useState("")
+  const [googleLoading, setGoogleLoading] = useState(false)
+
+  // If the visitor arrives with a dangling session (token cookie from an
+  // unverified signup days ago), surface the verify modal immediately instead
+  // of making them re-enter credentials. Verified sessions are sent straight
+  // to the dashboard.
+  useEffect(() => {
+    const existingUser = getUser()
+    if (!existingUser) return
+
+    if (existingUser.email_verified_at) {
+      router.replace("/dashboard/stations")
+      return
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVerifyEmail(existingUser.email)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVerifyOpen(true)
+  }, [router])
 
   function validate() {
     const newErrors: Record<string, string> = {}
     if (!email) newErrors.email = "Email is required."
     if (!password) newErrors.password = "Password is required."
     return newErrors
+  }
+
+  async function handleGoogle() {
+    setGoogleLoading(true)
+    try {
+      const result = await signInWithGoogle()
+
+      if ("dismissed" in result) {
+        // User closed the popup — silent, nothing to do.
+        return
+      }
+
+      if ("error" in result) {
+        toast.error(result.error === "popup_blocked"
+          ? "Popup blocked. Enable popups and try again."
+          : "Google sign-in failed. Please try again.")
+        return
+      }
+
+      // Exchange the HttpOnly auth cookie for the user record so we can
+      // populate the non-sensitive display cookie.
+      // Google users are auto-verified server-side, so no dialog path.
+      const userRes = await axios.get("/user")
+      saveAuth(null, userRes.data.data)
+      toast.success("Welcome back")
+      router.push("/dashboard/stations")
+    } catch {
+      toast.error("Something went wrong. Please try again.")
+    } finally {
+      setGoogleLoading(false)
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -49,9 +111,17 @@ export default function LoginPage() {
     try {
       const response = await axios.post("/auth/login", { email, password })
       if (response.status === 200) {
-        saveAuth(response.data.token, response.data.data)
-        toast.success("Login successful")
-        router.push("/")
+        saveAuth(null, response.data.data)
+        const verified = Boolean(response.data.data?.email_verified_at)
+        if (verified) {
+          toast.success("Welcome back")
+          router.push("/dashboard/stations")
+          return
+        }
+        // Unverified: stay on the login page and surface the modal so the
+        // dashboard is never reachable with an unverified session.
+        setVerifyEmail(response.data.data.email)
+        setVerifyOpen(true)
       }
     } catch (error) {
       if (error instanceof AxiosError) {
@@ -93,9 +163,15 @@ export default function LoginPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">
-              Password
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href="/auth/forgot"
+                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Input
               id="password"
               type="password"
@@ -112,9 +188,9 @@ export default function LoginPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="mt-1 h-9 w-full text-sm"
+            className="mt-1 w-full"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Signing in…" : "Sign in"}
           </Button>
         </form>
 
@@ -125,19 +201,19 @@ export default function LoginPage() {
         </div>
 
         <Button
+          type="button"
           variant="outline"
-          className="w-full gap-2 cursor-pointer text-sm h-9"
-          asChild
+          className="w-full"
+          onClick={handleGoogle}
+          disabled={googleLoading}
         >
-          <a href={`${env.apiUrl}/auth/google`}>
-            <IconBrandGoogleFilled />
-            Continue with Google
-          </a>
+          <IconBrandGoogleFilled />
+          {googleLoading ? "Signing in…" : "Continue with Google"}
         </Button>
       </CardContent>
 
       <CardFooter className="flex-col gap-3">
-        <p className="text-[11px] text-muted-foreground/50 text-center leading-relaxed">
+        <p className="text-xs text-muted-foreground text-center leading-relaxed">
           By signing in with Google, you agree to our{" "}
           <Link href="/terms" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Terms of Service
@@ -157,6 +233,23 @@ export default function LoginPage() {
           </Link>
         </p>
       </CardFooter>
+
+      <VerifyEmailDialog
+        open={verifyOpen}
+        email={verifyEmail}
+        onCancel={() => setVerifyOpen(false)}
+      />
     </Card>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <ExpiredToast />
+      </Suspense>
+      <LoginForm />
+    </>
   )
 }

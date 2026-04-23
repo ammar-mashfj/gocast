@@ -12,13 +12,7 @@ import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
 import api from "@/lib/axios"
 import type { Station } from "@/interfaces/Station"
-
-function formatDuration(seconds: number): string {
-  const h = String(Math.floor(seconds / 3600)).padStart(2, "0")
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")
-  const s = String(seconds % 60).padStart(2, "0")
-  return `${h}:${m}:${s}`
-}
+import { formatClock } from "@/lib/format"
 
 interface MobileStreamBarProps {
   stationId: string
@@ -29,7 +23,7 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
   const { state, stop } = useBroadcast()
   const [elapsed, setElapsed] = useState(0)
   const [station, setStation] = useState<Station | null>(null)
-  const startTimeRef = useRef(Date.now())
+  const startTimeRef = useRef<number>(0)
 
   useEffect(() => {
     api.get(`/stations/${stationId}`).then((res) => setStation(res.data.data))
@@ -50,7 +44,7 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
     <div className="flex items-center gap-2 px-4 py-2 border-b lg:hidden">
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="size-1.5 bg-emerald-400 rounded-full shrink-0" />
-        <span className="text-xs font-medium tabular-nums">{formatDuration(elapsed)}</span>
+        <span className="text-xs font-medium tabular-nums">{formatClock(elapsed)}</span>
       </div>
 
       <div className="flex items-center gap-1.5 ml-auto shrink-0">
@@ -61,7 +55,7 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
             className="size-8"
             onClick={() => shareOrCopy(playerUrl, station?.name)}
           >
-            <IconShare size={15} />
+            <IconShare size={16} />
           </Button>
         )}
         <Button
@@ -73,7 +67,7 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
             router.push(`/dashboard/stations/${stationId}`)
           }}
         >
-          <IconPlayerStopFilled size={13} />
+          <IconPlayerStopFilled size={14} />
           End
         </Button>
       </div>

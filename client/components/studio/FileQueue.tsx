@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useMemo } from "react"
+import { toast } from "sonner"
 import { IconPlus, IconMinus, IconX, IconGripVertical } from "@tabler/icons-react"
 import {
   DndContext,
@@ -23,7 +24,8 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { QueueTrack } from "@/lib/audioEngine"
+import { QUEUE_BYTE_LIMIT, type QueueTrack } from "@/lib/audioEngine"
+import { formatBytes } from "@/lib/format"
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -94,7 +96,7 @@ function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onRemove}
       >
-        <IconX size={12} />
+        <IconX size={14} />
       </Button>
     </div>
   )
@@ -120,7 +122,14 @@ export function FileQueue() {
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!engine) return
-    await engine.addFiles(files)
+    const { skipped, overLimit } = await engine.addFiles(files)
+    if (overLimit) {
+      const n = skipped.length
+      toast.warning(
+        `Queue is full — ${n} file${n === 1 ? "" : "s"} skipped`,
+        { description: `Cap is ${formatBytes(QUEUE_BYTE_LIMIT)}. Remove tracks to free up space.` },
+      )
+    }
   }, [engine])
 
   const handleDropZone = useCallback((e: React.DragEvent) => {
@@ -152,6 +161,8 @@ export function FileQueue() {
   }, [engine, queue])
 
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
+  const queueBytes = engine?.getQueueBytes() ?? 0
+  const nearLimit = queueBytes / QUEUE_BYTE_LIMIT > 0.9
 
   return (
     <Card className="flex-1 flex flex-col min-h-0 py-2 md:py-4 gap-0">
@@ -174,6 +185,15 @@ export function FileQueue() {
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground">
             {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatDuration(totalDuration)}
+            {queue.length > 0 && (
+              <>
+                {" · "}
+                <span className={nearLimit ? "text-destructive" : undefined}>
+                  {formatBytes(queueBytes)}
+                </span>
+                {` / ${formatBytes(QUEUE_BYTE_LIMIT)}`}
+              </>
+            )}
             {queue.length > 1 && " · hold to reorder"}
           </span>
           <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>

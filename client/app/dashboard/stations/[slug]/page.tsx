@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { IconArrowLeft, IconExternalLink, IconArrowRight } from "@tabler/icons-react"
-import { apiFetch } from "@/lib/api-server"
+import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
@@ -10,30 +10,10 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { CopyButton } from "@/components/dashboard/CopyButton"
+import { StationArtwork } from "@/components/StationArtwork"
+import { formatDate, formatAirtime, formatDateRange } from "@/lib/format"
 import { StationActions } from "./StationActions"
 import { DeleteStation } from "./DeleteStation"
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-}
-
-function formatAirtime(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  if (minutes > 0) return `${minutes}m`
-  return "0m"
-}
-
-function formatSessionDuration(start: string, end: string): string {
-  const seconds = Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000)
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
-}
 
 export default async function StationDetailPage({
   params,
@@ -52,8 +32,16 @@ export default async function StationDetailPage({
     ])
     station = stationRes.data
     sessions = sessionsRes.data
-  } catch {
-    notFound()
+  } catch (err) {
+    // Only render the 404 page when the backend actually said the station
+    // is missing. Any other failure (timeout, 401 from a stale cookie, 5xx)
+    // is a real error and must not be silently masked as "not found" — log
+    // it and rethrow so Next.js surfaces it via the error boundary.
+    if (err instanceof ApiFetchError && err.status === 404) {
+      notFound()
+    }
+    console.error(`[station/${slug}] fetch failed:`, err)
+    throw err
   }
 
   const recentSessions = sessions.filter((s) => s.ended_at).slice(0, 3)
@@ -64,7 +52,7 @@ export default async function StationDetailPage({
       {/* Back */}
       <Link
         href="/dashboard/stations"
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
       >
         <IconArrowLeft size={14} />
         Back to stations
@@ -73,16 +61,16 @@ export default async function StationDetailPage({
       {/* Header */}
       <div className="mb-8">
         <div className="flex gap-4 items-start">
-          <div className="size-16 md:size-[72px] rounded-[14px] bg-gradient-to-br from-[#1a0533] to-[#2d1b69] flex items-center justify-center text-[26px] md:text-[30px] shrink-0 overflow-hidden">
-            {station.artwork_url ? (
-              <img src={station.artwork_url} alt={station.name} className="size-full object-cover" />
-            ) : (
-              "♫"
-            )}
-          </div>
+          <StationArtwork
+            src={station.artwork_url}
+            alt={station.name}
+            className="size-16 md:size-[72px] rounded-2xl shrink-0"
+            iconSize={24}
+            sizes="72px"
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-xl md:text-2xl font-medium truncate">{station.name}</h1>
+              <h1 className="text-2xl font-medium truncate">{station.name}</h1>
               {station.is_live && (
                 <Badge variant="secondary" className="text-emerald-400 gap-1 shrink-0">
                   <span className="size-1.5 bg-emerald-400 rounded-full" />
@@ -91,7 +79,7 @@ export default async function StationDetailPage({
               )}
             </div>
             {station.description && (
-              <p className="text-[13px] text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
+              <p className="text-sm text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
             )}
             <div className="flex flex-wrap gap-2 mt-2">
               {station.genre && (
@@ -135,28 +123,28 @@ export default async function StationDetailPage({
         <div className="grid grid-cols-3 gap-2 md:flex md:gap-3 shrink-0">
           <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
             <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-[11px] text-muted-foreground mb-0.5">Sessions</div>
-              <div className="text-2xl md:text-xl font-medium">{station.stats?.sessions ?? 0}</div>
+              <div className="text-xs text-muted-foreground mb-0.5">Sessions</div>
+              <div className="text-xl md:text-2xl font-medium">{station.stats?.sessions ?? 0}</div>
             </CardContent>
           </Card>
           <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
             <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-[11px] text-muted-foreground mb-0.5">Airtime</div>
-              <div className="text-2xl md:text-xl font-medium">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
+              <div className="text-xs text-muted-foreground mb-0.5">Airtime</div>
+              <div className="text-xl md:text-2xl font-medium">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
             </CardContent>
           </Card>
           <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
             <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-[11px] text-muted-foreground mb-0.5">Peak</div>
-              <div className="text-2xl md:text-xl font-medium">{station.stats?.peak_listeners ?? 0}</div>
+              <div className="text-xs text-muted-foreground mb-0.5">Peak</div>
+              <div className="text-xl md:text-2xl font-medium">{station.stats?.peak_listeners ?? 0}</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Share */}
+        {/* Share + Embed */}
         <Card className="flex-1">
           <CardHeader>
-            <CardTitle className="text-muted-foreground font-normal text-primary">
+            <CardTitle className="text-base font-medium">
               Share your station
             </CardTitle>
           </CardHeader>
@@ -175,19 +163,19 @@ export default async function StationDetailPage({
       {/* Recent broadcasts */}
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-muted-foreground font-normal text-primary">
-            Recent Broadcasts
+          <CardTitle className="text-base font-medium">
+            Recent broadcasts
           </CardTitle>
           <Link
             href="/dashboard/broadcasts"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground no-underline hover:text-foreground transition-colors"
           >
             View all
-            <IconArrowRight size={12} />
+            <IconArrowRight size={14} />
           </Link>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2 text-muted-foreground text-primary">
+          <div className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2 text-xs text-muted-foreground">
             <span>Date</span>
             <span>Duration</span>
             <span className="text-right">Peak</span>
@@ -205,7 +193,7 @@ export default async function StationDetailPage({
                 className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2.5 border-t border-border"
               >
                 <span className="text-muted-foreground">{formatDate(s.started_at)}</span>
-                <span className="text-muted-foreground">{formatSessionDuration(s.started_at, s.ended_at!)}</span>
+                <span className="text-muted-foreground">{formatDateRange(s.started_at, s.ended_at!)}</span>
                 <span className="text-right text-muted-foreground">{s.peak_listeners}</span>
               </div>
             ))

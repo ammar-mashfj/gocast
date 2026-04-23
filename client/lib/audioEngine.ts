@@ -14,6 +14,21 @@ const SAMPLE_RATE = 44100
 const MP3_BITRATE = 320
 const MIC_BOOST = 3
 
+/**
+ * Client-side cap on total queued audio bytes. The browser will already
+ * enforce its own IndexedDB quota, but that fails opaquely with
+ * QuotaExceededError. A friendly upfront limit lets us reject adds
+ * predictably and surface usage in the UI.
+ */
+export const QUEUE_BYTE_LIMIT = 2 * 1024 * 1024 * 1024
+
+export interface AddFilesResult {
+  added: number
+  skipped: File[]
+  /** True when at least one file was skipped because adding it would exceed the cap. */
+  overLimit: boolean
+}
+
 /** Read a file's duration from its container header without decoding PCM. Cheap. */
 function readDurationFromFile(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -223,6 +238,7 @@ export class AudioEngine {
   // ── Queue management ──
 
   getQueue(): QueueTrack[] { return this.queue }
+  getQueueBytes(): number { return this.queue.reduce((sum, t) => sum + t.file.size, 0) }
   getCurrentIndex(): number { return this.currentIndex }
   isPlaying(): boolean { return this.playing }
   getRepeatMode(): RepeatMode { return this.repeatMode }
@@ -257,7 +273,12 @@ export class AudioEngine {
     saveQueue(this.queue.map((t) => ({ id: t.id, file: t.file, title: t.title, artist: t.artist })))
   }
 
-  /** Reload the queue from IndexedDB and resume playback at the saved position. */
+  /**
+   * Reload queue metadata from IndexedDB. Does NOT resume playback — callers
+   * must invoke {@link resumePlayback} once the output sink (e.g. the relay
+   * WebSocket) is ready, otherwise the first seconds of audio are encoded
+   * before any sender is attached and are lost.
+   */
   async restoreQueue(): Promise<void> {
     const stored = await loadQueue()
     if (stored.length === 0) return
@@ -271,27 +292,46 @@ export class AudioEngine {
         duration,
       })
     }
-
-    // Restore playback position
-    const playback = await loadPlayback()
-    if (playback && playback.currentIndex >= 0 && playback.currentIndex < this.queue.length) {
-      const track = this.queue[playback.currentIndex]
-      const offset = Math.min(playback.offset, Math.max(0, track.duration - 0.5))
-      if (offset > 0) {
-        await this.playIndexAtOffset(playback.currentIndex, offset)
-      } else {
-        await this.playIndex(playback.currentIndex)
-      }
-    }
-
     this.notify()
   }
 
-  /** Append audio files to the queue. Reads duration metadata only — the actual
-   *  audio data is streamed from the File on demand at play time. */
-  async addFiles(files: FileList | File[]) {
+  /**
+   * Resume playback at the saved position, if any. Pairs with
+   * {@link restoreQueue}; call only after the output sink is live.
+   */
+  async resumePlayback(): Promise<void> {
+    const playback = await loadPlayback()
+    if (!playback) return
+    if (playback.currentIndex < 0 || playback.currentIndex >= this.queue.length) return
+    const track = this.queue[playback.currentIndex]
+    const offset = Math.min(playback.offset, Math.max(0, track.duration - 0.5))
+    if (offset > 0) {
+      await this.playIndexAtOffset(playback.currentIndex, offset)
+    } else {
+      await this.playIndex(playback.currentIndex)
+    }
+  }
+
+  /**
+   * Append audio files to the queue, stopping once the cumulative size would
+   * exceed {@link QUEUE_BYTE_LIMIT}. Reads duration metadata only — the
+   * actual audio data is streamed from the File on demand at play time.
+   *
+   * Returns the count of accepted files and any that were skipped because
+   * they would have pushed the queue over the cap; callers surface that to
+   * the user.
+   */
+  async addFiles(files: FileList | File[]): Promise<AddFilesResult> {
+    const skipped: File[] = []
+    let added = 0
+    let currentBytes = this.getQueueBytes()
+
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('audio/')) continue
+      if (currentBytes + file.size > QUEUE_BYTE_LIMIT) {
+        skipped.push(file)
+        continue
+      }
       const duration = await readDurationFromFile(file).catch(() => 0)
       this.queue.push({
         id: crypto.randomUUID(),
@@ -300,12 +340,17 @@ export class AudioEngine {
         artist: 'Unknown',
         duration,
       })
+      currentBytes += file.size
+      added++
     }
-    this.persistQueue()
-    this.notify()
-    if (!this.playing && this.queue.length > 0 && this.currentIndex === -1) {
-      await this.playIndex(0)
+    if (added > 0) {
+      this.persistQueue()
+      this.notify()
+      if (!this.playing && this.queue.length > 0 && this.currentIndex === -1) {
+        await this.playIndex(0)
+      }
     }
+    return { added, skipped, overLimit: skipped.length > 0 }
   }
 
   removeTrack(id: string) {

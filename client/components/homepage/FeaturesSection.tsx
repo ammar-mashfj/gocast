@@ -144,13 +144,13 @@ export default function FeaturesSection() {
   return (
     <section className="px-4 md:px-10 py-12 md:py-24">
       <div className="text-center mb-10 md:mb-16">
-        <div className="text-[11px] tracking-[3px] uppercase text-violet-muted mb-4">
+        <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
           Built for broadcasters
         </div>
-        <h2 className="text-2xl md:text-[32px] lg:text-[40px] font-semibold -tracking-wide leading-[1.15] mb-4">
+        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
           A studio in your browser.
         </h2>
-        <p className="text-sm md:text-base text-text-muted/85 max-w-[480px] leading-[1.7] mx-auto">
+        <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
           Professional broadcasting tools that run entirely in your browser. No downloads, no complexity.
         </p>
       </div>
@@ -167,14 +167,14 @@ export default function FeaturesSection() {
                 <div className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-colors ${a.iconBg} ${a.iconBorder} ${a.iconText} ${a.hoverBorder}`}>
                   {feature.icon}
                 </div>
-                <span className={`text-[10px] tracking-[1.5px] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
+                <span className={`text-[10px] tracking-[2px] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
                   {feature.tag}
                 </span>
               </div>
               <div className="text-[17px] font-medium text-text-secondary mb-1.5">
                 {feature.title}
               </div>
-              <div className="text-sm text-text-muted/85 leading-[1.6]">
+              <div className="text-sm text-text-muted leading-relaxed">
                 {feature.description}
               </div>
             </div>

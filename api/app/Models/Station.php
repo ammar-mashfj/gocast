@@ -105,6 +105,11 @@ class Station extends Model
         return $this->hasMany(StreamSession::class);
     }
 
+    public function notifySubscriptions(): HasMany
+    {
+        return $this->hasMany(StationNotifySubscription::class);
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()

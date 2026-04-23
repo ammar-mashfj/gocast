@@ -13,12 +13,20 @@ export function useAudioLevels(stream: MediaStream | null): AudioLevels {
   const [levels, setLevels] = useState<AudioLevels>({ left: 0, right: 0 })
   const ctxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef<number>(0)
+  const hadStreamRef = useRef(false)
 
   useEffect(() => {
     if (!stream || stream.getAudioTracks().length === 0) {
-      setLevels({ left: 0, right: 0 })
+      // Only reset if we previously had a live stream — avoids the
+      // cascading-render warning when the hook initializes with no stream.
+      if (hadStreamRef.current) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setLevels({ left: 0, right: 0 })
+        hadStreamRef.current = false
+      }
       return
     }
+    hadStreamRef.current = true
 
     const ctx = new AudioContext()
     ctxRef.current = ctx

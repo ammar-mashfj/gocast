@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,8 +18,10 @@ import axios from "@/lib/axios"
 import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
-import { saveAuth } from "@/actions/auth"
-import { env } from "@/lib/env"
+import { saveAuth, getUser } from "@/actions/auth"
+import { signInWithGoogle } from "@/lib/google-auth"
+import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
+import { TrustCues } from "@/components/common/TrustCues"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -29,6 +31,27 @@ export default function RegisterPage() {
   const [passwordConfirmation, setPasswordConfirmation] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [verifyEmail, setVerifyEmail] = useState("")
+  const [googleLoading, setGoogleLoading] = useState(false)
+
+  // If the visitor already has a session cookie, don't let them register on
+  // top of it. Verified → send them to the dashboard; unverified → surface
+  // the verify modal on their existing account instead of creating a second.
+  useEffect(() => {
+    const existingUser = getUser()
+    if (!existingUser) return
+
+    if (existingUser.email_verified_at) {
+      router.replace("/dashboard/stations")
+      return
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVerifyEmail(existingUser.email)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVerifyOpen(true)
+  }, [router])
 
   function validate() {
     const newErrors: Record<string, string> = {}
@@ -40,6 +63,31 @@ export default function RegisterPage() {
     if (password !== passwordConfirmation)
       newErrors.passwordConfirmation = "Passwords do not match."
     return newErrors
+  }
+
+  async function handleGoogle() {
+    setGoogleLoading(true)
+    try {
+      const result = await signInWithGoogle()
+
+      if ("dismissed" in result) return
+
+      if ("error" in result) {
+        toast.error(result.error === "popup_blocked"
+          ? "Popup blocked. Enable popups and try again."
+          : "Google sign-up failed. Please try again.")
+        return
+      }
+
+      const userRes = await axios.get("/user")
+      saveAuth(null, userRes.data.data)
+      toast.success("Welcome to GoCast")
+      router.push("/dashboard/stations")
+    } catch {
+      toast.error("Something went wrong. Please try again.")
+    } finally {
+      setGoogleLoading(false)
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -57,9 +105,10 @@ export default function RegisterPage() {
         password_confirmation: passwordConfirmation,
       })
       if (response.status === 200 || response.status === 201) {
-        saveAuth(response.data.token, response.data.data)
-        toast.success("Account created successfully")
-        router.push("/")
+        saveAuth(null, response.data.data)
+        toast.success("Check your inbox for a 6-digit code")
+        setVerifyEmail(response.data.data.email)
+        setVerifyOpen(true)
       }
     } catch (error) {
       if (error instanceof AxiosError) {
@@ -79,7 +128,7 @@ export default function RegisterPage() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle className="text-lg">Create an account</CardTitle>
+        <CardTitle className="text-lg">Sign up</CardTitle>
         <CardDescription className="text-sm">
           Get started with your free GoCast account.
         </CardDescription>
@@ -160,9 +209,9 @@ export default function RegisterPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="mt-1 h-9 w-full text-sm"
+            className="mt-1 w-full"
           >
-            {loading ? "Creating account..." : "Create account"}
+            {loading ? "Signing up…" : "Sign up"}
           </Button>
         </form>
 
@@ -173,19 +222,21 @@ export default function RegisterPage() {
         </div>
 
         <Button
+          type="button"
           variant="outline"
-          className="w-full gap-2 cursor-pointer text-sm h-9"
-          asChild
+          className="w-full"
+          onClick={handleGoogle}
+          disabled={googleLoading}
         >
-          <a href={`${env.apiUrl}/auth/google`}>
-            <IconBrandGoogleFilled />
-            Continue with Google
-          </a>
+          <IconBrandGoogleFilled />
+          {googleLoading ? "Signing up…" : "Continue with Google"}
         </Button>
+
+        <TrustCues variant="stacked" className="mt-5" />
       </CardContent>
 
       <CardFooter className="flex-col gap-3">
-        <p className="text-[11px] text-muted-foreground/50 text-center leading-relaxed">
+        <p className="text-xs text-muted-foreground text-center leading-relaxed">
           By creating an account, you agree to our{" "}
           <Link href="/terms" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Terms of Service
@@ -205,6 +256,12 @@ export default function RegisterPage() {
           </Link>
         </p>
       </CardFooter>
+
+      <VerifyEmailDialog
+        open={verifyOpen}
+        email={verifyEmail}
+        onCancel={() => setVerifyOpen(false)}
+      />
     </Card>
   )
 }

@@ -11,10 +11,13 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import api from "@/lib/axios"
 import { shareOrCopy } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
+import { fireOnce, LISTENER_MILESTONES } from "@/lib/milestones"
+import { formatClock } from "@/lib/format"
 
 const SHORTCUTS = [
   { action: "Push to talk", key: "Space", micOnly: true },
@@ -23,13 +26,6 @@ const SHORTCUTS = [
   { action: "Previous track", key: "P" },
   { action: "Cycle repeat (off/all/one)", key: "R" },
 ]
-
-function formatDuration(seconds: number): string {
-  const h = String(Math.floor(seconds / 3600)).padStart(2, "0")
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")
-  const s = String(seconds % 60).padStart(2, "0")
-  return `${h}:${m}:${s}`
-}
 
 interface StreamPanelProps {
   stationId: string
@@ -40,8 +36,9 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
   const { state, stop, engine, micDisabled } = useBroadcast()
   const [elapsed, setElapsed] = useState(0)
   const [station, setStation] = useState<Station | null>(null)
-  const [copied, setCopied] = useState(false)
-  const startTimeRef = useRef(Date.now())
+  const [listeners, setListeners] = useState<number | null>(null)
+  const peakRef = useRef(0)
+  const startTimeRef = useRef<number>(0)
 
   useEffect(() => {
     api.get(`/stations/${stationId}`).then((res) => setStation(res.data.data))
@@ -52,8 +49,6 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
   async function handleShare() {
     if (!playerUrl) return
     await shareOrCopy(playerUrl, station?.name)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   useEffect(() => {
@@ -64,6 +59,44 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
     }, 1000)
     return () => clearInterval(timer)
   }, [state])
+
+  // Live listener-count poll + milestone toasts. Only runs while broadcasting.
+  useEffect(() => {
+    if (state !== "live" || !station?.slug) return
+    let cancelled = false
+    async function poll() {
+      try {
+        const res = await fetch(`${env.apiUrl}/public/stations/${station!.slug}/listeners`, {
+          headers: { Accept: "application/json" },
+        })
+        if (cancelled) return
+        const data = await res.json()
+        const count: number = data?.data?.count ?? 0
+        setListeners(count)
+        // Fire crossings — once per session per threshold to avoid spam if
+        // the count jitters around a boundary.
+        for (const m of LISTENER_MILESTONES) {
+          if (count >= m && peakRef.current < m) {
+            const sessionKey = `live:${station!.slug}:${startTimeRef.current}:${m}`
+            fireOnce(sessionKey, () => {
+              if (m === 1) toast.success("🎉 First listener tuned in!")
+              else toast.success(`🔥 ${m} listening — your biggest crowd this session`)
+            })
+          }
+        }
+        if (count > peakRef.current) peakRef.current = count
+      } catch {
+        // listener poll failed — non-critical, retry on next interval
+      }
+    }
+    poll()
+    const timer = setInterval(poll, 8000)
+    return () => { cancelled = true; clearInterval(timer) }
+    // The poll function only reads station.slug from `station`, so depending on
+    // station?.slug is sufficient — re-running on every station object identity
+    // change would reset the peakRef midstream.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, station?.slug])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -104,27 +137,38 @@ export function StreamPanel({ stationId }: StreamPanelProps) {
           </div>
           <div className="flex justify-between py-2 border-b">
             <span className="text-sm text-muted-foreground">Duration</span>
-            <span className="text-sm tabular-nums">{formatDuration(elapsed)}</span>
+            <span className="text-sm tabular-nums">{formatClock(elapsed)}</span>
           </div>
           <div className="flex justify-between py-2 border-b">
             <span className="text-sm text-muted-foreground">Queue</span>
             <span className="text-sm">{queueLen} track{queueLen !== 1 ? "s" : ""}</span>
           </div>
+          <div className="flex justify-between py-2 border-b">
+            <span className="text-sm text-muted-foreground">Listening now</span>
+            <span className="text-sm tabular-nums">
+              {listeners === null ? "—" : listeners.toLocaleString()}
+            </span>
+          </div>
         </div>
       </div>
 
-      {playerUrl && (
-        <div>
-          <div className="text-xs tracking-widest uppercase text-muted-foreground mb-2">Player URL</div>
+      <div>
+        <div className="text-xs tracking-widest uppercase text-muted-foreground mb-2">Player URL</div>
+        {playerUrl ? (
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground truncate">{playerUrl}</span>
             <Button variant="ghost" size="sm" onClick={handleShare}>
               <IconShare data-icon="inline-start" />
-              {copied ? "Done!" : "Share"}
+              Share
             </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 flex-1 mr-2" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+          </div>
+        )}
+      </div>
 
       <Separator />
 

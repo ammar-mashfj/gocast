@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useId } from "react"
 import Link from "next/link"
 import {
   IconBrandX,
@@ -10,14 +10,22 @@ import {
   IconVolume,
   IconVolume2,
   IconVolumeOff,
-  IconCheck,
   IconLoader2,
   IconMusic,
+  IconBroadcast,
+  IconHeart,
+  IconHeartFilled,
+  IconChevronDown,
 } from "@tabler/icons-react"
+import Image from "next/image"
 import IcecastMetadataPlayer, { type IcyMetadata } from "icecast-metadata-player"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
+import { useDocumentTitle } from "@/hooks/useDocumentTitle"
+import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
+import { RelatedStations } from "./RelatedStations"
+import { NotifyMeForm } from "./NotifyMeForm"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -25,6 +33,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import styles from "./player.module.css"
 
 const METADATA_PLACEHOLDERS = new Set(["", "unknown", "n/a", "-", "none", "null", "untitled"])
+
+/** Max prior tracks kept in memory and shown under "Just played". */
+const MAX_RECENT_TRACKS = 5
 
 function cleanMetadata(value: string | null | undefined): string | null {
   if (!value) return null
@@ -35,15 +46,22 @@ function cleanMetadata(value: string | null | undefined): string | null {
 
 function Vinyl({ playing, artworkUrl }: { playing: boolean; artworkUrl?: string | null }) {
   return (
-    <div className={`relative w-full max-w-[160px] md:max-w-[320px] aspect-square ${styles.vinylFloat}`}>
+    <div className={`relative w-full max-w-[160px] sm:max-w-[220px] md:max-w-[320px] aspect-square ${styles.vinylFloat}`}>
       <div className={`size-full rounded-full bg-[conic-gradient(from_0deg,#1a1a2e,#16162a,#1a1a2e,#0f0f1f,#1a1a2e,#16162a,#1a1a2e)] flex items-center justify-center relative border border-white/5 ${playing ? styles.vinylSpin : ""}`}>
         <div className="absolute w-[87.5%] h-[87.5%] rounded-full border border-white/[0.04]" />
         <div className="absolute w-[75%] h-[75%] rounded-full border border-white/[0.03]" />
         <div className="w-[50%] h-[50%] rounded-full bg-gradient-to-br from-[#1a0533] via-[#2d1b69] to-[#1a0533] flex items-center justify-center border-2 border-white/10 relative overflow-hidden">
           {artworkUrl ? (
-            <img src={artworkUrl} alt="Station artwork" className="absolute inset-0 size-full object-cover" />
+            <Image
+              src={artworkUrl}
+              alt="Station artwork"
+              fill
+              sizes="(max-width: 640px) 80px, (max-width: 768px) 110px, 160px"
+              priority
+              className="object-cover"
+            />
           ) : (
-            <IconMusic size={36} className="text-red-400/70 md:size-12" strokeWidth={1.5} />
+            <IconMusic className="size-9 md:size-12 text-violet-300/70" strokeWidth={1.5} />
           )}
         </div>
       </div>
@@ -61,14 +79,26 @@ function MiniEq() {
   )
 }
 
-function ShareButtons({ slug }: { slug: string }) {
-  const url = `${env.appUrl}/station/${slug}`
-  const [copied, setCopied] = useState(false)
+function ShareButtons({ station }: { station: Station }) {
+  const url = `${env.appUrl}/station/${station.slug}`
+  const [saved, setSaved] = useState(false)
 
-  async function handleShare() {
-    await shareOrCopy(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  // Sync the heart with the live library state (also reflects cross-tab changes).
+  useEffect(() => {
+    // Initial hydration from localStorage — needs to happen post-mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSaved(isSaved(station.slug))
+    return subscribeLibrary(() => setSaved(isSaved(station.slug)))
+  }, [station.slug])
+
+  function handleToggleSave() {
+    const nowSaved = toggleSaved({
+      slug: station.slug,
+      name: station.name,
+      artworkUrl: station.artwork_url,
+      genre: station.genre,
+    })
+    setSaved(nowSaved)
   }
 
   return (
@@ -80,7 +110,24 @@ function ShareButtons({ slug }: { slug: string }) {
               variant="ghost"
               size="icon-sm"
               className="rounded-full"
-              onClick={() => window.open(`https://x.com/intent/tweet?text=Listening+to+${encodeURIComponent(url)}`, "_blank")}
+              aria-label={saved ? "Remove from saved" : "Save station"}
+              onClick={handleToggleSave}
+            >
+              {saved
+                ? <IconHeartFilled size={16} className="text-rose-400" />
+                : <IconHeart size={16} />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{saved ? "Saved" : "Save station"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-full"
+              aria-label="Share on X"
+              onClick={() => window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(`Listening to ${station.name} on GoCast`)}&url=${encodeURIComponent(url)}`, "_blank", "noopener,noreferrer")}
             >
               <IconBrandX size={18} />
             </Button>
@@ -89,11 +136,17 @@ function ShareButtons({ slug }: { slug: string }) {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={handleShare}>
-              {copied ? <IconCheck size={14} className="text-emerald-400" /> : <IconLink size={14} />}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-full"
+              aria-label="Copy share link"
+              onClick={() => { void shareOrCopy(url, station.name) }}
+            >
+              <IconLink size={14} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{copied ? "Copied!" : "Copy link"}</TooltipContent>
+          <TooltipContent>Copy link</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>
@@ -136,7 +189,12 @@ function VolumeControl({ playerRef }: { playerRef: React.RefObject<IcecastMetada
 
   return (
     <div className="flex items-center gap-2 w-28">
-      <button onClick={toggleMute} className="text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer">
+      <button
+        type="button"
+        onClick={toggleMute}
+        aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+        className="text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer"
+      >
         <VolumeIcon size={18} />
       </button>
       <Slider
@@ -145,6 +203,7 @@ function VolumeControl({ playerRef }: { playerRef: React.RefObject<IcecastMetada
         step={1}
         onValueChange={handleVolumeChange}
         className="flex-1"
+        aria-label="Volume"
       />
     </div>
   )
@@ -164,14 +223,21 @@ function WaveDecoration() {
 
 interface PlayerViewProps {
   station: Station
+  isOwner?: boolean
 }
 
-export function PlayerView({ station: initialStation }: PlayerViewProps) {
+export function PlayerView({ station: initialStation, isOwner = false }: PlayerViewProps) {
   const [station, setStation] = useState(initialStation)
   const [playing, setPlaying] = useState(false)
   const [loading, setLoading] = useState(false)
   const [listeners, setListeners] = useState(0)
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
+  const [recentTracks, setRecentTracks] = useState<{ title: string; artist: string | null; at: number }[]>([])
+  const [justPlayedOpen, setJustPlayedOpen] = useState(false)
+  const justPlayedPanelId = useId()
+  // Track the previous now-playing via ref so we can shift it into recents
+  // without nesting setState calls inside an updater (React Compiler hates that).
+  const prevNowPlayingRef = useRef<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const playerRef = useRef<IcecastMetadataPlayer | null>(null)
 
   // Poll listener count + live status
@@ -203,6 +269,14 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
     }
 
     setLoading(true)
+    // Record this listen as soon as the user opts in to playing — anchors the
+    // station in their personal history for the homepage "pick up where you left off" row.
+    recordListen({
+      slug: station.slug,
+      name: station.name,
+      artworkUrl: station.artwork_url,
+      genre: station.genre,
+    })
     const player = new IcecastMetadataPlayer(`${env.icecastUrl}${station.icecast_mount}`, {
       metadataTypes: ["icy"],
       onPlay: () => {
@@ -220,19 +294,26 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
       onMetadata: (metadata: IcyMetadata) => {
         const raw = (metadata.StreamTitle ?? "").trim()
         const dash = raw.indexOf(" - ")
-        if (dash >= 0) {
-          setNowPlaying({
-            artist: cleanMetadata(raw.slice(0, dash)),
-            title: cleanMetadata(raw.slice(dash + 3)),
+        const next = dash >= 0
+          ? { artist: cleanMetadata(raw.slice(0, dash)), title: cleanMetadata(raw.slice(dash + 3)) }
+          : { title: cleanMetadata(raw), artist: null }
+
+        // Shift the previous track into the recents list ("what was that song?").
+        // De-dupe consecutive duplicates, cap list length.
+        const prev = prevNowPlayingRef.current
+        if (prev.title && (prev.title !== next.title || prev.artist !== next.artist)) {
+          setRecentTracks((rec) => {
+            if (rec[0]?.title === prev.title && rec[0]?.artist === prev.artist) return rec
+            return [{ title: prev.title!, artist: prev.artist, at: Date.now() }, ...rec].slice(0, MAX_RECENT_TRACKS)
           })
-        } else {
-          setNowPlaying({ title: cleanMetadata(raw), artist: null })
         }
+        prevNowPlayingRef.current = next
+        setNowPlaying(next)
       },
     })
     playerRef.current = player
     player.play()
-  }, [station.icecast_mount, playing, loading])
+  }, [station.icecast_mount, station.slug, station.name, station.artwork_url, station.genre, playing, loading])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -240,6 +321,14 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
       playerRef.current?.stop()
     }
   }, [])
+
+  // Tab title: while playing, show ▶ + track + station so users with multiple
+  // tabs can find the right one at a glance.
+  useDocumentTitle(
+    playing
+      ? `▶ ${nowPlaying.title ?? "Live"}${nowPlaying.artist ? ` · ${nowPlaying.artist}` : ""} · ${station.name} | GoCast`
+      : null,
+  )
 
   // OS Media Session — drives the lock screen card, notification, and Bluetooth/headset remotes.
   useEffect(() => {
@@ -276,9 +365,21 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
       <div className="absolute -top-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_70%)] pointer-events-none" />
       <div className="absolute -bottom-[10%] -left-[10%] w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(236,72,153,0.1)_0%,transparent_70%)] pointer-events-none" />
       <div className="hidden md:block absolute top-0 left-1/2 w-px h-full bg-gradient-to-b from-transparent via-primary/15 to-transparent z-[1]" />
-      <div className="hidden md:block absolute top-6 right-6 text-[11px] tracking-[4px] uppercase text-muted-foreground z-[3]" style={{ writingMode: "vertical-rl" }}>
+      <div className="hidden md:block absolute top-6 right-6 text-xs tracking-[3px] uppercase text-muted-foreground z-[3]" style={{ writingMode: "vertical-rl" }}>
         internet radio
       </div>
+
+      {/* Owner-only chip — quick path back to the studio for station owners
+          previewing their own player page. */}
+      {isOwner && (
+        <Link
+          href={`/dashboard/stations/${station.slug}`}
+          className="absolute top-4 left-4 z-[4] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-200 text-xs no-underline backdrop-blur-sm hover:bg-violet-500/25 hover:border-violet-500/50 transition-colors"
+        >
+          <IconBroadcast size={14} />
+          You own this — Open studio
+        </Link>
+      )}
 
       {/* Mobile: vinyl + content centered together as one unit; desktop: two grid columns */}
       <div className="flex flex-1 flex-col items-center justify-center min-h-0 md:contents">
@@ -297,18 +398,18 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
           </div>
         )}
 
-        <h1 className="text-3xl md:text-5xl font-medium -tracking-wide leading-[1.1] mb-3 text-center md:text-left">
+        <h1 className="text-3xl md:text-5xl font-medium -tracking-wide leading-tight mb-3 text-center md:text-left">
           {station.name}
         </h1>
 
         {station.description && (
-          <p className="text-[15px] text-muted-foreground leading-relaxed mb-6 max-w-[340px] text-center md:text-left">
+          <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-[340px] text-center md:text-left">
             {station.description}
           </p>
         )}
 
-        {/* Now Playing — reserved slot so layout doesn't shift when metadata arrives */}
-        {station.is_live && (
+        {/* Now Playing — show whenever station is live OR audio is playing/loading */}
+        {(station.is_live || playing || loading) && (
           <div className="flex items-center gap-3 mb-8 px-4 py-3 bg-white/[0.04] rounded-xl border border-white/[0.06] w-full md:w-auto md:min-w-[260px] max-w-sm overflow-hidden">
             <div
               key={`${nowPlaying.title ?? ""}|${nowPlaying.artist ?? ""}`}
@@ -316,16 +417,57 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
             >
                <MiniEq />
               <div className="flex flex-col gap-0.5 min-w-0">
-                <div className="text-[11px] tracking-[1.5px] uppercase text-muted-foreground">Now playing</div>
+                <div className="text-xs tracking-[2px] uppercase text-muted-foreground">Now playing</div>
                 {nowPlaying.title ? (
                   <>
-                    <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`}>{nowPlaying.title}</div>
+                    <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`} title={nowPlaying.artist ? `${nowPlaying.title} — ${nowPlaying.artist}` : nowPlaying.title}>
+                      {nowPlaying.title}
+                    </div>
+                    {nowPlaying.artist && (
+                      <div className="text-xs text-muted-foreground truncate">{nowPlaying.artist}</div>
+                    )}
                   </>
                 ) : (
-                  <>
-                    <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`}>Start playing to see what's on air</div>
-                  </>
+                  <div className={`text-sm font-medium truncate ${styles.trackSlideIn}`}>
+                    {playing ? "Live audio" : "Press play to tune in"}
+                  </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Recently played — button disclosure so open *and* close can animate (unlike native <details>). */}
+        {recentTracks.length > 0 && (
+          <div
+            className={`${styles.recentsRoot} mb-6 w-full max-w-sm md:w-auto md:min-w-[260px]`}
+            data-open={justPlayedOpen ? "true" : "false"}
+          >
+            <button
+              type="button"
+              id={`${justPlayedPanelId}-trigger`}
+              className="inline-flex w-full max-w-full cursor-pointer select-none items-center gap-1.5 border-0 bg-transparent p-0 text-left font-[inherit] text-xs tracking-[2px] uppercase text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={justPlayedOpen}
+              aria-controls={justPlayedPanelId}
+              onClick={() => setJustPlayedOpen((o) => !o)}
+            >
+              Just played
+              <span className={styles.recentsChevron} aria-hidden>
+                <IconChevronDown size={16} stroke={1.75} />
+              </span>
+              <span className="text-text-faint normal-case tracking-normal">· {recentTracks.length}</span>
+            </button>
+            <div className={styles.recentsPanel} id={justPlayedPanelId} role="region" aria-labelledby={`${justPlayedPanelId}-trigger`}>
+              <div className={styles.recentsPanelInner} inert={!justPlayedOpen}>
+                <ol className="mt-2 flex flex-col gap-1.5 pl-0 list-none">
+                  {recentTracks.slice(0, MAX_RECENT_TRACKS).map((t, i) => (
+                    <li key={`${t.at}-${i}`} className="text-xs text-muted-foreground truncate" title={t.artist ? `${t.title} — ${t.artist}` : t.title}>
+                      <span className="text-text-faint mr-1.5">{i + 1}.</span>
+                      <span className="text-foreground/85">{t.title}</span>
+                      {t.artist && <span className="text-muted-foreground"> — {t.artist}</span>}
+                    </li>
+                  ))}
+                </ol>
               </div>
             </div>
           </div>
@@ -339,6 +481,7 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
                 size="icon"
                 className={`size-14 md:size-16 rounded-full shadow-lg shadow-primary/20 ${!playing && !loading ? styles.playPulse : ""}`}
                 onClick={togglePlay}
+                aria-label={playing ? "Pause" : loading ? "Connecting" : "Play"}
                 disabled={false}
               >
                 {loading ? (
@@ -361,20 +504,29 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
               </div>
             </>
           ) : (
-            <Badge variant="secondary" className="text-sm px-4 py-2">Station is offline</Badge>
+            <div className="flex flex-col gap-1.5">
+              <Badge variant="secondary" className="text-sm px-4 py-2 self-start">
+                <span className="size-1.5 bg-muted-foreground/60 rounded-full mr-2" />
+                Off air
+              </Badge>
+              
+              <NotifyMeForm slug={station.slug} stationName={station.name} />
+            </div>
           )}
         </div>
 
         {/* Listeners + Share */}
-        <div className="flex items-center gap-4">
-          {station.is_live && (
-            <div className="flex items-center gap-2 text-[15px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-4">
+          {(station.is_live || playing) && (
+            <div className="flex items-center gap-2 text-base text-muted-foreground">
               <div className="size-1.5 bg-emerald-400 rounded-full" />
               {listeners.toLocaleString()} listening
             </div>
           )}
-          <ShareButtons slug={station.slug} />
+          <ShareButtons station={station} />
         </div>
+
+        {/* <RelatedStations excludeSlug={station.slug} /> */}
       </div>
 
       </div>
@@ -383,11 +535,11 @@ export function PlayerView({ station: initialStation }: PlayerViewProps) {
 
       {/* Footer */}
       <div className="mt-auto md:mt-0 md:absolute bottom-0 left-0 right-0 px-6 md:px-12 py-3.5 md:py-3 flex flex-col md:flex-row justify-center items-center gap-2 z-[3] border-t border-white/5 shrink-0 bg-background/40 backdrop-blur-sm">
-        <div className="text-[14px] text-muted-foreground">
+        <div className="text-sm text-muted-foreground">
           Powered by{" "}
-          <Link href="/" className="text-primary no-underline hover:underline font-medium" target="_blank">GoCast</Link>
+          <Link href="/" className="text-primary no-underline hover:underline font-medium">GoCast</Link>
           {" — "}
-          <Link href="/auth/register" className="text-primary no-underline hover:underline font-medium" target="_blank">Start your own station</Link>
+          <Link href="/auth/register" className="text-primary no-underline hover:underline font-medium">Start your own station</Link>
         </div>
       </div>
     </div>

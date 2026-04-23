@@ -29,13 +29,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { toast } from "sonner"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { useAudioLevels } from "@/lib/useAudioLevels"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import type { QueueTrack } from "@/lib/audioEngine"
+import { QUEUE_BYTE_LIMIT, type QueueTrack } from "@/lib/audioEngine"
+import { formatBytes } from "@/lib/format"
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -48,7 +49,7 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
   const barRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const elapsedRef = useRef<HTMLSpanElement>(null)
-  const [dragging, setDragging] = useState(false)
+  const [dragging] = useState(false)
 
   useEffect(() => {
     let raf = 0
@@ -78,13 +79,13 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
 
   return (
     <div className="flex items-center gap-2 w-full">
-      <span ref={elapsedRef} className="text-[11px] text-muted-foreground tabular-nums w-8 text-right shrink-0">0:00</span>
+      <span ref={elapsedRef} className="text-xs text-muted-foreground tabular-nums w-8 text-right shrink-0">0:00</span>
       <div ref={trackRef} className="flex-1 h-5 flex items-center cursor-pointer group" onClick={handleSeek}>
         <div className="w-full h-1 bg-muted rounded-full overflow-hidden group-hover:h-1.5 transition-all">
           <div ref={barRef} className="h-full rounded-full bg-primary" style={{ width: "0%" }} />
         </div>
       </div>
-      <span className="text-[11px] text-muted-foreground tabular-nums w-8 shrink-0">{formatTime(duration)}</span>
+      <span className="text-xs text-muted-foreground tabular-nums w-8 shrink-0">{formatTime(duration)}</span>
     </div>
   )
 }
@@ -134,9 +135,8 @@ function SortableMobileRow({ track, isPlaying, onRemove }: SortableMobileRowProp
 }
 
 export function MobileStudio() {
-  const { engine, state, micStream, micDisabled } = useBroadcast()
+  const { engine, state, micDisabled } = useBroadcast()
   const version = useEngineVersion(engine)
-  const micLevels = useAudioLevels(micStream)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [holding, setHolding] = useState(false)
   // `version` is the real dependency — engine mutates its queue array in place,
@@ -166,7 +166,6 @@ export function MobileStudio() {
   const repeatMode = engine?.getRepeatMode() ?? 'off'
   const hasQueue = (engine?.getQueue().length ?? 0) > 0
   const hasTrack = !!track
-  const micLevel = holding ? Math.max(micLevels.left, micLevels.right) : 0
 
   // Audio level meter
   const barRef = useRef<HTMLDivElement>(null)
@@ -211,10 +210,19 @@ export function MobileStudio() {
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     if (!engine) return
-    await engine.addFiles(files)
+    const { skipped, overLimit } = await engine.addFiles(files)
+    if (overLimit) {
+      const n = skipped.length
+      toast.warning(
+        `Queue is full — ${n} file${n === 1 ? "" : "s"} skipped`,
+        { description: `Cap is ${formatBytes(QUEUE_BYTE_LIMIT)}. Remove tracks to free up space.` },
+      )
+    }
   }, [engine])
 
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
+  const queueBytes = engine?.getQueueBytes() ?? 0
+  const nearLimit = queueBytes / QUEUE_BYTE_LIMIT > 0.9
 
   return (
     <div className="flex flex-col gap-2 p-3 min-h-0 flex-1 lg:hidden">
@@ -324,18 +332,27 @@ export function MobileStudio() {
 
         {/* Queue header */}
         <div className="flex items-center justify-between px-3 py-1.5 border-t mt-1">
-          <span className="text-[11px] tracking-widest uppercase text-muted-foreground">
+          <span className="text-xs tracking-widest uppercase text-muted-foreground">
             Queue · {queue.length} · {formatTime(totalDuration)}
+            {queue.length > 0 && (
+              <span className="normal-case tracking-normal">
+                {" · "}
+                <span className={nearLimit ? "text-destructive" : undefined}>
+                  {formatBytes(queueBytes)}
+                </span>
+                {` / ${formatBytes(QUEUE_BYTE_LIMIT)}`}
+              </span>
+            )}
             {queue.length > 1 && <span className="normal-case tracking-normal"> · hold to reorder</span>}
           </span>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5" onClick={() => fileInputRef.current?.click()}>
-              <IconPlus size={12} />
+            <Button variant="ghost" size="sm" className="h-6 text-xs px-1.5" onClick={() => fileInputRef.current?.click()}>
+              <IconPlus size={14} />
               Add
             </Button>
             {queue.length > 0 && (
-              <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5" onClick={() => engine?.clearQueue()}>
-                <IconMinus size={12} />
+              <Button variant="ghost" size="sm" className="h-6 text-xs px-1.5" onClick={() => engine?.clearQueue()}>
+                <IconMinus size={14} />
                 Clear
               </Button>
             )}
@@ -363,7 +380,7 @@ export function MobileStudio() {
             className="w-full text-xs"
             onClick={() => fileInputRef.current?.click()}
           >
-            <IconPlus size={12} />
+            <IconPlus size={14} />
             Add More Files
           </Button>
         </div>
