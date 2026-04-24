@@ -1,0 +1,24 @@
+# Root-level environment overrides — docker compose auto-loads this on
+# `up`. Never commit, it contains prod secrets (MySQL password, Icecast
+# passwords, Grafana Cloud API keys, Sentry auth token, hostnames).
+.env
+.env.*
+!.env.docker.example
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local logs, caches
+*.log
+.cache/
+
+# Ad-hoc tarballs, backups
+*.tar.gz
+*.zip
+*.sql
+*.dump

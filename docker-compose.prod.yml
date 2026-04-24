@@ -1,0 +1,112 @@
+# Production override. Apply on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Aliases worth adding to your shell rc:
+#   alias dcp='docker compose -f docker-compose.yml -f docker-compose.prod.yml'
+#   dcp build && dcp up -d
+#
+# Compose merge gotcha — READ THIS ONCE:
+#   Docker Compose CONCATENATES list values (ports, volumes, env lists)
+#   across multiple `-f` files by default. `volumes: []` here would be a
+#   no-op merge against the base file's non-empty list, not a reset. To
+#   actually replace a list, use the `!override` YAML tag (Compose 2.20+).
+#   Every list override in this file uses `!override` deliberately.
+#
+# What changes vs. the base dev compose:
+#
+#   • MySQL + Redis ports are actually removed (not just cosmetically cleared).
+#   • API / bootstrap / queue / relay / client bind mounts are actually gone.
+#     Runtime uses what the image was built with.
+#   • No `api_vendor` volume — the prod image ships vendor/ baked in and we
+#     don't want a stale named volume shadowing it across rebuilds.
+#   • client runs the prod-built standalone server with NEXT_PUBLIC_*
+#     values inlined at build time via build args (runtime env is a no-op
+#     for those vars).
+#   • api runs the `prod` Dockerfile target — no dev deps, OPcache enabled.
+#   • Caddy swaps to Caddyfile.cloudflare and reads the CF Origin Certificate
+#     from infra/certs/ — see that directory's README.
+#
+# External TLS termination (NOT provided by this compose):
+#   • relay.gocast.fm   — WebSocket traffic needs TLS (wss://). Options:
+#       a) Cloudflare proxied DNS record pointing at the server, origin
+#          port 8080. CF terminates WSS at the edge. Works on the free plan.
+#       b) cloudflared tunnel — no open ports, outbound-only from the VPS.
+#       c) A reverse proxy you run yourself (Caddy or nginx) with a cert.
+#   • icecast.gocast.fm — same story. CF's edge can terminate HTTPS for a
+#     plain-HTTP origin on port 8888 via Origin Rules.
+#   • api.gocast.fm     — handled in-container via Caddyfile.cloudflare +
+#     the CF Origin Certificate.
+
+services:
+  mysql:
+    # !override replaces the base file's ["3306:3306"] with an empty list
+    # — without the tag, Compose would concatenate and the port would
+    # still be exposed. This is the line that actually secures MySQL.
+    ports: !override []
+
+  redis:
+    ports: !override []
+
+  api:
+    build:
+      context: ./api
+      # Prod target in api/Dockerfile: composer install --no-dev,
+      # authoritative classmap, OPcache enabled.
+      target: prod
+    # !override wipes the base's [./api:/app, api_vendor:/app/vendor, ...]
+    # list entirely and replaces it with exactly these mounts. Without the
+    # tag, the base's host-code bind mount would survive into prod.
+    volumes: !override
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./infra/certs:/etc/caddy/certs:ro
+      # Swap to the Cloudflare Caddyfile — expects CF Origin Certificate
+      # at /etc/caddy/certs/origin.{pem,key}.
+      - ./api/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+    ports: !override
+      # HTTP for ACME challenges (only used if you ever leave CF mode) and
+      # HTTPS + HTTP/3 for the real traffic.
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # Must match the cert's hostname and CF DNS record. Pulled from .env.
+      SERVER_NAME: ${SERVER_NAME}
+
+  bootstrap:
+    build:
+      context: ./api
+      target: prod
+    volumes: !override []
+
+  queue:
+    build:
+      context: ./api
+      target: prod
+    volumes: !override []
+
+  relay:
+    volumes: !override []
+
+  client:
+    build:
+      context: ./client
+      # Prod stage runs the standalone next start; no source bind mount.
+      target: prod
+      # NEXT_PUBLIC_* values are inlined into the client bundle at build
+      # time — they MUST be build args, not runtime env. A runtime env
+      # block here would have no effect.
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_HOSTNAME:-api.gocast.fm}/api
+        NEXT_PUBLIC_APP_URL: https://${APP_HOSTNAME:-gocast.fm}
+        NEXT_PUBLIC_ICECAST_URL: https://${ICECAST_HOSTNAME:-icecast.gocast.fm}
+        NEXT_PUBLIC_WS_URL: wss://${RELAY_HOSTNAME:-relay.gocast.fm}
+        # Sentry — see .env.docker.example for where to get these. The DSN
+        # ships with the bundle and identifies the project; the auth token
+        # is used only at build time to upload source maps. Both are
+        # optional — blank values just mean no Sentry reporting / no
+        # readable stack traces.
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
+    volumes: !override []

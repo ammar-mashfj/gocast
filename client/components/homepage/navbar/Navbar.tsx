@@ -19,8 +19,13 @@ export default async function Navbar() {
 
   return (
     <nav className="flex items-center justify-between px-4 md:px-10 py-4 md:py-5 relative z-10">
-      <Link href="/" className="-tracking-wide">
-        <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="w-20 h-auto md:w-[100px]" priority />
+      <Link href="/" className="-tracking-wide no-underline">
+        <div className="flex items-center gap-2.5">
+          <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="w-20 h-auto md:w-[100px]" priority />
+          <span className="inline-flex items-center rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+            Beta
+          </span>
+        </div>
       </Link>
       <div className="flex items-center gap-4 md:gap-8">
         {NAV_LINKS.map((link) => (

@@ -1,0 +1,118 @@
+// Grafana Alloy config — ships container logs and host metrics to Grafana
+// Cloud. Nothing in this file is GoCast-specific beyond the compose-service
+// relabel rules; point the endpoints at self-hosted Loki/Prometheus/Mimir
+// and it's the same config.
+//
+// Authentication is pulled from the container environment so secrets don't
+// land in the repo — see docker-compose.observability.yml.
+
+// ---------------------------------------------------------------------
+// LOGS — discover every Docker container and ship its stdout/stderr to
+// Grafana Cloud Loki. Labels carry the compose service name so you can
+// filter {service="api"} in Explore.
+// ---------------------------------------------------------------------
+
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// Container name (strip the leading "/")
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	// Compose service name — this is the label you'll filter on most.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	// Compose project name — useful when you run multiple stacks on one host.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		target_label  = "compose_project"
+	}
+
+	// Drop Alloy's own logs so we don't ship ourselves shipping ourselves.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		regex         = "alloy"
+		action        = "drop"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	forward_to = [loki.write.grafana_cloud.receiver]
+
+	labels = {
+		host = sys.env("HOSTNAME"),
+	}
+}
+
+loki.write "grafana_cloud" {
+	endpoint {
+		url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_CLOUD_LOKI_USERNAME")
+			password = sys.env("GRAFANA_CLOUD_LOKI_API_KEY")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// METRICS — host-level CPU / memory / disk / network via the unix (node)
+// exporter. Shipped to Grafana Cloud Mimir (Prometheus-compatible).
+// ---------------------------------------------------------------------
+
+prometheus.exporter.unix "host" {
+	// These paths are the host's /proc, /sys, and / bind-mounted read-only
+	// into the Alloy container — without them the exporter would report
+	// the container's resources instead of the host's.
+	rootfs_path = "/rootfs"
+	sysfs_path  = "/host/sys"
+	procfs_path = "/host/proc"
+}
+
+prometheus.scrape "host" {
+	targets    = prometheus.exporter.unix.host.targets
+	forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+	job_name   = "node"
+}
+
+// Icecast exposes a JSON status endpoint at /status-json.xsl with listener
+// counts and mount info. Alloy can scrape it directly — the HTTP exporter
+// plus a downstream JSON parser turns it into metrics you can graph.
+// Commented out by default because it's optional; uncomment to enable.
+//
+// prometheus.scrape "icecast_status" {
+// 	targets = [{
+// 		__address__ = "icecast:8000",
+// 		__metrics_path__ = "/status-json.xsl",
+// 		job = "icecast",
+// 	}]
+// 	forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+// }
+
+prometheus.remote_write "grafana_cloud" {
+	endpoint {
+		url = sys.env("GRAFANA_CLOUD_PROM_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_CLOUD_PROM_USERNAME")
+			password = sys.env("GRAFANA_CLOUD_PROM_API_KEY")
+		}
+	}
+
+	external_labels = {
+		host = sys.env("HOSTNAME"),
+	}
+}

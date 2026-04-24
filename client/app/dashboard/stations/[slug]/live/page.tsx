@@ -202,6 +202,33 @@ function SuccessView({ station, onOpenControls }: { station: Station; onOpenCont
   )
 }
 
+function AlreadyLiveView({ station }: { station: Station }) {
+  return (
+    <Card className="border-amber-500/20 bg-amber-500/[0.03]">
+      <CardContent className="flex flex-col items-center text-center py-10">
+        <div className="size-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+          <IconBroadcast size={18} className="text-amber-400" />
+        </div>
+        <h2 className="text-base font-medium mb-2">This station is already live</h2>
+        <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+          Another browser or device is currently broadcasting. Stop that broadcast before starting a new one here.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
+          <Button className="w-full sm:w-auto" asChild>
+            <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
+              <IconLink size={15} data-icon="inline-start" />
+              View player
+            </a>
+          </Button>
+          <Button className="w-full sm:w-auto" variant="outline" asChild>
+            <Link href={`/dashboard/stations/${station.slug}`}>Back to station</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function isMicPermissionError(message: string | null): boolean {
   if (!message) return false
   return /microphone access denied|no microphone found/i.test(message)
@@ -325,6 +352,17 @@ export default function GoLivePage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
+
+  if (station.is_live && state === "idle") {
+    return (
+      <div className="max-w-xl mx-auto flex flex-col gap-6">
+        <div className="text-xs tracking-widest uppercase text-muted-foreground">
+          {station.name} — Already live
+        </div>
+        <AlreadyLiveView station={station} />
       </div>
     )
   }

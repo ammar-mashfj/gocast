@@ -1,13 +1,24 @@
+# Full GoCast dev stack — `docker compose up` boots:
+#   mysql · redis · icecast · liquidsoap · api · queue · relay · client
+#
+# Secrets are read from a `.env` file at the repo root (copy .env.docker.example).
+# Ports exposed on the host in dev are for debugging — in prod, keep mysql and
+# redis off the public network and only expose icecast + api + client through
+# a reverse proxy.
+
+name: gocast
+
 services:
+  # ---------- Data tier ----------
   mysql:
     image: mysql:8.4
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: gocast
-      MYSQL_USER: ammar
-      MYSQL_PASSWORD: "06011995"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootdev}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-gocast}
+      MYSQL_USER: ${MYSQL_USER:-gocast}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gocastdev}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -28,24 +39,162 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
-    build: ./api
+  # ---------- Audio infra ----------
+  icecast:
+    build: ./infra/icecast
     ports:
-      - "8000:8000"
+      # Host 8888 matches the existing dev convention (NEXT_PUBLIC_ICECAST_URL,
+      # /stream-proxy rewrite in next.config.ts). Container still listens on
+      # Icecast's default 8000 internally.
+      - "8888:8000"
+    environment:
+      # Icecast config is rendered from icecast.xml.tpl at container start by
+      # the entrypoint — rotating a password here (and restarting icecast,
+      # relay, and liquidsoap) is enough to rotate it everywhere.
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-docker-dev}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:-docker-dev}
+      ICECAST_ADMIN_USER: ${ICECAST_ADMIN_USER:-admin}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-docker-dev}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/status-json.xsl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  liquidsoap:
+    # Official Savonet image — much simpler than building Liquidsoap from
+    # source or installing the apt package ourselves.
+    image: savonet/liquidsoap:v2.3.3
+    volumes:
+      - ./infra/liquidsoap/standby.liq:/etc/liquidsoap/standby.liq:ro
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-docker-dev}
+    command: ["/etc/liquidsoap/standby.liq"]
+    depends_on:
+      icecast:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------- Laravel API ----------
+  # FrankenPHP — serves HTTP/2, HTTP/3, and PHP in one container. Replaces
+  # the nginx + php-fpm split; Caddy underneath handles TLS (Let's Encrypt
+  # in prod, skipped in dev when SERVER_NAME=:80).
+  api:
+    build:
+      context: ./api
+      # Dev target keeps composer dev-deps (Pest, Pint) in vendor/. Prod
+      # override selects the `prod` target which runs composer install
+      # --no-dev and enables OPcache.
+      target: dev
+    ports:
+      # Dev exposes plain HTTP on :8000. In prod you'd expose :443 (and :80
+      # for ACME challenges) and set SERVER_NAME to your real domain.
+      - "8000:80"
     volumes:
       - ./api:/app
-      - /app/vendor
+      # Named volume preserves vendor/ across restarts and avoids the host's
+      # (usually missing or wrong-arch) copy shadowing the image's install.
+      - api_vendor:/app/vendor
+      # Caddy stores issued Let's Encrypt certs under /data/caddy. Persisting
+      # this volume is essential in prod — Let's Encrypt rate-limits the
+      # issuance endpoint at 50 certs/domain/week, and ephemeral cert storage
+      # would chew through that on every container restart.
+      - caddy_data:/data
+      - caddy_config:/config
+      # Cloudflare Origin Certificate pair (read-only). The directory is
+      # gitignored — drop origin.pem + origin.key into infra/certs/ when
+      # deploying behind Cloudflare. Harmless to mount in dev (Caddyfile
+      # default doesn't reference these paths).
+      - ./infra/certs:/etc/caddy/certs:ro
+      # To switch from auto-Let's Encrypt to the Cloudflare Origin Cert flow,
+      # uncomment this line and set SERVER_NAME to your real domain:
+      # - ./api/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+    # Load the full Laravel env from api/.env — APP_KEY, MAIL_*, GOOGLE_*,
+    # SESSION_*, etc. The `environment:` block below then overrides just the
+    # keys that need different values inside the docker network (DB host
+    # becomes `mysql`, redis host becomes `redis`, and so on).
+    env_file:
+      - ./api/.env
     environment:
+      # In dev, serve plain HTTP on :80. Override in prod to a real hostname
+      # (e.g. SERVER_NAME=api.gocast.fm) to trigger Caddy's automatic TLS.
+      SERVER_NAME: ${SERVER_NAME:-:80}
       DB_HOST: mysql
+      DB_DATABASE: ${MYSQL_DATABASE:-gocast}
+      DB_USERNAME: ${MYSQL_USER:-gocast}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-gocastdev}
       REDIS_HOST: redis
+      RELAY_HEALTH_URL: http://relay:8081/health
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Bootstrap must finish migrations before the web server accepts
+      # requests — otherwise first-boot users hit "table not found" errors.
+      bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
+  # One-shot bootstrap: runs migrations and creates the storage symlink on
+  # every `compose up`. Idempotent (migrate is a no-op when nothing's new,
+  # storage:link skips if the symlink already exists) so it's safe to leave
+  # in the chain. Exits cleanly; other services wait via service_completed_successfully.
+  bootstrap:
+    build:
+      context: ./api
+      target: dev
+    env_file:
+      - ./api/.env
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: ${MYSQL_DATABASE:-gocast}
+      DB_USERNAME: ${MYSQL_USER:-gocast}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-gocastdev}
+      REDIS_HOST: redis
+    volumes:
+      - ./api:/app
+      - api_vendor:/app/vendor
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        php artisan migrate --force
+        # --force overwrites an existing symlink; previously we piped to
+        # `|| true` which also swallowed real failures (missing permissions,
+        # corrupt filesystem). --force is the correct idempotent knob.
+        php artisan storage:link --force
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Sidecar that processes queued jobs (emails, notifications) — same image
+  # as `api` but runs the worker loop instead of the web server.
+  queue:
+    build:
+      context: ./api
+      target: dev
+    env_file:
+      - ./api/.env
+    volumes:
+      - ./api:/app
+      - api_vendor:/app/vendor
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: ${MYSQL_DATABASE:-gocast}
+      DB_USERNAME: ${MYSQL_USER:-gocast}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-gocastdev}
+      REDIS_HOST: redis
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=60"]
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------- Stream relay ----------
   relay:
     build: ./relay
     ports:
@@ -53,36 +202,78 @@ services:
       - "8081:8081"
     volumes:
       - ./relay:/app
-      - /app/node_modules
+      - relay_node_modules:/app/node_modules
     environment:
       WS_PORT: 8080
       HEALTH_PORT: 8081
-      ICECAST_HOST: host.docker.internal
-      ICECAST_PORT: 8888
-      ICECAST_SOURCE_PASSWORD: "06011995"
-      ICECAST_ADMIN_USER: admin
-      ICECAST_ADMIN_PASSWORD: "06011995"
-      API_URL: http://api:8000/api
+      # Was `host.docker.internal` when Icecast ran on the host; now points
+      # at the icecast service by name.
+      ICECAST_HOST: icecast
+      ICECAST_PORT: 8000
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-docker-dev}
+      ICECAST_ADMIN_USER: ${ICECAST_ADMIN_USER:-admin}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-docker-dev}
+      # FrankenPHP serves the API in-network on port 80 under the `api` service.
+      API_URL: http://api/api
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key}
     depends_on:
-      - api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      api:
+        condition: service_started
+      icecast:
+        condition: service_healthy
+    # Catches hung-but-alive processes in addition to outright crashes — if
+    # /health stops responding for 3 consecutive probes, Docker kills and
+    # restarts the container.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:8081/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
+  # ---------- Next.js client ----------
   client:
-    build: ./client
+    build:
+      context: ./client
+      # Dev stage runs `npm run dev` with hot-reload. Prod stage is selected
+      # by docker-compose.prod.yml and runs `next start` against the
+      # standalone build output.
+      target: dev
     ports:
-      - "5173:5173"
+      - "3000:3000"
     volumes:
       - ./client:/app
-      - /app/node_modules
+      - client_node_modules:/app/node_modules
     environment:
-      VITE_APP_URL: http://localhost:5173
-      VITE_API_URL: http://localhost:8000/api
-      VITE_WS_URL: ws://localhost:8080
-      VITE_ICECAST_URL: http://localhost:8888
+      # Browser-exposed vars — these resolve to the host, not to container
+      # names, because the user's browser is outside the docker network.
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_ICECAST_URL: http://localhost:8888
+      # Browser broadcaster's WebSocket target (relay WS server). Must be
+      # present or `go live` fails silently because env.wsUrl is empty.
+      NEXT_PUBLIC_WS_URL: ws://localhost:8080
     depends_on:
-      - api
+      api:
+        condition: service_started
+    # Dev server takes a few seconds to compile on first boot; start_period
+    # gives it room before failed probes start counting.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   mysql_data:
   redis_data:
+  api_vendor:
+  relay_node_modules:
+  client_node_modules:
+  # Caddy's cert + state storage. Persisting these across restarts is
+  # critical — see the api service for why.
+  caddy_data:
+  caddy_config:

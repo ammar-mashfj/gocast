@@ -15,3 +15,11 @@ Schedule::command('admin:detect-login-abuse')
     ->everyFiveMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+// Day-7 inactive-broadcaster nudge — runs once a day at 16:00 UTC (a typical
+// open-rate sweet spot) to email users who signed up a week ago and haven't
+// gone live yet. The command itself is idempotent (skips users already
+// nudged via the notifications table).
+Schedule::command('app:nudge-inactive-broadcasters')
+    ->dailyAt('16:00')
+    ->withoutOverlapping();

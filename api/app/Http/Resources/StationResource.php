@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\BroadcastStateService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -26,7 +27,7 @@ class StationResource extends JsonResource
             'description' => $this->description,
             'genre' => $this->genre,
             'artwork_url' => $this->artwork_url,
-            'is_live' => $this->is_live,
+            'is_live' => app(BroadcastStateService::class)->isLive($this->resource),
             'icecast_mount' => $this->icecast_mount,
             'social_links' => $this->social_links,
             'theme_config' => $this->theme_config,

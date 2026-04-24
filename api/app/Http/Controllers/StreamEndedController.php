@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Station;
+use App\Services\BroadcastStateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Redis;
  */
 class StreamEndedController extends Controller
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, BroadcastStateService $broadcastState): JsonResponse
     {
         $request->validate([
             'station_id' => ['required', 'string'],
@@ -23,6 +24,7 @@ class StreamEndedController extends Controller
 
         $station = Station::findOrFail($request->station_id);
 
+        $broadcastState->forget($station);
         $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
         $station->update(['is_live' => false]);
 

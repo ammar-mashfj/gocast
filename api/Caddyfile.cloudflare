@@ -1,0 +1,50 @@
+# FrankenPHP Caddyfile — Cloudflare-in-front mode.
+#
+# Uses a Cloudflare Origin Certificate (15-year validity, issued via the CF
+# dashboard: SSL/TLS → Origin Server → Create Certificate) instead of going
+# to Let's Encrypt. No ACME calls, no rate limits, no port-80 requirement
+# for cert issuance.
+#
+# Cloudflare SSL mode must be set to "Full (strict)" for this to work —
+# CF validates that the origin's cert chain is trusted by its internal CA.
+#
+# How to use:
+#   1. Paste the CF-downloaded PEM pair at:
+#        infra/certs/origin.pem
+#        infra/certs/origin.key
+#      Do NOT commit these files (they're in .gitignore).
+#   2. In docker-compose.yml, change the api service's build to use this
+#      config — either swap the COPY line in api/Dockerfile to copy
+#      `Caddyfile.cloudflare` as `/etc/caddy/Caddyfile`, or bind-mount this
+#      file over the default in compose:
+#        volumes:
+#          - ./api/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+#   3. In compose's api service env, set:
+#        SERVER_NAME=api.gocast.fm
+#      (No SERVER_NAME=:80 here — we're in prod mode.)
+
+{
+	frankenphp
+	order php_server before file_server
+}
+
+{$SERVER_NAME} {
+	# Explicit cert pair — Caddy reads these from disk and terminates TLS
+	# without ever contacting Let's Encrypt. The files are mounted into
+	# the container at /etc/caddy/certs/ via docker-compose.
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+
+	root * /app/public
+
+	encode zstd br gzip
+
+	# Real client IP comes from the CF-Connecting-IP header (Cloudflare
+	# strips and rewrites X-Forwarded-For with their own edge IPs).
+	# Without this, Laravel sees Cloudflare's IPs everywhere.
+	trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+
+	@storage path /storage/*
+	file_server @storage
+
+	php_server
+}

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BroadcastStateController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\ListenerCountController;
@@ -12,7 +13,6 @@ use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationNotifyController;
 use App\Http\Controllers\StreamEndedController;
 use App\Http\Controllers\StreamSessionController;
-use App\Http\Controllers\StreamTokenController;
 use App\Http\Controllers\StreamValidationController;
 use App\Http\Controllers\UpdateListenerCountController;
 use App\Http\Controllers\UpdateMetadataController;
@@ -67,7 +67,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // with a 403 JSON ("Your email address is not verified.") for API clients.
     Route::middleware('verified')->group(function () {
         Route::apiResource('stations', StationController::class);
-        Route::post('/stations/{station}/stream-token', StreamTokenController::class);
         Route::apiResource('stations.sessions', StreamSessionController::class)
             ->only(['index', 'store', 'destroy']);
         Route::post('/upload/{type}', UploadController::class)
@@ -96,6 +95,7 @@ Route::middleware('throttle:5,60')->group(function () {
 // Internal relay routes — authenticated by shared secret (VerifyInternalKey) and throttled at a higher ceiling.
 Route::middleware(['internal', 'throttle:internal'])->group(function () {
     Route::post('/internal/validate-stream', StreamValidationController::class);
+    Route::post('/internal/broadcast-state', BroadcastStateController::class);
     Route::post('/internal/stream-ended', StreamEndedController::class);
     Route::post('/internal/metadata', UpdateMetadataController::class);
     Route::post('/internal/listeners', UpdateListenerCountController::class);

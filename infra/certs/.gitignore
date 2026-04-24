@@ -1,0 +1,6 @@
+# Never commit cert material. Drop Cloudflare Origin Certificate files here:
+#   origin.pem  — the certificate (paste from CF dashboard)
+#   origin.key  — the private key (paste from CF dashboard)
+*
+!.gitignore
+!README.md

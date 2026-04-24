@@ -1,4 +1,3 @@
-import api from './axios'
 import { env } from './env'
 import { AudioEngine } from './audioEngine'
 
@@ -19,23 +18,61 @@ interface BroadcastCallbacks {
   onError: (message: string) => void
 }
 
+const DEVICE_ID_KEY = 'broadcast:deviceId'
+const ALREADY_LIVE_MESSAGE = 'This station is already live from another device.'
+const NON_RECONNECTABLE_CLOSE_CODES = new Set([4008])
+
 const WS_CLOSE_REASONS: Record<number, string> = {
   4001: 'Authentication timed out',
-  4003: 'Authentication failed — invalid token',
+  4003: 'Authentication failed',
   4004: 'Could not connect to Icecast server',
   4005: 'Icecast connection lost during broadcast',
+  4007: ALREADY_LIVE_MESSAGE,
+  4008: 'Broadcast session ended',
+  4009: 'Could not synchronize broadcast state. Please try again.',
+}
+
+function getBroadcastDeviceId(): string {
+  if (typeof localStorage === 'undefined') return 'unknown-device'
+
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY)
+    if (existing) return existing
+
+    const id = globalThis.crypto?.randomUUID?.() ?? `device-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    localStorage.setItem(DEVICE_ID_KEY, id)
+    return id
+  } catch {
+    return `volatile-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+function getBroadcastErrorMessage(err: unknown): string | null {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'response' in err &&
+    typeof (err as { response?: { status?: number; data?: { code?: string; message?: string } } }).response === 'object'
+  ) {
+    const response = (err as { response?: { status?: number; data?: { code?: string; message?: string } } }).response
+    if (response?.status === 409 && response.data?.code === 'station_already_live') {
+      return response.data.message || ALREADY_LIVE_MESSAGE
+    }
+  }
+
+  return null
 }
 
 /**
  * Manages the full broadcast lifecycle: connect -> authenticate -> stream -> stop.
  *
  * On {@link start}, acquires the microphone, initialises the audio engine (MP3 encoder),
- * obtains a one-time stream token from the API, opens a WebSocket to the relay,
- * authenticates, and begins streaming encoded audio chunks. {@link stop} tears
- * everything down and ends the server-side session.
+ * opens a WebSocket to the relay, authenticates via Laravel through the relay,
+ * and begins streaming encoded audio chunks. {@link stop} tears everything down.
  */
 export class BroadcastManager {
   private stationId: string
+  private deviceId: string
   private callbacks: BroadcastCallbacks
   private micStream: MediaStream | null = null
   private ws: WebSocket | null = null
@@ -63,6 +100,7 @@ export class BroadcastManager {
 
   constructor(stationId: string, callbacks: BroadcastCallbacks) {
     this.stationId = stationId
+    this.deviceId = getBroadcastDeviceId()
     this.callbacks = callbacks
   }
 
@@ -82,8 +120,8 @@ export class BroadcastManager {
 
   /**
    * Begin broadcasting. Requests the microphone, sets up the MP3 encoder,
-   * fetches a stream token, connects to the relay WebSocket, and transitions
-   * state to 'live'. If any step fails, {@link fail} is called and the state
+   * connects to the relay WebSocket, and transitions state to 'live'. If any
+   * step fails, {@link fail} is called and the state
    * moves to 'error'.
    */
   async start(options?: { skipMic?: boolean }): Promise<void> {
@@ -129,24 +167,10 @@ export class BroadcastManager {
       await this.engine.restoreQueue()
       this.updateStep('encoder', 'done')
 
-      // Step 3: Get stream token + start session
+      // Step 3: Ask the relay to authorize and start the session via Laravel.
       this.setActiveStep('relay')
 
-      const listing = await api.get(`/stations/${this.stationId}/sessions`)
-      const staleSessions = (listing.data.data as { id: string; ended_at: string | null }[])
-        ?.filter((s) => !s.ended_at) ?? []
-      for (const stale of staleSessions) {
-        await api.delete(`/stations/${this.stationId}/sessions/${stale.id}`)
-      }
-
-      const [tokenRes, sessionRes] = await Promise.all([
-        api.post(`/stations/${this.stationId}/stream-token`),
-        api.post(`/stations/${this.stationId}/sessions`, { source_type: 'browser' }),
-      ])
-      const streamToken = tokenRes.data.data.token as string
-      this.sessionId = sessionRes.data.data.id as string
-
-      await this.connectAndAuthenticate(streamToken)
+      await this.connectAndAuthenticate()
 
       // Relay is open and authenticated — safe to resume playback now.
       // Starting earlier would encode audio that gets dropped because the
@@ -165,7 +189,7 @@ export class BroadcastManager {
    * for an 'authenticated' reply. Rejects if the connection fails, closes
    * unexpectedly, or the 25-second timeout elapses.
    */
-  private connectAndAuthenticate(token: string): Promise<void> {
+  private connectAndAuthenticate(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(env.wsUrl)
       this.ws.binaryType = 'arraybuffer'
@@ -187,17 +211,25 @@ export class BroadcastManager {
         this.ws!.send(JSON.stringify({
           type: 'auth',
           stationId: this.stationId,
-          token,
+          deviceId: this.deviceId,
+          sourceType: 'browser',
         }))
       }
 
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string)
+          if (msg.type === 'error' && !settled) {
+            settled = true
+            cleanup()
+            reject(new Error(msg.message || ALREADY_LIVE_MESSAGE))
+            return
+          }
           if (msg.type === 'authenticated' && !settled) {
             settled = true
             cleanup()
             this.authenticated = true
+            this.sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : null
             this.updateStep('mount', 'done')
             resolve()
           }
@@ -213,14 +245,21 @@ export class BroadcastManager {
       }
 
       this.ws.onclose = (event) => {
+        const reason = WS_CLOSE_REASONS[event.code]
+          || (event.code >= 4000 ? `Relay error (${event.code})` : 'Connection to relay lost')
+
         if (!settled) {
           settled = true
           cleanup()
-          const reason = WS_CLOSE_REASONS[event.code]
-            || (event.code >= 4000 ? `Relay error (${event.code})` : 'Connection to relay lost')
           reject(new Error(reason))
         } else if (this.authenticated && !this.stopping) {
           this.authenticated = false
+
+          if (NON_RECONNECTABLE_CLOSE_CODES.has(event.code)) {
+            void this.fail(new Error(reason))
+            return
+          }
+
           this.scheduleReconnect()
         }
       }
@@ -257,23 +296,23 @@ export class BroadcastManager {
   }
 
   /**
-   * Attempt to reconnect the WebSocket with a new stream token.
-   * The audio engine and mic stream are preserved.
+   * Attempt to reconnect the WebSocket. The relay re-authorizes the same
+   * device through Laravel; the audio engine and mic stream are preserved.
    */
   private async attemptReconnect() {
     try {
-      const tokenRes = await api.post(`/stations/${this.stationId}/stream-token`)
       if (this.stopping) { this.reconnecting = false; return }
-      const streamToken = tokenRes.data.data.token as string
-      await this.connectAndAuthenticate(streamToken)
+      await this.connectAndAuthenticate()
       this.reconnecting = false
       if (this.stopping) return
       this.callbacks.onError('')
       this.callbacks.onStateChange('live')
-    } catch {
+    } catch (err) {
       this.reconnecting = false
       if (this.stopping) return
-      this.callbacks.onError('Connection to relay lost')
+      const message = getBroadcastErrorMessage(err)
+        ?? (err instanceof Error ? err.message : 'Connection to relay lost')
+      this.callbacks.onError(message)
       this.callbacks.onStateChange('error')
     }
   }
@@ -308,13 +347,10 @@ export class BroadcastManager {
     this.reconnecting = false
     await this.engine?.destroy()
     this.micStream?.getTracks().forEach((t) => t.stop())
-    this.ws?.close()
-
-    if (this.sessionId) {
-      try {
-        await api.delete(`/stations/${this.stationId}/sessions/${this.sessionId}`)
-      } catch { /* best-effort */ }
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify({ type: 'stop' })) } catch { /* socket is closing */ }
     }
+    this.ws?.close(1000, 'Stopped by broadcaster')
 
     this.micStream = null
     this.ws = null
@@ -349,6 +385,8 @@ export class BroadcastManager {
       message = 'Microphone access denied — check browser permissions'
     } else if (err instanceof DOMException && err.name === 'NotFoundError') {
       message = 'No microphone found — plug one in and try again'
+    } else if (getBroadcastErrorMessage(err)) {
+      message = getBroadcastErrorMessage(err)!
     } else if (err instanceof Error) {
       message = err.message
     }
@@ -364,15 +402,6 @@ export class BroadcastManager {
     this.micStream?.getTracks().forEach((t) => t.stop())
     try { await this.engine?.destroy() } catch { /* already torn down */ }
     try { this.ws?.close() } catch { /* already closed */ }
-
-    // End the server-side session if one was created before the failure.
-    // Without this, the API keeps the station marked live until the next
-    // start/stop cycle runs its stale-session sweep.
-    if (this.sessionId) {
-      try {
-        await api.delete(`/stations/${this.stationId}/sessions/${this.sessionId}`)
-      } catch { /* best-effort */ }
-    }
 
     // Clear refs so a subsequent stop() (triggered by Try again → start →
     // stop on the failed manager) doesn't double-destroy and throw.

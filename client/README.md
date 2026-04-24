@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GoCast — Client
 
-## Getting Started
+Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4 + shadcn/ui.
 
-First, run the development server:
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev       # Next dev server on http://localhost:3000
+npm run build     # Production build
+npm run start     # Serve production build
+npm run lint
+npm run analyze   # Build with @next/bundle-analyzer
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The client proxies API calls via `proxy.ts` / `lib/axios.ts` — base URL comes from `NEXT_PUBLIC_API_URL` (and `NEXT_PUBLIC_WS_URL` for the relay).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Route map
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `/` — marketing homepage
+- `/auth/login`, `/auth/register`, `/auth/forgot`, `/auth/callback` — auth flows (password + Google OAuth)
+- `/discover` — public station directory
+- `/station/[slug]` — listener player page
+- `/station/[slug]/embed` — iframe-friendly mini player
+- `/dashboard` — authenticated station list
+- `/dashboard/stations/[slug]` — station detail + settings
+- `/dashboard/stations/[slug]/live` — go-live flow: pre-flight checklist (mic/music toggle, listener URL), connecting progress, refresh-recovery card, and on-air success view with share link
+- `/dashboard/stations/[slug]/studio` — broadcaster console once on-air: push-to-talk, file queue, transport, now-playing, stream panel (redirects back to `/live` if the session drops)
+- `/dashboard/broadcasts` — past sessions
+- `/dashboard/settings` — account (profile, password, delete)
+- `/roadmap`, `/privacy`, `/terms` — static pages
 
-## Learn More
+## Structure
 
-To learn more about Next.js, take a look at the following resources:
+- `app/` — routes (App Router)
+- `components/` — UI components (`dashboard/`, `homepage/`, `studio/`, `ui/`)
+- `contexts/` — React contexts (e.g. `BroadcastContext`)
+- `hooks/` — custom hooks
+- `lib/` — client utilities (axios, share, format, listener library, milestones)
+- `interfaces/` — shared TS types
+- `actions/` — server actions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Observability
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Sentry is wired via `@sentry/nextjs` (`instrumentation.ts`, `sentry.*.config.ts`).
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See the `deploy.sh` script and `ecosystem.config.js` (PM2) alongside `next.config.ts`.

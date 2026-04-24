@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Station;
+use App\Services\BroadcastStateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Redis;
 
@@ -15,11 +16,12 @@ use Illuminate\Support\Facades\Redis;
  */
 class ResetLiveStationsController extends Controller
 {
-    public function __invoke(): JsonResponse
+    public function __invoke(BroadcastStateService $broadcastState): JsonResponse
     {
         $stations = Station::where('is_live', true)->get();
 
         foreach ($stations as $station) {
+            $broadcastState->forget($station);
             $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
             $station->update(['is_live' => false]);
             Redis::del("metadata:{$station->id}");

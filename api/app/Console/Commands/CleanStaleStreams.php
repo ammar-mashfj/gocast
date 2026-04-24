@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Station;
+use App\Services\BroadcastStateService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -21,7 +22,7 @@ use Illuminate\Support\Facades\Redis;
  */
 class CleanStaleStreams extends Command
 {
-    public function handle(): void
+    public function handle(BroadcastStateService $broadcastState): void
     {
         $relayStations = $this->fetchRelayStations();
 
@@ -44,6 +45,7 @@ class CleanStaleStreams extends Command
         }
 
         foreach ($stale as $station) {
+            $broadcastState->forget($station);
             $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
             $station->update(['is_live' => false]);
             Redis::del("metadata:{$station->id}");

@@ -18,6 +18,7 @@
 require("dotenv").config();
 const net = require("net");
 const http = require("http");
+const { randomUUID } = require("crypto");
 const { WebSocketServer } = require("ws");
 
 function requiredEnv(name, forbiddenValues = []) {
@@ -39,6 +40,17 @@ function requiredEnv(name, forbiddenValues = []) {
 const config = {
   wsPort: parseInt(process.env.WS_PORT || "8080"),
   healthPort: parseInt(process.env.HEALTH_PORT || "8081"),
+  allowedOrigins: (process.env.RELAY_ALLOWED_ORIGINS || [
+    "https://gocast.fm",
+    "https://www.gocast.fm",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+  ].join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   icecast: {
     host: process.env.ICECAST_HOST || "localhost",
     port: parseInt(process.env.ICECAST_PORT || "8888"),
@@ -66,26 +78,59 @@ function log(level, msg, data = {}) {
   console.log(JSON.stringify(entry));
 }
 
+function cookieValue(cookieHeader, name) {
+  if (!cookieHeader) return "";
+  const part = cookieHeader
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(`${name}=`));
+
+  if (!part) return "";
+
+  return decodeURIComponent(part.slice(name.length + 1));
+}
+
+function isAllowedOrigin(origin) {
+  return !!origin && config.allowedOrigins.includes(origin);
+}
+
 // --- API client ---
 
 /**
- * Authenticates a broadcaster by exchanging their one-time stream token
- * with the Laravel API. Returns the station object (including Icecast
- * mount credentials) on success, or null if the token is invalid/expired.
- * @param {number} stationId
- * @param {string} token - One-time token issued when the broadcaster clicks "Go Live"
- * @returns {Promise<Object|null>} Station object with icecast_mount, or null
+ * Authenticates and starts a broadcaster by forwarding the WebSocket
+ * handshake cookie to Laravel. Returns the station object (including Icecast
+ * mount credentials) on success, or an error payload when blocked.
+ * @param {string} stationId
+ * @param {string} deviceId
+ * @param {string} sourceType
+ * @param {string} cookieHeader
+ * @returns {Promise<{station: Object|null, code?: string, message?: string}>}
  */
-async function validateStreamToken(stationId, token) {
+async function startBroadcast(stationId, deviceId, sourceType, cookieHeader) {
+  const authToken = cookieValue(cookieHeader, "token");
   const res = await fetch(`${config.apiUrl}/internal/validate-stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-    body: JSON.stringify({ station_id: stationId, token }),
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-Internal-Key": config.internalApiKey,
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+    body: JSON.stringify({ station_id: stationId, device_id: deviceId, source_type: sourceType }),
   });
 
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json.valid ? json.station : null;
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok || !json.valid) {
+    return {
+      station: null,
+      code: json.code,
+      message: json.message || "Authentication failed",
+    };
+  }
+
+  return { station: json.station };
 }
 
 /**
@@ -122,6 +167,56 @@ async function updateListenerCount(stationId, count) {
     });
   } catch (err) {
     log("error", "Failed to update listener count", { stationId, error: err.message });
+  }
+}
+
+/**
+ * Publishes the relay-owned broadcast state to Laravel's cache-backed live
+ * state. This is the guard other devices see before they can start.
+ * @param {Object} station
+ * @param {"live"|"reconnecting"} status
+ * @param {string} connectionId
+ */
+async function updateBroadcastState(station, status, connectionId) {
+  const res = await fetch(`${config.apiUrl}/internal/broadcast-state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
+    body: JSON.stringify({
+      station_id: station.id,
+      session_id: station.session_id,
+      device_id: station.device_id,
+      connection_id: connectionId,
+      status,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const err = new Error(`Broadcast state update failed (${res.status}) ${text}`.trim());
+    err.status = res.status;
+    try {
+      err.code = JSON.parse(text).code;
+    } catch {
+      err.code = undefined;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Tells Laravel that the current broadcast session has ended so durable
+ * session state and cached live metadata can be cleared.
+ * @param {Object} station
+ */
+async function notifyStreamEnded(station) {
+  try {
+    await fetch(`${config.apiUrl}/internal/stream-ended`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
+      body: JSON.stringify({ station_id: station.id }),
+    });
+  } catch (err) {
+    log("error", "Failed to notify API of stream end", { stationId: station.id, error: err.message });
   }
 }
 
@@ -308,6 +403,15 @@ const pendingSessionEnds = new Map();
 const wss = new WebSocketServer({
   port: config.wsPort,
   maxPayload: 1024 * 1024, // 1MB — prevents memory exhaustion from oversized messages
+  verifyClient: ({ origin }, done) => {
+    if (isAllowedOrigin(origin)) {
+      done(true);
+      return;
+    }
+
+    log("warn", "Rejected WebSocket origin", { origin: origin || null });
+    done(false, 403, "Forbidden origin");
+  },
 });
 const AUTH_TIMEOUT_MS = 10000;
 const activeConnections = new Map(); // mount -> ws
@@ -315,8 +419,8 @@ const activeConnections = new Map(); // mount -> ws
 /*
  * WebSocket connection lifecycle:
  *  1. Client connects — a 10s auth timer starts.
- *  2. Client sends { type: "auth", stationId, token }. Token is validated
- *     against the API. Any pending session-end timer for this mount is
+ *  2. Client sends { type: "auth", stationId, deviceId }. Laravel validates
+ *     the forwarded auth cookie. Any pending session-end timer for this mount is
  *     cancelled. If a previous broadcaster holds the mount, its WS is kicked
  *     and a fresh Icecast SOURCE is opened (retry handles the brief
  *     mount-in-use window as the old SOURCE closes).
@@ -327,13 +431,16 @@ const activeConnections = new Map(); // mount -> ws
  *     timer fires the session-ended API call unless the broadcaster
  *     reconnects first.
  */
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
   let station = null;
   let icecastSocket = null;
   let authenticated = false;
   let lastMetadata = { title: "", artist: "" };
   let lastAudioTime = 0;
   let keepaliveInterval = null;
+  let broadcastStateInterval = null;
+  const connectionId = randomUUID();
+  const forwardedCookie = req.headers.cookie || "";
 
   const authTimer = setTimeout(() => {
     if (!authenticated) {
@@ -365,16 +472,24 @@ wss.on("connection", (ws) => {
     if (msg.type === "auth" && !authenticated) {
       clearTimeout(authTimer);
 
-      if (!msg.stationId || typeof msg.stationId !== "string" || !msg.token || typeof msg.token !== "string") {
+      if (!msg.stationId || typeof msg.stationId !== "string" || !msg.deviceId || typeof msg.deviceId !== "string") {
         log("warn", "Invalid auth message", { stationId: msg.stationId });
         ws.close(4002, "Invalid auth message");
         return;
       }
 
-      station = await validateStreamToken(msg.stationId, msg.token);
+      const start = await startBroadcast(msg.stationId, msg.deviceId, msg.sourceType || "browser", forwardedCookie);
+      station = start.station;
       if (!station) {
-        log("warn", "Auth failed", { stationId: msg.stationId });
-        ws.close(4003, "Authentication failed");
+        log("warn", "Auth failed", { stationId: msg.stationId, code: start.code });
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: "error",
+            code: start.code || "auth_failed",
+            message: start.message || "Authentication failed",
+          }));
+        }
+        ws.close(start.code === "station_already_live" ? 4007 : 4003, start.message || "Authentication failed");
         return;
       }
 
@@ -408,7 +523,23 @@ wss.on("connection", (ws) => {
       lastAudioTime = Date.now();
       activeMounts.set(station.icecast_mount, station.id);
       activeConnections.set(station.icecast_mount, ws);
-      log("info", "Broadcaster connected", { stationId: station.id, mount: station.icecast_mount });
+
+      try {
+        await updateBroadcastState(station, "live", connectionId);
+      } catch (err) {
+        log("error", "Failed to publish broadcast live state", { stationId: station.id, mount: station.icecast_mount, error: err.message });
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: "error",
+            code: "broadcast_state_sync_failed",
+            message: "Could not synchronize broadcast state. Please try again.",
+          }));
+        }
+        ws.close(4009, "Broadcast state update failed");
+        return;
+      }
+
+      log("info", "Broadcaster connected", { stationId: station.id, mount: station.icecast_mount, sessionId: station.session_id, deviceId: station.device_id });
 
       // Keep the SOURCE alive if the broadcaster's own audio stalls (e.g.
       // DJ paused between tracks) so Icecast doesn't hit <source-timeout>.
@@ -418,7 +549,29 @@ wss.on("connection", (ws) => {
         }
       }, 1000);
 
-      ws.send(JSON.stringify({ type: "authenticated", stationId: station.id }));
+      broadcastStateInterval = setInterval(() => {
+        updateBroadcastState(station, "live", connectionId)
+          .catch((err) => {
+            if (err.code === "broadcast_session_missing") {
+              log("warn", "Broadcast session missing during heartbeat, closing broadcaster", {
+                stationId: station.id,
+                sessionId: station.session_id,
+              });
+              if (ws.readyState === ws.OPEN) ws.close(4008, "Broadcast session ended");
+              return;
+            }
+
+            log("error", "Failed to refresh broadcast live state", {
+              stationId: station.id,
+              sessionId: station.session_id,
+              status: err.status,
+              code: err.code,
+              error: err.message,
+            });
+          });
+      }, 10000);
+
+      ws.send(JSON.stringify({ type: "authenticated", stationId: station.id, sessionId: station.session_id }));
 
       icecastSocket.on("close", () => {
         log("info", "Icecast connection closed", { mount: station.icecast_mount });
@@ -457,11 +610,18 @@ wss.on("connection", (ws) => {
       }, 2000);
       return;
     }
+
+    if (msg.type === "stop" && authenticated) {
+      ws._intentionalStop = true;
+      ws.close(1000, "Stopped by broadcaster");
+      return;
+    }
   });
 
-  ws.on("close", () => {
+  ws.on("close", (code, reason) => {
     clearTimeout(authTimer);
     if (keepaliveInterval) clearInterval(keepaliveInterval);
+    if (broadcastStateInterval) clearInterval(broadcastStateInterval);
 
     // Release the Icecast SOURCE immediately. Icecast's <fallback-mount>
     // transparently moves any attached listeners to the standby stream.
@@ -482,30 +642,41 @@ wss.on("connection", (ws) => {
       return;
     }
 
+    const gracefulStop = ws._intentionalStop || (code === 1000 && reason?.toString() === "Stopped by broadcaster");
+    const graceMs = gracefulStop ? 0 : SESSION_END_GRACE_MS;
+
     log("info", "Broadcaster disconnected, starting session-end grace", {
       stationId: station.id,
       mount: station.icecast_mount,
-      graceMs: SESSION_END_GRACE_MS,
+      graceMs,
     });
 
     // Replace any prior pending timer (e.g. double-disconnect noise) with a fresh one.
     const prior = pendingSessionEnds.get(station.icecast_mount);
-    if (prior) clearTimeout(prior.timer);
+    if (prior) {
+      clearTimeout(prior.timer);
+      pendingSessionEnds.delete(station.icecast_mount);
+    }
+
+    if (gracefulStop) {
+      activeMounts.delete(station.icecast_mount);
+      void notifyStreamEnded(station);
+      return;
+    }
+
+    updateBroadcastState(station, "reconnecting", connectionId)
+      .catch((err) => log("error", "Failed to publish reconnecting state", {
+        stationId: station.id,
+        sessionId: station.session_id,
+        error: err.message,
+      }));
 
     const timer = setTimeout(async () => {
       pendingSessionEnds.delete(station.icecast_mount);
       activeMounts.delete(station.icecast_mount);
       log("info", "Session grace expired, notifying API", { mount: station.icecast_mount });
-      try {
-        await fetch(`${config.apiUrl}/internal/stream-ended`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json", "X-Internal-Key": config.internalApiKey },
-          body: JSON.stringify({ station_id: station.id }),
-        });
-      } catch (err) {
-        log("error", "Failed to notify API of stream end", { stationId: station.id, error: err.message });
-      }
-    }, SESSION_END_GRACE_MS);
+      await notifyStreamEnded(station);
+    }, graceMs);
 
     pendingSessionEnds.set(station.icecast_mount, { timer, stationId: station.id });
   });

@@ -1,0 +1,72 @@
+# Observability overlay — Grafana Alloy as a log + metrics shipper.
+#
+# Usage (layered on top of dev or prod compose):
+#
+#   # Local dev with observability:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+#   # Production with observability:
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.prod.yml \
+#                  -f docker-compose.observability.yml up -d --build
+#
+# Alloy needs four pieces of auth — drop them in your root `.env`:
+#
+#   GRAFANA_CLOUD_LOKI_URL
+#   GRAFANA_CLOUD_LOKI_USERNAME
+#   GRAFANA_CLOUD_LOKI_API_KEY
+#   GRAFANA_CLOUD_PROM_URL
+#   GRAFANA_CLOUD_PROM_USERNAME
+#   GRAFANA_CLOUD_PROM_API_KEY
+#
+# You get these from Grafana Cloud: Home → My Account → select stack →
+# "Details" on the Loki and Prometheus data sources. The "API key" is a
+# newly-generated token scoped to metrics:write + logs:write.
+
+services:
+  alloy:
+    image: grafana/alloy:latest
+    # Command flags: storage path + config file path (both inside the
+    # container). --server.http.listen-addr exposes Alloy's own metrics
+    # endpoint to the compose network for optional self-scraping.
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./infra/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Docker socket — lets Alloy discover containers for log shipping.
+      # Read-only; Alloy only reads the container list and log streams.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host filesystem mounts for the node exporter. Read-only bind
+      # mounts so Alloy can report on the real host, not on its own
+      # containerised view of / /proc /sys.
+      - /:/rootfs:ro,rslave
+      - /sys:/host/sys:ro,rslave
+      - /proc:/host/proc:ro,rslave
+      # Persist Alloy's WAL + deduplication state so restarts don't
+      # re-ship the last N minutes of metrics/logs.
+      - alloy_data:/var/lib/alloy/data
+    environment:
+      # Surfaces the host's hostname to Alloy (for the `host` label on
+      # every log and metric series). Fallback keeps local dev clean.
+      HOSTNAME: ${HOSTNAME:-gocast-dev}
+      GRAFANA_CLOUD_LOKI_URL: ${GRAFANA_CLOUD_LOKI_URL}
+      GRAFANA_CLOUD_LOKI_USERNAME: ${GRAFANA_CLOUD_LOKI_USERNAME}
+      GRAFANA_CLOUD_LOKI_API_KEY: ${GRAFANA_CLOUD_LOKI_API_KEY}
+      GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL}
+      GRAFANA_CLOUD_PROM_USERNAME: ${GRAFANA_CLOUD_PROM_USERNAME}
+      GRAFANA_CLOUD_PROM_API_KEY: ${GRAFANA_CLOUD_PROM_API_KEY}
+    # Best-effort healthcheck against Alloy's own server port. Treats
+    # "Alloy is up and ready to receive" as alive.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:12345/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  alloy_data:

@@ -45,6 +45,10 @@ export default function HeroSection({ isAuthed = false }: HeroSectionProps) {
             </a>
           </div>
 
+          <p className="mt-4 text-xs md:text-sm text-text-muted max-w-[430px] mx-auto md:mx-0">
+            GoCast is in beta. The core broadcast flow is live, and we&apos;re actively tightening the edges.
+          </p>
+
           {!isAuthed && (
             <TrustCues className="mt-6 md:justify-start" />
           )}

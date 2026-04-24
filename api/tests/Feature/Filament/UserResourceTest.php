@@ -6,7 +6,7 @@ use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
-use Illuminate\Auth\Notifications\VerifyEmail;
+use App\Notifications\VerifyEmailCode;
 use Illuminate\Support\Facades\Notification;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -40,7 +40,7 @@ it('resends a verification email', function () {
     Livewire::test(ListUsers::class)
         ->callTableAction('resend_verification', $user);
 
-    Notification::assertSentTo($user, VerifyEmail::class);
+    Notification::assertSentTo($user, VerifyEmailCode::class);
 });
 
 it('soft-deletes a user with correct email confirmation and cascades to stations', function () {

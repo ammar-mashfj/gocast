@@ -1,0 +1,27 @@
+# FrankenPHP Caddyfile — dev + direct-HTTPS (no Cloudflare) mode.
+#
+# Behaviour by $SERVER_NAME:
+#   :80                 → plain HTTP, no certs (local dev)
+#   api.gocast.fm       → Caddy auto-requests a Let's Encrypt cert, serves
+#                         HTTP/2 and HTTP/3 (requires ports 80 + 443 open)
+#
+# If you're behind Cloudflare, swap this for `Caddyfile.cloudflare` — that
+# config uses a Cloudflare Origin Certificate instead of Let's Encrypt.
+
+{
+	frankenphp
+	order php_server before file_server
+}
+
+{$SERVER_NAME::80} {
+	root * /app/public
+
+	encode zstd br gzip
+
+	# Laravel convention — /storage/<path> is the public disk. Served as
+	# static files, not routed through PHP.
+	@storage path /storage/*
+	file_server @storage
+
+	php_server
+}
