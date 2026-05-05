@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "GoCast",
     locale: "en_US",
-    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "GoCast — Live radio from your browser" }],
+    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "GoCast — Live radio from your browser" }],
   },
   twitter: {
     card: "summary_large_image",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     site: "@gocastfm",
     creator: "@gocastfm",
-    images: ["/og-image.png"],
+    images: ["/og-image.jpg"],
   },
   alternates: { canonical: "/" },
 };

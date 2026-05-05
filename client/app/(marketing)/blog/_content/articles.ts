@@ -12,6 +12,7 @@ export interface Article {
   description: string
   date: string
   readingTime: string
+  image?: string
   Body: ComponentType
   faqs?: FAQ[]
 }
@@ -24,6 +25,7 @@ export const ARTICLES: Article[] = [
       "Everything you actually need to know: software compared, equipment that matters, music licensing explained honestly, and how to get your first listeners.",
     date: "2026-05-01",
     readingTime: "~10 minutes",
+    image: "/blog/how-to-start-an-internet-radio-station-2026.webp",
     Body: HowToStartBody,
     faqs: [
       {

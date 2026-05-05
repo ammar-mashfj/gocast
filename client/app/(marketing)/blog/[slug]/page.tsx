@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Image from "next/image"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ARTICLES, getArticle } from "../_content/articles"
@@ -31,7 +32,7 @@ export async function generateMetadata({
       siteName: "GoCast",
       locale: "en_US",
       publishedTime: article.date,
-      images: [{ url: "/og-image.png", width: 1200, height: 630, alt: article.title }],
+      images: [{ url: article.image ?? "/og-image.jpg", width: 1200, height: 630, alt: article.title }],
     },
     twitter: {
       card: "summary_large_image",
@@ -39,7 +40,7 @@ export async function generateMetadata({
       description: article.description,
       site: "@gocastfm",
       creator: "@gocastfm",
-      images: ["/og-image.png"],
+      images: [article.image ?? "/og-image.jpg"],
     },
   }
 }
@@ -55,7 +56,7 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
   const article = getArticle(slug)
   if (!article) notFound()
 
-  const { title, description, date, readingTime, faqs, Body } = article
+  const { title, description, date, readingTime, image, faqs, Body } = article
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -63,6 +64,7 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
     headline: title,
     description,
     datePublished: date,
+    ...(image && { image: `https://gocast.fm${image}` }),
     author: { "@type": "Organization", name: "GoCast" },
     publisher: {
       "@type": "Organization",
@@ -114,6 +116,17 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
             {title}
           </h1>
         </header>
+
+        {image && (
+          <Image
+            src={image}
+            alt={title}
+            width={1200}
+            height={630}
+            priority
+            className="w-full rounded-xl border border-white/[0.06] mb-10 md:mb-14"
+          />
+        )}
 
         <article
           className="

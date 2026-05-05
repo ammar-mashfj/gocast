@@ -41,7 +41,7 @@ export async function generateMetadata({
   const description = station.description || `Tune in to ${station.name} live${station.genre ? ` (${station.genre})` : ""} on GoCast — your browser radio.`
   const appUrl = env.appUrl
   const url = `${appUrl}/station/${station.slug}`
-  const imageUrl = station.artwork_url || `${appUrl}/og-image.png`
+  const imageUrl = station.artwork_url || `${appUrl}/og-image.jpg`
 
   return {
     title,
