@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import Link from "next/link"
 
 export const metadata: Metadata = {
   title: "Roadmap",
@@ -71,44 +70,35 @@ function Section({
 
 export default function RoadmapPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-2xl mx-auto px-6 py-16">
-        <Link
-          href="/"
-          className="text-sm text-muted-foreground no-underline hover:text-foreground transition-colors"
-        >
-          &larr; Back to GoCast
-        </Link>
+    <main className="max-w-2xl mx-auto px-6 py-16">
+      <h1 className="text-3xl md:text-4xl font-semibold -tracking-wide mb-2">
+        Roadmap
+      </h1>
+      <p className="text-sm text-text-faint mb-14 leading-relaxed">
+        What&apos;s live, what&apos;s next, and what&apos;s on the horizon.
+      </p>
 
-        <h1 className="text-3xl md:text-4xl font-semibold -tracking-wide mt-8 mb-2">
-          Roadmap
-        </h1>
-        <p className="text-sm text-text-faint mb-14 leading-relaxed">
-          What&apos;s live, what&apos;s next, and what&apos;s on the horizon.
-        </p>
-
-        <div className="flex flex-col gap-14">
-          <Section label="Live now" accent="bg-emerald-400" items={LIVE_NOW} />
-          <Section label="Coming soon" accent="bg-violet-full" items={COMING_SOON} />
-          <Section
-            label="On the horizon"
-            accent="bg-white/40"
-            items={ON_THE_HORIZON}
-            dimmed
-          />
-        </div>
-
-        <p className="text-sm text-text-faint mt-20 leading-relaxed">
-          Have a feature request? Email{" "}
-          <a
-            href="mailto:hello@gocast.fm"
-            className="text-text-muted no-underline hover:text-white transition-colors"
-          >
-            hello@gocast.fm
-          </a>
-          .
-        </p>
+      <div className="flex flex-col gap-14">
+        <Section label="Live now" accent="bg-emerald-400" items={LIVE_NOW} />
+        <Section label="Coming soon" accent="bg-violet-full" items={COMING_SOON} />
+        <Section
+          label="On the horizon"
+          accent="bg-white/40"
+          items={ON_THE_HORIZON}
+          dimmed
+        />
       </div>
-    </div>
+
+      <p className="text-sm text-text-faint mt-20 leading-relaxed">
+        Have a feature request? Email{" "}
+        <a
+          href="mailto:hello@gocast.fm"
+          className="text-text-muted no-underline hover:text-white transition-colors"
+        >
+          hello@gocast.fm
+        </a>
+        .
+      </p>
+    </main>
   )
 }

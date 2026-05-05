@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import Navbar from "@/components/homepage/navbar/Navbar";
 import HeroSection from "@/components/homepage/heroSection/HeroSection";
 import HowItWorks from "@/components/homepage/HowItWorks";
 import FeaturesSection from "@/components/homepage/FeaturesSection";
@@ -8,7 +7,6 @@ import LiveNow from "@/components/homepage/LiveNow";
 import ListenerLibrary from "@/components/homepage/ListenerLibrary";
 import PricingSection from "@/components/homepage/PricingSection";
 import CtaSection from "@/components/homepage/CtaSection";
-import Footer from "@/components/homepage/Footer";
 
 // Pin the homepage canonical explicitly so it survives any trailing-slash
 // or query-string variant that scrapers or analytics URL builders invent.
@@ -22,18 +20,14 @@ export default async function Home() {
   const isAuthed = !!cookieStore.get("token")?.value;
 
   return (
-    <div className="bg-dark text-white font-sans min-h-screen">
-      <div className="max-w-[1200px] mx-auto">
-        <Navbar />
-        <HeroSection isAuthed={isAuthed} />
-        <HowItWorks />
-        <FeaturesSection />
-        <ListenerLibrary />
-        <LiveNow />
-        <PricingSection />
-        <CtaSection isAuthed={isAuthed} />
-        <Footer />
-      </div>
-    </div>
+    <>
+      <HeroSection isAuthed={isAuthed} />
+      <HowItWorks />
+      <FeaturesSection />
+      <ListenerLibrary />
+      <LiveNow />
+      <PricingSection />
+      <CtaSection isAuthed={isAuthed} />
+    </>
   );
 }

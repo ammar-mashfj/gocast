@@ -8,6 +8,7 @@ import MobileMenu from "./MobileMenu"
 const NAV_LINKS = [
   { label: "How it works", href: "/#features" },
   { label: "Pricing", href: "/#pricing" },
+  { label: "Blog", href: "/blog" },
 ] as const
 
 export default async function Navbar() {

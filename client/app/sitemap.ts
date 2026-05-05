@@ -46,6 +46,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
     { url: `${base}/roadmap`, lastModified: now, changeFrequency: "monthly", priority: 0.4 },
+    { url: `${base}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
+    {
+      url: `${base}/blog/how-to-start-an-internet-radio-station-2026`,
+      lastModified: new Date("2026-05-01"),
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ]
