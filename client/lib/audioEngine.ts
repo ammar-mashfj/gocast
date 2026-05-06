@@ -172,7 +172,8 @@ export class AudioEngine {
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
   ): Promise<AudioEngine> {
-    const ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
     await ctx.audioWorklet.addModule('/pcm-worklet.js')
     const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
 

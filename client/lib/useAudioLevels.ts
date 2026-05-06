@@ -28,7 +28,8 @@ export function useAudioLevels(stream: MediaStream | null): AudioLevels {
     }
     hadStreamRef.current = true
 
-    const ctx = new AudioContext()
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    const ctx = new Ctor()
     ctxRef.current = ctx
     const source = ctx.createMediaStreamSource(stream)
 
