@@ -24,7 +24,6 @@ import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
-import { RelatedStations } from "./RelatedStations"
 import { NotifyMeForm } from "./NotifyMeForm"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -240,7 +239,13 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   const prevNowPlayingRef = useRef<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const playerRef = useRef<IcecastMetadataPlayer | null>(null)
 
-  // Poll listener count + live status
+  // Poll listener count + live status + now-playing.
+  //
+  // The in-stream ICY metadata is the source of truth while the user is
+  // playing (sub-second freshness), but it only exists once they hit play.
+  // Polling here keeps the "Now playing" card populated before play starts
+  // and during silent gaps. While the player is active we let onMetadata
+  // win — its updates are tied to the actual audio buffer position.
   useEffect(() => {
     function fetchListeners() {
       fetch(`${env.apiUrl}/public/stations/${station.slug}/listeners`, {
@@ -249,7 +254,22 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         .then((res) => res.json())
         .then((res) => {
           setListeners(res.data?.count ?? 0)
-          setStation((prev) => ({ ...prev, is_live: res.data?.is_live ?? prev.is_live }))
+          setStation((prev) => ({
+            ...prev,
+            is_live: res.data?.is_live ?? prev.is_live,
+            is_on_air: res.data?.is_on_air ?? prev.is_on_air,
+          }))
+
+          if (!playerRef.current) {
+            const np = res.data?.now_playing
+            const next = {
+              title: typeof np?.title === "string" && np.title.trim() !== "" ? np.title : null,
+              artist: typeof np?.artist === "string" && np.artist.trim() !== "" ? np.artist : null,
+            }
+            setNowPlaying((prev) =>
+              prev.title === next.title && prev.artist === next.artist ? prev : next,
+            )
+          }
         })
         .catch(() => { /* listener poll failed — non-critical, retry on next interval */ })
     }
@@ -408,8 +428,11 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           </p>
         )}
 
-        {/* Now Playing — show whenever station is live OR audio is playing/loading */}
-        {(station.is_live || playing || loading) && (
+        {/* Now Playing — show whenever there's *something* to play. is_on_air
+            covers both the live-broadcaster and AutoDJ-rotation cases; we
+            also keep it visible while the user is mid-play/loading even if
+            polling hasn't caught up yet. */}
+        {(station.is_on_air || playing || loading || nowPlaying.title) && (
           <div className="flex items-center gap-3 mb-8 px-4 py-3 bg-white/[0.04] rounded-xl border border-white/[0.06] w-full md:w-auto md:min-w-[260px] max-w-sm overflow-hidden">
             <div
               key={`${nowPlaying.title ?? ""}|${nowPlaying.artist ?? ""}`}
@@ -473,9 +496,11 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           </div>
         )}
 
-        {/* Controls row */}
+        {/* Controls row — Play button is available whenever audio is on air
+            (broadcaster or AutoDJ). Off-air state only shows when the
+            station is genuinely silent. */}
         <div className="flex items-center gap-4 mb-6">
-          {station.is_live || playing || loading ? (
+          {station.is_on_air || playing || loading || nowPlaying.title ? (
             <>
               <Button
                 size="icon"
@@ -515,9 +540,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           )}
         </div>
 
-        {/* Listeners + Share */}
+        {/* Listeners + Share — show count whenever there's audience to count. */}
         <div className="flex flex-wrap items-center gap-4">
-          {(station.is_live || playing) && (
+          {(station.is_on_air || playing || nowPlaying.title) && (
             <div className="flex items-center gap-2 text-base text-muted-foreground">
               <div className="size-1.5 bg-emerald-400 rounded-full" />
               {listeners.toLocaleString()} listening

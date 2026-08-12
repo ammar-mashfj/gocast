@@ -6,21 +6,33 @@ A freemium internet radio streaming platform. Broadcast live audio from your bro
 
 - **API**: Laravel 13 + Sanctum + Filament 4 (admin) + MySQL 8 + Redis
 - **Client**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + shadcn/ui
-- **Relay**: Node.js + WebSocket (`ws`)
-- **Streaming**: Icecast2 with Liquidsoap standby fallback
-- **Auth**: Sanctum tokens + Google OAuth (Socialite)
+- **Ingest**: MediaMTX (WHIP/WebRTC from browsers, RTMP for OBS, SRT for pro rigs)
+- **Playout**: one Liquidsoap container per station (live/AutoDJ/silence fallback chain)
+- **Streaming**: Icecast2 for listeners, plus HLS from Liquidsoap
+- **Auth**: Sanctum tokens + Google OAuth (Socialite); short-lived HMAC tokens for WHIP publish
 - **Observability**: Sentry (client + server)
-- **Web Server**: Nginx (TLS termination, reverse proxy, WebSocket upgrade)
+- **Web Server**: FrankenPHP (Caddy) — TLS termination, static files, WHIP reverse proxy
 
 ## Audio Pipeline
 
 ```
-Browser (getUserMedia / File) → lamejs MP3 encode → WebSocket → Node relay → Icecast → Listeners
-                                                                      ↓
-                                                           (fallback to /standby.mp3
-                                                            fed by Liquidsoap on
-                                                            broadcaster drop)
+Browser (getUserMedia / File) → WebRTC/WHIP ─┐
+OBS → RTMP ──────────────────────────────────┼→ MediaMTX → RTSP ─┐
+Pro rigs → SRT ──────────────────────────────┘                   │
+                                                                 ▼
+                       AutoDJ playlist.m3u ────────→  Liquidsoap (per station)
+                                                       fallback: live > autodj > silence
+                                                                 │
+                                                    ┌────────────┴────────────┐
+                                                    ▼                         ▼
+                                          Icecast /stream/{slug}      HLS {slug}/playlist.m3u8
+                                                    │                         │
+                                                    └────────→ Listeners ◄────┘
 ```
+
+Audio never stops: each station's Liquidsoap falls back from the live
+broadcaster to the station's AutoDJ playlist to generated silence, so a mount
+is always up and listeners are never dropped mid-reconnect.
 
 ## Project Structure
 
@@ -28,11 +40,15 @@ Browser (getUserMedia / File) → lamejs MP3 encode → WebSocket → Node relay
 gocast/
 ├── api/                # Laravel 13 API + Filament admin panel
 ├── client/             # Next.js 16 app (SPA-style App Router)
-├── relay/              # Node.js WebSocket-to-Icecast relay
 ├── infra/
-│   └── icecast/        # Icecast config + Liquidsoap standby feeder
-├── docs/               # Specs, plans, runbooks
-├── docker-compose.yml  # MySQL + Redis for local dev
+│   ├── icecast/        # Icecast config template + entrypoint
+│   ├── mediamtx/       # WHIP/RTMP/SRT ingest config
+│   ├── liquidsoap/     # Per-station playout image
+│   └── setup-host.sh   # Creates /var/gocast/*, network, liquidsoap image
+├── docs/               # Specs, plans, runbooks (incl. PRODUCTION_DEPLOY.md)
+├── docker-compose.yml  # Production stack (override file adds dev conveniences)
+├── deploy.sh           # Pull, build, migrate, relaunch stations
+├── backup.sh           # MySQL + uploads + playlists → object storage
 ├── GO-LIVE.md          # Launch-readiness punch list
 └── api-reference.md    # Full HTTP API reference
 ```
@@ -40,7 +56,8 @@ gocast/
 ## Features (current)
 
 - Station CRUD with plan-based limits (free / starter / pro / studio)
-- Browser-based broadcaster (mic + file queue, MP3 encode in-page)
+- Browser-based broadcaster (mic + file queue) publishing over WebRTC/WHIP
+- AutoDJ library per station: upload tracks, drag to reorder, plays when nobody's live
 - Public player page per station (`/station/{slug}`) with embed variant
 - Station discovery page (genre filter, live now)
 - "Notify me when live" email capture on offline stations
@@ -49,7 +66,8 @@ gocast/
 - Waitlist capture for pricing tiers
 - Filament admin dashboard: users, stations, sessions, plans, waitlist, activity & auth logs
 - Inactive-broadcaster nudge email (day-7 drip)
-- Standby audio mount so listeners don't drop on broadcaster reconnects
+- Always-on mount per station so listeners don't drop on broadcaster reconnects
+- Live listener counts polled from Icecast every minute
 
 ## Getting Started
 
@@ -82,13 +100,6 @@ gocast/
    cd client
    npm install
    npm run dev
-   ```
-
-4. Relay:
-   ```bash
-   cd relay
-   npm install
-   node index.js
    ```
 
 See `infra/icecast/README.md` for Icecast + Liquidsoap standby setup on a production host.

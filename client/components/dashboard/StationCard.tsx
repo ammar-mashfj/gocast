@@ -27,10 +27,19 @@ export function StationCard({ station }: StationCardProps) {
           className="size-12 rounded-xl shrink-0"
           iconSize={18}
         />
+        {/* Three states:
+              - is_live (human on the mic) → emerald "Live"
+              - !is_live && is_on_air (AutoDJ rotating) → muted "On air"
+              - neither → "Offline" */}
         {station.is_live ? (
           <Badge variant="secondary" className="text-emerald-400 gap-1">
             <span className="size-1.5 bg-emerald-400 rounded-full" />
             Live
+          </Badge>
+        ) : station.is_on_air ? (
+          <Badge variant="secondary" className="gap-1">
+            <span className="size-1.5 bg-muted-foreground rounded-full" />
+            On air
           </Badge>
         ) : (
           <Badge variant="secondary">Offline</Badge>

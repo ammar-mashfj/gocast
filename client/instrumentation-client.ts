@@ -4,25 +4,29 @@
 
 import * as Sentry from "@sentry/nextjs";
 
-Sentry.init({
-  dsn: "https://5f9d94673811eda011ed3d38d4eee134@o4511207716487169.ingest.de.sentry.io/4511238369837136",
+// See sentry.server.config.ts for why this is dev-gated.
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+if (process.env.NODE_ENV === "production" && dsn) {
+  Sentry.init({
+    dsn,
 
-  // Add optional integrations for additional features
-  integrations: [Sentry.replayIntegration()],
+    // Add optional integrations for additional features
+    integrations: [Sentry.replayIntegration()],
 
-  // Sample 20% of client transactions in production to stay within free-tier quota.
-  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.2 : 1,
-  // Enable logs to be sent to Sentry
-  enableLogs: true,
+    // Sample 20% of client transactions in production to stay within free-tier quota.
+    tracesSampleRate: 0.2,
+    // Enable logs to be sent to Sentry
+    enableLogs: true,
 
-  // Replay quota burns fast on launch traffic — keep sampling low in production
-  // to preserve free-tier headroom; capture full sessions in development.
-  replaysSessionSampleRate: process.env.NODE_ENV === "production" ? 0.02 : 1.0,
-  replaysOnErrorSampleRate: process.env.NODE_ENV === "production" ? 0.5 : 1.0,
+    // Replay quota burns fast on launch traffic — keep sampling low to
+    // preserve free-tier headroom.
+    replaysSessionSampleRate: 0.02,
+    replaysOnErrorSampleRate: 0.5,
 
-  // Disable sending user PII (Personally Identifiable Information).
-  // Privacy policy commits to "no personal data is intentionally sent" to Sentry.
-  sendDefaultPii: false,
-});
+    // Disable sending user PII (Personally Identifiable Information).
+    // Privacy policy commits to "no personal data is intentionally sent" to Sentry.
+    sendDefaultPii: false,
+  });
+}
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

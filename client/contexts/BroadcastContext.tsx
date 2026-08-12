@@ -53,7 +53,6 @@ interface BroadcastContextValue {
   engine: AudioEngine | null
   start: (stationId: string, options?: { skipMic?: boolean }) => Promise<void>
   stop: () => Promise<void>
-  updateMetadata: (title: string, artist: string) => void
 }
 
 /**
@@ -142,12 +141,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     setError(null)
   }, [])
 
-  const updateMetadata = useCallback((title: string, artist: string) => {
-    managerRef.current?.updateMetadata(title, artist)
-  }, [])
-
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, start, stop, updateMetadata }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, start, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

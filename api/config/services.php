@@ -37,16 +37,24 @@ return [
 
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
 
-    'relay_health_url' => env('RELAY_HEALTH_URL', 'http://localhost:8081/health'),
-
-    'relay_stations_url' => env('RELAY_STATIONS_URL', 'http://localhost:8081/stations'),
-
     'internal_api_key' => env('INTERNAL_API_KEY'),
 
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
+    'icecast' => [
+        'source_password' => env('ICECAST_SOURCE_PASSWORD'),
+        'admin_user' => env('ICECAST_ADMIN_USER', 'admin'),
+        'admin_password' => env('ICECAST_ADMIN_PASSWORD'),
+
+        // In-network base URL for the admin API (stations:sync-listeners polls
+        // /admin/stats here). The default resolves the `icecast` compose
+        // service by name, which is correct in both dev and prod — this is not
+        // the public listener URL (NEXT_PUBLIC_ICECAST_URL).
+        'url' => env('ICECAST_INTERNAL_URL', 'http://icecast:8000'),
     ],
 
 ];

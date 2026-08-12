@@ -1,6 +1,6 @@
 import { cookies } from "next/headers"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL!
+const API_URL = process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL!
 
 /** Error thrown by {@link apiFetch} when the backend returns a non-2xx response. */
 export class ApiFetchError extends Error {

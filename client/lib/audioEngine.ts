@@ -10,8 +10,6 @@ export interface QueueTrack {
   duration: number
 }
 
-const SAMPLE_RATE = 44100
-const MP3_BITRATE = 320
 const MIC_BOOST = 3
 
 /**
@@ -57,29 +55,29 @@ function readDurationFromFile(file: File): Promise<number> {
 
 /**
  * Single AudioContext mixer. Files and mic both route through gain nodes
- * into an AudioWorkletNode that captures PCM and forwards it — via a
- * MessagePort — directly to an encoder Web Worker. Encoded MP3 chunks
- * arrive on the main thread only to be handed to the WebSocket sender.
+ * into a MediaStreamAudioDestinationNode, whose `.stream` is handed to a
+ * WHIP RTCPeerConnection upstream. The browser handles encoding (Opus)
+ * inside the WebRTC stack — we don't touch PCM bytes ourselves.
  *
  * Chain:
  *   fileSource → fileGain ─┐
- *                           ├→ analyser → workletNode ──port──► Worker (lamejs)
- *   micSource  → micGain  ─┘                                        │
- *                                                                    ▼
- *                                                              main → onChunk
+ *                           ├→ analyser → destination ─► MediaStream → WHIP
+ *   micSource  → micGain  ─┘
  *
  * PTT: micGain 0→MIC_BOOST, fileGain 1→0.2. Release: reverse.
+ *
+ * NOTE: the mixer is *not* connected to ctx.destination — broadcasters
+ * shouldn't hear their own queue out of their speakers (would feed back
+ * through the mic and stack).
  */
 export class AudioEngine {
   private ctx: AudioContext
   private analyser: AnalyserNode
-  private workletNode: AudioWorkletNode
   private fileGain: GainNode
   private micGain: GainNode
   private mixer: GainNode
-  private encoderWorker: Worker
+  private destination: MediaStreamAudioDestinationNode
 
-  // Mic
   private micSource: MediaStreamAudioSourceNode | null = null
   private isTalking = false
 
@@ -96,9 +94,6 @@ export class AudioEngine {
   private repeatMode: RepeatMode = 'all'
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
-  // Callbacks
-  private onChunk: (data: ArrayBuffer) => void
-
   // Reactive state: listeners are notified on any engine state change.
   // `version` is a monotonic counter that React's `useSyncExternalStore`
   // reads as its snapshot — incrementing it guarantees a new primitive
@@ -107,30 +102,12 @@ export class AudioEngine {
   private listeners = new Set<() => void>()
   private version = 0
 
-  private constructor(
-    ctx: AudioContext,
-    workletNode: AudioWorkletNode,
-    encoderWorker: Worker,
-    micStream: MediaStream | null,
-    onChunk: (data: ArrayBuffer) => void,
-  ) {
+  private constructor(ctx: AudioContext, micStream: MediaStream | null) {
     this.ctx = ctx
-    this.workletNode = workletNode
-    this.encoderWorker = encoderWorker
-    this.onChunk = onChunk
 
-    // Encoded chunks arrive from the worker; pass straight through to the sender.
-    this.encoderWorker.addEventListener('message', (e: MessageEvent) => {
-      if (e.data?.type === 'chunk') {
-        this.onChunk(e.data.data as ArrayBuffer)
-      }
-    })
-
-    // Mixer node — everything merges here
     this.mixer = this.ctx.createGain()
     this.mixer.gain.value = 1
 
-    // File gain (default 1 — full volume, primary source)
     this.fileGain = this.ctx.createGain()
     this.fileGain.gain.value = 1
     this.fileGain.connect(this.mixer)
@@ -140,7 +117,6 @@ export class AudioEngine {
     this.micGain.gain.value = 0
     this.micGain.connect(this.mixer)
 
-    // Wire mic through gain (skip if no mic available)
     if (micStream) {
       this.micSource = this.ctx.createMediaStreamSource(micStream)
       this.micSource.connect(this.micGain)
@@ -151,8 +127,10 @@ export class AudioEngine {
     this.analyser.fftSize = 2048
     this.mixer.connect(this.analyser)
 
-    this.analyser.connect(this.workletNode)
-    this.workletNode.connect(this.ctx.destination) // keep node alive
+    // Stereo destination — WebRTC reads `.stream` from this. Opus negotiation
+    // with stereo=1 happens at SDP level in BroadcastManager.
+    this.destination = this.ctx.createMediaStreamDestination()
+    this.analyser.connect(this.destination)
 
     // Save playback progress every 5 seconds
     this.progressTimer = setInterval(() => {
@@ -163,47 +141,21 @@ export class AudioEngine {
   }
 
   /**
-   * Factory that creates an AudioEngine with a running AudioContext,
-   * PCM capture worklet, and encoder Worker. Establishes a MessageChannel
-   * so the worklet forwards PCM directly to the worker without bouncing
-   * through the main thread.
+   * Factory that creates an AudioEngine with a running AudioContext routed
+   * to a MediaStreamAudioDestinationNode. The returned engine's
+   * {@link getOutputStream} feeds the WHIP peer connection.
    */
-  static async create(
-    micStream: MediaStream | null,
-    onChunk: (data: ArrayBuffer) => void,
-  ): Promise<AudioEngine> {
+  static async create(micStream: MediaStream | null): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
-    await ctx.audioWorklet.addModule('/pcm-worklet.js')
-    const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+    // Default sample rate (usually 48kHz) — matches Opus's native rate; no
+    // resampling cost on the encoder side.
+    const ctx = new Ctor()
+    return new AudioEngine(ctx, micStream)
+  }
 
-    const worker = new Worker('/encoder-worker.js')
-    const ready = new Promise<void>((resolve, reject) => {
-      const onReady = (e: MessageEvent) => {
-        if (e.data?.type === 'ready') {
-          worker.removeEventListener('message', onReady)
-          worker.removeEventListener('error', onError)
-          resolve()
-        }
-      }
-      const onError = (e: ErrorEvent) => {
-        worker.removeEventListener('message', onReady)
-        worker.removeEventListener('error', onError)
-        reject(new Error(`Encoder worker failed to load: ${e.message}`))
-      }
-      worker.addEventListener('message', onReady)
-      worker.addEventListener('error', onError)
-    })
-
-    const channel = new MessageChannel()
-    workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
-    worker.postMessage(
-      { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
-      [channel.port2],
-    )
-    await ready
-
-    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk)
+  /** MediaStream containing the mixed mic+files audio. Pass to RTCPeerConnection. */
+  getOutputStream(): MediaStream {
+    return this.destination.stream
   }
 
   // ── PTT ──
@@ -212,7 +164,6 @@ export class AudioEngine {
   pttDown() {
     if (this.isTalking) return
     this.isTalking = true
-    // Duck files to 20%, bring mic up with boost
     this.fileGain.gain.setTargetAtTime(0.2, this.ctx.currentTime, 0.05)
     this.micGain.gain.setTargetAtTime(MIC_BOOST, this.ctx.currentTime, 0.02)
     this.notify()
@@ -222,7 +173,6 @@ export class AudioEngine {
   pttUp() {
     if (!this.isTalking) return
     this.isTalking = false
-    // Restore files to 100%, mute mic
     this.fileGain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.05)
     this.micGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02)
     this.notify()
@@ -276,9 +226,9 @@ export class AudioEngine {
 
   /**
    * Reload queue metadata from IndexedDB. Does NOT resume playback — callers
-   * must invoke {@link resumePlayback} once the output sink (e.g. the relay
-   * WebSocket) is ready, otherwise the first seconds of audio are encoded
-   * before any sender is attached and are lost.
+   * must invoke {@link resumePlayback} once the WHIP connection is live,
+   * otherwise the first seconds of audio leave the mixer before any
+   * peer connection is consuming the destination stream.
    */
   async restoreQueue(): Promise<void> {
     const stored = await loadQueue()
@@ -298,7 +248,7 @@ export class AudioEngine {
 
   /**
    * Resume playback at the saved position, if any. Pairs with
-   * {@link restoreQueue}; call only after the output sink is live.
+   * {@link restoreQueue}; call only after the WHIP peer connection is live.
    */
   async resumePlayback(): Promise<void> {
     const playback = await loadPlayback()
@@ -317,10 +267,6 @@ export class AudioEngine {
    * Append audio files to the queue, stopping once the cumulative size would
    * exceed {@link QUEUE_BYTE_LIMIT}. Reads duration metadata only — the
    * actual audio data is streamed from the File on demand at play time.
-   *
-   * Returns the count of accepted files and any that were skipped because
-   * they would have pushed the queue over the cap; callers surface that to
-   * the user.
    */
   async addFiles(files: FileList | File[]): Promise<AddFilesResult> {
     const skipped: File[] = []
@@ -501,8 +447,8 @@ export class AudioEngine {
     const url = URL.createObjectURL(track.file)
     audio.src = url
 
-    // Route through fileGain so PTT ducking, mixing, and the PCM capture
-    // worklet all continue to operate exactly as before.
+    // Route through fileGain so PTT ducking, mixing, and the MediaStream
+    // destination all continue to operate exactly as before.
     const source = this.ctx.createMediaElementSource(audio)
     source.connect(this.fileGain)
 
@@ -530,10 +476,8 @@ export class AudioEngine {
       audio.addEventListener('loadedmetadata', done, { once: true })
       audio.addEventListener('error', done, { once: true })
     })
-    // User moved on while metadata was loading — bail without starting playback.
     if (this.currentAudio !== audio) return
 
-    // Trust the decoded duration if the header-only probe was off.
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
       if (!track.duration || Math.abs(track.duration - audio.duration) > 0.5) {
         track.duration = audio.duration
@@ -561,8 +505,6 @@ export class AudioEngine {
   private stopCurrent() {
     if (this.currentAudio) {
       this.currentAudio.pause()
-      // Detach src + load() so the browser tears down the media pipeline and
-      // stops holding a file handle.
       this.currentAudio.removeAttribute('src')
       try { this.currentAudio.load() } catch { /* best effort */ }
     }
@@ -577,40 +519,21 @@ export class AudioEngine {
     this.currentObjectUrl = null
   }
 
-  /** Ask the encoder worker to flush; resolves once the final chunk has been dispatched. */
-  flush(): Promise<void> {
-    return new Promise((resolve) => {
-      const handler = (e: MessageEvent) => {
-        if (e.data?.type === 'flushed') {
-          this.encoderWorker.removeEventListener('message', handler)
-          resolve()
-        }
-      }
-      this.encoderWorker.addEventListener('message', handler)
-      this.encoderWorker.postMessage({ type: 'flush' })
-    })
-  }
-
   /** Resume the AudioContext if suspended by the browser's autoplay policy. Safe to call repeatedly. */
   async resume(): Promise<void> {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
   }
 
-  /** Flush remaining MP3 data, tear down the worker + audio graph, and close the AudioContext. */
+  /** Tear down the audio graph and close the AudioContext. */
   async destroy(): Promise<void> {
     if (this.progressTimer) clearInterval(this.progressTimer)
     this.stopCurrent()
-    try {
-      await this.flush()
-    } catch { /* worker already gone */ }
-    this.encoderWorker.terminate()
     this.micSource?.disconnect()
-    this.workletNode.port.onmessage = null
-    this.workletNode.disconnect()
     this.analyser.disconnect()
     this.mixer.disconnect()
     this.fileGain.disconnect()
     this.micGain.disconnect()
+    this.destination.disconnect()
     if (this.ctx.state !== 'closed') await this.ctx.close()
   }
 }

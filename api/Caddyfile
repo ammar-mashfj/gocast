@@ -25,3 +25,51 @@
 
 	php_server
 }
+
+# ---------------------------------------------------------------------------
+# Broadcaster ingest + HLS playout vhost (stream.gocast.fm).
+#
+# Why this block exists: browsers refuse to POST a WHIP offer from an HTTPS
+# page to a plain-HTTP endpoint (mixed content), and MediaMTX serves WHIP over
+# plain HTTP on :8889 (webrtcEncryption: no). This terminates TLS for the
+# ingest hostname and forwards the signalling to MediaMTX on the host.
+#
+# Only the *signalling* (the one-shot SDP POST, and the DELETE on stop) goes
+# through this proxy. WebRTC media never touches Caddy — it flows as UDP
+# straight to MediaMTX on :8189, which is exactly why the ingest hostname must
+# stay grey-clouded (DNS-only) in Cloudflare.
+#
+# The cert here must be publicly trusted (the browser talks directly to this
+# origin, with no Cloudflare edge in front), so this block always uses Caddy's
+# automatic Let's Encrypt issuance — never the Cloudflare Origin Cert. HTTP-01
+# validation works because the hostname resolves straight to this host and
+# ports 80/443 are open.
+#
+# In dev the default `whip.localhost` is never routed to (the client talks to
+# MediaMTX directly on http://localhost:8889 per docker-compose.override.yml)
+# and Caddy signs it with its internal CA, so no ACME calls are made.
+# ---------------------------------------------------------------------------
+{$WHIP_SERVER_NAME:whip.localhost} {
+	encode zstd br gzip
+
+	# HLS playout — Liquidsoap writes /var/gocast/hls/{slug}/playlist.m3u8
+	# plus segments; the api container has /var/gocast bind-mounted, so we
+	# serve them straight off disk. Matched by extension so it can't collide
+	# with the extensionless WHIP paths ({slug}/live/whip) below.
+	@hls path *.m3u8 *.ts *.aac *.mp4 *.m4s
+	handle @hls {
+		root * /var/gocast/hls
+		# Players fetch the manifest from any origin, and a cached manifest
+		# means a stalled stream — the segment window rolls every 2s.
+		header Access-Control-Allow-Origin "*"
+		header Cache-Control "no-cache"
+		file_server
+	}
+
+	# Everything else is WHIP/WHEP signalling → MediaMTX. It runs with
+	# network_mode: host, so from inside this container it lives on the
+	# host gateway (extra_hosts in docker-compose.yml).
+	handle {
+		reverse_proxy host.docker.internal:8889
+	}
+}

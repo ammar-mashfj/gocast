@@ -7,17 +7,32 @@ import { env } from "@/lib/env"
 import PlayerViewClient from "@/app/station/[slug]/PlayerViewClient"
 
 async function getStation(slug: string): Promise<Station | null> {
-  try {
-    const res = await fetch(`${env.apiUrl}/public/stations/${slug}`, {
-      headers: { Accept: "application/json" },
-      next: { revalidate: 60 },
-    })
-    if (!res.ok) return null
-    const json = await res.json()
-    return json.data
-  } catch {
-    return null
+  // Dev: undici holds keep-alive sockets longer than FrankenPHP keeps them
+  // alive, so the first attempt after an idle window hits a half-closed
+  // socket and ConnectTimeouts at 10s. Second attempt opens a fresh socket
+  // and lands in <200ms. In prod a real LB in front of the api hides this.
+  const isDev = process.env.NODE_ENV === "development"
+  const attempts = isDev ? 2 : 1
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`${env.apiUrl}/public/stations/${slug}`, {
+        headers: { Accept: "application/json" },
+        signal: isDev ? AbortSignal.timeout(3000) : undefined,
+        ...(isDev ? { cache: "no-store" as const } : { next: { revalidate: 60 } }),
+      })
+      if (!res.ok) return res.status === 404 ? null : null
+      const json = await res.json()
+      return json.data
+    } catch (err) {
+      // Last attempt — give up. Earlier attempts retry the stale-socket case.
+      if (i === attempts - 1) {
+        if (isDev) console.warn(`[getStation] fetch failed for ${slug}:`, err)
+        return null
+      }
+    }
   }
+  return null
 }
 
 export async function generateMetadata({
@@ -106,7 +121,10 @@ export default async function StationPage({
           "@type": "BroadcastService",
           name: station.name,
           broadcastDisplayName: station.name,
-          ...(station.is_live ? { broadcastFrequency: "Online" } : {}),
+          // schema.org: broadcastFrequency=Online declares the station is
+          // currently broadcasting. AutoDJ counts as broadcasting (audio
+          // is flowing to listeners), so use is_on_air, not is_live.
+          ...(station.is_on_air ? { broadcastFrequency: "Online" } : {}),
         },
       },
       {

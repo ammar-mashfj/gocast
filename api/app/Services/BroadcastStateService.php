@@ -27,7 +27,21 @@ class BroadcastStateService
 
     public function isLive(Station $station): bool
     {
-        $state = $this->activeForStation($station);
+        return $this->isLiveFromState($this->activeForStation($station));
+    }
+
+    /**
+     * Variant of isLive that takes a pre-fetched state array. Used by
+     * StationResource's batched preload path to avoid one cache hit per
+     * station; equivalent to isLive() when the input is the cached value.
+     *
+     * @param  array<string, mixed>|null  $state
+     */
+    public function isLiveFromState(mixed $state): bool
+    {
+        if (! is_array($state)) {
+            return false;
+        }
 
         return in_array($state['status'] ?? null, self::ACTIVE_STATUSES, true);
     }

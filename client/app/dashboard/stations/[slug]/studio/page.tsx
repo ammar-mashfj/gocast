@@ -76,7 +76,7 @@ export default function StudioPage() {
       {state === "reconnecting" && (
         <div className="lg:col-span-2 flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 text-amber-500 text-xs border-b border-amber-500/20">
           <IconLoader2 size={14} className="animate-spin" />
-          Reconnecting to stream relay…
+          Reconnecting to stream server…
         </div>
       )}
 

@@ -2,20 +2,20 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AuthController;
-use App\Http\Controllers\BroadcastStateController;
+use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\ListenerCountController;
+use App\Http\Controllers\MediaMtxAuthController;
+use App\Http\Controllers\MediaMtxLifecycleController;
+use App\Http\Controllers\MetricsController;
+use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PublicStationController;
-use App\Http\Controllers\ResetLiveStationsController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationNotifyController;
-use App\Http\Controllers\StreamEndedController;
 use App\Http\Controllers\StreamSessionController;
-use App\Http\Controllers\StreamValidationController;
-use App\Http\Controllers\UpdateListenerCountController;
-use App\Http\Controllers\UpdateMetadataController;
+use App\Http\Controllers\TrackController;
 use App\Http\Controllers\UploadController;
 use App\Http\Controllers\WaitlistController;
 use Illuminate\Support\Facades\Route;
@@ -72,6 +72,27 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/upload/{type}', UploadController::class)
             ->middleware('throttle:uploads')
             ->whereIn('type', ['images', 'sounds']);
+
+        // Issues a short-lived, station-scoped broadcaster token. The SPA puts
+        // this in the WHIP URL's ?token= so MediaMTX's auth webhook can verify
+        // the publisher belongs to the station owner — without ever exposing the
+        // long-lived Sanctum auth token to URLs / proxy logs.
+        //
+        // Inside `verified` alongside the other productive routes: going live is
+        // exactly the kind of action an unverified signup shouldn't reach, and
+        // owning a station already requires verification.
+        Route::post('/auth/broadcast-token', BroadcastTokenController::class)
+            ->middleware('throttle:30,1');
+
+        // AutoDJ tracks — list, upload, reorder, edit, delete. The reorder
+        // endpoint is registered before the implicit-binding {track} update
+        // so "reorder" doesn't get parsed as a ULID.
+        Route::get('/stations/{station:slug}/tracks', [TrackController::class, 'index']);
+        Route::post('/stations/{station:slug}/tracks', [TrackController::class, 'store'])
+            ->middleware('throttle:uploads');
+        Route::patch('/stations/{station:slug}/tracks/reorder', [TrackController::class, 'reorder']);
+        Route::patch('/tracks/{track}', [TrackController::class, 'update']);
+        Route::delete('/tracks/{track}', [TrackController::class, 'destroy']);
     });
 });
 
@@ -92,12 +113,30 @@ Route::middleware('throttle:5,60')->group(function () {
     Route::post('/waitlist', [WaitlistController::class, 'store']);
 });
 
-// Internal relay routes — authenticated by shared secret (VerifyInternalKey) and throttled at a higher ceiling.
+// MediaMTX auth webhook. MediaMTX cannot send custom headers with the auth
+// call, so this endpoint stays unauthenticated at the middleware level —
+// security is enforced by the per-broadcaster token in the WHIP URL's
+// ?token= query (validated inside MediaMtxAuthController against the
+// station owner). Throttled to prevent token-grinding attacks.
+Route::middleware(['throttle:internal'])->group(function () {
+    Route::post('/internal/whip-auth', MediaMtxAuthController::class);
+});
+
+// MediaMTX path-lifecycle webhooks (publisher connect/disconnect) and the
+// Liquidsoap now-playing push. All three are server-to-server calls from
+// containers we control; the `internal` middleware enforces the shared
+// X-Internal-Key secret so internet attackers can't flip live state or
+// inject now-playing metadata even though the api is internet-facing.
 Route::middleware(['internal', 'throttle:internal'])->group(function () {
-    Route::post('/internal/validate-stream', StreamValidationController::class);
-    Route::post('/internal/broadcast-state', BroadcastStateController::class);
-    Route::post('/internal/stream-ended', StreamEndedController::class);
-    Route::post('/internal/metadata', UpdateMetadataController::class);
-    Route::post('/internal/listeners', UpdateListenerCountController::class);
-    Route::post('/internal/reset-live', ResetLiveStationsController::class);
+    Route::post('/internal/whip-ready', [MediaMtxLifecycleController::class, 'ready']);
+    Route::post('/internal/whip-not-ready', [MediaMtxLifecycleController::class, 'notReady']);
+
+    // Per-station Liquidsoap pushes here on every track change; cached in
+    // Redis for the listener-side now-playing API.
+    Route::post('/internal/now-playing', NowPlayingController::class);
+
+    // Prometheus-format metrics. Scrape with X-Internal-Key from a
+    // Prometheus / Grafana Agent / Vector pipeline. Excluded from the
+    // public throttle bucket because scrapes are scheduled, not bursty.
+    Route::get('/internal/metrics', MetricsController::class)->withoutMiddleware('throttle:internal');
 });

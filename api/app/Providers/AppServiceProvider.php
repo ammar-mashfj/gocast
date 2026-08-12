@@ -8,6 +8,7 @@ use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Notifications\WelcomeNotification;
+use App\Observers\StationObserver;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -42,7 +43,8 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->ip());
         });
 
-        // Higher ceiling for relay-to-API calls that fire on every listener or metadata event.
+        // Higher ceiling for internal server-to-server calls (MediaMTX
+        // lifecycle webhooks, Liquidsoap now-playing pushes).
         RateLimiter::for('internal', function (Request $request) {
             return Limit::perMinute(300)->by($request->ip());
         });
@@ -58,6 +60,10 @@ class AppServiceProvider extends ServiceProvider
             'station' => Station::class,
             'plan' => Plan::class,
         ]);
+
+        // Drive per-station Liquidsoap containers from the Station model
+        // lifecycle. See StationObserver for the create/update/delete hooks.
+        Station::observe(StationObserver::class);
 
         Event::listen(Login::class, RecordAdminLastLogin::class);
 

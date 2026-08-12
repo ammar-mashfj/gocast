@@ -11,9 +11,15 @@ const nextConfig: NextConfig = {
   // the server actually needs at runtime — lets the prod Docker image copy
   // ~30 MB instead of the full node_modules tree (~600 MB). Ignored in dev.
   output: "standalone",
-  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   images: {
     formats: ["image/avif", "image/webp"],
+    // In dev (Docker): the artwork URL stored in the DB is
+    // http://localhost:8000/storage/... which is fine for the browser but
+    // resolves to the *client container itself* when Next's image optimizer
+    // (running inside that container) tries to fetch upstream — net result:
+    // 500s on every image. Skipping optimization in dev avoids the round
+    // trip; the browser loads the original URL directly.
+    unoptimized: process.env.NODE_ENV === "development",
     // Allow loopback/private IPs as upstream image hosts in development —
     // Next's optimizer SSRF-protects against private IPs by default, which
     // would otherwise block fetching artwork from `localhost:8000` during
@@ -55,8 +61,9 @@ const nextConfig: NextConfig = {
     // CORS preflight (stock Icecast 2.x does not answer OPTIONS). In prod, nginx
     // fronts Icecast and NEXT_PUBLIC_ICECAST_URL points at that host directly.
     if (process.env.NODE_ENV !== "development") return []
+    const icecastOrigin = process.env.INTERNAL_ICECAST_URL ?? "http://localhost:8888"
     return [
-      { source: "/stream-proxy/:path*", destination: "http://localhost:8888/:path*" },
+      { source: "/stream-proxy/:path*", destination: `${icecastOrigin}/:path*` },
     ]
   },
   async redirects() {

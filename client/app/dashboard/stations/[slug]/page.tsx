@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { IconArrowLeft, IconExternalLink, IconArrowRight } from "@tabler/icons-react"
+import { IconArrowLeft, IconExternalLink, IconArrowRight, IconPlaylist } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
@@ -71,12 +71,17 @@ export default async function StationDetailPage({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-2xl font-medium truncate">{station.name}</h1>
-              {station.is_live && (
+              {station.is_live ? (
                 <Badge variant="secondary" className="text-emerald-400 gap-1 shrink-0">
                   <span className="size-1.5 bg-emerald-400 rounded-full" />
                   Live
                 </Badge>
-              )}
+              ) : station.is_on_air ? (
+                <Badge variant="secondary" className="gap-1 shrink-0">
+                  <span className="size-1.5 bg-muted-foreground rounded-full" />
+                  On air
+                </Badge>
+              ) : null}
             </div>
             {station.description && (
               <p className="text-sm text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
@@ -159,6 +164,27 @@ export default async function StationDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* AutoDJ library */}
+      <Card className="mb-6">
+        <CardContent className="flex items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-md bg-muted flex items-center justify-center shrink-0">
+              <IconPlaylist size={18} className="text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">AutoDJ library</div>
+              <div className="text-xs text-muted-foreground">Tracks that play in order when you&apos;re not live.</div>
+            </div>
+          </div>
+          <Button variant="outline" asChild className="shrink-0">
+            <Link href={`/dashboard/stations/${station.slug}/library`}>
+              Manage tracks
+              <IconArrowRight data-icon="inline-end" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Recent broadcasts */}
       <Card className="mb-6">

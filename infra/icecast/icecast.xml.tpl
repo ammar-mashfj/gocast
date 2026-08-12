@@ -59,6 +59,11 @@
         <public>0</public>
         <burst-size>16384</burst-size>
         <queue-size>131072</queue-size>
+        <!-- Tell Icecast that incoming source metadata (StreamTitle from
+             Liquidsoap) is UTF-8. Without this, Icecast assumes Latin-1
+             on the wire and players that auto-detect charset can mis-decode
+             multibyte characters. -->
+        <charset>UTF-8</charset>
     </mount>
 
     <mount type="normal">

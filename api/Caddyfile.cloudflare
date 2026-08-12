@@ -26,6 +26,21 @@
 {
 	frankenphp
 	order php_server before file_server
+
+	# Trust Cloudflare's edge ranges so Laravel sees the real client IP
+	# instead of a CF address on every request. Cloudflare rewrites
+	# X-Forwarded-For with the true client appended, and Caddy only honours
+	# that header from a trusted hop — hence this list.
+	#
+	# This belongs in the global `servers` block, NOT inside a site block:
+	# `trusted_proxies` is a server option, and Caddy rejects the whole config
+	# with "unrecognized directive" if it appears as a site directive.
+	#
+	# Ranges from https://www.cloudflare.com/ips/ — re-check on a new deploy;
+	# Cloudflare adds ranges occasionally.
+	servers {
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	}
 }
 
 {$SERVER_NAME} {
@@ -38,13 +53,45 @@
 
 	encode zstd br gzip
 
-	# Real client IP comes from the CF-Connecting-IP header (Cloudflare
-	# strips and rewrites X-Forwarded-For with their own edge IPs).
-	# Without this, Laravel sees Cloudflare's IPs everywhere.
-	trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	# Real-client-IP handling is configured once in the global `servers` block
+	# at the top of this file — see the note there for why it can't live here.
 
 	@storage path /storage/*
 	file_server @storage
 
 	php_server
+}
+
+# ---------------------------------------------------------------------------
+# Broadcaster ingest + HLS playout vhost (stream.gocast.fm).
+#
+# Identical to the block in `Caddyfile` — see there for the full rationale.
+# The one thing to note in Cloudflare mode: this block deliberately does NOT
+# get the `tls /etc/caddy/certs/origin.*` treatment the API block above uses.
+# The ingest hostname is grey-clouded (DNS-only) because WebRTC needs direct
+# UDP, which means the broadcaster's browser validates this cert itself — and
+# a Cloudflare Origin Certificate is only trusted by Cloudflare's edge, not by
+# browsers. So this vhost gets a real Let's Encrypt cert via Caddy's automatic
+# issuance (works because the name resolves straight here and :80 is open).
+# ---------------------------------------------------------------------------
+{$WHIP_SERVER_NAME:whip.localhost} {
+	encode zstd br gzip
+
+	# HLS playout — Liquidsoap writes /var/gocast/hls/{slug}/playlist.m3u8
+	# plus segments; /var/gocast is bind-mounted into this container.
+	# Matched by extension so it can't collide with the extensionless WHIP
+	# paths ({slug}/live/whip) handled below.
+	@hls path *.m3u8 *.ts *.aac *.mp4 *.m4s
+	handle @hls {
+		root * /var/gocast/hls
+		header Access-Control-Allow-Origin "*"
+		header Cache-Control "no-cache"
+		file_server
+	}
+
+	# WHIP/WHEP signalling → MediaMTX (network_mode: host, so it's on the
+	# host gateway from in here).
+	handle {
+		reverse_proxy host.docker.internal:8889
+	}
 }

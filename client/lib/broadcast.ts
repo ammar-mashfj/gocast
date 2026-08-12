@@ -1,7 +1,8 @@
 import { env } from './env'
 import { AudioEngine } from './audioEngine'
+import api from './axios'
 
-export type BroadcastStep = 'mic' | 'encoder' | 'relay' | 'mount'
+export type BroadcastStep = 'mic' | 'engine' | 'whip'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
 
@@ -18,72 +19,38 @@ interface BroadcastCallbacks {
   onError: (message: string) => void
 }
 
-const DEVICE_ID_KEY = 'broadcast:deviceId'
-const ALREADY_LIVE_MESSAGE = 'This station is already live from another device.'
-const NON_RECONNECTABLE_CLOSE_CODES = new Set([4008])
-
-const WS_CLOSE_REASONS: Record<number, string> = {
-  4001: 'Authentication timed out',
-  4003: 'Authentication failed',
-  4004: 'Could not connect to Icecast server',
-  4005: 'Icecast connection lost during broadcast',
-  4007: ALREADY_LIVE_MESSAGE,
-  4008: 'Broadcast session ended',
-  4009: 'Could not synchronize broadcast state. Please try again.',
-}
-
-function getBroadcastDeviceId(): string {
-  if (typeof localStorage === 'undefined') return 'unknown-device'
-
-  try {
-    const existing = localStorage.getItem(DEVICE_ID_KEY)
-    if (existing) return existing
-
-    const id = globalThis.crypto?.randomUUID?.() ?? `device-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    localStorage.setItem(DEVICE_ID_KEY, id)
-    return id
-  } catch {
-    return `volatile-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-}
-
-function getBroadcastErrorMessage(err: unknown): string | null {
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'response' in err &&
-    typeof (err as { response?: { status?: number; data?: { code?: string; message?: string } } }).response === 'object'
-  ) {
-    const response = (err as { response?: { status?: number; data?: { code?: string; message?: string } } }).response
-    if (response?.status === 409 && response.data?.code === 'station_already_live') {
-      return response.data.message || ALREADY_LIVE_MESSAGE
-    }
-  }
-
-  return null
-}
+const DEFAULT_BITRATE_KBPS = 64
+// ICE gathering safety timeout. Mobile broadcasters on 4G commonly need 3–5s
+// to gather their full candidate set; 2s was clipping them.
+const ICE_GATHER_TIMEOUT_MS = 5000
 
 /**
- * Manages the full broadcast lifecycle: connect -> authenticate -> stream -> stop.
+ * Manages the full broadcast lifecycle: mic → audio engine → WHIP.
  *
- * On {@link start}, acquires the microphone, initialises the audio engine (MP3 encoder),
- * opens a WebSocket to the relay, authenticates via Laravel through the relay,
- * and begins streaming encoded audio chunks. {@link stop} tears everything down.
+ * On {@link start}, acquires the microphone, builds the AudioContext mixer,
+ * negotiates a WebRTC connection to MediaMTX over WHIP (HTTP one-shot
+ * SDP exchange), and transitions state to 'live'. {@link stop} closes the
+ * peer connection (which fires MediaMTX's runOnNotReady webhook → Laravel
+ * marks the station offline).
+ *
+ * Auth: we mint a short-lived station-scoped broadcaster token via
+ * POST /api/auth/broadcast-token and append it to the WHIP URL as ?token=...
+ * MediaMTX's auth webhook posts that to /api/internal/whip-auth, which
+ * verifies the token's MAC + expiry + station binding. The Sanctum auth
+ * token never leaves Laravel — only the scoped, 60-second token does.
  */
 export class BroadcastManager {
-  private stationId: string
-  private deviceId: string
+  private stationSlug: string
   private callbacks: BroadcastCallbacks
   private micStream: MediaStream | null = null
-  private ws: WebSocket | null = null
-  private sessionId: string | null = null
-  private authenticated = false
   private engine: AudioEngine | null = null
+  private pc: RTCPeerConnection | null = null
+  private resourceUrl: string | null = null
   private wakeLock: WakeLockSentinel | null = null
   private steps: BroadcastStepInfo[] = []
-  private reconnecting = false
   private stopping = false
-  private visibilityHandler: (() => void) | null = null
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private iceGatherTimer: ReturnType<typeof setTimeout> | null = null
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = []
@@ -91,16 +58,14 @@ export class BroadcastManager {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
     steps.push(
-      { id: 'encoder', label: 'Setting up audio engine', status: 'pending' },
-      { id: 'relay', label: 'Connecting to stream relay', status: 'pending' },
-      { id: 'mount', label: 'Activating mount point', status: 'pending' },
+      { id: 'engine', label: 'Setting up audio engine', status: 'pending' },
+      { id: 'whip', label: 'Connecting to stream server', status: 'pending' },
     )
     return steps
   }
 
-  constructor(stationId: string, callbacks: BroadcastCallbacks) {
-    this.stationId = stationId
-    this.deviceId = getBroadcastDeviceId()
+  constructor(stationSlug: string, callbacks: BroadcastCallbacks) {
+    this.stationSlug = stationSlug
     this.callbacks = callbacks
   }
 
@@ -119,62 +84,54 @@ export class BroadcastManager {
   }
 
   /**
-   * Begin broadcasting. Requests the microphone, sets up the MP3 encoder,
-   * connects to the relay WebSocket, and transitions state to 'live'. If any
-   * step fails, {@link fail} is called and the state
-   * moves to 'error'.
+   * Begin broadcasting. Mic → engine → WHIP. On any failure, calls {@link fail}.
    */
   async start(options?: { skipMic?: boolean }): Promise<void> {
-    this.authenticated = false
     this.stopping = false
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
 
     try {
-      // Step 1: Request microphone (skipped entirely in files-only mode)
+      // Step 1: Microphone (skipped in music-only mode).
       if (!options?.skipMic) {
         this.setActiveStep('mic')
         this.micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            sampleRate: 44100,
-            channelCount: 1,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
+            // Defaults are tuned for voice. Studio-music broadcasters can
+            // disable these via a preference later — for now, voice-friendly
+            // is the right default since the queue files come through the
+            // mixer untouched.
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 2,
           },
         })
         this.updateStep('mic', 'done')
       }
 
-      // Step 2: Set up lamejs MP3 encoder + audio engine
-      this.setActiveStep('encoder')
-      this.engine = await AudioEngine.create(
-        this.micStream,
-        (data) => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(data)
-          }
-        },
-      )
-      // Push track metadata to the relay whenever engine state changes.
-      this.engine.subscribe(() => {
-        const track = this.engine?.getCurrentTrack()
-        if (track && this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'metadata', title: track.title, artist: track.artist }))
-        }
-      })
+      // Step 2: Audio engine — wraps mic + queue mixer, exposes a MediaStream.
+      this.setActiveStep('engine')
+      this.engine = await AudioEngine.create(this.micStream)
+      // The context starts suspended under the autoplay policy. WebRTC only
+      // pulls frames from the MediaStream destination while the context is
+      // running, so a suspended context = the broadcaster sends a stream of
+      // discontiguous/empty Opus frames. Resume now (we're inside the user
+      // gesture that triggered start()) so audio flows from the moment the
+      // peer connection is up — even before any track plays or PTT is held.
+      await this.engine.resume()
       await this.engine.restoreQueue()
-      this.updateStep('encoder', 'done')
+      this.updateStep('engine', 'done')
 
-      // Step 3: Ask the relay to authorize and start the session via Laravel.
-      this.setActiveStep('relay')
+      // Step 3: WHIP handshake.
+      this.setActiveStep('whip')
+      await this.connectWhip()
+      this.updateStep('whip', 'done')
 
-      await this.connectAndAuthenticate()
-
-      // Relay is open and authenticated — safe to resume playback now.
-      // Starting earlier would encode audio that gets dropped because the
-      // WebSocket isn't OPEN yet, clipping the first seconds of the stream.
+      // Connection is up — safe to resume saved playback. Earlier playback
+      // would push audio to the destination before the peer connection was
+      // pulling, clipping the first seconds.
       await this.engine.resumePlayback()
 
       this.acquireWakeLock()
@@ -185,142 +142,163 @@ export class BroadcastManager {
   }
 
   /**
-   * Open a WebSocket to the relay server, send the auth message, and wait
-   * for an 'authenticated' reply. Rejects if the connection fails, closes
-   * unexpectedly, or the 25-second timeout elapses.
+   * Negotiate a WebRTC connection to MediaMTX via WHIP. Single HTTP POST:
+   * we send our SDP offer, MediaMTX returns its SDP answer, we apply it,
+   * ICE flows over the established channel.
    */
-  private connectAndAuthenticate(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(env.wsUrl)
-      this.ws.binaryType = 'arraybuffer'
-      let settled = false
+  private async connectWhip(): Promise<void> {
+    if (!this.engine) throw new Error('Audio engine not initialized')
 
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          this.ws?.close()
-          reject(new Error('Connection timed out — is the relay server running?'))
-        }
-      }, 25000)
-
-      const cleanup = () => clearTimeout(timeout)
-
-      this.ws.onopen = () => {
-        this.updateStep('relay', 'done')
-        this.setActiveStep('mount')
-        this.ws!.send(JSON.stringify({
-          type: 'auth',
-          stationId: this.stationId,
-          deviceId: this.deviceId,
-          sourceType: 'browser',
-        }))
-      }
-
-      this.ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data as string)
-          if (msg.type === 'error' && !settled) {
-            settled = true
-            cleanup()
-            reject(new Error(msg.message || ALREADY_LIVE_MESSAGE))
-            return
-          }
-          if (msg.type === 'authenticated' && !settled) {
-            settled = true
-            cleanup()
-            this.authenticated = true
-            this.sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : null
-            this.updateStep('mount', 'done')
-            resolve()
-          }
-        } catch { /* non-JSON */ }
-      }
-
-      this.ws.onerror = () => {
-        if (!settled) {
-          settled = true
-          cleanup()
-          reject(new Error('Cannot connect to stream relay — is it running?'))
-        }
-      }
-
-      this.ws.onclose = (event) => {
-        const reason = WS_CLOSE_REASONS[event.code]
-          || (event.code >= 4000 ? `Relay error (${event.code})` : 'Connection to relay lost')
-
-        if (!settled) {
-          settled = true
-          cleanup()
-          reject(new Error(reason))
-        } else if (this.authenticated && !this.stopping) {
-          this.authenticated = false
-
-          if (NON_RECONNECTABLE_CLOSE_CODES.has(event.code)) {
-            void this.fail(new Error(reason))
-            return
-          }
-
-          this.scheduleReconnect()
-        }
-      }
-    })
-  }
-
-  /**
-   * Schedule a reconnect attempt. If the page is visible, reconnect immediately.
-   * Otherwise, wait for a visibilitychange event to reconnect.
-   */
-  private scheduleReconnect() {
-    if (this.reconnecting || this.stopping) return
-    this.reconnecting = true
-    this.callbacks.onStateChange('reconnecting' as BroadcastState)
-
-    if (document.visibilityState === 'visible') {
-      this.attemptReconnect()
-    } else {
-      this.visibilityHandler = () => {
-        if (document.visibilityState === 'visible') {
-          this.removeVisibilityHandler()
-          this.attemptReconnect()
-        }
-      }
-      document.addEventListener('visibilitychange', this.visibilityHandler)
-    }
-  }
-
-  private removeVisibilityHandler() {
-    if (this.visibilityHandler) {
-      document.removeEventListener('visibilitychange', this.visibilityHandler)
-      this.visibilityHandler = null
-    }
-  }
-
-  /**
-   * Attempt to reconnect the WebSocket. The relay re-authorizes the same
-   * device through Laravel; the audio engine and mic stream are preserved.
-   */
-  private async attemptReconnect() {
+    // Mint the scoped broadcaster token BEFORE any expensive WebRTC work
+    // (createOffer / ICE gathering). A 401/403 here fails fast instead of
+    // surfacing after 5s of useless ICE candidates.
+    let token: string
     try {
-      if (this.stopping) { this.reconnecting = false; return }
-      await this.connectAndAuthenticate()
-      this.reconnecting = false
-      if (this.stopping) return
-      this.callbacks.onError('')
-      this.callbacks.onStateChange('live')
+      // Token is scoped to this station + ~60s TTL. The endpoint 403s if
+      // the caller doesn't own the station; we surface that distinctly so
+      // the studio UI can show the right message.
+      const tokenResp = await api.post<{ token: string }>(
+        '/auth/broadcast-token',
+        { station_slug: this.stationSlug },
+      )
+      token = tokenResp.data.token
     } catch (err) {
-      this.reconnecting = false
-      if (this.stopping) return
-      const message = getBroadcastErrorMessage(err)
-        ?? (err instanceof Error ? err.message : 'Connection to relay lost')
-      this.callbacks.onError(message)
-      this.callbacks.onStateChange('error')
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 403) {
+        throw new Error('You do not own this station')
+      }
+      throw new Error('Not signed in — please sign in and try again')
     }
-  }
 
-  updateMetadata(title: string, artist: string) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'metadata', title, artist }))
+    const stream = this.engine.getOutputStream()
+    const audioTrack = stream.getAudioTracks()[0]
+    if (!audioTrack) throw new Error('No audio track on output stream')
+
+    this.pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    })
+
+    // If the connection drops mid-broadcast (network blip, server restart),
+    // surface it as an error — auto-reconnect is intentionally deferred.
+    // The user can hit "Try again" from the dashboard.
+    // 'disconnected' is transient: ICE may recover within seconds. We
+    // give it an 8s grace window before treating it as terminal.
+    this.pc.onconnectionstatechange = () => {
+      if (this.stopping) return
+      const s = this.pc?.connectionState
+      if (s === 'failed' || s === 'closed') {
+        if (this.disconnectTimer) {
+          clearTimeout(this.disconnectTimer)
+          this.disconnectTimer = null
+        }
+        this.callbacks.onStateChange('error')
+        this.callbacks.onError('Connection to stream server lost')
+        return
+      }
+      if (s === 'disconnected') {
+        this.callbacks.onStateChange('reconnecting')
+        if (this.disconnectTimer) clearTimeout(this.disconnectTimer)
+        this.disconnectTimer = setTimeout(() => {
+          this.disconnectTimer = null
+          if (this.stopping) return
+          // Still not recovered — treat as terminal.
+          if (this.pc?.connectionState !== 'connected') {
+            this.callbacks.onStateChange('error')
+            this.callbacks.onError('Connection to stream server lost')
+          }
+        }, 8000)
+        return
+      }
+      if (s === 'connected') {
+        if (this.disconnectTimer) {
+          clearTimeout(this.disconnectTimer)
+          this.disconnectTimer = null
+          this.callbacks.onStateChange('live')
+        }
+      }
     }
+
+    const transceiver = this.pc.addTransceiver(audioTrack, {
+      direction: 'sendonly',
+      streams: [stream],
+    })
+
+    // Prefer Opus explicitly — already preferred by default in modern browsers,
+    // but defending against future codec-list reordering is cheap.
+    if (transceiver.setCodecPreferences && typeof RTCRtpSender.getCapabilities === 'function') {
+      const caps = RTCRtpSender.getCapabilities('audio')
+      const opus = caps?.codecs.filter((c) => c.mimeType.toLowerCase() === 'audio/opus') ?? []
+      if (opus.length) transceiver.setCodecPreferences(opus)
+    }
+
+    const offer = await this.pc.createOffer()
+    // SDP munging: bump Opus to stereo + raise the maxaveragebitrate hint.
+    // Browsers don't expose a clean API for this; the SDP rewrite is the
+    // standard pattern (same approach lib-webrtc shims use internally).
+    if (offer.sdp) {
+      offer.sdp = offer.sdp.replace(/a=fmtp:(\d+) ([^\r\n]*)/g, (m, pt, params) => {
+        if (!params.includes('maxaveragebitrate')) {
+          return `a=fmtp:${pt} ${params};maxaveragebitrate=${DEFAULT_BITRATE_KBPS * 1000};stereo=1;sprop-stereo=1`
+        }
+        return m
+      })
+    }
+
+    await this.pc.setLocalDescription(offer)
+
+    // Wait for ICE gathering to complete (non-trickle WHIP).
+    await new Promise<void>((resolve) => {
+      if (this.pc?.iceGatheringState === 'complete') return resolve()
+      const pc = this.pc
+      const onChange = () => {
+        if (pc?.iceGatheringState === 'complete') {
+          if (this.iceGatherTimer) {
+            clearTimeout(this.iceGatherTimer)
+            this.iceGatherTimer = null
+          }
+          pc.removeEventListener('icegatheringstatechange', onChange)
+          resolve()
+        }
+      }
+      pc?.addEventListener('icegatheringstatechange', onChange)
+      this.iceGatherTimer = setTimeout(() => {
+        this.iceGatherTimer = null
+        pc?.removeEventListener('icegatheringstatechange', onChange)
+        resolve()
+      }, ICE_GATHER_TIMEOUT_MS)
+    })
+
+    const sdp = this.pc.localDescription?.sdp
+    if (!sdp) throw new Error('Failed to gather local SDP')
+
+    const endpoint = `${env.whipUrl}/${this.stationSlug}/live/whip?token=${encodeURIComponent(token)}`
+
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: sdp,
+    })
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '')
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error('Not authorized to broadcast on this station')
+      }
+      if (resp.status === 409 || /already|conflict/i.test(body)) {
+        throw new Error('This station is already live from another device.')
+      }
+      throw new Error(`Stream server error (${resp.status})${body ? `: ${body.slice(0, 120)}` : ''}`)
+    }
+
+    // MediaMTX returns the WHIP resource URL in Location — DELETE it on stop
+    // to cleanly release the path. Relative → absolute resolution.
+    const location = resp.headers.get('Location')
+    if (location) {
+      this.resourceUrl = /^https?:/.test(location) ? location : new URL(location, endpoint).toString()
+    }
+
+    const answerSdp = await resp.text()
+    await this.pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
   }
 
   getEngine(): AudioEngine | null {
@@ -332,31 +310,45 @@ export class BroadcastManager {
   }
 
   getSessionId(): string | null {
-    return this.sessionId
+    // No app-side session id under WHIP — Laravel creates the StreamSession
+    // when MediaMTX fires runOnReady. The studio doesn't need it client-side.
+    return null
   }
 
   /**
-   * Tear down the broadcast: destroy the audio engine, stop mic tracks,
-   * close the WebSocket, and end the server-side session. Resets all
-   * internal state back to idle.
+   * Tear down everything. MediaMTX will fire runOnNotReady once it sees the
+   * peer connection close, and Laravel will mark the station offline.
    */
   async stop(): Promise<void> {
     this.stopping = true
-    this.authenticated = false
-    this.removeVisibilityHandler()
-    this.reconnecting = false
+    if (this.disconnectTimer) {
+      clearTimeout(this.disconnectTimer)
+      this.disconnectTimer = null
+    }
+    if (this.iceGatherTimer) {
+      clearTimeout(this.iceGatherTimer)
+      this.iceGatherTimer = null
+    }
+    if (this.resourceUrl) {
+      // Best-effort DELETE to the WHIP resource — releases the path
+      // immediately rather than waiting for the ICE timeout. `keepalive`
+      // + a 2s abort cap ensure the request still flies on tab close
+      // without hanging the unload handler.
+      try {
+        await fetch(this.resourceUrl, {
+          method: 'DELETE',
+          keepalive: true,
+          signal: AbortSignal.timeout(2000),
+        })
+      } catch { /* network gone, that's fine */ }
+      this.resourceUrl = null
+    }
+    try { this.pc?.close() } catch { /* already closed */ }
+    this.pc = null
     await this.engine?.destroy()
     this.micStream?.getTracks().forEach((t) => t.stop())
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      try { this.ws.send(JSON.stringify({ type: 'stop' })) } catch { /* socket is closing */ }
-    }
-    this.ws?.close(1000, 'Stopped by broadcaster')
-
     this.micStream = null
-    this.ws = null
     this.engine = null
-    this.sessionId = null
-    this.authenticated = false
     this.releaseWakeLock()
     this.callbacks.onStateChange('idle')
   }
@@ -373,10 +365,6 @@ export class BroadcastManager {
     this.wakeLock = null
   }
 
-  /**
-   * Handle a broadcast failure. Marks the currently active step as errored,
-   * notifies callbacks, releases resources, and transitions state to 'error'.
-   */
   private async fail(err: unknown) {
     const activeStep = this.steps.find((s) => s.status === 'active')
 
@@ -385,8 +373,6 @@ export class BroadcastManager {
       message = 'Microphone access denied — check browser permissions'
     } else if (err instanceof DOMException && err.name === 'NotFoundError') {
       message = 'No microphone found — plug one in and try again'
-    } else if (getBroadcastErrorMessage(err)) {
-      message = getBroadcastErrorMessage(err)!
     } else if (err instanceof Error) {
       message = err.message
     }
@@ -401,14 +387,11 @@ export class BroadcastManager {
 
     this.micStream?.getTracks().forEach((t) => t.stop())
     try { await this.engine?.destroy() } catch { /* already torn down */ }
-    try { this.ws?.close() } catch { /* already closed */ }
+    try { this.pc?.close() } catch { /* already closed */ }
 
-    // Clear refs so a subsequent stop() (triggered by Try again → start →
-    // stop on the failed manager) doesn't double-destroy and throw.
     this.micStream = null
     this.engine = null
-    this.ws = null
-    this.sessionId = null
-    this.authenticated = false
+    this.pc = null
+    this.resourceUrl = null
   }
 }

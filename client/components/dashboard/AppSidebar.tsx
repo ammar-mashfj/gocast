@@ -10,6 +10,7 @@ import {
   IconChevronUp,
   IconSettings,
   IconLoader2,
+  IconPlaylist,
 } from "@tabler/icons-react"
 import { useSignOut } from "@/hooks/useSignOut"
 import {
@@ -33,8 +34,23 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { User } from "@/interfaces/User"
 
-const NAV_ITEMS = [
+interface NavItem {
+  title: string
+  href: string
+  icon: typeof IconRadio
+  /** Custom matcher when prefix-on-href is too narrow (e.g. AutoDJ also lights
+      up on per-station library pages). Defaults to startsWith(href). */
+  isActive?: (pathname: string) => boolean
+}
+
+const NAV_ITEMS: NavItem[] = [
   { title: "Stations", href: "/dashboard/stations", icon: IconRadio },
+  {
+    title: "AutoDJ",
+    href: "/dashboard/library",
+    icon: IconPlaylist,
+    isActive: (p) => p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/library/.test(p),
+  },
   { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconHistory },
   { title: "Settings", href: "/dashboard/settings", icon: IconSettings },
 ]
@@ -66,16 +82,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_ITEMS.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
-                    <Link href={item.href} className="cursor-pointer">
-                      <item.icon size={18} />
-                      <span className="text-sm">{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {NAV_ITEMS.map((item) => {
+                const active = item.isActive ? item.isActive(pathname) : pathname.startsWith(item.href)
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton asChild isActive={active}>
+                      <Link href={item.href} className="cursor-pointer">
+                        <item.icon size={18} />
+                        <span className="text-sm">{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

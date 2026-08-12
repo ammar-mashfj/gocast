@@ -7,8 +7,11 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authenticates internal API calls from the relay server using a shared secret
- * in the X-Internal-Key header.
+ * Authenticates server-to-server calls (MediaMTX lifecycle webhooks,
+ * Liquidsoap now-playing pushes) using a shared secret in the X-Internal-Key
+ * header. The shared secret is INTERNAL_API_KEY; configured in compose for
+ * the mediamtx container and baked into per-station .liq files by the
+ * Liquidsoap blade template.
  */
 class VerifyInternalKey
 {
@@ -21,7 +24,11 @@ class VerifyInternalKey
     {
         $expected = config('services.internal_api_key');
 
-        if (empty($expected) || $request->header('X-Internal-Key') !== $expected) {
+        if (empty($expected)) {
+            throw new \RuntimeException('INTERNAL_API_KEY is not configured');
+        }
+
+        if (! hash_equals($expected, (string) $request->header('X-Internal-Key'))) {
             return response()->json(['message' => 'Unauthorized.'], 401);
         }
 

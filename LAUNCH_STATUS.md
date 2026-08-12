@@ -10,7 +10,7 @@
 
 | Item | Value | Confidence |
 |------|-------|------------|
-| Production URL | `gocast.fm` (with `api.gocast.fm`, `icecast.gocast.fm`, `relay.gocast.fm`) | Referenced in `docker-compose.prod.yml` build args and `.env.docker.example`. **Not verified live.** |
+| Production URL | `gocast.fm` (with `api.gocast.fm`, `icecast.gocast.fm`, `relay.gocast.fm`) | Referenced in `docker-compose.yml` build args and `.env.docker.example` (see deploy.sh). **Not verified live.** |
 | Is it accessible? | **Unknown** — I did not fetch the URL | — |
 | Deployed branch | **Unknown** — no deploy metadata in repo | — |
 | Last deployed commit | **Unknown** — no deploy artifacts, no `.deploy` file, no CI | — |
@@ -18,7 +18,7 @@
 | Server specs | **Unknown** | — |
 
 **Current HEAD:** `3e08ac9 chore: update environment configuration for API and relay`
-**Working tree:** Significantly dirty — 26 modified files and 40+ untracked files (including `docker-compose.prod.yml`, `docker-compose.observability.yml`, `Caddyfile.cloudflare`, new Commands, Services, Notifications, tests, docs). This strongly suggests a large in-progress release that has not been committed.
+**Working tree:** Significantly dirty — 26 modified files and 40+ untracked files (including `docker-compose.yml` (see deploy.sh), `docker-compose.observability.yml`, `Caddyfile.cloudflare`, new Commands, Services, Notifications, tests, docs). This strongly suggests a large in-progress release that has not been committed.
 
 **Recommendation:** Before anything else, commit/branch the current working tree so you don't lose it. The v2 release state is not captured in git yet.
 
@@ -150,7 +150,7 @@ I cannot mark anything "verified" because I have not run the app. Below is what 
 | Web server | FrankenPHP + Caddy, running in Docker. Config verified in `api/Dockerfile` + `api/Caddyfile*`. | — |
 | Nginx | Not used — Caddy is the reverse proxy. | — |
 | Icecast | `infra/icecast/Dockerfile` builds from Alpine; entrypoint renders `icecast.xml.tpl` with env. Passwords from env. | Running depends on Docker Compose being up. |
-| Icecast auto-start on boot | Depends on Docker service being enabled systemd-side, which is **outside the repo**. `restart: unless-stopped` is typical in compose but should be verified in `docker-compose.prod.yml`. |
+| Icecast auto-start on boot | Depends on Docker service being enabled systemd-side, which is **outside the repo**. `restart: unless-stopped` is typical in compose but should be verified in `docker-compose.yml` (see deploy.sh). |
 | Node relay | `relay/index.js` (762 lines). Runs as a Docker service in `docker-compose.yml`. | Auto-restart depends on compose `restart:` policy + Docker service being up. **Not pm2 or systemd directly** — Docker is the supervisor. |
 | Laravel queue workers | `docker-compose.yml` has a queue worker service. Redis is the driver. | Depends on compose being up. |
 | MySQL | 8.4 in compose. Prod compose removes published port. | — |

@@ -1,9 +1,8 @@
 import Link from "next/link"
 import { Station } from "@/interfaces/Station"
 import { StationArtwork } from "@/components/StationArtwork"
+import { env } from "@/lib/env"
 import styles from "./LiveNow.module.css"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL
 
 const EQ_CLASSES = [styles.eq1, styles.eq2, styles.eq3, styles.eq4, styles.eq5]
 
@@ -35,7 +34,7 @@ function LiveBadge() {
 
 async function getFeaturedStations(): Promise<Station[]> {
   try {
-    const res = await fetch(`${API_URL}/public/featured`, {
+    const res = await fetch(`${env.apiUrl}/public/featured`, {
       headers: { Accept: "application/json" },
       next: { revalidate: 30 },
     })

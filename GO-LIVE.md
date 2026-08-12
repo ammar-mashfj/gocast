@@ -23,7 +23,7 @@
 | 3 | **No nginx reverse proxy** | Infra | Need nginx config for: domain routing, SSL termination, WebSocket upgrade (`/ws/`), Icecast proxy (`/stream/`), SPA fallback |
 | 4 | **No SSL/TLS** | Infra | Client `.env.production` references `https://api.gocast.fm` and `wss://relay.gocast.fm` but no certs exist. Need Let's Encrypt + certbot |
 | 5 | **Dockerfiles are dev-only** | All | API runs `artisan serve` (not production). Client runs `npm run dev`. Need: API -> PHP-FPM + nginx, Client -> build + nginx static serve |
-| 6 | **No production docker-compose** | Infra | Current compose is for local dev. Need `docker-compose.prod.yml` with proper services, secrets, health checks, restart policies |
+| 6 | **No production docker-compose** | Infra | Current compose is for local dev. Need `docker-compose.yml` (see deploy.sh) with proper services, secrets, health checks, restart policies |
 | 7 | **Hardcoded "hackme" passwords** | Relay | Relay defaults to `"hackme"` for Icecast passwords if env vars are missing. Must require env vars or fail |
 
 ### HIGH PRIORITY (Should fix before launch)
@@ -84,7 +84,7 @@
 
 6. Create production Dockerfiles (PHP-FPM, nginx static serve)
 7. Create nginx config with SSL (Let's Encrypt)
-8. Create `docker-compose.prod.yml`
+8. Create `docker-compose.yml` (see deploy.sh)
 9. Set up Icecast on VPS
 
 ### Phase 3 — Client Fixes

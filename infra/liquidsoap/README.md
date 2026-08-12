@@ -9,16 +9,18 @@ when they reconnect.
 Out of the box, the container publishes **pure silence** — no asset drops
 required, the stack boots on `docker compose up` with nothing else to set up.
 
+<!-- Per-station Liquidsoap containers are spawned by Laravel's LiquidsoapSupervisor service; this directory is the Dockerfile + standby fallback config. -->
+
 ## Swap in a real bed
 
 Ambient is better than musical — it's meant to sit under "the stream is
 reconnecting" without drawing attention.
 
 1. Drop an MP3 at `infra/liquidsoap/standby.mp3`.
-2. Edit `docker-compose.yml` under the `liquidsoap:` service `volumes:` and
-   mount the file into the container:
-   ```yaml
-   - ./infra/liquidsoap/standby.mp3:/etc/liquidsoap/standby.mp3:ro
+2. Rebuild the image so the file is baked in (the supervisor uses
+   `gocast/liquidsoap:latest`):
+   ```bash
+   docker build -t gocast/liquidsoap:latest infra/liquidsoap/
    ```
 3. Edit `standby.liq` — replace:
    ```liquidsoap
@@ -30,7 +32,8 @@ reconnecting" without drawing attention.
    ```
    `mksafe()` falls back to silence if the file is ever unreadable, so the
    output never goes dark.
-4. `docker compose restart liquidsoap`
+4. Restart the per-station containers so they pick up the new image
+   (e.g. `docker ps --filter name=gocast-liquidsoap- -q | xargs -r docker restart`).
 
 ## Rotating through multiple beds
 

@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Session;
 use Tests\TestCase;
 
 /*
@@ -16,6 +19,24 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(function () {
+        // Cache + session are the `array` drivers in tests (see phpunit.xml).
+        // Array storage lives in a static on each repository for the
+        // lifetime of the PHP process, so without explicit flushes every
+        // test inherits the previous test's:
+        //   • rate-limit counters / password-reset codes / broadcast state
+        //     (cache) — symptom: `throttle:3,1` endpoints reject after
+        //     test #4 in a file.
+        //   • authenticated user on each guard (session) — symptom:
+        //     `actingAs(..., 'admin')` doesn't actually override a prior
+        //     test's admin auth, so the "customer should be Forbidden"
+        //     assertion silently sees the previous admin and gets 200.
+        // Both surface as "passes alone, fails in suite" — the trickiest
+        // form of flake to debug. Flushing all three sidesteps it.
+        Cache::flush();
+        Session::flush();
+        Auth::forgetGuards();
+    })
     ->in('Feature');
 
 /*

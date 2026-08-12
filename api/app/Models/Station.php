@@ -105,6 +105,16 @@ class Station extends Model
         return $this->hasMany(StreamSession::class);
     }
 
+    /**
+     * AutoDJ tracks, ordered by manual position (drag-to-reorder UI). The
+     * `position` column is gap-free per station; PlaylistFileWriter relies
+     * on this ordering to write `playlist.m3u`.
+     */
+    public function tracks(): HasMany
+    {
+        return $this->hasMany(Track::class)->orderBy('position');
+    }
+
     public function notifySubscriptions(): HasMany
     {
         return $this->hasMany(StationNotifySubscription::class);

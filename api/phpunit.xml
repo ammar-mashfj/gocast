@@ -18,19 +18,35 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="mysql"/>
-        <env name="DB_DATABASE" value="gocast_test"/>
-        <env name="DB_URL" value=""/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="PULSE_ENABLED" value="false"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
-        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- force="true" overrides values already set in the process env
+             (api/.env is loaded via docker-compose's env_file). Without it,
+             `APP_ENV=local` from the dev .env wins, `app()->environment()`
+             returns 'local' inside tests, and guards like
+             `app()->runningUnitTests()` silently return false — which used
+             to let StationObserver spawn real Liquidsoap containers from
+             factory calls. -->
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="mysql" force="true"/>
+        <env name="DB_DATABASE" value="gocast_test" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="PULSE_ENABLED" value="false" force="true"/>
+        <env name="TELESCOPE_ENABLED" value="false" force="true"/>
+        <env name="NIGHTWATCH_ENABLED" value="false" force="true"/>
+        <!-- Redirect the per-station Liquidsoap host paths at a throwaway tmp
+             tree. PlaylistFileWriter deliberately has no test-mode guard (the
+             tests assert on real m3u contents), and StationObserver's
+             forceDeleted hook calls File::deleteDirectory() on the station dir.
+             Without these overrides both operate on the live /var/gocast tree
+             and every factory-created station leaks a directory into it. -->
+        <env name="LIQUIDSOAP_LIQ_DIR" value="/tmp/gocast-test/liq" force="true"/>
+        <env name="LIQUIDSOAP_PLAYLISTS_DIR" value="/tmp/gocast-test/playlists" force="true"/>
+        <env name="LIQUIDSOAP_HLS_DIR" value="/tmp/gocast-test/hls" force="true"/>
     </php>
 </phpunit>

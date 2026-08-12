@@ -21,7 +21,25 @@ FROM dunglas/frankenphp:php8.4 AS base
 # reliable than hand-rolling apt + docker-php-ext-install.
 RUN install-php-extensions pdo_mysql redis bcmath gd zip intl mbstring opcache
 
+# Docker CLI — used by LiquidsoapSupervisor to spawn per-station Liquidsoap
+# containers via the host's Docker socket (mounted into this container by
+# compose). Only the CLI; the daemon stays on the host.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+  && install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+  && chmod a+r /etc/apt/keyrings/docker.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+     > /etc/apt/sources.list.d/docker.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends docker-ce-cli \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Override PHP defaults so audio uploads (≤50 MB per file, batches up to ~100 MB)
+# aren't truncated before Laravel sees them. See api/php/uploads.ini for details.
+COPY php/uploads.ini /usr/local/etc/php/conf.d/zz-uploads.ini
 
 WORKDIR /app
 

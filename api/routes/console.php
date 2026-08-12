@@ -8,11 +8,25 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Run every 5 minutes to detect relay outages and mark orphaned live stations as offline.
-Schedule::command('app:clean-stale-streams')->everyFiveMinutes();
-
 Schedule::command('admin:detect-login-abuse')
     ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Listener counts come from Icecast's admin API — nothing pushes them to us.
+// Every minute is a good balance: the dashboard number feels live without
+// hammering Icecast. withoutOverlapping so a slow/hung poll can't stack up.
+Schedule::command('stations:sync-listeners')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Nightly orphan-container sweep — `stations:reconcile` is also run from
+// deploy.sh after every deploy, but the scheduled run catches drift in
+// between (manual DB edits, failed observer runs, etc.). withoutOverlapping
+// in case a previous run is still talking to a slow daemon.
+Schedule::command('stations:reconcile')
+    ->dailyAt('03:00')
     ->withoutOverlapping()
     ->runInBackground();
 
