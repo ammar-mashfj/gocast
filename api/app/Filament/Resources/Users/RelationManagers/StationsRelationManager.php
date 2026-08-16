@@ -17,10 +17,13 @@ class StationsRelationManager extends RelationManager
     {
         return $table
             ->recordTitleAttribute('name')
+            ->modifyQueryUsing(fn ($query) => $query->withExists([
+                'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),
+            ]))
             ->columns([
                 TextColumn::make('name')->searchable(),
                 TextColumn::make('slug'),
-                IconColumn::make('is_live')->boolean(),
+                IconColumn::make('has_open_session')->boolean()->label('Live'),
                 IconColumn::make('featured')->boolean(),
                 TextColumn::make('created_at')->dateTime(),
             ])

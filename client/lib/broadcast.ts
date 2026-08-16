@@ -2,7 +2,7 @@ import { env } from './env'
 import { AudioEngine } from './audioEngine'
 import api from './axios'
 
-export type BroadcastStep = 'mic' | 'engine' | 'whip'
+export type BroadcastStep = 'station' | 'mic' | 'engine' | 'whip'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
 
@@ -21,8 +21,23 @@ interface BroadcastCallbacks {
 
 const DEFAULT_BITRATE_KBPS = 64
 // ICE gathering safety timeout. Mobile broadcasters on 4G commonly need 3–5s
-// to gather their full candidate set; 2s was clipping them.
-const ICE_GATHER_TIMEOUT_MS = 5000
+// to gather their full candidate set; 2s was clipping them. Raised again for
+// TURN: a relay candidate needs a round trip to allocate, and over TLS/443
+// (the path that gets through VPNs and UDP-blocking firewalls) that is the
+// slowest candidate to arrive — on a blocked network it is also the ONLY one,
+// so clipping it here would fail exactly the users TURN exists to serve.
+const ICE_GATHER_TIMEOUT_MS = 8000
+// How long to wait for the peer connection to actually reach 'connected'
+// after the SDP exchange. A 201 from WHIP only means the offer/answer was
+// accepted — media does not flow until ICE completes, and MediaMTX drops the
+// session with "deadline exceeded while waiting connection" if it never does.
+// Local networks connect in well under a second; 15s is generous headroom for
+// a slow relay without leaving the broadcaster staring at a lie.
+const ICE_CONNECT_TIMEOUT_MS = 15000
+// A cold container needs roughly 3–5s to build its audio graph and connect to
+// Icecast. Wait up to 20s before publishing anyway — see ensureStationOnAir.
+const STATION_READY_TIMEOUT_MS = 20000
+const STATION_READY_POLL_MS = 1000
 
 /**
  * Manages the full broadcast lifecycle: mic → audio engine → WHIP.
@@ -51,9 +66,16 @@ export class BroadcastManager {
   private stopping = false
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null
   private iceGatherTimer: ReturnType<typeof setTimeout> | null = null
+  private iceConnectTimer: ReturnType<typeof setTimeout> | null = null
+  // True once the peer connection has actually reached 'connected' at least
+  // once. Until then the initial-connect waiter owns failure reporting, so the
+  // long-lived drop handler must stay out of its way.
+  private established = false
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
-    const steps: BroadcastStepInfo[] = []
+    const steps: BroadcastStepInfo[] = [
+      { id: 'station', label: 'Bringing your station on air', status: 'pending' },
+    ]
     if (!skipMic) {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
@@ -88,11 +110,18 @@ export class BroadcastManager {
    */
   async start(options?: { skipMic?: boolean }): Promise<void> {
     this.stopping = false
+    this.established = false
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
 
     try {
+      // Step 0: Make sure the station is on air and its Liquidsoap container
+      // is actually ready to consume our stream.
+      this.setActiveStep('station')
+      await this.ensureStationOnAir()
+      this.updateStep('station', 'done')
+
       // Step 1: Microphone (skipped in music-only mode).
       if (!options?.skipMic) {
         this.setActiveStep('mic')
@@ -142,6 +171,53 @@ export class BroadcastManager {
   }
 
   /**
+   * Start the station if it is off air, then wait until its container
+   * reports that audio is actually flowing.
+   *
+   * Stations are no longer running by default: creating one is configuration,
+   * and a container only exists between start and stop. Publishing into a
+   * station that has not been started — or one whose container is still
+   * building its audio graph — means MediaMTX accepts our stream and nobody
+   * hears it, because the RTSP consumer isn't there yet.
+   *
+   * The API's start is idempotent, so calling it on an already-running
+   * station costs one round-trip and does not restart anything (a restart
+   * would drop existing listeners).
+   */
+  private async ensureStationOnAir(): Promise<void> {
+    try {
+      await api.post(`/stations/${this.stationSlug}/start`)
+    } catch (err) {
+      const response = (err as { response?: { status?: number; data?: { message?: string } } })?.response
+      // Plan limits and ownership are the two refusals worth repeating
+      // verbatim — the API writes them for humans.
+      if (response?.status === 422 || response?.status === 403) {
+        throw new Error(response.data?.message ?? 'This station cannot go on air right now')
+      }
+      throw new Error('Could not bring the station on air — please try again')
+    }
+
+    const deadline = Date.now() + STATION_READY_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      try {
+        const { data } = await api.get<{ data: { ready: boolean } }>(
+          `/stations/${this.stationSlug}/status`,
+        )
+        if (data.data.ready) return
+      } catch {
+        // Status is a live read from the container; a blip here is not a
+        // reason to abandon the broadcast.
+      }
+      await new Promise((resolve) => setTimeout(resolve, STATION_READY_POLL_MS))
+    }
+
+    // Timed out. Publish anyway rather than refusing to broadcast: Liquidsoap
+    // retries its RTSP pull every couple of seconds, so a container that
+    // finishes booting late still picks the stream up — the broadcaster may
+    // just lose the first few seconds.
+  }
+
+  /**
    * Negotiate a WebRTC connection to MediaMTX via WHIP. Single HTTP POST:
    * we send our SDP offer, MediaMTX returns its SDP answer, we apply it,
    * ICE flows over the established channel.
@@ -153,15 +229,25 @@ export class BroadcastManager {
     // (createOffer / ICE gathering). A 401/403 here fails fast instead of
     // surfacing after 5s of useless ICE candidates.
     let token: string
+    // STUN-only fallback, matching the server's own when TURN is unconfigured.
+    // Used if the response predates ice_servers or omits it — never leaves the
+    // connection with an empty ICE config.
+    let iceServers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }]
     try {
       // Token is scoped to this station + ~60s TTL. The endpoint 403s if
       // the caller doesn't own the station; we surface that distinctly so
       // the studio UI can show the right message.
-      const tokenResp = await api.post<{ token: string }>(
+      const tokenResp = await api.post<{ token: string; ice_servers?: RTCIceServer[] }>(
         '/auth/broadcast-token',
         { station_slug: this.stationSlug },
       )
       token = tokenResp.data.token
+      // Server-issued: STUN plus short-lived TURN credentials when TURN is
+      // configured. TURN is what lets broadcasters behind a VPN, a UDP-blocking
+      // firewall, or symmetric NAT connect at all — see TurnCredentialService.
+      if (Array.isArray(tokenResp.data.ice_servers) && tokenResp.data.ice_servers.length) {
+        iceServers = tokenResp.data.ice_servers
+      }
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 403) {
@@ -174,9 +260,7 @@ export class BroadcastManager {
     const audioTrack = stream.getAudioTracks()[0]
     if (!audioTrack) throw new Error('No audio track on output stream')
 
-    this.pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    })
+    this.pc = new RTCPeerConnection({ iceServers })
 
     // If the connection drops mid-broadcast (network blip, server restart),
     // surface it as an error — auto-reconnect is intentionally deferred.
@@ -185,6 +269,10 @@ export class BroadcastManager {
     // give it an 8s grace window before treating it as terminal.
     this.pc.onconnectionstatechange = () => {
       if (this.stopping) return
+      // Before the first successful connect, waitForConnection() is the one
+      // reporting outcomes — it has the better error text and a deadline.
+      // Without this guard both fire and the broadcaster gets two messages.
+      if (!this.established) return
       const s = this.pc?.connectionState
       if (s === 'failed' || s === 'closed') {
         if (this.disconnectTimer) {
@@ -271,6 +359,24 @@ export class BroadcastManager {
     const sdp = this.pc.localDescription?.sdp
     if (!sdp) throw new Error('Failed to gather local SDP')
 
+    // A non-trickle WHIP offer carries every candidate it will ever have. Zero
+    // candidates means the browser was not permitted to gather any, and the
+    // publish is already doomed: MediaMTX answers 201, then times the session
+    // out with "deadline exceeded while waiting connection" because there is
+    // nothing to connect to. Failing here turns a silent 15s dead end into an
+    // immediate, nameable error.
+    //
+    // In practice this is WebRTC being blocked rather than a network fault —
+    // most often a VPN's "WebRTC leak protection" or a privacy extension
+    // setting Chrome's WebRTCIPHandlingPolicy to disable_non_proxied_udp.
+    if (!/^a=candidate:/m.test(sdp)) {
+      throw new Error(
+        'Your browser could not gather any network candidates, so the stream ' +
+        'cannot connect. This is usually a VPN with WebRTC leak protection, or ' +
+        'a privacy extension blocking WebRTC. Disable it for this site and try again.',
+      )
+    }
+
     const endpoint = `${env.whipUrl}/${this.stationSlug}/live/whip?token=${encodeURIComponent(token)}`
 
     const resp = await fetch(endpoint, {
@@ -299,6 +405,69 @@ export class BroadcastManager {
 
     const answerSdp = await resp.text()
     await this.pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+
+    // The 201 above only means the SDP exchange was accepted. Media does not
+    // flow until ICE completes, and MediaMTX will not fire runOnReady — so
+    // Laravel never opens a StreamSession and listeners hear the AutoDJ or
+    // silence — until it does. Returning here without waiting is what let the
+    // studio show "live" over a connection that never came up.
+    await this.waitForConnection()
+    this.established = true
+  }
+
+  /**
+   * Resolve once the peer connection is genuinely carrying media, reject if it
+   * fails or never gets there.
+   *
+   * 'connected' is the state that means ICE picked a candidate pair and DTLS
+   * completed. 'failed' is terminal. 'disconnected' is NOT handled here: it
+   * cannot occur before the first successful connect, and after that it is the
+   * long-lived handler's business, which has its own grace window.
+   */
+  private waitForConnection(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const pc = this.pc
+      if (!pc) return reject(new Error('Connection was closed before it opened'))
+
+      const cleanup = () => {
+        pc.removeEventListener('connectionstatechange', onChange)
+        if (this.iceConnectTimer) {
+          clearTimeout(this.iceConnectTimer)
+          this.iceConnectTimer = null
+        }
+      }
+
+      const onChange = () => {
+        if (this.stopping) {
+          cleanup()
+          return reject(new Error('Broadcast cancelled'))
+        }
+        const state = pc.connectionState
+        if (state === 'connected') {
+          cleanup()
+          resolve()
+        } else if (state === 'failed' || state === 'closed') {
+          cleanup()
+          reject(new Error(
+            'Could not establish the audio connection to the stream server. ' +
+            'A VPN, firewall, or privacy extension blocking WebRTC is the ' +
+            'usual cause.',
+          ))
+        }
+      }
+
+      this.iceConnectTimer = setTimeout(() => {
+        cleanup()
+        reject(new Error(
+          'Timed out connecting to the stream server. Your network may be ' +
+          'blocking WebRTC — this is common on VPNs and restrictive firewalls.',
+        ))
+      }, ICE_CONNECT_TIMEOUT_MS)
+
+      pc.addEventListener('connectionstatechange', onChange)
+      // Cover the race where it connected between the await above and here.
+      onChange()
+    })
   }
 
   getEngine(): AudioEngine | null {
@@ -329,6 +498,11 @@ export class BroadcastManager {
       clearTimeout(this.iceGatherTimer)
       this.iceGatherTimer = null
     }
+    if (this.iceConnectTimer) {
+      clearTimeout(this.iceConnectTimer)
+      this.iceConnectTimer = null
+    }
+    this.established = false
     if (this.resourceUrl) {
       // Best-effort DELETE to the WHIP resource — releases the path
       // immediately rather than waiting for the ICE timeout. `keepalive`

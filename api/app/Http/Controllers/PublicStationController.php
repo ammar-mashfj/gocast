@@ -21,7 +21,9 @@ class PublicStationController extends Controller
     public function featured(): AnonymousResourceCollection
     {
         return StationResource::collection(
-            Station::where('is_live', true)
+            Station::query()
+                ->running()
+                ->live()
                 ->where('featured', true)
                 ->limit(4)
                 ->get()
@@ -61,7 +63,20 @@ class PublicStationController extends Controller
         if ($sort === 'new') {
             $query->orderByDesc('created_at');
         } else {
-            $query->orderByDesc('is_live')->orderBy('name');
+            // Stations that are actually on air rank above ones that are
+            // merely configured — a directory full of unstartable stations
+            // is worse than a short one.
+            //
+            // Live-ness is a subquery rather than a column so the sort stays
+            // in SQL and the page stays paginated. Deriving it in PHP would
+            // mean sorting only within the current page, which puts a live
+            // station on page 3 below a silent one on page 1.
+            $query->withExists([
+                'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),
+            ])
+                ->orderByRaw("desired_state = 'running' desc")
+                ->orderByDesc('has_open_session')
+                ->orderBy('name');
         }
 
         return StationResource::collection($query->paginate(24));

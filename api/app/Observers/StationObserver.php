@@ -10,25 +10,29 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Drives the lifecycle of per-station Liquidsoap containers from the
- * Station model:
+ * Keeps a RUNNING station's container in step with its configuration.
  *
- *  • created   → spawn the container (live silence on Icecast immediately)
- *  • updated   → re-render the .liq (name/genre/desc affect Icecast metadata
- *                block) and restart so Liquidsoap picks up the new config
+ * This observer used to own the whole container lifecycle, spawning one on
+ * `created`. It no longer does: starting a station is an explicit act by its
+ * owner (StationLifecycleService, driven by the power button), so a freshly
+ * created station has no container, no Icecast mount and no cost until
+ * somebody presses start. That is also what lets an owner build a playlist
+ * and set artwork before anyone can tune in.
+ *
+ * What's left here is config drift:
+ *
+ *  • updated   → re-render the .liq (name/genre/desc land in the Icecast
+ *                metadata block) and restart — but only while the station is
+ *                meant to be running. A stopped station picks up the change
+ *                when it next starts, since up() always re-renders.
  *  • deleting  → stop and remove the container (also fires for soft deletes;
  *                listeners stop hearing the station as soon as it's "deleted")
- *  • restored  → bring it back when a soft-deleted station is undeleted
+ *  • restored  → bring a soft-deleted station back, if it was running
  *
- * The supervisor calls `docker run` synchronously via the docker socket. It
- * returns as soon as the container is *spawned*, not when Liquidsoap is
- * actually emitting audio (~3-5s later). For station create that's fine —
- * the controller response doesn't block on audio readiness.
- *
- * Failures are logged but NOT re-thrown. We don't want a Docker daemon
- * hiccup to cascade-fail the entire HTTP request that created the station.
- * If the container fails to start, the station exists in the DB but produces
- * no audio — recoverable manually via `php artisan station:relaunch {slug}`.
+ * Failures are logged but NOT re-thrown: a Docker daemon hiccup must not
+ * cascade-fail the HTTP request that renamed a station. Drift left behind by
+ * a failure is picked up by `stations:reconcile`, which converges containers
+ * onto whatever `desired_state` says.
  */
 class StationObserver
 {
@@ -37,28 +41,16 @@ class StationObserver
         private PlaylistFileWriter $playlistWriter,
     ) {}
 
-    public function created(Station $station): void
-    {
-        if (LiquidsoapSupervisor::inTestMode()) {
-            return;
-        }
-
-        // Stamp an empty playlist.m3u so Liquidsoap's `playlist()` source
-        // resolves cleanly the first time the container boots — without it
-        // we'd see "file not found" warnings until the user uploads a track.
-        $this->safely('playlist-init', $station, fn () => $this->playlistWriter->write($station));
-        $this->safely('up', $station, fn () => $this->supervisor->up($station));
-    }
-
     /**
      * Columns whose values are baked into the rendered .liq file. Changing
      * any of these requires a Liquidsoap container restart so the new value
      * lands in the Icecast metadata block / output mount / etc.
      *
-     * Importantly this excludes `is_live`, `listener_count`, and the
-     * timestamps — those flip constantly during a broadcast (every
-     * runOnReady / runOnNotReady webhook), and restarting Liquidsoap on each
-     * flip would kick every listener off mid-stream.
+     * Importantly this excludes `listener_count` and the timestamps — those
+     * change constantly during a broadcast, and restarting Liquidsoap on each
+     * change would kick every listener off mid-stream. Live-ness is no longer
+     * a column at all (it is an open StreamSession), so the runOnReady /
+     * runOnNotReady webhooks no longer touch this row and cannot reach here.
      */
     private const LIQ_RELEVANT_COLUMNS = [
         'name',
@@ -73,6 +65,17 @@ class StationObserver
     public function updated(Station $station): void
     {
         if (! $station->wasChanged(self::LIQ_RELEVANT_COLUMNS)) {
+            return;
+        }
+
+        // A stopped station has nothing to restart. up() re-renders the .liq
+        // from scratch every time, so the edit is picked up whenever the
+        // owner next starts it — no drift, no container.
+        //
+        // The old-slug teardown below still runs either way: a rename leaves
+        // a container under the previous name reachable by nobody, and if the
+        // station is stopped that container should not exist at all.
+        if (! $station->isRunning() && ! $station->wasChanged('slug')) {
             return;
         }
 
@@ -100,6 +103,10 @@ class StationObserver
             });
         }
 
+        if (! $station->isRunning()) {
+            return;
+        }
+
         $this->safely('up', $station, fn () => $this->supervisor->up($station));
     }
 
@@ -119,10 +126,24 @@ class StationObserver
                 File::deleteDirectory($dir);
             }
         });
+
+        // The rendered .liq and the HLS working directory are the supervisor's
+        // to clean. Without this they outlive the station forever — small
+        // individually, unbounded across every station ever deleted, on a disk
+        // shared with the track libraries.
+        $this->safely('artifact-wipe', $station, function () use ($station) {
+            $this->supervisor->destroyArtifacts($station->slug);
+        });
     }
 
     public function restored(Station $station): void
     {
+        // Restore returns the station to whatever state it was in when it was
+        // deleted. A station that was off air stays off air.
+        if (! $station->isRunning()) {
+            return;
+        }
+
         $this->safely('up', $station, fn () => $this->supervisor->up($station));
     }
 

@@ -30,7 +30,8 @@ export function StationCard({ station }: StationCardProps) {
         {/* Three states:
               - is_live (human on the mic) → emerald "Live"
               - !is_live && is_on_air (AutoDJ rotating) → muted "On air"
-              - neither → "Offline" */}
+              - neither → "Off air", i.e. no container, no mount, nothing to
+                hear until the owner puts it on air */}
         {station.is_live ? (
           <Badge variant="secondary" className="text-emerald-400 gap-1">
             <span className="size-1.5 bg-emerald-400 rounded-full" />
@@ -42,7 +43,7 @@ export function StationCard({ station }: StationCardProps) {
             On air
           </Badge>
         ) : (
-          <Badge variant="secondary">Offline</Badge>
+          <Badge variant="secondary">Off air</Badge>
         )}
       </div>
       <div className="text-base font-medium text-foreground mb-1 relative z-[1] pointer-events-none">{station.name}</div>

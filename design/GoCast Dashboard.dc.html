@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#08080a;color:#ECECEF;font-family:Poppins,'Helvetica Neue',Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#a78bfa;text-decoration:none}
+a:hover{color:#c9b8fd}
+::-webkit-scrollbar{width:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:9px;border:3px solid transparent;background-clip:content-box}
+@keyframes gcPulse{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes gcBar{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+</style>
+</helmet>
+
+<div style="display:flex;height:100vh;min-height:820px;background:#08080a;overflow:hidden">
+
+  <aside style="width:250px;flex:0 0 250px;display:flex;flex-direction:column;background:#0b0b0e;border-right:1px solid rgba(255,255,255,.06)">
+    <div style="padding:22px 20px 18px;display:flex;align-items:center;gap:9px">
+      <div style="width:26px;height:26px;border-radius:8px;background:linear-gradient(150deg,#8b5cf6,#6021d4);display:flex;align-items:center;justify-content:center">
+        <div style="width:7px;height:7px;border-radius:50%;background:#fff"></div>
+      </div>
+      <div style="font-size:19px;font-weight:600;letter-spacing:-.5px">Go<span style="color:#a78bfa">Cast</span><span style="color:#66666f">.fm</span></div>
+    </div>
+
+    <div style="padding:0 12px;display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{ nav }}" as="item" hint-placeholder-count="5">
+        <button onClick="{{ item.go }}" style="appearance:none;border:0;cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;font-family:inherit;font-size:13.5px;font-weight:500;letter-spacing:-.1px;background:{{ item.bg }};color:{{ item.fg }}" style-hover="background:rgba(255,255,255,.06);color:#ECECEF">
+          <span style="width:16px;font-family:'JetBrains Mono',monospace;font-size:12px;opacity:.75;text-align:center">{{ item.glyph }}</span>
+          <span style="flex:1">{{ item.label }}</span>
+          <span style="font-size:10px;font-weight:600;letter-spacing:.2px;color:{{ item.tagFg }};background:{{ item.tagBg }};padding:2px 6px;border-radius:5px">{{ item.tag }}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:auto;padding:14px">
+      <div style="border:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(139,92,246,.10),rgba(139,92,246,.02));border-radius:13px;padding:13px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:.8px;color:#8f8f9b">AUTO DJ</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:{{ autoDjFg }}">
+            <span style="width:6px;height:6px;border-radius:50%;background:{{ autoDjFg }};animation:gcPulse 1.8s ease-in-out infinite"></span>{{ autoDjState }}
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:#b9b9c4;line-height:1.5;margin-bottom:11px">{{ autoDjBlurb }}</div>
+        <button onClick="{{ goAutoDj }}" style="width:100%;appearance:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;padding:8px;border-radius:9px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#ECECEF" style-hover="background:rgba(255,255,255,.10)">Manage rotation</button>
+      </div>
+    </div>
+
+    <div style="padding:10px 14px 16px;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,.06)">
+      <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(140deg,#3d3d4a,#22222b);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#c9c9d4">AM</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:500">Ammar Mashfj</div>
+        <div style="font-size:11px;color:#71717c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ammarmashfj.ru@gmail.com</div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <header style="height:60px;flex:0 0 60px;display:flex;align-items:center;gap:14px;padding:0 26px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(11,11,14,.6)">
+      <div style="font-size:13px;color:#6e6e79;letter-spacing:-.1px">Stations</div>
+      <div style="color:#3a3a44;font-size:12px">/</div>
+      <div style="font-size:13px;font-weight:500;letter-spacing:-.1px">{{ crumb }}</div>
+      <div style="flex:1"></div>
+      <sc-if value="{{ showHeaderStatus }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 11px 6px 9px;border-radius:999px;border:1px solid {{ liveBorder }};background:{{ liveBg }}">
+        <div style="display:flex;align-items:flex-end;gap:2px;height:12px">
+          <div style="width:2px;height:100%;background:{{ liveFg }};transform-origin:bottom;animation:gcBar .9s ease-in-out infinite"></div>
+          <div style="width:2px;height:100%;background:{{ liveFg }};transform-origin:bottom;animation:gcBar .9s ease-in-out .3s infinite"></div>
+          <div style="width:2px;height:100%;background:{{ liveFg }};transform-origin:bottom;animation:gcBar .9s ease-in-out .6s infinite"></div>
+        </div>
+        <span style="font-size:11.5px;font-weight:600;letter-spacing:.2px;color:{{ liveFg }}">{{ liveLabel }}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500">{{ listeners }}</span>
+        <span style="font-size:11.5px;color:#82828d">listening</span>
+      </div>
+      </div>
+      </sc-if>
+    </header>
+
+    <div style="flex:1;overflow-y:auto;padding:28px 26px 40px">
+
+      <!-- STATIONS -->
+      <sc-if value="{{ isStations }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+          <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
+              <div style="font-size:26px;font-weight:600;letter-spacing:-.7px;margin-bottom:5px">Your stations</div>
+              <div style="font-size:13.5px;color:#8a8a95">Two stations, one of them on air. Auto DJ keeps them warm when you're away.</div>
+            </div>
+            <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:10px 16px;border-radius:10px;border:0;background:#7c3aed;color:#fff;box-shadow:0 6px 20px rgba(124,58,237,.35)" style-hover="background:#8b5cf6">+ New station</button>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px">
+            <sc-for list="{{ stations }}" as="s" hint-placeholder-count="2">
+              <div onClick="{{ s.open }}" style="cursor:pointer;border:1px solid {{ s.border }};background:{{ s.bg }};border-radius:16px;padding:18px" style-hover="border-color:rgba(167,139,250,.45)">
+                <div style="display:flex;align-items:center;gap:13px;margin-bottom:16px">
+                  <div style="width:44px;height:44px;border-radius:12px;background:{{ s.art }};flex:0 0 44px"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:16px;font-weight:600;letter-spacing:-.3px">{{ s.name }}</div>
+                    <div style="font-size:12px;color:#82828d">{{ s.slug }}</div>
+                  </div>
+                  <div style="font-size:10.5px;font-weight:600;letter-spacing:.3px;padding:4px 9px;border-radius:999px;color:{{ s.stateFg }};background:{{ s.stateBg }}">{{ s.state }}</div>
+                </div>
+                <div style="font-size:12.5px;color:#a5a5b0;margin-bottom:16px;line-height:1.5">{{ s.nowLine }}</div>
+                <div style="display:flex;gap:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06)">
+                  <div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500">{{ s.listeners }}</div>
+                    <div style="font-size:10.5px;letter-spacing:.4px;color:#71717c">LISTENERS</div>
+                  </div>
+                  <div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500">{{ s.airtime }}</div>
+                    <div style="font-size:10.5px;letter-spacing:.4px;color:#71717c">AIRTIME 7D</div>
+                  </div>
+                  <div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500">{{ s.queue }}</div>
+                    <div style="font-size:10.5px;letter-spacing:.4px;color:#71717c">IN ROTATION</div>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="border:1px dashed rgba(255,255,255,.10);border-radius:16px;padding:22px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px">
+              <div style="font-size:15px;font-weight:600;letter-spacing:-.2px;margin-bottom:4px">Never go silent</div>
+              <div style="font-size:13px;color:#8a8a95;line-height:1.55;max-width:560px">Upload a set for the session and Auto DJ carries the stream the moment you end your broadcast — with your station IDs dropped in automatically.</div>
+            </div>
+            <button onClick="{{ goAutoDj }}" style="appearance:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:10px 16px;border-radius:10px;border:1px solid rgba(167,139,250,.35);background:rgba(139,92,246,.14);color:#c9b8fd" style-hover="background:rgba(139,92,246,.22)">Set up Auto DJ</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- STATION OVERVIEW -->
+      <sc-if value="{{ isStation }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
+          <div style="border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:22px;background:linear-gradient(120deg,rgba(139,92,246,.13),rgba(139,92,246,.02) 60%),#0d0d11;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+            <div style="width:76px;height:76px;border-radius:18px;background:linear-gradient(150deg,#8b5cf6,#5b21b6);flex:0 0 76px"></div>
+            <div style="flex:1;min-width:240px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                <div style="font-size:26px;font-weight:600;letter-spacing:-.7px">hello gocast</div>
+                <div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:{{ heroBg }};border:1px solid {{ heroBorder }}">
+                  <span style="width:6px;height:6px;border-radius:50%;background:{{ heroDot }};animation:gcPulse 1.6s ease-in-out infinite"></span>
+                  <span style="font-size:11px;font-weight:600;letter-spacing:.3px;color:{{ heroFg }}">{{ heroLabel }}</span>
+                </div>
+              </div>
+              <div style="font-size:13.5px;color:#9a9aa5;margin-bottom:10px">{{ heroSub }}</div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#b9b9c4;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);padding:6px 10px;border-radius:8px">gocast.fm/station/hello-gocast</div>
+                <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#ECECEF" style-hover="background:rgba(255,255,255,.10)">Copy link</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#ECECEF" style-hover="background:rgba(255,255,255,.09)">Edit</button>
+              <button onClick="{{ goStudio }}" style="appearance:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;padding:10px 18px;border-radius:10px;border:0;background:#7c3aed;color:#fff;box-shadow:0 6px 20px rgba(124,58,237,.35)" style-hover="background:#8b5cf6">Open studio</button>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+            <sc-for list="{{ stats }}" as="k" hint-placeholder-count="4">
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:14px;padding:16px 18px">
+                <div style="font-size:10.5px;letter-spacing:.7px;color:#71717c;margin-bottom:8px">{{ k.label }}</div>
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:500;letter-spacing:-1px">{{ k.value }}</div>
+                  <div style="font-size:11.5px;font-weight:600;color:{{ k.deltaFg }}">{{ k.delta }}</div>
+                </div>
+                <div style="display:flex;align-items:flex-end;gap:3px;height:26px;margin-top:12px">
+                  <sc-for list="{{ k.spark }}" as="b" hint-placeholder-count="10">
+                    <div style="flex:1;border-radius:2px;background:{{ b.fill }};height:{{ b.h }}"></div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:12px">
+            <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;overflow:hidden">
+              <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">
+                <div style="font-size:14.5px;font-weight:600;letter-spacing:-.2px">Recent broadcasts</div>
+                <div style="font-size:12px;color:#a78bfa;cursor:pointer">View all</div>
+              </div>
+              <sc-for list="{{ broadcasts }}" as="b" hint-placeholder-count="4">
+                <div style="padding:13px 18px;display:flex;align-items:center;gap:14px;border-bottom:1px solid rgba(255,255,255,.04)">
+                  <div style="width:7px;height:7px;border-radius:50%;background:{{ b.dot }};flex:0 0 7px"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500">{{ b.title }}</div>
+                    <div style="font-size:11.5px;color:#71717c">{{ b.when }} · {{ b.source }}</div>
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#b9b9c4">{{ b.dur }}</div>
+                  <div style="width:56px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#b9b9c4">{{ b.peak }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="border:1px solid rgba(167,139,250,.22);background:linear-gradient(180deg,rgba(139,92,246,.11),rgba(139,92,246,.02));border-radius:16px;padding:18px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                  <div style="font-size:14.5px;font-weight:600;letter-spacing:-.2px">Auto DJ</div>
+                  <div onClick="{{ toggleAutoDj }}" style="cursor:pointer;width:42px;height:24px;border-radius:999px;padding:3px;background:{{ switchBg }};display:flex;justify-content:{{ switchJustify }}">
+                    <div style="width:18px;height:18px;border-radius:50%;background:#fff"></div>
+                  </div>
+                </div>
+                <div style="font-size:12.5px;color:#b9b9c4;line-height:1.55;margin-bottom:14px">{{ autoDjBlurb }}</div>
+                <div style="display:flex;flex-direction:column;gap:9px">
+                  <sc-for list="{{ autoDjFacts }}" as="f" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px">
+                      <span style="color:#8a8a95">{{ f.k }}</span>
+                      <span style="font-family:'JetBrains Mono',monospace;color:#ECECEF">{{ f.v }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <button onClick="{{ goAutoDj }}" style="margin-top:15px;width:100%;appearance:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:9px;border-radius:9px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#ECECEF" style-hover="background:rgba(255,255,255,.10)">Open Auto DJ</button>
+              </div>
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+                <div style="font-size:13px;font-weight:600;margin-bottom:6px">Danger zone</div>
+                <div style="font-size:12px;color:#82828d;line-height:1.55;margin-bottom:13px">Deleting removes every broadcast, listener stat and rotation for this station.</div>
+                <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:500;padding:8px 13px;border-radius:9px;border:1px solid rgba(248,113,113,.28);background:transparent;color:#f87171" style-hover="background:rgba(248,113,113,.10)">Delete station</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- STUDIO -->
+      <sc-if value="{{ isStudio }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1260px;margin:0 auto;display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:start">
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:20px;background:linear-gradient(120deg,rgba(139,92,246,.14),rgba(139,92,246,.02) 55%),#0d0d11">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+                <div style="font-size:10.5px;font-weight:600;letter-spacing:.8px;color:{{ sourceFg }};background:{{ sourceBg }};padding:4px 9px;border-radius:6px">{{ sourceLabel }}</div>
+                <div style="font-size:11.5px;color:#82828d">{{ sourceNote }}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <div style="width:88px;height:88px;border-radius:14px;background:linear-gradient(150deg,#33334a,#17171f);flex:0 0 88px;display:flex;align-items:flex-end;justify-content:center;gap:3px;padding:14px">
+                  <div style="width:4px;height:60%;background:#a78bfa;border-radius:2px;transform-origin:bottom;animation:gcBar 1.1s ease-in-out infinite"></div>
+                  <div style="width:4px;height:100%;background:#8b5cf6;border-radius:2px;transform-origin:bottom;animation:gcBar 1.1s ease-in-out .25s infinite"></div>
+                  <div style="width:4px;height:75%;background:#a78bfa;border-radius:2px;transform-origin:bottom;animation:gcBar 1.1s ease-in-out .5s infinite"></div>
+                  <div style="width:4px;height:45%;background:#7c3aed;border-radius:2px;transform-origin:bottom;animation:gcBar 1.1s ease-in-out .75s infinite"></div>
+                </div>
+                <div style="flex:1;min-width:220px">
+                  <div style="font-size:20px;font-weight:600;letter-spacing:-.4px;margin-bottom:3px">{{ nowTitle }}</div>
+                  <div style="font-size:13.5px;color:#9a9aa5;margin-bottom:14px">{{ nowArtist }}</div>
+                  <div style="height:5px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden">
+                    <div style="height:100%;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#a78bfa);width:{{ progressPct }}"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#82828d">
+                    <span>{{ nowElapsed }}</span><span>{{ nowRemaining }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button onClick="{{ prev }}" style="appearance:none;cursor:pointer;width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);color:#ECECEF;font-size:13px;font-family:inherit" style-hover="background:rgba(255,255,255,.10)">|◀</button>
+              <button onClick="{{ togglePlay }}" style="appearance:none;cursor:pointer;width:48px;height:48px;border-radius:14px;border:0;background:#7c3aed;color:#fff;font-size:15px;font-family:inherit;box-shadow:0 6px 20px rgba(124,58,237,.35)" style-hover="background:#8b5cf6">{{ playGlyph }}</button>
+              <button onClick="{{ next }}" style="appearance:none;cursor:pointer;width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);color:#ECECEF;font-size:13px;font-family:inherit" style-hover="background:rgba(255,255,255,.10)">▶|</button>
+              <div style="width:1px;height:26px;background:rgba(255,255,255,.08);margin:0 4px"></div>
+              <div style="display:flex;align-items:center;gap:9px;flex:1;min-width:200px">
+                <span style="font-size:11px;letter-spacing:.5px;color:#71717c">MASTER</span>
+                <div style="flex:1;height:5px;border-radius:99px;background:rgba(255,255,255,.08)">
+                  <div style="width:78%;height:100%;border-radius:99px;background:#c9c9d4"></div>
+                </div>
+              </div>
+              <button onClick="{{ toggleMic }}" style="appearance:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:10px 16px;border-radius:10px;border:1px solid {{ micBorder }};background:{{ micBg }};color:{{ micFg }}">{{ micLabel }}</button>
+            </div>
+
+            <div style="border:1px solid {{ micBorder }};background:#0d0d11;border-radius:16px;padding:18px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+              <div style="flex:1;min-width:220px">
+                <div style="font-size:14px;font-weight:600;letter-spacing:-.2px;margin-bottom:4px">{{ micHeadline }}</div>
+                <div style="font-size:12.5px;color:#8a8a95;line-height:1.5">Music ducks to 20% while you speak. Release to fade back up over 600ms.</div>
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:3px;height:38px">
+                <sc-for list="{{ micBars }}" as="m" hint-placeholder-count="14">
+                  <div style="width:5px;border-radius:2px;background:{{ m.fill }};height:{{ m.h }}"></div>
+                </sc-for>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#82828d;padding:5px 9px;border:1px solid rgba(255,255,255,.09);border-radius:7px">SPACE</div>
+            </div>
+
+            <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;overflow:hidden">
+              <div style="padding:15px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.06)">
+                <div style="font-size:14.5px;font-weight:600;letter-spacing:-.2px">Up next</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#71717c">{{ queueMeta }}</div>
+                <div style="flex:1"></div>
+                <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);color:#ECECEF" style-hover="background:rgba(255,255,255,.10)">+ Add files</button>
+              </div>
+              <sc-for list="{{ queue }}" as="t" hint-placeholder-count="5">
+                <div style="padding:11px 18px;display:flex;align-items:center;gap:13px;border-bottom:1px solid rgba(255,255,255,.04);background:{{ t.bg }}">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5f5f6a;width:16px">{{ t.num }}</div>
+                  <div style="width:30px;height:30px;border-radius:8px;background:{{ t.art }};flex:0 0 30px"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.title }}</div>
+                    <div style="font-size:11.5px;color:#71717c">{{ t.artist }}</div>
+                  </div>
+                  <div style="font-size:10.5px;font-weight:600;letter-spacing:.3px;color:{{ t.tagFg }};background:{{ t.tagBg }};padding:3px 8px;border-radius:5px">{{ t.tag }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9a9aa5">{{ t.dur }}</div>
+                  <div style="color:#4d4d57;font-size:14px;cursor:grab">⋮⋮</div>
+                </div>
+              </sc-for>
+              <div style="margin:14px 18px 18px;border:1px dashed rgba(255,255,255,.12);border-radius:12px;padding:20px;text-align:center;font-size:12.5px;color:#82828d">Drop audio files here — they join this session's rotation</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:12px;position:sticky;top:0">
+            <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+              <div style="font-size:10.5px;letter-spacing:.8px;color:#71717c;margin-bottom:14px">STREAM</div>
+              <sc-for list="{{ streamInfo }}" as="r" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px">
+                  <span style="color:#8a8a95">{{ r.k }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;color:#ECECEF">{{ r.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="border:1px solid rgba(167,139,250,.22);background:linear-gradient(180deg,rgba(139,92,246,.12),rgba(139,92,246,.02));border-radius:16px;padding:18px">
+              <div style="font-size:14px;font-weight:600;letter-spacing:-.2px;margin-bottom:6px">Handoff ready</div>
+              <div style="font-size:12.5px;color:#b9b9c4;line-height:1.55;margin-bottom:14px">{{ handoffLine }}</div>
+              <button onClick="{{ endBroadcast }}" style="width:100%;appearance:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:10px;border-radius:10px;border:1px solid rgba(248,113,113,.28);background:rgba(248,113,113,.08);color:#f87171" style-hover="background:rgba(248,113,113,.16)">{{ endLabel }}</button>
+            </div>
+
+            <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+              <div style="font-size:10.5px;letter-spacing:.8px;color:#71717c;margin-bottom:12px">SHORTCUTS</div>
+              <sc-for list="{{ shortcuts }}" as="s" hint-placeholder-count="5">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:12.5px">
+                  <span style="color:#a5a5b0">{{ s.k }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#b9b9c4;border:1px solid rgba(255,255,255,.10);border-radius:6px;padding:2px 7px">{{ s.key }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- AUTO DJ -->
+      <sc-if value="{{ isAutoDj }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
+              <div style="font-size:26px;font-weight:600;letter-spacing:-.7px;margin-bottom:5px">Auto DJ</div>
+              <div style="font-size:13.5px;color:#8a8a95;max-width:620px;line-height:1.55">Upload a set, set your station IDs, and the stream keeps running the second you stop talking. Nothing is stored after the session ends.</div>
+            </div>
+            <div onClick="{{ toggleAutoDj }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:9px 14px;border-radius:12px;border:1px solid {{ micBorderSoft }};background:rgba(255,255,255,.03)">
+              <div style="width:42px;height:24px;border-radius:999px;padding:3px;background:{{ switchBg }};display:flex;justify-content:{{ switchJustify }}">
+                <div style="width:18px;height:18px;border-radius:50%;background:#fff"></div>
+              </div>
+              <span style="font-size:12.5px;font-weight:600">{{ autoDjSwitchLabel }}</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:12px;align-items:start">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="border:1px dashed rgba(167,139,250,.35);background:rgba(139,92,246,.05);border-radius:16px;padding:28px;text-align:center">
+                <div style="font-size:15px;font-weight:600;margin-bottom:5px">Drop your set here</div>
+                <div style="font-size:12.5px;color:#8a8a95;margin-bottom:16px">MP3, WAV, FLAC or AAC · up to 2 GB per session</div>
+                <button style="appearance:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:9px 16px;border-radius:10px;border:0;background:#7c3aed;color:#fff" style-hover="background:#8b5cf6">Browse files</button>
+              </div>
+
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;overflow:hidden">
+                <div style="padding:15px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.06)">
+                  <div style="font-size:14.5px;font-weight:600;letter-spacing:-.2px">Session rotation</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#71717c">{{ rotationMeta }}</div>
+                  <div style="flex:1"></div>
+                  <div style="font-size:11.5px;color:#71717c">drag to reorder</div>
+                </div>
+                <sc-for list="{{ rotation }}" as="r" hint-placeholder-count="6">
+                  <div style="padding:11px 18px;display:flex;align-items:center;gap:13px;border-bottom:1px solid rgba(255,255,255,.04)">
+                    <div style="color:#4d4d57;font-size:14px;cursor:grab">⋮⋮</div>
+                    <div style="width:30px;height:30px;border-radius:8px;background:{{ r.art }};flex:0 0 30px"></div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.title }}</div>
+                      <div style="font-size:11.5px;color:#71717c">{{ r.artist }} · {{ r.plays }}</div>
+                    </div>
+                    <div style="font-size:10.5px;font-weight:600;letter-spacing:.3px;color:{{ r.tagFg }};background:{{ r.tagBg }};padding:3px 8px;border-radius:5px">{{ r.tag }}</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#9a9aa5">{{ r.dur }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+                <div style="font-size:14px;font-weight:600;letter-spacing:-.2px;margin-bottom:14px">Station IDs</div>
+                <div style="font-size:12.5px;color:#8a8a95;line-height:1.55;margin-bottom:14px">Drop a jingle between tracks so listeners always know whose stream they're on.</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <span style="font-size:12.5px;color:#a5a5b0">Every</span>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <button onClick="{{ jingleDown }}" style="appearance:none;cursor:pointer;width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#ECECEF;font-family:inherit;font-size:13px" style-hover="background:rgba(255,255,255,.10)">–</button>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;width:34px;text-align:center">{{ jingleEvery }}</div>
+                    <button onClick="{{ jingleUp }}" style="appearance:none;cursor:pointer;width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#ECECEF;font-family:inherit;font-size:13px" style-hover="background:rgba(255,255,255,.10)">+</button>
+                  </div>
+                </div>
+                <div style="font-size:11.5px;color:#71717c">tracks · next ID after {{ jingleNext }}</div>
+              </div>
+
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+                <div style="font-size:14px;font-weight:600;letter-spacing:-.2px;margin-bottom:14px">Behaviour</div>
+                <div style="display:flex;flex-direction:column;gap:13px">
+                  <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="3">
+                    <div onClick="{{ t.toggle }}" style="cursor:pointer;display:flex;align-items:flex-start;gap:12px">
+                      <div style="width:38px;height:22px;border-radius:999px;padding:3px;flex:0 0 38px;margin-top:2px;background:{{ t.bg }};display:flex;justify-content:{{ t.justify }}">
+                        <div style="width:16px;height:16px;border-radius:50%;background:#fff"></div>
+                      </div>
+                      <div>
+                        <div style="font-size:12.5px;font-weight:500">{{ t.label }}</div>
+                        <div style="font-size:11.5px;color:#71717c;line-height:1.5">{{ t.note }}</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="border:1px solid rgba(255,255,255,.07);background:#0d0d11;border-radius:16px;padding:18px">
+                <div style="font-size:14px;font-weight:600;letter-spacing:-.2px;margin-bottom:12px">Crossfade</div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:12px">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:500">{{ crossfade }}</div>
+                  <div style="font-size:12px;color:#82828d">seconds</div>
+                </div>
+                <div onClick="{{ bumpCrossfade }}" style="cursor:pointer;height:6px;border-radius:99px;background:rgba(255,255,255,.08)">
+                  <div style="height:100%;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#a78bfa);width:{{ crossfadePct }}"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#5f5f6a"><span>0s</span><span>12s</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;studio&quot;,&quot;options&quot;:[&quot;stations&quot;,&quot;station&quot;,&quot;studio&quot;,&quot;autodj&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;autoDjArmed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Auto DJ&quot;},&quot;jingleEvery&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:4,&quot;min&quot;:1,&quot;max&quot;:12,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Auto DJ&quot;}}">
+const A = {
+  violet: 'linear-gradient(150deg,#8b5cf6,#5b21b6)',
+  teal: 'linear-gradient(150deg,#2dd4bf,#0f766e)',
+  amber: 'linear-gradient(150deg,#fbbf24,#b45309)',
+  slate: 'linear-gradient(150deg,#475569,#1e293b)',
+  rose: 'linear-gradient(150deg,#fb7185,#9f1239)'
+};
+
+class Component extends DCLogic {
+  state = {
+    view: this.props.startView ?? 'studio',
+    playing: true,
+    broadcasting: true,
+    mic: false,
+    autoDj: this.props.autoDjArmed ?? true,
+    jingleEvery: this.props.jingleEvery ?? 4,
+    crossfade: 5,
+    elapsed: 96,
+    listeners: 47,
+    beh: { keepLive: true, fillIn: true, shuffle: false },
+    tick: 0
+  };
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      this.setState(s => ({
+        elapsed: s.playing ? (s.elapsed + 1) % 252 : s.elapsed,
+        tick: s.tick + 1,
+        listeners: Math.max(12, s.listeners + (Math.random() < .5 ? -1 : 1))
+      }));
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  go(view) { return () => this.setState({ view }); }
+  fmt(sec) {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  renderVals() {
+    const st = this.state;
+    const live = st.view === 'studio';
+    const src = live ? (st.mic ? 'MIC LIVE' : 'DECK') : (st.autoDj ? 'AUTO DJ' : 'OFFLINE');
+    // header pill reflects the SELECTED STATION, not the current view; hidden on the list view
+    const onList = st.view === 'stations';
+    const stationLive = st.view === 'studio' || st.broadcasting;
+
+    const navDef = [
+      ['stations', 'Stations', '◫', ''],
+      ['station', 'Overview', '◇', ''],
+      ['studio', 'Studio', '●', st.broadcasting ? 'LIVE' : ''],
+      ['autodj', 'Auto DJ', '∞', st.autoDj ? 'ON' : ''],
+      ['broadcasts', 'Broadcasts', '⏱', ''],
+      ['settings', 'Settings', '⚙', '']
+    ];
+
+    const nav = navDef.map(([id, label, glyph, tag]) => {
+      const on = st.view === id;
+      return {
+        label, glyph, tag,
+        bg: on ? 'rgba(139,92,246,.16)' : 'transparent',
+        fg: on ? '#ECECEF' : '#9a9aa5',
+        tagBg: tag ? (tag === 'LIVE' ? 'rgba(34,197,94,.16)' : 'rgba(139,92,246,.18)') : 'transparent',
+        tagFg: tag ? (tag === 'LIVE' ? '#4ade80' : '#c9b8fd') : 'transparent',
+        go: this.go(id === 'broadcasts' || id === 'settings' ? 'station' : id)
+      };
+    });
+
+    const spark = (seed, fill) => Array.from({ length: 12 }, (_, i) => ({
+      h: (18 + ((seed * (i + 3) * 37) % 82)) + '%',
+      fill
+    }));
+
+    const queueRaw = [
+      ['Neon Ascent', 'Kilo Vega', '4:12', A.violet, 'NOW', 'rgba(139,92,246,.18)', '#c9b8fd'],
+      ['Station ID — hello gocast', 'Jingle', '0:12', A.amber, 'ID', 'rgba(251,191,36,.14)', '#fcd34d'],
+      ['Slow Transit', 'Mara Suede', '5:38', A.teal, '', 'transparent', 'transparent'],
+      ['Basement Tape', 'Oyelo', '3:47', A.slate, '', 'transparent', 'transparent'],
+      ['Half Light', 'Ferrous Kid', '6:02', A.rose, '', 'transparent', 'transparent']
+    ];
+
+    const rotationRaw = [
+      ['Neon Ascent', 'Kilo Vega', '4:12', A.violet, 'PLAYED 2×'],
+      ['Slow Transit', 'Mara Suede', '5:38', A.teal, 'PLAYED 1×'],
+      ['Basement Tape', 'Oyelo', '3:47', A.slate, 'NEW'],
+      ['Half Light', 'Ferrous Kid', '6:02', A.rose, 'NEW'],
+      ['Dust Corridor', 'Ana Petrel', '4:55', A.amber, 'NEW'],
+      ['Late Ferry', 'Bo Halden', '7:21', A.violet, 'NEW']
+    ];
+
+    const micLevel = st.mic ? 1 : .22;
+
+    return {
+      nav,
+      crumb: { stations: 'All stations', station: 'hello gocast', studio: 'hello gocast · Studio', autodj: 'hello gocast · Auto DJ' }[st.view] || 'hello gocast',
+      isStations: st.view === 'stations',
+      isStation: st.view === 'station',
+      isStudio: live,
+      isAutoDj: st.view === 'autodj',
+      goStudio: () => this.setState({ view: 'studio', broadcasting: true }),
+      goAutoDj: this.go('autodj'),
+
+      showHeaderStatus: !onList,
+      liveLabel: stationLive ? 'ON AIR' : (st.autoDj ? 'AUTO DJ' : 'OFF AIR'),
+      liveFg: stationLive ? '#4ade80' : (st.autoDj ? '#c9b8fd' : '#82828d'),
+      liveBg: stationLive ? 'rgba(34,197,94,.10)' : 'rgba(139,92,246,.10)',
+      liveBorder: stationLive ? 'rgba(34,197,94,.28)' : 'rgba(167,139,250,.24)',
+      listeners: String(st.listeners),
+      heroLabel: stationLive ? 'ON AIR' : (st.autoDj ? 'AUTO DJ' : 'OFF AIR'),
+      heroFg: stationLive ? '#4ade80' : (st.autoDj ? '#c9b8fd' : '#82828d'),
+      heroDot: stationLive ? '#22c55e' : (st.autoDj ? '#a78bfa' : '#82828d'),
+      heroBg: stationLive ? 'rgba(34,197,94,.14)' : 'rgba(139,92,246,.14)',
+      heroBorder: stationLive ? 'rgba(34,197,94,.3)' : 'rgba(167,139,250,.3)',
+      heroSub: stationLive ? 'Live from the studio · created Aug 14' : (st.autoDj ? 'Auto DJ running the session rotation · created Aug 14' : 'Off air · created Aug 14'),
+
+      autoDjState: st.autoDj ? 'ARMED' : 'OFF',
+      autoDjFg: st.autoDj ? '#c9b8fd' : '#82828d',
+      autoDjSwitchLabel: st.autoDj ? 'Auto DJ armed' : 'Auto DJ off',
+      autoDjBlurb: st.autoDj
+        ? 'When you end this broadcast, the session rotation takes over and the stream stays up.'
+        : 'The stream will go silent when you end your broadcast.',
+      autoDjFacts: [
+        { k: 'Takes over', v: 'on broadcast end' },
+        { k: 'Rotation', v: rotationRaw.length + ' tracks' },
+        { k: 'Station ID', v: 'every ' + st.jingleEvery },
+        { k: 'Crossfade', v: st.crossfade + 's' }
+      ],
+      toggleAutoDj: () => this.setState(s => ({ autoDj: !s.autoDj })),
+      switchBg: st.autoDj ? '#7c3aed' : 'rgba(255,255,255,.14)',
+      switchJustify: st.autoDj ? 'flex-end' : 'flex-start',
+      micBorderSoft: st.autoDj ? 'rgba(167,139,250,.30)' : 'rgba(255,255,255,.09)',
+
+      stations: [
+        {
+          name: 'hello gocast', slug: 'gocast.fm/hello-gocast', art: A.violet,
+          state: st.broadcasting ? 'ON AIR' : (st.autoDj ? 'AUTO DJ' : 'OFF AIR'),
+          stateBg: st.broadcasting ? 'rgba(34,197,94,.14)' : 'rgba(139,92,246,.16)',
+          stateFg: st.broadcasting ? '#4ade80' : '#c9b8fd',
+          border: 'rgba(167,139,250,.28)', bg: 'linear-gradient(140deg,rgba(139,92,246,.10),rgba(139,92,246,.01)),#0d0d11',
+          nowLine: st.broadcasting ? 'Now playing — Neon Ascent · Kilo Vega' : 'Auto DJ — Slow Transit · Mara Suede', listeners: String(st.listeners), airtime: '6h 12m', queue: '6',
+          open: this.go('station')
+        },
+        {
+          name: 'night shift', slug: 'gocast.fm/night-shift', art: A.teal,
+          state: 'AUTO DJ', stateBg: 'rgba(139,92,246,.16)', stateFg: '#c9b8fd',
+          border: 'rgba(255,255,255,.07)', bg: '#0d0d11',
+          nowLine: 'Auto DJ running the overnight rotation', listeners: '9', airtime: '22h 04m', queue: '31',
+          open: this.go('station')
+        }
+      ],
+
+      stats: [
+        { label: 'LISTENING NOW', value: String(st.listeners), delta: '+14%', deltaFg: '#4ade80', spark: spark(3, 'rgba(167,139,250,.55)') },
+        { label: 'AIRTIME 7D', value: '6h12', delta: '+2h', deltaFg: '#4ade80', spark: spark(5, 'rgba(167,139,250,.35)') },
+        { label: 'PEAK', value: '112', delta: 'Tue 23:40', deltaFg: '#82828d', spark: spark(7, 'rgba(167,139,250,.35)') },
+        { label: 'AUTO DJ HOURS', value: '18h', delta: '74% of uptime', deltaFg: '#c9b8fd', spark: spark(11, 'rgba(167,139,250,.55)') }
+      ],
+
+      broadcasts: [
+        { title: 'Late night test', when: 'Aug 14, 23:10', source: 'live mic', dur: '1h 04m', peak: '112', dot: '#4ade80' },
+        { title: 'Auto DJ — overnight', when: 'Aug 14, 00:12', source: 'auto dj', dur: '7h 48m', peak: '38', dot: '#a78bfa' },
+        { title: 'Afternoon set', when: 'Aug 13, 16:02', source: 'live mic', dur: '2h 20m', peak: '76', dot: '#4ade80' },
+        { title: 'Auto DJ — filler', when: 'Aug 13, 12:00', source: 'auto dj', dur: '3h 00m', peak: '21', dot: '#a78bfa' }
+      ],
+
+      sourceLabel: src,
+      sourceFg: st.mic ? '#4ade80' : '#c9b8fd',
+      sourceBg: st.mic ? 'rgba(34,197,94,.14)' : 'rgba(139,92,246,.18)',
+      sourceNote: st.mic ? 'music ducked to 20%' : 'deck at full volume',
+      nowTitle: 'Neon Ascent',
+      nowArtist: 'Kilo Vega · 320kbps · from session upload',
+      progressPct: Math.round((st.elapsed / 252) * 100) + '%',
+      nowElapsed: this.fmt(st.elapsed),
+      nowRemaining: '-' + this.fmt(252 - st.elapsed),
+      playGlyph: st.playing ? '❚❚' : '▶',
+      togglePlay: () => this.setState(s => ({ playing: !s.playing })),
+      next: () => this.setState({ elapsed: 0 }),
+      prev: () => this.setState({ elapsed: 0 }),
+
+      toggleMic: () => this.setState(s => ({ mic: !s.mic })),
+      micLabel: st.mic ? 'Mic live — release' : 'Hold to talk',
+      micBg: st.mic ? 'rgba(248,113,113,.16)' : 'rgba(255,255,255,.04)',
+      micFg: st.mic ? '#fca5a5' : '#ECECEF',
+      micBorder: st.mic ? 'rgba(248,113,113,.35)' : 'rgba(255,255,255,.09)',
+      micHeadline: st.mic ? 'You are on mic' : 'Push to talk over the music',
+      micBars: Array.from({ length: 16 }, (_, i) => ({
+        h: Math.round((10 + ((st.tick * 13 + i * 29) % 28)) * micLevel + 6) + 'px',
+        fill: st.mic ? '#f87171' : 'rgba(255,255,255,.16)'
+      })),
+
+      queue: queueRaw.map(([title, artist, dur, art, tag, tagBg, tagFg], i) => ({
+        num: String(i + 1).padStart(2, '0'), title, artist, dur, art, tag, tagBg, tagFg,
+        bg: i === 0 ? 'rgba(139,92,246,.07)' : 'transparent'
+      })),
+      queueMeta: queueRaw.length + ' tracks · 19:51',
+
+      streamInfo: [
+        { k: 'Source', v: src },
+        { k: 'Uptime', v: '01:04:22' },
+        { k: 'Bitrate', v: '128 kbps' },
+        { k: 'Queue', v: queueRaw.length + ' tracks' },
+        { k: 'Peak today', v: '112' }
+      ],
+      shortcuts: [
+        { k: 'Push to talk', key: 'SPACE' },
+        { k: 'Play / pause', key: 'K' },
+        { k: 'Next track', key: 'N' },
+        { k: 'Previous track', key: 'P' },
+        { k: 'Hand to Auto DJ', key: '⇧A' }
+      ],
+      handoffLine: st.autoDj
+        ? 'End the broadcast and Auto DJ picks up from track 3 — listeners hear a 5s crossfade, not silence.'
+        : 'Auto DJ is off — ending the broadcast drops your listeners.',
+      endBroadcast: () => this.setState({ view: 'station', broadcasting: false, mic: false }),
+      endLabel: st.autoDj ? 'End broadcast → hand to Auto DJ' : 'End broadcast',
+
+      rotation: rotationRaw.map(([title, artist, dur, art, plays]) => ({
+        title, artist, dur, art, plays,
+        tag: plays === 'NEW' ? 'QUEUED' : 'IN ROTATION',
+        tagBg: plays === 'NEW' ? 'rgba(255,255,255,.06)' : 'rgba(139,92,246,.16)',
+        tagFg: plays === 'NEW' ? '#9a9aa5' : '#c9b8fd'
+      })),
+      rotationMeta: rotationRaw.length + ' tracks · 31:55 · session only',
+
+      jingleEvery: String(st.jingleEvery),
+      jingleNext: 'Slow Transit',
+      jingleUp: () => this.setState(s => ({ jingleEvery: Math.min(12, s.jingleEvery + 1) })),
+      jingleDown: () => this.setState(s => ({ jingleEvery: Math.max(1, s.jingleEvery - 1) })),
+
+      crossfade: String(st.crossfade),
+      crossfadePct: Math.round((st.crossfade / 12) * 100) + '%',
+      bumpCrossfade: () => this.setState(s => ({ crossfade: s.crossfade >= 12 ? 0 : s.crossfade + 1 })),
+
+      toggles: [
+        { key: 'keepLive', label: 'Keep the station live 24/7', note: 'Loop the rotation so the stream never drops.' },
+        { key: 'fillIn', label: 'Fill in when the host is away', note: 'Auto DJ starts the moment a broadcast ends.' },
+        { key: 'shuffle', label: 'Shuffle with artist spacing', note: 'No repeat within 2 hours, same artist never back to back.' }
+      ].map(t => ({
+        label: t.label, note: t.note,
+        bg: st.beh[t.key] ? '#7c3aed' : 'rgba(255,255,255,.14)',
+        justify: st.beh[t.key] ? 'flex-end' : 'flex-start',
+        toggle: () => this.setState(s => ({ beh: Object.assign({}, s.beh, { [t.key]: !s.beh[t.key] }) }))
+      }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>

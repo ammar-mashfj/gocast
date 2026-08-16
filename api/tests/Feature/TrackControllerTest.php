@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Plan;
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
@@ -158,4 +159,50 @@ it('rejects an oversize file on upload', function () {
     actingAs($owner, 'sanctum')
         ->postJson("/api/stations/{$station->slug}/tracks", ['files' => [$oversize]])
         ->assertUnprocessable();
+});
+
+it('blocks uploads on a plan without AutoDJ', function () {
+    // AutoDJ is the paid hook: a free station can broadcast live, but not
+    // run an unattended playlist.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+
+    actingAs($user)
+        ->postJson("/api/stations/{$station->slug}/tracks", [
+            'files' => [UploadedFile::fake()->create('song.mp3', 100, 'audio/mpeg')],
+        ])
+        ->assertForbidden()
+        ->assertJsonPath('code', 'autodj_not_available');
+
+    expect($station->tracks()->count())->toBe(0);
+});
+
+it('allows uploads on a plan with AutoDJ', function () {
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+
+    actingAs($user)
+        ->postJson("/api/stations/{$station->slug}/tracks", [
+            'files' => [UploadedFile::fake()->create('song.mp3', 100, 'audio/mpeg')],
+        ])
+        ->assertCreated();
+});
+
+it('still lets a downgraded user see and delete their existing library', function () {
+    // A downgrade must never trap someone's files behind a paywall.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    actingAs($user)->getJson("/api/stations/{$station->slug}/tracks")->assertOk();
+    actingAs($user)->deleteJson("/api/tracks/{$track->id}")->assertNoContent();
 });

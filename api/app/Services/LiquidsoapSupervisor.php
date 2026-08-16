@@ -37,8 +37,6 @@ use Illuminate\Support\Facades\View;
  */
 class LiquidsoapSupervisor
 {
-    private const IMAGE = 'gocast/liquidsoap:latest';
-
     private const NETWORK = 'gocast-network';
 
     /**
@@ -47,6 +45,16 @@ class LiquidsoapSupervisor
      * hardcoding the convention in two places.
      */
     public const CONTAINER_PREFIX = 'gocast-liquidsoap-';
+
+    /** Docker health states we care about. */
+    public const HEALTH_HEALTHY = 'healthy';
+
+    public const HEALTH_UNHEALTHY = 'unhealthy';
+
+    public const HEALTH_STARTING = 'starting';
+
+    /** Container has no healthcheck configured. */
+    public const HEALTH_NONE = 'none';
 
     /**
      * Upper bound on every `docker` invocation. The daemon occasionally
@@ -109,13 +117,49 @@ class LiquidsoapSupervisor
     }
 
     /**
+     * Same, but a non-zero exit is an answer rather than an exception.
+     *
+     * `docker inspect` on a container that does not exist exits 1, which is
+     * information — not a failure worth unwinding a request for.
+     */
+    private function dockerQuiet(array $cmd): ProcessResult
+    {
+        return Process::timeout(self::DOCKER_TIMEOUT_SECONDS)->run($cmd);
+    }
+
+    private function image(): string
+    {
+        return (string) config('liquidsoap.image', 'gocast/liquidsoap:latest');
+    }
+
+    /**
+     * Seconds Docker waits after SIGTERM before SIGKILLing a station.
+     *
+     * Clamped below DOCKER_TIMEOUT_SECONDS, because a stop timeout longer than
+     * Laravel's own Process timeout means the CLI is killed part-way through
+     * the shutdown — reintroducing, via a config typo, exactly the SIGKILL the
+     * graceful stop exists to avoid. Applied to both the container's own
+     * stop-timeout and the `docker stop` we issue, so the two cannot disagree.
+     */
+    private function stopTimeout(): int
+    {
+        return max(1, min(
+            (int) config('liquidsoap.stop_timeout_seconds', 5),
+            self::DOCKER_TIMEOUT_SECONDS - 3,
+        ));
+    }
+
+    /**
      * Ensure the station's Liquidsoap container is running with the latest
      * .liq config. Idempotent — safe to call repeatedly.
      *
      * Always re-renders the .liq and restarts the container, so this is the
      * right call after a station record changes (name/genre/etc affect the
-     * Icecast metadata block in the script). For "is it running, just bring
-     * it up if not" without a 3s restart hit, use ensure() instead.
+     * Icecast metadata block in the script). It is deliberately blunt: a
+     * restart drops connected listeners, so callers that only want a station
+     * to be on air — the power button, the WHIP auth hook — go through
+     * StationLifecycleService, which skips the restart when the container is
+     * already healthy.
      */
     public function up(Station $station): void
     {
@@ -139,28 +183,6 @@ class LiquidsoapSupervisor
         }
 
         $this->run($station);
-    }
-
-    /**
-     * Defensive "is the container running? if not, start it" — no restart
-     * if already healthy. Called by the WHIP auth path before allowing a
-     * broadcaster to publish, so a daemon hiccup or OOM kill doesn't leave
-     * the broadcaster connecting to MediaMTX with no Liquidsoap consumer.
-     *
-     * Cheap when the container is already running (one `docker inspect` call,
-     * no restart). Expensive only when recovery is needed.
-     */
-    public function ensure(Station $station): void
-    {
-        if (self::inTestMode()) {
-            return;
-        }
-
-        if ($this->isRunning($station)) {
-            return;
-        }
-
-        $this->up($station);
     }
 
     /**
@@ -204,9 +226,30 @@ class LiquidsoapSupervisor
             return;
         }
 
-        // `docker rm -f` covers both stop+remove in one call; the separate
-        // stop step we used to do was redundant and doubled the timeout
-        // budget on a slow daemon.
+        // Stop, THEN remove. `docker rm -f` is a SIGKILL: measured on the
+        // shipped image, a graceful stop costs 509ms and exits 0, having
+        // written the HLS `persist_at` state and closed the Icecast source
+        // socket. Killing skips both — every restart then resets the HLS media
+        // sequence (stalling clients mid-stream) and the mount lingers on
+        // Icecast until it times the source out.
+        //
+        // The stop timeout must stay under DOCKER_TIMEOUT_SECONDS or Laravel's
+        // Process timeout kills the CLI mid-shutdown, which is the SIGKILL we
+        // were trying to avoid. Guarded here rather than trusted to config.
+        $timeout = $this->stopTimeout();
+
+        try {
+            $this->docker(['docker', 'stop', '--timeout', (string) $timeout, $name]);
+        } catch (\Throwable $e) {
+            // A container that is already gone, or a daemon that refuses the
+            // stop, must not leave the container behind — fall through to the
+            // forced removal below, which is still better than nothing.
+            Log::warning('Graceful stop failed, forcing removal', [
+                'container' => $name,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         $this->docker(['docker', 'rm', '-f', $name]);
     }
 
@@ -235,6 +278,15 @@ class LiquidsoapSupervisor
     /**
      * Container exists AND is currently running. Distinguishes "container
      * stopped/crashed and needs to come back" from "container is fine."
+     *
+     * Deliberately NOT `docker ps --filter status=running`, which was the
+     * previous implementation and lies during a crash loop: Docker's restart
+     * backoff starts around 100ms, so a container that has never successfully
+     * booted is genuinely in the `running` state most of the time. Measured on
+     * a station with a broken .liq, that filter matched 5 samples out of 5 over
+     * the first 10 seconds. `.State.Status` reports `restarting` for exactly
+     * that case, which is the answer callers actually want — a station being
+     * restarted in a loop is not one anybody should be publishing into.
      */
     public function isRunning(Station $station): bool
     {
@@ -242,14 +294,111 @@ class LiquidsoapSupervisor
             return false;
         }
 
-        $name = $this->containerName($station);
-        $result = $this->docker([
-            'docker', 'ps', '--filter', "name={$name}",
-            '--filter', 'status=running',
-            '--format', '{{.Names}}',
-        ]);
+        return $this->containerState($this->containerName($station))['status'] === 'running';
+    }
 
-        return trim($result->output()) === $name;
+    /**
+     * Running AND passing its healthcheck.
+     *
+     * Containers started before healthchecks existed (or with the check
+     * disabled by config) report health `none`; for those, running is the best
+     * answer available and is treated as healthy so a rollout doesn't declare
+     * every existing station sick.
+     */
+    public function isHealthy(Station $station): bool
+    {
+        if (self::inTestMode()) {
+            return true;
+        }
+
+        $state = $this->containerState($this->containerName($station));
+
+        if ($state['status'] !== 'running') {
+            return false;
+        }
+
+        return in_array($state['health'], [self::HEALTH_HEALTHY, self::HEALTH_NONE], true);
+    }
+
+    /**
+     * Everything Docker knows about a container, in one call.
+     *
+     * This is the difference between "we ran a docker command and it exited 0"
+     * and "the station is actually up". `docker run -d` exits 0 for a container
+     * that dies immediately afterwards; the exit code, the OOM flag and the
+     * restart count are where that shows up.
+     *
+     * @return array{exists: bool, status: string, health: string, exit_code: int, oom_killed: bool, restart_count: int}
+     */
+    public function containerState(string $name): array
+    {
+        if (self::inTestMode()) {
+            return $this->stateTuple(true, 'running', self::HEALTH_NONE, 0, false, 0);
+        }
+
+        // Health lives under .State.Health only when the container was started
+        // with a healthcheck; the `if` keeps the template from erroring on
+        // containers that were not.
+        $format = '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
+            .'|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.RestartCount}}';
+
+        $result = $this->dockerQuiet(['docker', 'inspect', '-f', $format, $name]);
+
+        if (! $result->successful()) {
+            return $this->stateTuple(false, 'absent', self::HEALTH_NONE, 0, false, 0);
+        }
+
+        $parts = explode('|', trim($result->output()));
+
+        return $this->stateTuple(
+            true,
+            $parts[0] ?? 'unknown',
+            $parts[1] ?? self::HEALTH_NONE,
+            (int) ($parts[2] ?? 0),
+            ($parts[3] ?? 'false') === 'true',
+            (int) ($parts[4] ?? 0),
+        );
+    }
+
+    /**
+     * @return array{exists: bool, status: string, health: string, exit_code: int, oom_killed: bool, restart_count: int}
+     */
+    private function stateTuple(
+        bool $exists,
+        string $status,
+        string $health,
+        int $exitCode,
+        bool $oomKilled,
+        int $restartCount,
+    ): array {
+        return [
+            'exists' => $exists,
+            'status' => $status,
+            'health' => $health,
+            'exit_code' => $exitCode,
+            'oom_killed' => $oomKilled,
+            'restart_count' => $restartCount,
+        ];
+    }
+
+    /**
+     * Last lines of a container's log. Used to attach a reason to a start
+     * failure — the answer is almost always sitting there ("Error 4: Undefined
+     * variable ..."), we simply never read it.
+     *
+     * The exception is an OOM kill at boot, which produces an empty log; that
+     * is what `oom_killed` in containerState() is for.
+     */
+    public function logTail(string $name, int $lines = 20): string
+    {
+        if (self::inTestMode()) {
+            return '';
+        }
+
+        $result = $this->dockerQuiet(['docker', 'logs', '--tail', (string) $lines, $name]);
+
+        // Liquidsoap logs to stdout, but a crash on startup can land on stderr.
+        return trim($result->output()."\n".$result->errorOutput());
     }
 
     /**
@@ -270,6 +419,48 @@ class LiquidsoapSupervisor
         $lines = preg_split('/\R/', trim($result->output()), -1, PREG_SPLIT_NO_EMPTY);
 
         return array_values(array_filter($lines ?: [], fn ($name) => str_starts_with($name, self::CONTAINER_PREFIX)));
+    }
+
+    /**
+     * Every managed container with the state Docker reports for it, in a
+     * single `docker ps` — so the reconciler can classify orphan / unwanted /
+     * missing / unhealthy without one inspect per station.
+     *
+     * `{{.Status}}` carries health in parentheses ("Up 2 hours (unhealthy)"),
+     * which is the only place `docker ps` exposes it.
+     *
+     * @return array<string, array{status: string, health: string}>
+     */
+    public function listContainerStates(): array
+    {
+        if (self::inTestMode()) {
+            return [];
+        }
+
+        $result = $this->docker([
+            'docker', 'ps', '-a',
+            '--filter', 'name='.self::CONTAINER_PREFIX,
+            '--format', '{{.Names}}|{{.State}}|{{.Status}}',
+        ]);
+
+        $states = [];
+
+        foreach (preg_split('/\R/', trim($result->output()), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $line) {
+            [$name, $state, $status] = array_pad(explode('|', $line, 3), 3, '');
+
+            if (! str_starts_with($name, self::CONTAINER_PREFIX)) {
+                continue;
+            }
+
+            $health = self::HEALTH_NONE;
+            if (preg_match('/\((healthy|unhealthy|health: starting)\)/', $status, $m) === 1) {
+                $health = $m[1] === 'health: starting' ? self::HEALTH_STARTING : $m[1];
+            }
+
+            $states[$name] = ['status' => $state, 'health' => $health];
+        }
+
+        return $states;
     }
 
     private function containerExistsByName(string $name): bool
@@ -315,10 +506,12 @@ class LiquidsoapSupervisor
 
         $command = str_replace(["\r", "\n"], '', $command);
 
+        $host = $this->containerHost($station);
+
         $errno = 0;
         $errstr = '';
         $socket = @fsockopen(
-            $this->containerName($station),
+            $host,
             self::TELNET_PORT,
             $errno,
             $errstr,
@@ -327,7 +520,7 @@ class LiquidsoapSupervisor
 
         if ($socket === false) {
             throw new \RuntimeException(
-                "Liquidsoap telnet connect failed for {$station->slug}: {$errstr} ({$errno})"
+                "Liquidsoap telnet connect failed for {$station->slug} at {$host}: {$errstr} ({$errno})"
             );
         }
 
@@ -354,51 +547,306 @@ class LiquidsoapSupervisor
         return trim($response);
     }
 
+    /**
+     * Resolve the address of a station container, for telnet (control) and
+     * harbor HTTP (status) alike.
+     *
+     * Which form is correct depends on where Laravel itself is running, which
+     * is why it's config rather than detection — see `telnet_resolve` in
+     * config/liquidsoap.php:
+     *
+     *  • 'name' (default, production): the container name, resolved by
+     *    Docker's embedded DNS. Only works when Laravel is a compose service
+     *    on gocast-network. Costs nothing.
+     *
+     *  • 'ip' (Laravel running natively on the host): ask the daemon for the
+     *    container's bridge IP. Docker's DNS is only available to containers,
+     *    so a host process cannot resolve the name at all — but it can route
+     *    to the IP directly on Linux.
+     *
+     * The inspect result is deliberately not cached: container IPs change on
+     * every restart, and a stale one fails in a way that looks like a wedged
+     * Liquidsoap rather than a bad address.
+     */
+    public function containerHost(Station $station): string
+    {
+        $name = $this->containerName($station);
+
+        // Same reason as every other guard in this class: the 'ip' branch
+        // shells out to `docker inspect`, and a test that only wanted an
+        // address would otherwise talk to the host daemon. Tests fake the
+        // HTTP/telnet layer above this, so the name is all they need.
+        if (self::inTestMode()) {
+            return $name;
+        }
+
+        if (config('liquidsoap.telnet_resolve') !== 'ip') {
+            return $name;
+        }
+
+        // `index` rather than the dotted form: {{.Networks.gocast-network}}
+        // silently evaluates to empty because Go templates read the hyphen as
+        // subtraction, so the failure looks like "container has no IP" instead
+        // of a bad selector. Ranging over all networks would also work today
+        // but concatenates addresses if a container is ever attached to two.
+        $result = $this->docker([
+            'docker', 'inspect', '-f',
+            '{{(index .NetworkSettings.Networks "'.self::NETWORK.'").IPAddress}}',
+            $name,
+        ]);
+
+        $ip = trim($result->output());
+
+        if ($ip === '') {
+            throw new \RuntimeException(
+                "Could not resolve an IP for {$name} — is the container running?"
+            );
+        }
+
+        return $ip;
+    }
+
     private function run(Station $station): void
     {
-        $cmd = [
-            'docker', 'run', '-d',
-            '--name', $this->containerName($station),
-            '--network', self::NETWORK,
-            '--restart', 'unless-stopped',
-            '--add-host', 'host.docker.internal:host-gateway',
-        ];
-
-        // Per-station resource caps — keeps one runaway station from
-        // starving its neighbors on the same box. Empty string disables
-        // the cap (escape hatch for benchmarking; not recommended in prod).
-        $cpus = (string) config('liquidsoap.container_cpus', '');
-        if ($cpus !== '') {
-            $cmd[] = '--cpus';
-            $cmd[] = $cpus;
-        }
-        $memory = (string) config('liquidsoap.container_memory', '');
-        if ($memory !== '') {
-            $cmd[] = '--memory';
-            $cmd[] = $memory;
-            // Pin swap to the same value: without this Docker silently
-            // gives the container 2x memory in swap, which means the cap
-            // isn't really a cap on a host with swap enabled.
-            $cmd[] = '--memory-swap';
-            $cmd[] = $memory;
-        }
-
-        $cmd = array_merge($cmd, [
-            '-v', "{$this->liqDir}/{$station->slug}.liq:/station.liq:ro",
-            '-v', "{$this->playlistsDir}/{$station->slug}:/data/playlists:ro",
-            '-v', "{$this->hlsDir}/{$station->slug}:/data/hls",
-            self::IMAGE,
-            '/station.liq',
-        ]);
+        $cmd = array_merge(
+            $this->baseRunCommand($station),
+            $this->sandboxFlags(),
+            $this->healthFlags(),
+            $this->resourceFlags(),
+            $this->mountFlags($station),
+        );
 
         $this->docker($cmd);
 
         Log::info('Liquidsoap container started', [
             'station' => $station->slug,
             'container' => $this->containerName($station),
-            'cpus' => $cpus,
-            'memory' => $memory,
         ]);
+
+        $this->verifyStarted($station);
+    }
+
+    /**
+     * Confirm the container is still alive a beat after `docker run`.
+     *
+     * `docker run -d` exits 0 once the container is CREATED — a station whose
+     * script fails to parse, or which is OOM-killed while building its audio
+     * graph, reports a successful start and then dies. Without this the API
+     * returns 202, nothing notices, and the station sits in `starting` until a
+     * human goes looking. The reason is almost always already in the container
+     * log; the OOM case has an empty log and shows up as `oom_killed`.
+     *
+     * Intent has already been recorded by StationLifecycleService at this
+     * point, so throwing here does not lose the station: the reconciler retries
+     * it within five minutes. Failing loudly buys an accurate error now.
+     *
+     * @throws StationLifecycleException
+     */
+    private function verifyStarted(Station $station): void
+    {
+        $delayMs = (int) config('liquidsoap.start_verify_delay_ms', 750);
+
+        if ($delayMs <= 0) {
+            return;
+        }
+
+        usleep($delayMs * 1000);
+
+        $name = $this->containerName($station);
+        $state = $this->containerState($name);
+
+        if ($state['status'] === 'running') {
+            return;
+        }
+
+        $context = [
+            'station' => $station->slug,
+            'container' => $name,
+            'status' => $state['status'],
+            'exit_code' => $state['exit_code'],
+            'oom_killed' => $state['oom_killed'],
+            'restart_count' => $state['restart_count'],
+            'logs' => $this->logTail($name),
+        ];
+
+        // An OOM kill at boot is its own diagnosis with a known cause: the
+        // memory cap set below what Liquidsoap needs to build the ffmpeg input
+        // and the HLS encoder. Say so rather than making someone rediscover it
+        // from an empty log.
+        if ($state['oom_killed']) {
+            Log::error('Station container was OOM-killed at boot', $context);
+
+            throw StationLifecycleException::startFailed(
+                'The station ran out of memory while starting.'
+            );
+        }
+
+        Log::error('Station container died immediately after start', $context);
+
+        throw StationLifecycleException::startFailed();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function baseRunCommand(Station $station): array
+    {
+        return [
+            'docker', 'run', '-d',
+            '--name', $this->containerName($station),
+            '--network', self::NETWORK,
+            '--restart', 'unless-stopped',
+            '--add-host', 'host.docker.internal:host-gateway',
+            // Stop signal and grace period belong on the container, not only on
+            // the code path that stops it: a `docker stop` issued by hand, or by
+            // a host shutdown, should drain just as cleanly as ours does.
+            '--stop-signal', 'SIGTERM',
+            '--stop-timeout', (string) $this->stopTimeout(),
+            // Identity that survives a rename. The reconciler recovers a slug by
+            // parsing the container name, which is precisely what a rename
+            // changes; labels also make log shipping and ad-hoc `docker ps
+            // --filter label=` work.
+            '--label', 'gocast.station='.$station->slug,
+            '--label', 'gocast.station_id='.$station->id,
+            // Log rotation. These containers are spawned outside compose, so
+            // the `x-logging` policy in docker-compose.yml does not reach
+            // them — without these flags each station's log grows without
+            // bound until it fills the disk. A station that is retrying an
+            // RTSP connect logs continuously, so this is not theoretical.
+            '--log-opt', 'max-size=10m',
+            '--log-opt', 'max-file=3',
+        ];
+    }
+
+    /**
+     * Liquidsoap needs no capabilities beyond reading its mounts and opening
+     * sockets. Dropping the lot costs nothing and shrinks what a compromised
+     * station process can reach; `no-new-privileges` blocks setuid escalation
+     * and the pid cap bounds a fork storm.
+     *
+     * `--init` is opt-in: the image handles SIGTERM correctly as PID 1 (a
+     * graceful stop was measured at 509ms and exit 0), so a reaper is only
+     * needed once per-track protocol resolvers start forking ffmpeg.
+     *
+     * @return list<string>
+     */
+    private function sandboxFlags(): array
+    {
+        $flags = [
+            '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges',
+        ];
+
+        $pids = (int) config('liquidsoap.container_pids_limit', 0);
+        if ($pids > 0) {
+            $flags[] = '--pids-limit';
+            $flags[] = (string) $pids;
+        }
+
+        if ((bool) config('liquidsoap.container_init', false)) {
+            $flags[] = '--init';
+        }
+
+        return $flags;
+    }
+
+    /**
+     * Let Docker poll the station's own /healthz, so `docker ps` carries an
+     * honest answer and the reconciler gets `--filter health=unhealthy` for
+     * free.
+     *
+     * The probe is bash's /dev/tcp because the image ships no curl, wget or
+     * nc. /healthz answers 200 only when the audio graph is producing frames
+     * AND the Icecast connection is up, so "healthy" means audible rather than
+     * merely alive.
+     *
+     * start_period must cover a cold boot — audio graph plus Icecast connect —
+     * or a station is marked unhealthy while it is still legitimately coming up.
+     *
+     * @return list<string>
+     */
+    private function healthFlags(): array
+    {
+        if (! (bool) config('liquidsoap.health_enabled', true)) {
+            return [];
+        }
+
+        $port = (int) config('liquidsoap.harbor_port', 8080);
+
+        $probe = sprintf(
+            'exec 3<>/dev/tcp/127.0.0.1/%d && printf "GET /healthz HTTP/1.0\r\n\r\n" >&3 && head -1 <&3 | grep -q " 200 "',
+            $port,
+        );
+
+        return [
+            '--health-cmd', 'bash -c '.escapeshellarg($probe),
+            '--health-interval', config('liquidsoap.health_interval_seconds', 15).'s',
+            '--health-timeout', config('liquidsoap.health_timeout_seconds', 3).'s',
+            '--health-retries', (string) config('liquidsoap.health_retries', 3),
+            '--health-start-period', config('liquidsoap.health_start_period_seconds', 45).'s',
+        ];
+    }
+
+    /**
+     * Per-station resource caps — keeps one runaway station from starving its
+     * neighbors on the same box. Empty string disables the cap (escape hatch
+     * for benchmarking; not recommended in prod).
+     *
+     * @return list<string>
+     */
+    private function resourceFlags(): array
+    {
+        $flags = [];
+
+        $cpus = (string) config('liquidsoap.container_cpus', '');
+        if ($cpus !== '') {
+            $flags[] = '--cpus';
+            $flags[] = $cpus;
+        }
+
+        $memory = (string) config('liquidsoap.container_memory', '');
+        if ($memory !== '') {
+            $flags[] = '--memory';
+            $flags[] = $memory;
+            // Pin swap to the same value: without this Docker silently gives
+            // the container 2x memory in swap, which means the cap isn't
+            // really a cap on a host with swap enabled.
+            $flags[] = '--memory-swap';
+            $flags[] = $memory;
+        }
+
+        return $flags;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function mountFlags(Station $station): array
+    {
+        return [
+            '-v', "{$this->liqDir}/{$station->slug}.liq:/station.liq:ro",
+            '-v', "{$this->playlistsDir}/{$station->slug}:/data/playlists:ro",
+            '-v', "{$this->hlsDir}/{$station->slug}:/data/hls",
+            $this->image(),
+            '/station.liq',
+        ];
+    }
+
+    /**
+     * Remove the rendered .liq and the HLS working directory for a station
+     * that is gone for good. The playlist tree is PlaylistFileWriter's to
+     * delete (StationObserver::forceDeleted); these two are ours, and without
+     * this they accumulate for every station ever hard-deleted.
+     */
+    public function destroyArtifacts(string $slug): void
+    {
+        foreach (["{$this->liqDir}/{$slug}.liq", "{$this->hlsDir}/{$slug}"] as $path) {
+            if (is_dir($path)) {
+                File::deleteDirectory($path);
+            } elseif (is_file($path)) {
+                File::delete($path);
+            }
+        }
     }
 
     private function renderLiqFile(Station $station): void
@@ -409,6 +857,21 @@ class LiquidsoapSupervisor
             // Embedded so the on_metadata callback can authenticate to
             // /api/internal/now-playing. Sent as the X-Internal-Key header.
             'internalApiKey' => (string) config('services.internal_api_key'),
+            // Addresses from the STATION CONTAINER's point of view, not
+            // Laravel's — see config/liquidsoap.php. Defaults are the
+            // compose service names; overridden by env when Laravel and
+            // Icecast run natively on the host instead of in containers.
+            'icecastHost' => (string) config('liquidsoap.icecast_host'),
+            'icecastPort' => (int) config('liquidsoap.icecast_port'),
+            'apiUrl' => rtrim((string) config('liquidsoap.api_url'), '/'),
+            'rtspHost' => (string) config('liquidsoap.rtsp_host'),
+            'rtspPort' => (int) config('liquidsoap.rtsp_port'),
+            // Harbor control surface — /status and /healthz, read by
+            // StationStatusService over gocast-network.
+            'harborPort' => (int) config('liquidsoap.harbor_port'),
+            // Dead-air guard on the live input; 0 disables it.
+            'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
+            'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
         ])->render();
 
         File::ensureDirectoryExists($this->liqDir);

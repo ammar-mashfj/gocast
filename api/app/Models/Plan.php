@@ -13,7 +13,10 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string $slug
  * @property string $name
  * @property int $max_stations
+ * @property int $max_running_stations
  * @property int $max_listeners
+ * @property bool $autodj_enabled
+ * @property int|null $idle_stop_hours
  */
 class Plan extends Model
 {
@@ -27,10 +30,20 @@ class Plan extends Model
         return $this->hasMany(User::class);
     }
 
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'autodj_enabled' => 'boolean',
+        ];
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'slug', 'max_stations', 'max_listeners'])
+            ->logOnly(['name', 'slug', 'max_stations', 'max_running_stations', 'max_listeners', 'autodj_enabled'])
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
     }

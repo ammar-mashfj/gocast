@@ -25,7 +25,7 @@ class StatsOverview extends StatsOverviewWidget
 
             $totalUsers = User::count();
             $totalStations = Station::count();
-            $liveNow = Station::where('is_live', true)->count();
+            $liveNow = Station::query()->live()->count();
 
             $listenerMinutes = StreamSession::where('started_at', '>=', $thirty)
                 ->sum('total_listener_minutes');

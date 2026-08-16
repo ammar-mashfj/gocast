@@ -54,17 +54,16 @@ it('blocks soft-delete when the slug confirmation is wrong', function () {
     expect(Station::find($station->id))->not->toBeNull();
 });
 
-it('does not write is_live in the edit form', function () {
-    $station = Station::factory()->for(User::factory())->create([
+it('does not end a live broadcast when the edit form is saved', function () {
+    $station = Station::factory()->for(User::factory())->live()->create([
         'name' => 'Radio Four',
         'slug' => 'radio-four',
-        'is_live' => true,
     ]);
 
     Livewire::test(EditStation::class, ['record' => $station->slug])
         ->fillForm(['name' => 'Renamed'])
         ->call('save');
 
-    expect($station->fresh()->is_live)->toBeTrue();
+    expect($station->fresh()->isLive())->toBeTrue();
     expect($station->fresh()->name)->toBe('Renamed');
 });

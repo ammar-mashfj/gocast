@@ -37,3 +37,31 @@ it('returns prometheus-format metrics for an authenticated scrape', function () 
     expect($body)->toContain('gocast_tracks_total');
     expect($body)->toContain('gocast_users_total');
 });
+
+it('counts only stations that want to be on air as expected containers', function () {
+    // This gauge is the drift alert. Counting every station row — which it did
+    // before the power button existed — makes every deliberately stopped
+    // station read as missing capacity, so the alert is permanently firing and
+    // therefore permanently ignored.
+    $user = User::factory()->create();
+    Station::factory()->for($user, 'user')->count(2)->create(['desired_state' => Station::STATE_RUNNING]);
+    Station::factory()->for($user, 'user')->count(3)->create(['desired_state' => Station::STATE_STOPPED]);
+
+    $body = test()->getJson('/api/internal/metrics', [
+        'X-Internal-Key' => config('services.internal_api_key'),
+    ])->assertOk()->getContent();
+
+    expect($body)
+        ->toContain('gocast_supervisor_containers_expected 2')
+        ->toContain('gocast_stations_stopped 3');
+});
+
+it('exposes an unhealthy container gauge', function () {
+    // The blind spot this pass exists to close — a container that is present
+    // but not working was invisible to every metric we had.
+    $body = test()->getJson('/api/internal/metrics', [
+        'X-Internal-Key' => config('services.internal_api_key'),
+    ])->assertOk()->getContent();
+
+    expect($body)->toContain('gocast_supervisor_containers_unhealthy');
+});

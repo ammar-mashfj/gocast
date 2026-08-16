@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureEmailIsVerified;
 use App\Http\Middleware\ExpireIdleAdminSession;
 use App\Http\Middleware\UseAuthTokenCookie;
 use App\Http\Middleware\VerifyInternalKey;
+use App\Services\StationLifecycleException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -52,4 +53,29 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         Integration::handles($exceptions);
+
+        // Station start/stop refusals are expected outcomes, not faults:
+        // a plan without a free slot, or a stop attempted mid-broadcast.
+        // Rendering them here keeps the controllers free of try/catch and
+        // gives the SPA a stable `code` to branch on (upsell vs "end your
+        // broadcast first") instead of matching on English text.
+        // ...but only the faults are worth waking someone for. A plan limit or
+        // a stop refused mid-broadcast is the system working as designed; a
+        // container that died at boot is not. Without this split, adding
+        // start-failure reporting would have buried it under refusals that are
+        // supposed to happen.
+        $exceptions->reportable(function (StationLifecycleException $e) {
+            return $e->status >= 500;
+        });
+
+        $exceptions->render(function (StationLifecycleException $e, Request $request) {
+            if (! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => $e->errorCode,
+            ], $e->status);
+        });
     })->create();

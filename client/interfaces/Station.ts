@@ -8,10 +8,25 @@ export interface Station {
   artwork_url: string | null
   /** A human broadcaster is publishing right now (WHIP active). Drives the "LIVE" badge. */
   is_live: boolean
-  /** Anything is playing — live broadcaster OR AutoDJ rotation. Drives play button + off-air state. */
+  /**
+   * The mount exists and pressing play will connect — live broadcaster, AutoDJ
+   * rotation, or a station sitting on silence behind an empty playlist. Drives
+   * the play button + off-air state. Note this is true with no `now_playing`:
+   * missing metadata means "nothing to name", not "nothing to hear".
+   */
   is_on_air: boolean
-  /** Track metadata pushed by Liquidsoap; null when nothing is playing. */
+  /** Track metadata pushed by Liquidsoap; null when nothing identifiable is playing. */
   now_playing: { title: string | null; artist: string | null } | null
+  /** What the owner asked for. A station only holds a container while running. */
+  desired_state: "stopped" | "running"
+  /** When the station was last put on air; null while off air. */
+  started_at: string | null
+  /**
+   * Coarse state, derived without touching the container — good enough for
+   * lists and badges. It cannot report "starting"; fetch
+   * `/stations/{slug}/status` for the precise state.
+   */
+  state: "offline" | "on_air" | "live"
   icecast_mount: string
   social_links: Record<string, string> | null
   theme_config: Record<string, string> | null

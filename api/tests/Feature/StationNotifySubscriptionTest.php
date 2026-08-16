@@ -45,7 +45,6 @@ it('schedules delayed notification delivery when a station session starts', func
     $station = Station::factory()->for($owner, 'user')->create([
         'name' => 'Night Waves',
         'slug' => 'night-waves',
-        'is_live' => false,
     ]);
 
     StationNotifySubscription::create([
@@ -79,7 +78,6 @@ it('emails unnotified listeners when the delayed job confirms the same session i
     $station = Station::factory()->create([
         'name' => 'Night Waves',
         'slug' => 'night-waves',
-        'is_live' => true,
     ]);
     $session = StreamSession::create([
         'station_id' => $station->id,
@@ -113,7 +111,7 @@ it('emails unnotified listeners when the delayed job confirms the same session i
 });
 
 it('does not email subscriptions that were already notified', function () {
-    $station = Station::factory()->create(['is_live' => true]);
+    $station = Station::factory()->create();
     $session = StreamSession::create([
         'station_id' => $station->id,
         'started_at' => now()->subMinutes(2),
@@ -130,8 +128,12 @@ it('does not email subscriptions that were already notified', function () {
     Notification::assertNothingSent();
 });
 
-it('does not email listeners when the delayed job finds the station offline', function () {
-    $station = Station::factory()->create(['is_live' => false]);
+// The old version of this test set is_live = false while leaving the session
+// open. That state is now unrepresentable — an open session IS live — which
+// was the whole point of removing the column. What remains worth covering is
+// the other early return: the station going away before the delay elapses.
+it('does not email listeners when the station is deleted before the job runs', function () {
+    $station = Station::factory()->create();
     $session = StreamSession::create([
         'station_id' => $station->id,
         'started_at' => now()->subMinutes(2),
@@ -142,6 +144,8 @@ it('does not email listeners when the delayed job finds the station offline', fu
         'email' => 'listener@test.test',
     ]);
 
+    $station->delete();
+
     (new SendStationLiveNotifications($station->id, $session->id))->handle();
 
     Notification::assertNothingSent();
@@ -149,7 +153,7 @@ it('does not email listeners when the delayed job finds the station offline', fu
 });
 
 it('does not email listeners when the original stream session already ended', function () {
-    $station = Station::factory()->create(['is_live' => true]);
+    $station = Station::factory()->create();
     $session = StreamSession::create([
         'station_id' => $station->id,
         'started_at' => now()->subMinutes(2),

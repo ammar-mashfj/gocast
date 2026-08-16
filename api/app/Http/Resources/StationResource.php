@@ -3,7 +3,8 @@
 namespace App\Http\Resources;
 
 use App\Models\Station;
-use App\Services\BroadcastStateService;
+use App\Models\StreamSession;
+use App\Services\StationStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
@@ -13,13 +14,29 @@ use Illuminate\Support\Facades\Redis;
 /**
  * API resource for station data.
  *
- * Real-time fields (is_live, now_playing) come from Redis — and Redis is the
- * hot path for list endpoints like /discover. To keep list responses to one
- * Redis round-trip total, we batch-fetch both keys via mget in the static
- * collection() override and stash the results in a per-request memo; each
- * resource's toArray() then reads from the memo instead of issuing its own
- * Redis call. Single-resource responses (show()) fall back to individual
- * gets — N=1 either way.
+ * Nothing here is stored state. `desired_state` (owner intent) is the only
+ * column involved; `is_live`, `is_on_air` and `state` are all derived per
+ * request, which is why there is no longer an `is_live` column to fall out of
+ * sync with the container.
+ *
+ * This is the CHEAP tier, deliberately: it answers from intent plus one SQL
+ * query, and never opens a socket to a station container. /discover renders 24
+ * stations a page, and asking harbor per row would mean 24 HTTP calls per page
+ * view. The consequence is that this tier cannot tell a container that is still
+ * booting (or has just died) from one that is happily on air — it reports the
+ * owner's intent. Two endpoints pay for the precise answer instead:
+ *
+ *   • GET /stations/{slug}/status  — full state, incl. starting/degraded
+ *   • GET /public/stations/{slug}/listeners — what the player polls
+ *
+ * Live-ness comes from an open StreamSession rather than Redis: the broadcast
+ * state key has a 90s TTL that nothing refreshes mid-broadcast, so it goes cold
+ * on any broadcast longer than 90 seconds. The session row does not.
+ *
+ * To keep list responses to one Redis round-trip and one extra query total, the
+ * static collection() override batch-fetches both and stashes them in a
+ * per-request memo; toArray() then reads the memo. Single-resource responses
+ * fall back to individual reads — N=1 either way.
  *
  * Includes computed stats (total sessions, cumulative airtime, peak listeners)
  * only when the streamSessions relation is eager-loaded, keeping list responses lean.
@@ -53,12 +70,11 @@ class StationResource extends JsonResource
         $preloaded = $map[$this->id] ?? $this->loadRealtimeState();
 
         // is_live: a real human broadcaster is publishing into MediaMTX right
-        // now. Driven by the WHIP runOnReady/runOnNotReady webhook chain.
-        // Redis cache is real-time; DB column is the durable fallback for
-        // when the cache is evicted / Redis restarts.
-        $isLive = $preloaded['is_live'] || (bool) $this->is_live;
+        // now — derived from the session the runOnReady/runOnNotReady webhook
+        // chain opens and closes, never from a stored flag.
+        $isRunning = $this->resource->isRunning();
+        $isLive = $isRunning && $preloaded['is_live'];
         $nowPlaying = $preloaded['metadata'];
-        $hasMetadata = is_array($nowPlaying) && (! empty($nowPlaying['title']) || ! empty($nowPlaying['artist']));
 
         return [
             'id' => $this->id,
@@ -69,13 +85,32 @@ class StationResource extends JsonResource
             'genre' => $this->genre,
             'artwork_url' => $this->artwork_url,
             'is_live' => $isLive,
-            // is_on_air: the listener-facing "is there anything to hear" flag.
-            // True for live broadcasts AND for AutoDJ rotations.
-            'is_on_air' => $isLive || $hasMetadata,
-            'now_playing' => $hasMetadata ? [
-                'title' => $nowPlaying['title'] ?? null,
-                'artist' => $nowPlaying['artist'] ?? null,
-            ] : null,
+            // is_on_air: the listener-facing "can I hear anything" flag — the
+            // station's mount exists and a player that connects will stay
+            // connected. True for live broadcasts AND for AutoDJ rotations,
+            // and — deliberately — for a running station playing silence.
+            //
+            // This used to additionally require now-playing metadata, which
+            // meant a station with an empty playlist, or one playing a file
+            // with no ID3 tags, reported itself offline while its Icecast
+            // mount was up and serving. Metadata answers "what is playing", a
+            // display question; it was never evidence of availability. The
+            // only guard that mattered — don't claim a stopped station is
+            // audible — is $isRunning, which is still here.
+            'is_on_air' => $isRunning,
+            // Owner intent, and the coarse state derived from it. This is the
+            // cheap answer: it costs no network call, so list endpoints stay
+            // at one Redis round-trip. It cannot tell "booting" from "on air"
+            // — GET /stations/{slug}/status asks the container itself and
+            // returns the precise state, including 'starting' and 'degraded'.
+            'desired_state' => $this->desired_state,
+            'started_at' => $this->started_at,
+            'state' => match (true) {
+                ! $isRunning => StationStatusService::STATE_OFFLINE,
+                $isLive => StationStatusService::STATE_LIVE,
+                default => StationStatusService::STATE_ON_AIR,
+            },
+            'now_playing' => $this->nowPlaying($nowPlaying),
             'icecast_mount' => $this->icecast_mount,
             'social_links' => $this->social_links,
             'theme_config' => $this->theme_config,
@@ -117,12 +152,15 @@ class StationResource extends JsonResource
         $metadataKeys = array_map(fn ($id) => "metadata:{$id}", $ids);
         $metadataValues = Redis::mget($metadataKeys);
 
-        // Broadcast state ("is the publisher connected right now") lives in
-        // the default cache store. cache()->many() collapses to a single
-        // Redis MGET when the cache driver is Redis.
-        $broadcastState = app(BroadcastStateService::class);
-        $stateKeys = array_map(fn ($id) => "broadcast:station:{$id}", $ids);
-        $states = cache()->many($stateKeys);
+        // One query for live-ness across the whole page, rather than an
+        // exists() per row. Stations with an open StreamSession have a
+        // publisher connected right now.
+        $liveIds = StreamSession::query()
+            ->whereIn('station_id', $ids)
+            ->whereNull('ended_at')
+            ->distinct()
+            ->pluck('station_id')
+            ->flip();
 
         $map = [];
         foreach ($ids as $i => $id) {
@@ -130,7 +168,7 @@ class StationResource extends JsonResource
             $metadata = is_string($rawMetadata) ? json_decode($rawMetadata, true) : null;
 
             $map[$id] = [
-                'is_live' => $broadcastState->isLiveFromState($states["broadcast:station:{$id}"] ?? null),
+                'is_live' => $liveIds->has($id),
                 'metadata' => is_array($metadata) ? $metadata : null,
             ];
         }
@@ -149,8 +187,34 @@ class StationResource extends JsonResource
         $metadata = is_string($rawMetadata) ? json_decode($rawMetadata, true) : null;
 
         return [
-            'is_live' => app(BroadcastStateService::class)->isLive($this->resource),
+            'is_live' => $this->resource->isLive(),
             'metadata' => is_array($metadata) ? $metadata : null,
+        ];
+    }
+
+    /**
+     * Now-playing payload, or null when nothing identifiable is on air.
+     *
+     * Absent metadata is not evidence of being off air — a station rotating
+     * untagged files, or playing silence behind an empty playlist, is still
+     * on air with nothing to name. It only means there is no title to show.
+     *
+     * @param  array<string, mixed>|null  $metadata
+     * @return array{title: ?string, artist: ?string}|null
+     */
+    private function nowPlaying(?array $metadata): ?array
+    {
+        if (! $this->resource->isRunning() || ! is_array($metadata)) {
+            return null;
+        }
+
+        if (empty($metadata['title']) && empty($metadata['artist'])) {
+            return null;
+        }
+
+        return [
+            'title' => $metadata['title'] ?? null,
+            'artist' => $metadata['artist'] ?? null,
         ];
     }
 }

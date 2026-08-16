@@ -9,7 +9,12 @@ use Illuminate\Console\Command;
 use Throwable;
 
 /**
- * Ensures every active station has a running Liquidsoap container.
+ * Ensures every station that WANTS to be on air has a running container.
+ *
+ * Scoped to `desired_state = running`. A station its owner has not started
+ * has no container by design, and relaunching everything would put every
+ * station on the box back on air on each deploy — the exact behaviour the
+ * power button exists to end.
  *
  * Idempotent — calling LiquidsoapSupervisor::up() on a station whose
  * container already runs just restarts it (cheap, ~3s blip per station).
@@ -34,11 +39,11 @@ class RelaunchStations extends Command
                             {--slug= : Only relaunch one station by slug}
                             {--include-trashed : Also relaunch soft-deleted stations}';
 
-    protected $description = 'Ensure every station has a running Liquidsoap container';
+    protected $description = 'Ensure every station that should be on air has a running Liquidsoap container';
 
     public function handle(LiquidsoapSupervisor $supervisor, PlaylistFileWriter $playlistWriter): int
     {
-        $query = Station::query();
+        $query = Station::query()->running();
 
         if ($this->option('include-trashed')) {
             $query->withTrashed();

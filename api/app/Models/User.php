@@ -61,6 +61,16 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Station::class);
     }
 
+    /**
+     * How many of this user's stations are meant to be on air right now.
+     * Counts intent, not containers — a station whose container crashed
+     * still occupies its slot, because the reconciler will bring it back.
+     */
+    public function runningStationsCount(): int
+    {
+        return $this->stations()->running()->count();
+    }
+
     public function streamSessions(): HasManyThrough
     {
         return $this->hasManyThrough(StreamSession::class, Station::class);

@@ -19,20 +19,49 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- Per-station data directories ---
-# UID 100 / GID 101 = `liquidsoap` user inside savonet/liquidsoap. Liquidsoap
-# needs to WRITE the hls/ subdirs; api container runs as root so it can write
-# anywhere regardless of ownership. Making the tree owned by 100:101 means
-# root-in-api and liquidsoap-in-liquidsoap-container can both write without
-# 0777 permissions.
+# GID 101 = the `liquidsoap` group inside savonet/liquidsoap, and it is the
+# constant across every setup: Liquidsoap must WRITE the hls/ subdirs, and it
+# runs as uid 100 / gid 101 inside its container. Mode 0775 gives that group
+# write access without resorting to 0777.
+#
+# The OWNER differs by where Laravel runs, which is why it's a variable:
+#
+#   100 (default)  — Laravel is the containerised api service. Its user is
+#                    uid 1001 gid 101 (see api/Dockerfile), so it writes via
+#                    the group. Correct for production.
+#
+#   $(id -u)       — Laravel runs natively on this host. Your user is not in
+#                    gid 101, so group-write does not help; you need to own
+#                    the tree outright:
+#                        GOCAST_DATA_OWNER="$(id -u)" bash infra/setup-host.sh
+#                    Liquidsoap containers keep write access through gid 101.
+DATA_OWNER="${GOCAST_DATA_OWNER:-100}"
+
 sudo mkdir -p /var/gocast/liq /var/gocast/playlists /var/gocast/hls
-sudo chown -R 100:101 /var/gocast
+sudo chown -R "${DATA_OWNER}:101" /var/gocast
 sudo chmod -R 0775 /var/gocast
 
 # --- Docker network ---
 # Compose creates `gocast-network` on first `up`; ensure it exists for
 # standalone `docker run` invocations from Laravel even if compose hasn't
 # started yet. Failure here just means it already exists.
-docker network inspect gocast-network >/dev/null 2>&1 || docker network create gocast-network
+#
+# The labels are not decoration. Compose refuses to adopt a network it
+# didn't create — a bare `docker network create gocast-network` here makes
+# the next `docker compose up` fail with:
+#
+#   network gocast-network was found but has incorrect label
+#   com.docker.compose.network set to "" (expected: "default")
+#
+# which is exactly the order deploy.sh runs things in. The two labels below
+# are what Compose stamps on its own networks: the project name (`name:` at
+# the top of docker-compose.yml) and the network's key in the `networks:`
+# block (`default`). With them set, Compose treats this network as its own
+# and attaches to it instead of erroring out.
+docker network inspect gocast-network >/dev/null 2>&1 || docker network create \
+  --label com.docker.compose.project=gocast \
+  --label com.docker.compose.network=default \
+  gocast-network
 
 # --- Liquidsoap image ---
 # Built from infra/liquidsoap/Dockerfile. Tagged so Laravel can reference

@@ -13,7 +13,10 @@ use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\StationController;
+use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
+use App\Http\Controllers\StationPowerController;
+use App\Http\Controllers\StationStatusController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\TrackController;
 use App\Http\Controllers\UploadController;
@@ -84,6 +87,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/broadcast-token', BroadcastTokenController::class)
             ->middleware('throttle:30,1');
 
+        // Station power switch. Creating a station configures it; starting it
+        // is what spawns a Liquidsoap container and puts a mount on Icecast.
+        // Throttled because each start is a docker run — a hammered button
+        // shouldn't be able to thrash the daemon.
+        Route::post('/stations/{station:slug}/start', [StationPowerController::class, 'start'])
+            ->middleware('throttle:20,1');
+        Route::post('/stations/{station:slug}/stop', [StationPowerController::class, 'stop'])
+            ->middleware('throttle:20,1');
+
+        // Skip the current AutoDJ track — a telnet command to the running
+        // container, no restart involved.
+        Route::post('/stations/{station:slug}/skip', [StationPowerController::class, 'skip'])
+            ->middleware('throttle:30,1');
+
+        // Live audio state, read from the station's own container. Polled by
+        // the dashboard while a station is starting and by the broadcast
+        // pre-flight before publishing, so it gets a roomier limit.
+        Route::get('/stations/{station:slug}/status', StationStatusController::class)
+            ->middleware('throttle:120,1');
+
         // AutoDJ tracks — list, upload, reorder, edit, delete. The reorder
         // endpoint is registered before the implicit-binding {track} update
         // so "reorder" doesn't get parsed as a ULID.
@@ -134,6 +157,12 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
     // Per-station Liquidsoap pushes here on every track change; cached in
     // Redis for the listener-side now-playing API.
     Route::post('/internal/now-playing', NowPlayingController::class);
+
+    // Container lifecycle: boot, shutdown, Icecast connect/disconnect, and
+    // live-input silence. A fast path for state Laravel would otherwise have
+    // to infer by polling — never load-bearing, since a container that dies
+    // at boot reports nothing at all.
+    Route::post('/internal/station-event', StationEventController::class);
 
     // Prometheus-format metrics. Scrape with X-Internal-Key from a
     // Prometheus / Grafana Agent / Vector pipeline. Excluded from the

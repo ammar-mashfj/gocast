@@ -4,7 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Station;
 use App\Services\BroadcastTokenService;
-use App\Services\LiquidsoapSupervisor;
+use App\Services\StationLifecycleException;
+use App\Services\StationLifecycleService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +41,7 @@ class MediaMtxAuthController extends Controller
     public function __invoke(
         Request $request,
         BroadcastTokenService $tokens,
-        LiquidsoapSupervisor $supervisor,
+        StationLifecycleService $lifecycle,
     ): Response {
         $action = (string) $request->input('action');
         $path = (string) $request->input('path');
@@ -78,17 +79,30 @@ class MediaMtxAuthController extends Controller
             return response('Unknown station', Response::HTTP_FORBIDDEN);
         }
 
-        // Last line of defence before audio starts flowing: make sure the
-        // station's Liquidsoap container is actually up to consume it. Without
-        // this, a container killed by OOM or a daemon restart means the
-        // broadcaster publishes happily, the UI says "live", and not one
-        // listener hears anything. Cheap when healthy (a single `docker ps`).
+        // Going live is a stronger statement of intent than the power button,
+        // so a stopped station is started here rather than the publish being
+        // refused. This also covers a station that *is* started but whose
+        // container was OOM-killed — without it the broadcaster publishes
+        // happily, the UI says "live", and not one listener hears anything.
+        // Cheap when healthy (a single `docker ps`).
         //
-        // Never fail the publish on a supervisor error — a broadcast with a
-        // broken AutoDJ chain still beats refusing to go live at all.
+        // Plan limits are the one thing that can still refuse a publish: if
+        // the concurrency cap could be dodged by going live instead of
+        // pressing start, it wouldn't be a cap.
         try {
-            $supervisor->ensure($station);
+            $lifecycle->ensureRunning($station);
+        } catch (StationLifecycleException $e) {
+            Log::info('WHIP auth: publish refused by plan limit', [
+                'station' => $station->slug,
+                'code' => $e->errorCode,
+            ]);
+
+            return response($e->getMessage(), Response::HTTP_FORBIDDEN);
         } catch (Throwable $e) {
+            // Any other failure (busy daemon, lock contention) must not block
+            // the broadcast — a broadcast with a broken AutoDJ chain still
+            // beats refusing to go live at all, and the reconciler will bring
+            // the container up within minutes.
             Log::error('WHIP auth: Liquidsoap ensure failed', [
                 'station' => $station->slug,
                 'error' => $e->getMessage(),

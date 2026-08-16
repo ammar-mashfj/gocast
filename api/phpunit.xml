@@ -45,6 +45,12 @@
              forceDeleted hook calls File::deleteDirectory() on the station dir.
              Without these overrides both operate on the live /var/gocast tree
              and every factory-created station leaks a directory into it. -->
+        <!-- Hybrid dev mode sets LIQUIDSOAP_TELNET_RESOLVE=ip in api/.env so a
+             natively-running Laravel can reach containers by bridge IP. That
+             leaks into tests, where it makes LiquidsoapSupervisor::containerHost
+             shell out to `docker inspect` for stations that never existed.
+             Pin the name-based path; the supervisor also guards on test mode. -->
+        <env name="LIQUIDSOAP_TELNET_RESOLVE" value="name" force="true"/>
         <env name="LIQUIDSOAP_LIQ_DIR" value="/tmp/gocast-test/liq" force="true"/>
         <env name="LIQUIDSOAP_PLAYLISTS_DIR" value="/tmp/gocast-test/playlists" force="true"/>
         <env name="LIQUIDSOAP_HLS_DIR" value="/tmp/gocast-test/hls" force="true"/>

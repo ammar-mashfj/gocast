@@ -36,12 +36,12 @@ class MetricsController extends Controller
 
         // ---------- Stations ----------
         $totalStations = Station::count();
-        $liveStations = Station::where('is_live', true)->count();
+        $liveStations = Station::query()->live()->count();
         $trashedStations = Station::onlyTrashed()->count();
         $lines[] = '# HELP gocast_stations_total Stations in the database (excluding soft-deleted).';
         $lines[] = '# TYPE gocast_stations_total gauge';
         $lines[] = "gocast_stations_total {$totalStations}";
-        $lines[] = '# HELP gocast_stations_live Stations currently flagged is_live in the DB.';
+        $lines[] = '# HELP gocast_stations_live Stations with a broadcaster publishing right now.';
         $lines[] = '# TYPE gocast_stations_live gauge';
         $lines[] = "gocast_stations_live {$liveStations}";
         $lines[] = '# HELP gocast_stations_trashed Soft-deleted stations still recoverable.';
@@ -53,20 +53,56 @@ class MetricsController extends Controller
         // these gauges are what the Docker daemon is actually doing. A gap
         // between expected_containers and running_containers means stations
         // exist with no audio pipeline (alert on this).
+        // These counts are the drift alert, so they have to mean exactly what
+        // they say. Both were wrong before the power button landed: "expected"
+        // counted every station row (so every deliberately stopped station read
+        // as missing capacity), and "running" counted `docker ps -a` output,
+        // which includes exited and restarting containers.
+        $states = [];
+        $daemonReachable = true;
+
         try {
-            $running = $supervisor->listManagedContainers();
-            $runningCount = count($running);
+            $states = $supervisor->listContainerStates();
         } catch (Throwable) {
-            $runningCount = -1; // proxy/daemon unreachable — surface to alerts
+            $daemonReachable = false;
         }
 
-        $expectedContainers = Station::count();
-        $lines[] = '# HELP gocast_supervisor_containers_expected Stations that should have a running Liquidsoap container.';
+        $runningCount = $daemonReachable
+            ? count(array_filter($states, fn (array $s) => $s['status'] === 'running'))
+            : -1;
+
+        $unhealthyCount = $daemonReachable
+            ? count(array_filter($states, fn (array $s) => $s['status'] !== 'running'
+                || $s['health'] === LiquidsoapSupervisor::HEALTH_UNHEALTHY))
+            : -1;
+
+        $totalContainers = $daemonReachable ? count($states) : -1;
+
+        // Intent: stations whose owner has asked for them to be on air. This is
+        // what the running container count should equal.
+        $expectedContainers = Station::query()->running()->count();
+
+        $lines[] = '# HELP gocast_supervisor_containers_expected Stations whose desired_state is running.';
         $lines[] = '# TYPE gocast_supervisor_containers_expected gauge';
         $lines[] = "gocast_supervisor_containers_expected {$expectedContainers}";
-        $lines[] = '# HELP gocast_supervisor_containers_running Per-station Liquidsoap containers reported by Docker. -1 means the daemon (or socket-proxy) was unreachable.';
+        $lines[] = '# HELP gocast_supervisor_containers_running Per-station containers Docker reports as running. -1 means the daemon (or socket-proxy) was unreachable.';
         $lines[] = '# TYPE gocast_supervisor_containers_running gauge';
         $lines[] = "gocast_supervisor_containers_running {$runningCount}";
+        $lines[] = '# HELP gocast_supervisor_containers_total Per-station containers in any state, including exited and restarting.';
+        $lines[] = '# TYPE gocast_supervisor_containers_total gauge';
+        $lines[] = "gocast_supervisor_containers_total {$totalContainers}";
+        // The blind spot this whole pass exists to close: a container that is
+        // present but not working is neither missing nor unwanted, so nothing
+        // used to notice it. Alert on this being non-zero for more than a
+        // couple of reconciler passes.
+        $lines[] = '# HELP gocast_supervisor_containers_unhealthy Per-station containers that exist but are restarting, exited, or failing their healthcheck.';
+        $lines[] = '# TYPE gocast_supervisor_containers_unhealthy gauge';
+        $lines[] = "gocast_supervisor_containers_unhealthy {$unhealthyCount}";
+
+        $stoppedStations = Station::query()->where('desired_state', Station::STATE_STOPPED)->count();
+        $lines[] = '# HELP gocast_stations_stopped Stations their owner has taken off air.';
+        $lines[] = '# TYPE gocast_stations_stopped gauge';
+        $lines[] = "gocast_stations_stopped {$stoppedStations}";
 
         // ---------- Stream sessions (24h rolling) ----------
         $sessionsLast24h = StreamSession::where('started_at', '>=', now()->subDay())->count();

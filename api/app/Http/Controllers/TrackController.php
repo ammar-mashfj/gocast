@@ -9,6 +9,7 @@ use App\Http\Resources\TrackResource;
 use App\Models\Station;
 use App\Models\Track;
 use App\Services\PlaylistFileWriter;
+use App\Services\StationLifecycleService;
 use App\Services\TrackImporter;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +33,7 @@ class TrackController extends Controller
 
     public function __construct(
         private readonly TrackImporter $importer,
+        private readonly StationLifecycleService $lifecycle,
     ) {}
 
     public function index(Station $station): JsonResponse
@@ -54,6 +56,12 @@ class TrackController extends Controller
     public function store(StoreTrackRequest $request, Station $station): JsonResponse
     {
         $this->authorize('create', [Track::class, $station]);
+
+        // AutoDJ is a paid feature: uploading is the action that builds a
+        // library, so this is where the plan is enforced. Listing and
+        // deleting stay open on every plan — a downgrade must never trap
+        // someone's files behind a paywall.
+        $this->lifecycle->assertAutoDjEnabled($request->user());
 
         $created = [];
         $errors = [];

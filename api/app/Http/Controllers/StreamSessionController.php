@@ -67,7 +67,10 @@ class StreamSessionController extends Controller
             $broadcastState->forget($station);
         }
 
-        $wasLive = $station->is_live;
+        // Whether a broadcast was already in flight, read before we close any
+        // stragglers below — the open session IS the live signal, so this has
+        // to be sampled first or it always reads false.
+        $wasLive = $station->isLive();
 
         $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
 
@@ -77,7 +80,6 @@ class StreamSessionController extends Controller
         ]);
 
         $broadcastState->markStarting($station, $session, $deviceId);
-        $station->update(['is_live' => true]);
 
         if (! $wasLive) {
             SendStationLiveNotifications::dispatch($station->id, $session->id)
@@ -96,7 +98,6 @@ class StreamSessionController extends Controller
 
         $broadcastState->forget($station);
         $session->update(['ended_at' => now()]);
-        $station->update(['is_live' => false]);
         Redis::del("metadata:{$station->id}");
 
         return response()->json([

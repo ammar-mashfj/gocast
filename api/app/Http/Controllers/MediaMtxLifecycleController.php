@@ -48,13 +48,10 @@ class MediaMtxLifecycleController extends Controller
 
         $broadcastState->markLive($station, $session, deviceId: 'mediamtx', connectionId: $connectionId);
 
-        // Only flip the column when it's actually changing — avoids firing
-        // StationObserver::updated() (which restarts Liquidsoap) on every
-        // duplicate webhook.
-        if (! $station->is_live) {
-            $station->update(['is_live' => true]);
-        }
-
+        // The open session above is what makes this station read as live —
+        // there is no flag to flip. That also means a duplicate webhook no
+        // longer touches the stations row, so it cannot fire
+        // StationObserver::updated() and restart Liquidsoap mid-broadcast.
         Log::info('MediaMTX publisher ready', ['station' => $station->slug, 'session' => $session->id]);
 
         return response()->json(['ok' => true]);
@@ -78,10 +75,6 @@ class MediaMtxLifecycleController extends Controller
         // API stops showing the last broadcaster track. Without this, the
         // metadata persists until its 6h TTL fires.
         Redis::del("metadata:{$station->id}");
-
-        if ($station->is_live) {
-            $station->update(['is_live' => false]);
-        }
 
         Log::info('MediaMTX publisher gone', ['station' => $station->slug]);
 

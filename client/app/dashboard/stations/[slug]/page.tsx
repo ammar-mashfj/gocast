@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { CopyButton } from "@/components/dashboard/CopyButton"
 import { StationArtwork } from "@/components/StationArtwork"
+import { StationPower } from "@/components/dashboard/StationPower"
 import { formatDate, formatAirtime, formatDateRange } from "@/lib/format"
 import { StationActions } from "./StationActions"
 import { DeleteStation } from "./DeleteStation"
@@ -69,19 +70,11 @@ export default async function StationDetailPage({
             sizes="72px"
           />
           <div className="flex-1 min-w-0">
+            {/* State badge lives in the StationPower card below: it polls the
+                container, so it can say "starting" and stay honest, which a
+                server-rendered badge cannot. */}
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-2xl font-medium truncate">{station.name}</h1>
-              {station.is_live ? (
-                <Badge variant="secondary" className="text-emerald-400 gap-1 shrink-0">
-                  <span className="size-1.5 bg-emerald-400 rounded-full" />
-                  Live
-                </Badge>
-              ) : station.is_on_air ? (
-                <Badge variant="secondary" className="gap-1 shrink-0">
-                  <span className="size-1.5 bg-muted-foreground rounded-full" />
-                  On air
-                </Badge>
-              ) : null}
             </div>
             {station.description && (
               <p className="text-sm text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
@@ -120,6 +113,11 @@ export default async function StationDetailPage({
           </div>
           <StationActions station={station} mode="live" />
         </div>
+      </div>
+
+      {/* Power + live audio state, read from the station's own container */}
+      <div className="mb-6">
+        <StationPower station={station} />
       </div>
 
       {/* Stats + Share */}

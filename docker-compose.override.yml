@@ -10,7 +10,14 @@
 services:
   redis:
     ports:
-      - "6379:6379"
+      # 6380 on the host, not 6379. Ubuntu's redis-server package binds
+      # 127.0.0.1:6379 and is enabled at boot, so publishing on 6379 makes
+      # `docker compose up` fail with "address already in use" on every fresh
+      # boot until you remember to stop the host service. Nothing inside the
+      # stack uses this mapping — containers reach Redis as `redis:6379` over
+      # the compose network — it exists purely so `redis-cli -p 6380` works
+      # from the host. Moving it sidesteps the collision permanently.
+      - "6380:6379"
 
   # MediaMTX hits the dev API on port 8000 (mapped to api container's :80).
   # Prod uses :80 via the base compose; this just flips the host-side port.
@@ -58,6 +65,15 @@ services:
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         NEXT_PUBLIC_ICECAST_URL: http://localhost:8888
         NEXT_PUBLIC_WHIP_URL: http://localhost:8889
+    # `next dev` measured at ~1.5 GB on this project (Turbopack keeps the
+    # module graph and compiler caches in memory), against the 1 GB prod
+    # ceiling in the base file — which is sized for the standalone
+    # `node server.js` build. Without this override the dev server is
+    # OOM-killed mid-compile.
+    deploy:
+      resources:
+        limits:
+          memory: 3G
     environment:
       # Server-side fetches from Next.js stay inside the Docker network.
       # Browser-side requests still use NEXT_PUBLIC_API_URL (baked at build).

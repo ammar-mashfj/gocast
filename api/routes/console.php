@@ -21,12 +21,24 @@ Schedule::command('stations:sync-listeners')
     ->withoutOverlapping()
     ->runInBackground();
 
-// Nightly orphan-container sweep — `stations:reconcile` is also run from
-// deploy.sh after every deploy, but the scheduled run catches drift in
-// between (manual DB edits, failed observer runs, etc.). withoutOverlapping
-// in case a previous run is still talking to a slow daemon.
+// Container convergence: removes containers for stations that are stopped,
+// soft-deleted or gone, and restarts containers for stations that should be
+// on air but aren't. Every five minutes rather than nightly — this is now the
+// safety net behind the power button (a start that failed on a busy daemon is
+// retried here) and behind `--restart unless-stopped`, which would otherwise
+// resurrect stopped stations after a host reboot. Cost is one `docker ps`
+// plus one query when there is no drift.
 Schedule::command('stations:reconcile')
-    ->dailyAt('03:00')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Idle reaper — takes stations off air when nobody is listening and nobody is
+// broadcasting. A running station costs a full container whether or not it has
+// an audience, so this is what keeps unattended AutoDJ rotations from holding
+// capacity indefinitely. Owners restart with one click.
+Schedule::command('stations:reap-idle')
+    ->hourly()
     ->withoutOverlapping()
     ->runInBackground();
 

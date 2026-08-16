@@ -21,7 +21,7 @@ class CurrentlyLive extends BaseWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => Station::query()->where('is_live', true)->with('user'))
+            ->query(fn (): Builder => Station::query()->live()->with('user'))
             ->columns([
                 TextColumn::make('name')->searchable(),
                 TextColumn::make('user.email')->label('Owner'),

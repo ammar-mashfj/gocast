@@ -44,7 +44,6 @@ it('renders each dashboard widget without errors', function () {
     $station = Station::factory()->for($owner)->create([
         'name' => 'Radio Live',
         'slug' => 'radio-live-dash',
-        'is_live' => true,
     ]);
     StreamSession::create([
         'station_id' => $station->id,

@@ -25,6 +25,50 @@
 
 name: gocast
 
+# ---------------------------------------------------------------------------
+# Shared log rotation policy.
+#
+# Docker's default json-file driver keeps container logs FOREVER — no size
+# cap, no rotation. On a long-running VPS that is the most common way the box
+# dies: /var/lib/docker/containers fills the disk, MySQL can no longer write,
+# and everything fails at once with nothing in the logs saying "disk full".
+#
+# 10 MB × 3 files = 30 MB ceiling per container, ~240 MB for the whole stack.
+# Per-station Liquidsoap containers are NOT covered by this (they're spawned
+# by `docker run`, outside compose) — LiquidsoapSupervisor passes the same
+# --log-opt values itself.
+# ---------------------------------------------------------------------------
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# ---------------------------------------------------------------------------
+# Memory limits — sizing rationale.
+#
+# These are CEILINGS to stop one runaway process from taking the host down,
+# not reservations: unused headroom costs nothing. They are set generously on
+# purpose. A limit set too tight is worse than no limit at all — the kernel
+# SIGKILLs the process before it can log anything, and `restart: unless-stopped`
+# turns that into a crash loop that thrashes the box. (That is exactly what the
+# 256m per-station Liquidsoap cap did on 2026-08-13: killed at boot, empty
+# logs, machine bogged down.)
+#
+# Measured steady state on 2026-08-14, for reference when tuning:
+#   api 83M · queue 52M · scheduler 52M · redis 4M
+#   icecast 2M · mediamtx 4.4M · docker-proxy 4.7M
+# Limits below are roughly 5–10× those, which absorbs a legitimate spike
+# (opcache is configured for 256M alone in the prod api) while still bounding
+# a leak. The `client` figure is deliberately not listed: `next dev` sits at
+# ~1.5G in development, while the prod target runs the far smaller standalone
+# server — see the dev override for the development ceiling.
+#
+# No CPU limits: contention degrades gracefully under Docker's fair-share
+# scheduler, whereas memory exhaustion kills. Adding cpu caps here would risk
+# throttling legitimate traffic spikes for no safety gain.
+# ---------------------------------------------------------------------------
+
 services:
   # ---------- Docker socket proxy ----------
   # Sits in front of the raw /var/run/docker.sock and exposes a tcp endpoint
@@ -45,7 +89,11 @@ services:
   # Everything else (EXEC, VOLUMES, SWARM, BUILD, SYSTEM, ...) stays at the
   # default 0 — denied.
   docker-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
+    # v0.5.0 (Alpine 3.24, HAProxy 3.4). Was 0.3.0, which is built on Alpine
+    # 3.16 — end-of-life since May 2024 and no longer receiving security
+    # patches. That matters more here than anywhere else in the stack: this
+    # is the one container holding the Docker socket.
+    image: tecnativa/docker-socket-proxy:v0.5.0
     container_name: gocast-docker-proxy
     environment:
       CONTAINERS: 1
@@ -64,6 +112,11 @@ services:
       # container that ever sees the raw socket.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     # Bind the proxy's listener to a stable container name on the gocast
     # network so the api can reach it via `tcp://docker-proxy:2375`.
     networks:
@@ -86,6 +139,15 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # Deliberately no `maxmemory`/eviction policy on Redis itself:
+          # this instance backs sessions AND the job queue, so an LRU policy
+          # would silently evict queued jobs. The container ceiling is the
+          # backstop instead; the real working set is single-digit MB.
+          memory: 512M
 
   # ---------- Listener-facing audio ----------
   icecast:
@@ -106,6 +168,13 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # <clients>500</clients> in icecast.xml.tpl; each listener costs a
+          # small connection buffer, so this scales with the listener cap.
+          memory: 512M
 
   # ---------- WebRTC ingest (WHIP/RTMP/SRT) ----------
   # Browsers publish via WHIP; OBS via RTMP; pro setups via SRT. Liquidsoap
@@ -139,6 +208,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # Grows with concurrent WebRTC sessions and any ffmpeg work the
+          # runOnReady hooks trigger, so this one gets real headroom.
+          memory: 1G
     restart: unless-stopped
 
   # ---------- Laravel API + Filament admin ----------
@@ -187,6 +263,18 @@ services:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?required}
       ICECAST_ADMIN_USER: ${ICECAST_ADMIN_USER:-admin}
       ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:?required}
+      # Addresses rendered into each station's .liq, from that container's
+      # point of view (see config/liquidsoap.php). Pinned here rather than
+      # left to the config defaults because api/.env carries the values for
+      # running artisan NATIVELY on the host — and env_file is read before
+      # this block, so these win for the containerised path. Without that,
+      # switching between native and compose workflows would silently write
+      # the wrong host into every station's script.
+      LIQUIDSOAP_ICECAST_HOST: icecast
+      LIQUIDSOAP_ICECAST_PORT: 8000
+      LIQUIDSOAP_API_URL: http://api
+      LIQUIDSOAP_TELNET_RESOLVE: name
+      ICECAST_INTERNAL_URL: http://icecast:8000
     volumes:
       - api_storage:/app/storage
       - caddy_data:/data
@@ -206,6 +294,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # opcache alone is configured for 256M in the prod target, on top of
+          # per-request PHP memory across FrankenPHP's worker threads.
+          memory: 1G
     restart: unless-stopped
 
   # ---------- Scheduler ----------
@@ -242,6 +337,13 @@ services:
       ICECAST_ADMIN_USER: ${ICECAST_ADMIN_USER:-admin}
       ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:?required}
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?required}
+      # stations:relaunch re-renders .liq files, so the scheduler needs the
+      # same container-perspective addresses as the api. Keep these in sync.
+      LIQUIDSOAP_ICECAST_HOST: icecast
+      LIQUIDSOAP_ICECAST_PORT: 8000
+      LIQUIDSOAP_API_URL: http://api
+      LIQUIDSOAP_TELNET_RESOLVE: name
+      ICECAST_INTERNAL_URL: http://icecast:8000
     volumes:
       - api_storage:/app/storage
       # stations:reconcile / stations:relaunch write .liq files and playlist
@@ -251,6 +353,11 @@ services:
     depends_on:
       api:
         condition: service_started
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     restart: unless-stopped
 
   # ---------- Queue worker ----------
@@ -281,6 +388,14 @@ services:
     # `queue:work` blocks in the foreground — if it crashes the container
     # exits and `restart: unless-stopped` brings it back, which is the
     # liveness signal we actually want.
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # Headroom over the api's ceiling is deliberate: jobs handle audio
+          # uploads, and a job that blows this limit dies alone instead of
+          # taking the web tier with it.
+          memory: 768M
     restart: unless-stopped
 
   # ---------- Next.js client ----------
@@ -308,6 +423,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          # Prod runs the standalone build (`node server.js`), which is far
+          # lighter than `next dev`. The dev override raises this — do not
+          # copy this number into a development setup.
+          memory: 1G
     restart: unless-stopped
 
 volumes:

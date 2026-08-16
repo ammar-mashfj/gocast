@@ -53,16 +53,47 @@ class StationResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn ($query) => $query->withExists([
+                'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),
+            ]))
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
                 TextColumn::make('slug')->searchable(),
                 TextColumn::make('user.email')->label('Owner')->searchable(),
-                IconColumn::make('is_live')->boolean()->label('Live'),
+                // A station that is "on air" is holding a Liquidsoap
+                // container (memory, cpu, an Icecast slot) whether or not
+                // anyone is listening — this is the column that explains
+                // where the box's capacity is going.
+                TextColumn::make('desired_state')
+                    ->label('On air')
+                    ->badge()
+                    ->color(fn (string $state): string => $state === Station::STATE_RUNNING ? 'success' : 'gray')
+                    ->formatStateUsing(fn (string $state): string => $state === Station::STATE_RUNNING ? 'On air' : 'Off air')
+                    ->sortable(),
+                // Derived, not stored — an open StreamSession is what "live"
+                // means. withExists() below resolves it in one subquery
+                // rather than an exists() per row.
+                IconColumn::make('has_open_session')->boolean()->label('Live'),
                 IconColumn::make('featured')->boolean(),
                 TextColumn::make('created_at')->dateTime()->sortable()->toggleable(),
             ])
             ->filters([
-                TernaryFilter::make('is_live')->label('Live'),
+                SelectFilter::make('desired_state')
+                    ->label('Power')
+                    ->options([
+                        Station::STATE_RUNNING => 'On air',
+                        Station::STATE_STOPPED => 'Off air',
+                    ]),
+                TernaryFilter::make('is_live')
+                    ->label('Live')
+                    ->queries(
+                        true: fn ($query) => $query->live(),
+                        false: fn ($query) => $query->whereDoesntHave(
+                            'streamSessions',
+                            fn ($session) => $session->whereNull('ended_at'),
+                        ),
+                        blank: fn ($query) => $query,
+                    ),
                 TernaryFilter::make('featured'),
                 SelectFilter::make('user_id')
                     ->relationship('user', 'email')

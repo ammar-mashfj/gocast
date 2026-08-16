@@ -26,8 +26,22 @@ class StationFactory extends Factory
             'slug' => $slug,
             'description' => fake()->optional()->sentence(),
             'genre' => fake()->optional()->word(),
-            'is_live' => false,
             'featured' => false,
         ];
+    }
+
+    /**
+     * A station with a broadcaster publishing right now.
+     *
+     * There is no `is_live` column to set — live-ness is derived from an open
+     * StreamSession — so this opens the session MediaMTX's runOnReady webhook
+     * would have opened, which is what every reader now looks at.
+     */
+    public function live(): static
+    {
+        return $this->afterCreating(fn (Station $station) => $station->streamSessions()->create([
+            'started_at' => now(),
+            'source_type' => 'browser',
+        ]));
     }
 }

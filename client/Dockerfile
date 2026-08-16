@@ -8,10 +8,14 @@
 #   docker compose build --target dev client     (default via docker-compose.yml)
 #   docker compose -f docker-compose.prod.yml build client  (prod override)
 
+# Node is pinned to an exact patch + Alpine pair rather than `node:20-alpine`,
+# which moves with every minor release. All four stages must stay on the same
+# tag or the deps layer stops being shared and npm ci runs more than once.
+#
 # --------------------------------------------------------------------
 # Shared deps layer — both dev and prod reuse this so npm ci runs once.
 # --------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:20.20.2-alpine3.23 AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -22,7 +26,7 @@ RUN npm ci
 # `docker build --target dev && docker run` still produces something
 # runnable without a bind mount.
 # --------------------------------------------------------------------
-FROM node:20-alpine AS dev
+FROM node:20.20.2-alpine3.23 AS dev
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -38,7 +42,7 @@ CMD ["npm", "run", "dev"]
 # the running container does nothing because the strings are already
 # hardcoded in the emitted JavaScript.
 # --------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:20.20.2-alpine3.23 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -72,7 +76,7 @@ RUN npm run build
 # node_modules) plus the public/ and static/ folders that aren't
 # bundled into standalone.
 # --------------------------------------------------------------------
-FROM node:20-alpine AS prod
+FROM node:20.20.2-alpine3.23 AS prod
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

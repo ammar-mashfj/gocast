@@ -8,6 +8,16 @@
       $icecastPassword — string (from config('services.icecast.source_password'))
       $internalApiKey  — string (matches Laravel's `services.internal_api_key`,
                                  sent in X-Internal-Key header on now-playing pushes)
+      $icecastHost     — string \
+      $icecastPort     — int     \  Addresses as seen FROM INSIDE this container,
+      $apiUrl          — string   > not from wherever Laravel runs. Defaults are
+      $rtspHost        — string  /  the compose service names; see the block in
+      $rtspPort        — int    /   config/liquidsoap.php for the native-host
+                                    overrides.
+      $harborPort      — int    (harbor HTTP control surface, /status + /healthz)
+      $blankMax        — float  (seconds of silence before the live source is
+                                 marked unavailable; 0 disables dead-air strip)
+      $blankThreshold  — float  (dBFS below which audio counts as silence)
 
     IMPORTANT: every string we emit into Liquidsoap source goes through
     json_encode (via @json). Blade's default {{ }} HTML-escapes, which is
@@ -38,6 +48,35 @@ settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set("0.0.0.0")
 settings.server.telnet.port.set(1234)
 
+# === Lifecycle reporting ===
+#
+# The container is the only thing that knows it came up. Laravel's `docker run`
+# returns when the container is CREATED, not when audio flows — so without this
+# push, a station that dies at boot and one that is still building its audio
+# graph look identical from outside for as long as anyone cares to poll.
+#
+# These events are a fast path, not a source of truth: a script that fails to
+# parse dies before any of them can fire, which is why Laravel also verifies the
+# container after start and keeps polling /status. Losing an event must never
+# strand a station.
+ice_up = ref(false)
+
+def notify(event) =
+  ignore(http.post(
+    {!! json_encode("{$apiUrl}/api/internal/station-event") !!},
+    data=json.stringify({ slug = {!! json_encode($station->slug) !!}, event = event }),
+    headers=[
+      ("Content-Type", "application/json"),
+      ("Accept", "application/json"),
+      ("X-Internal-Key", {!! json_encode($internalApiKey) !!})
+    ],
+    timeout=5.
+  ))
+end
+
+on_start(fun () -> notify("boot"))
+on_shutdown(fun () -> notify("shutdown"))
+
 # === Inputs ===
 
 # Live broadcaster — pulled from MediaMTX over RTSP. Fallible: only
@@ -49,9 +88,47 @@ settings.server.telnet.port.set(1234)
 # control its own latency") because input.ffmpeg pulls at its own pace.
 # 2s buffer = max 2s of latency from broadcaster to listener; max=10s
 # is the overflow threshold before Liquidsoap drops samples.
-live = buffer(buffer=2., max=10.,
-  input.ffmpeg({!! json_encode("rtsp://host.docker.internal:8554/{$station->slug}/live") !!})
+live_raw = buffer(buffer=2., max=10.,
+  input.ffmpeg({!! json_encode("rtsp://{$rtspHost}:{$rtspPort}/{$station->slug}/live") !!})
 )
+
+@if ($blankMax > 0)
+# Dead-air guard. A broadcaster who mutes their mic, sleeps their laptop or
+# loses their audio device keeps the RTSP session open — the stream is still
+# "there", it's just silent. Without this the fallback below stays locked on
+# `live` and every listener hears nothing while AutoDJ sits idle behind it.
+#
+# blank.strip declares the source unavailable after {{ $blankMax }}s under
+# {{ $blankThreshold }} dB, which is exactly the signal fallback needs to
+# demote to AutoDJ on its own. It re-promotes as soon as audio returns.
+#
+# The threshold is deliberately forgiving: a dramatic pause or a quiet intro
+# must never knock a real broadcaster off air.
+{{-- number_format keeps a literal decimal point in the output: Liquidsoap's
+     lexer needs `15.0`, and a bare `{{ $blankMax }}.` would emit `15.5.` for
+     any non-integer value, which is a syntax error. --}}
+live = blank.strip(
+  max_blank={{ number_format($blankMax, 1, '.', '') }},
+  threshold={{ number_format($blankThreshold, 1, '.', '') }},
+  live_raw
+)
+
+# blank.strip demotes silently — the broadcaster whose mic is muted hears
+# AutoDJ take over and has no idea why. blank.detect watches the same signal
+# without touching the audio, purely so we can tell them.
+#
+# In 2.4 these callbacks are methods, not constructor arguments; the form the
+# published docs show does not compile.
+silence_watch = blank.detect(
+  max_blank={{ number_format($blankMax, 1, '.', '') }},
+  threshold={{ number_format($blankThreshold, 1, '.', '') }},
+  live_raw
+)
+silence_watch.on_blank(synchronous=false, fun () -> notify("live_silent"))
+silence_watch.on_noise(synchronous=false, fun () -> notify("live_audio"))
+@else
+live = live_raw
+@endif
 
 # AutoDJ — reads playlist.m3u (written by Laravel's PlaylistFileWriter on
 # every track add/edit/reorder/delete). The file is in the same dir that's
@@ -73,10 +150,26 @@ live = buffer(buffer=2., max=10.,
 # crushes louder ones, which sounds like the volume is breathing on its
 # own. If we ever need cross-track loudness leveling, swap in a proper
 # LUFS limiter rather than the raw normalize() AGC.
+#
+# `id` is set explicitly: the telnet namespace ("playlist_m3u.reload",
+# ".skip", ".next", ".uri") is otherwise derived from the m3u filename, so
+# renaming the file would silently break every control command Laravel
+# sends. PlaylistFileWriter::LIQ_SOURCE holds the matching constant.
+#
+# `on_fail` fires when the playlist can't produce a playable track after
+# `max_fail` attempts — every file missing or corrupt. Without it the chain
+# just quietly demotes to silence and nothing upstream ever finds out.
+# It must return a list of replacement URIs; we have none to offer, so the
+# empty list lets the fallback below demote to the bed as it would anyway.
 autodj = playlist(
+  id = "playlist_m3u",
   "/data/playlists/playlist.m3u",
   mode = "normal",
-  reload_mode = "never"
+  reload_mode = "never",
+  on_fail = fun () -> begin
+    log(level=2, "playlist: no playable track — falling through to silence")
+    ([] : [string])
+  end
 )
 
 # Standby silence — infallible last resort.
@@ -106,6 +199,135 @@ output_source = mksafe(crossfade(duration=2., mixed))
 # (e.g. the loudness_normalization() snippet from the Liquidsoap docs)
 # rather than the raw normalize() operator.
 
+# === Control surface: harbor HTTP ===
+#
+# Liquidsoap knows things Laravel can only infer: what is playing right now,
+# how far into it we are, which source won the fallback, and whether the
+# audio graph is actually producing sound. Pushing all of that out and hoping
+# the receiver was up is how state desyncs; serving it lets Laravel pull the
+# truth whenever it needs it — and "container unreachable" becomes an honest
+# offline signal instead of a separate flag to keep in sync.
+#
+# Bound inside the container on {{ $harborPort }}, reachable only over
+# gocast-network (same exposure as the telnet port). /status requires the
+# shared internal key so a foothold on the docker network can't read station
+# state; /healthz is deliberately open — it carries no station data and wants
+# to be usable as a container HEALTHCHECK.
+
+# `req` rather than `request`: Liquidsoap's standard library already binds
+# `request` at the top level, and shadowing it warns on every boot.
+def internal_key_of(req) =
+  # Harbor lowercases incoming header names, but don't bet the auth check
+  # on that — look for both spellings.
+  lower = req.headers["x-internal-key"]
+  if lower != "" then lower else req.headers["X-Internal-Key"] end
+end
+
+def authorized(req) =
+  internal_key_of(req) == {!! json_encode($internalApiKey) !!}
+end
+
+# Which source the fallback is currently taking. Derived from readiness in
+# priority order — the same order fallback() itself uses — so it can't drift
+# from what listeners actually hear.
+def current_source() =
+  if live.is_ready() then
+    "live"
+  elsif autodj.is_ready() then
+    "autodj"
+  else
+    "silence"
+  end
+end
+
+# Filenames of the next few tracks the playlist will play. Splitting on "/"
+# and taking the last segment survives `annotate:` URIs whose title contains
+# a slash ("AC/DC"), because the file path is always last. Laravel maps these
+# back to Track rows by their {ulid}.{ext} name.
+def basename_of(uri) =
+  list.hd(default="", list.rev(string.split(separator="/", uri)))
+end
+
+# `response.json` raises on NaN and infinity — JSON cannot represent either —
+# and a raised handler answers nothing at all, closing the socket. That turns
+# the single most load-bearing endpoint we have into a dead one: Laravel reads
+# the failure as "container unreachable" and reports the station as `starting`
+# forever, while the container is perfectly healthy.
+#
+# It is not a corner case. `remaining()` is infinite whenever the source has no
+# end — which is every station playing the silence bed, i.e. any station whose
+# playlist is empty and whose broadcaster is offline.
+#
+# -1 rather than null: the API layer already maps negative durations to null
+# (see StationStatusService::normalize), so this stays a single convention for
+# "unknown" instead of introducing a second one.
+def finite(x) =
+  if float.is_nan(x) or float.is_infinite(x) then -1. else x end
+end
+
+def up_next(n) =
+  indexed = list.mapi(fun (i, uri) -> (i, uri), autodj.remaining_files())
+  wanted = list.filter(fun (pair) -> fst(pair) < n, indexed)
+  list.map(fun (pair) -> basename_of(snd(pair)), wanted)
+end
+
+harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, response) ->
+  if not authorized(req) then
+    response.status_code(403)
+    response.data("forbidden")
+  else
+    m = output_source.last_metadata()
+    meta = null.defined(m) ? null.get(m) : ([] : [(string * string)])
+    response.json(
+      {
+        slug = {!! json_encode($station->slug) !!},
+        ready = output_source.is_ready(),
+        # Whether the audio graph produces frames is NOT the same question as
+        # whether anyone can hear it: if Icecast rejects the source (bad
+        # password, Icecast down) the graph is perfectly ready and the mount
+        # does not exist. Reporting both is what lets Laravel tell "on air"
+        # from "playing to nobody".
+        icecast = ice_up(),
+        source = current_source(),
+        title = meta["title"],
+        artist = meta["artist"],
+        elapsed = finite(output_source.elapsed()),
+        remaining = finite(output_source.remaining()),
+        playlist_length = autodj.length(),
+        up_next = up_next(5)
+      }
+    )
+  end
+)
+
+# /healthz is the container's Docker HEALTHCHECK, so its STATUS CODE is the
+# contract, not its body: 200 when this container is doing its job, 503 when it
+# is not. Docker's probe greps the status line (the image has no curl, wget or
+# nc — it uses bash's /dev/tcp), and `stations:reconcile` treats a container
+# that reports unhealthy as drift and recreates it.
+#
+# It answers exactly one question: IS THIS CONTAINER'S AUDIO GRAPH WORKING —
+# because recreating the container is the only remedy on offer, and that is the
+# only failure a recreate can fix.
+#
+# The Icecast connection is deliberately NOT part of the verdict, even though a
+# station that cannot reach Icecast is inaudible. If it were, an Icecast outage
+# would mark every station on the box unhealthy at once and the reconciler would
+# recreate the entire fleet — repeatedly, and to no effect, since restarting a
+# station does not fix Icecast. Liquidsoap already retries the connection itself
+# (see on_error below), and the disconnection is surfaced to operators through
+# /status as the `degraded` state instead. Health drives automation; degraded
+# drives attention.
+#
+# Deliberately unauthenticated: it carries no station data, and a healthcheck
+# that needs a secret is a healthcheck that breaks when the secret rotates.
+harbor.http.register(port={{ $harborPort }}, method="GET", "/healthz", fun (_, response) ->
+  begin
+    if not output_source.is_ready() then response.status_code(503) end
+    response.json({ ready = output_source.is_ready(), icecast = ice_up(), source = current_source() })
+  end
+)
+
 # === Now-playing push ===
 #
 # Fires every time the metadata at the top of the chain changes — track
@@ -127,7 +349,7 @@ def push_now_playing(m) =
     }
   )
   ignore(http.post(
-    "http://api/api/internal/now-playing",
+    {!! json_encode("{$apiUrl}/api/internal/now-playing") !!},
     data=payload,
     headers=[
       ("Content-Type", "application/json"),
@@ -143,10 +365,10 @@ output_source.on_metadata(synchronous=false, push_now_playing)
 # === Outputs ===
 
 # Icecast — listener URL: https://icecast.gocast.fm{{ $station->icecast_mount }}
-output.icecast(
+icecast_out = output.icecast(
   %mp3(bitrate=128, samplerate=44100),
-  host = "icecast",
-  port = 8000,
+  host = {!! json_encode($icecastHost) !!},
+  port = {{ $icecastPort }},
   password = {!! json_encode($icecastPassword) !!},
   mount = {!! json_encode($station->icecast_mount) !!},
   name = {!! json_encode($station->name) !!},
@@ -160,6 +382,30 @@ output.icecast(
   output_source
 )
 
+# The only place that knows whether listeners can actually hear this station.
+# `ice_up` feeds /status (so Laravel can distinguish "ready" from "audible")
+# and /healthz (so a station that silently loses its mount is restarted rather
+# than sitting there producing audio for nobody).
+#
+# on_error must call restart_in or the output gives up permanently; 5s is long
+# enough not to hammer a restarting Icecast and short enough that a blip costs
+# listeners seconds, not minutes.
+icecast_out.on_connect(synchronous=false, fun () -> begin
+  ice_up := true
+  notify("icecast_connected")
+end)
+
+icecast_out.on_disconnect(synchronous=false, fun () -> begin
+  ice_up := false
+  notify("icecast_disconnected")
+end)
+
+icecast_out.on_error(synchronous=false, fun (~restart_in, _) -> begin
+  ice_up := false
+  restart_in(5.)
+  notify("icecast_error")
+end)
+
 # HLS — listener URL: https://stream.gocast.fm/{{ $station->slug }}/playlist.m3u8
 # Caddy serves /var/gocast/hls/{slug}/ (mounted here at /data/hls) from the
 # ingest vhost — see the @hls matcher in api/Caddyfile.
@@ -167,10 +413,22 @@ output.icecast(
 # The web player streams from Icecast, not from here; HLS exists for clients
 # that can't hold a long-lived MP3 socket (iOS lock screen, native apps, CDN
 # pull). Single bitrate for v1; add a 64k variant later for cellular ABR.
+#
+# `persist_at` lets a restart resume the existing HLS stream instead of
+# starting a fresh one. Station edits re-render the .liq and restart the
+# container, and without this every restart resets the media sequence — an
+# HLS client mid-stream sees a discontinuity and usually stalls or reloads.
+# Liquidsoap writes its segment state here on shutdown and reads it on boot.
+#
+# `segments_overhead` keeps segments around past the playlist window so a
+# client that fell behind still finds the segment it asked for rather than
+# a 404.
 output.file.hls(
   "/data/hls",
   segment_duration = 2.,
   segments = 5,
+  segments_overhead = 5,
+  persist_at = "/data/hls/state.json",
   playlist = "playlist.m3u8",
   [("aac", %ffmpeg(format="mpegts", %audio(codec="aac", b="128k")))],
   output_source

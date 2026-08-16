@@ -24,7 +24,6 @@ it('returns 404 when the slug is unknown', function () {
 it('marks the station live and opens a stream session on whip-ready', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'slug' => 'jazz',
-        'is_live' => false,
     ]);
 
     withHeaders(['X-Internal-Key' => 'test-internal-key'])
@@ -32,14 +31,13 @@ it('marks the station live and opens a stream session on whip-ready', function (
         ->assertOk()
         ->assertJson(['ok' => true]);
 
-    expect($station->fresh()->is_live)->toBeTrue();
+    expect($station->fresh()->isLive())->toBeTrue();
     expect($station->streamSessions()->whereNull('ended_at')->count())->toBe(1);
 });
 
 it('is idempotent: two ready calls in a row reuse the same open session', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'slug' => 'jazz',
-        'is_live' => false,
     ]);
 
     withHeaders(['X-Internal-Key' => 'test-internal-key'])
@@ -55,7 +53,6 @@ it('is idempotent: two ready calls in a row reuse the same open session', functi
 it('marks the station offline and closes any open session on whip-not-ready', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'slug' => 'jazz',
-        'is_live' => true,
     ]);
     $session = $station->streamSessions()->create([
         'started_at' => now(),
@@ -66,7 +63,7 @@ it('marks the station offline and closes any open session on whip-not-ready', fu
         ->postJson('/api/internal/whip-not-ready', ['path' => 'jazz/live'])
         ->assertOk();
 
-    expect($station->fresh()->is_live)->toBeFalse();
+    expect($station->fresh()->isLive())->toBeFalse();
     expect($session->fresh()->ended_at)->not->toBeNull();
 });
 

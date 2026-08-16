@@ -17,8 +17,12 @@ All endpoints below require `Authorization: Bearer {token}` unless marked as pub
   "description": "Smooth jazz all day",
   "genre": "Jazz",
   "artwork_url": null,
-  "plan": "free",
   "is_live": false,
+  "is_on_air": false,
+  "now_playing": null,
+  "desired_state": "stopped",
+  "started_at": null,
+  "state": "offline",
   "icecast_mount": "/stream/jazz-fm",
   "social_links": null,
   "theme_config": null,
@@ -86,6 +90,77 @@ DELETE /api/stations/{uuid}
 
 → 200  { "message": "Station deleted." }
 ```
+
+---
+
+## Power & Status (protected)
+
+A station holds a Liquidsoap container — and therefore an Icecast mount,
+memory and CPU — only while it is on air. Creating a station does **not**
+start one: `desired_state` is `stopped` until the owner presses start.
+
+`state` on the station object is the cheap answer (no container round-trip)
+and is one of `offline`, `on_air`, `live`. The status endpoint below asks the
+container itself and can additionally return `starting`.
+
+### Put a Station On Air
+```
+POST /api/stations/{slug}/start
+
+→ 202  { "data": { ...station, "desired_state": "running" } }
+→ 403  Not your station
+→ 422  { "message": "...", "code": "station_limit_reached" }
+```
+
+Idempotent: starting an already-running station does not restart it (a
+restart would drop connected listeners). Returns as soon as the container is
+spawned — poll the status endpoint for readiness.
+
+### Take a Station Off Air
+```
+POST /api/stations/{slug}/stop
+
+→ 200  { "data": { ...station, "desired_state": "stopped" } }
+→ 409  { "message": "...", "code": "station_is_live" }   # end the broadcast first
+```
+
+### Skip the Current AutoDJ Track
+```
+POST /api/stations/{slug}/skip
+
+→ 200  { "message": "Skipped." }
+→ 409  { "code": "station_not_running" }
+→ 503  { "code": "station_unreachable" }   # container still booting
+```
+
+### Live Status (read from the container)
+```
+GET /api/stations/{slug}/status
+
+→ 200
+{
+  "data": {
+    "slug": "jazz-fm",
+    "state": "on_air",              // offline | starting | on_air | live
+    "desired_state": "running",
+    "started_at": "2026-08-15T09:12:00.000000Z",
+    "reachable": true,              // did the container answer?
+    "ready": true,                  // audio is actually flowing
+    "source": "autodj",             // live | autodj | silence
+    "now_playing": { "title": "Blue in Green", "artist": "Miles Davis" },
+    "elapsed": 42.2,
+    "remaining": 128.4,
+    "playlist_length": 12,
+    "up_next": [
+      { "id": "01H...", "title": "So What", "artist": "Miles Davis" }
+    ]
+  }
+}
+```
+
+Broadcast clients should call `start`, then poll this until `ready` is true
+before publishing WHIP — otherwise the first seconds of a broadcast land in a
+container that has not finished building its audio chain.
 
 ---
 
@@ -185,13 +260,26 @@ GET /api/public/stations/{slug}/listeners
 
 ## Plan Limits
 
-Plans are per-station (enum: `free`, `starter`, `pro`, `studio`). New stations default to `free`.
+Plans belong to the **user** (`users.plan_id` → `plans`), not to individual
+stations. The seeded plans are `free` and `pro`; the columns below are the
+live schema.
 
-| Plan    | Max Stations | Max Listeners | Max Bitrate | Ads   |
-|---------|-------------|---------------|-------------|-------|
-| free    | 1           | 30            | 96 kbps     | yes   |
-| starter | 2           | 150           | 128 kbps    | no    |
-| pro     | 5           | 500           | 320 kbps    | no    |
-| studio  | unlimited   | unlimited     | 320 kbps    | no    |
+| Column                 | Meaning                                                            | free | pro |
+|------------------------|--------------------------------------------------------------------|------|-----|
+| `max_stations`         | Station rows the user may own                                       | 1    | 5   |
+| `max_running_stations` | Stations that may be **on air at once** (each holds a container)     | 1    | 5   |
+| `max_listeners`        | Concurrent listeners                                                | 25   | 500 |
+| `autodj_enabled`       | May upload tracks and run an unattended playlist                    | no   | yes |
+| `idle_stop_hours`      | Hours on air with no listeners before auto-stop (0 = never)          | 2    | 0   |
+
+Enforcement points:
+
+* `POST /api/stations/{slug}/start` and the WHIP auth hook →
+  `max_running_stations` (`code: station_limit_reached`). Going live on a
+  stopped station starts it, so the cap cannot be dodged by broadcasting.
+* `POST /api/stations/{slug}/tracks` → `autodj_enabled`
+  (`code: autodj_not_available`). Listing and deleting tracks stay open on
+  every plan so a downgrade never traps a user's files.
+* `stations:reap-idle` (hourly) → `idle_stop_hours`.
 
 Slug format: lowercase letters, numbers, hyphens only. Regex: `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`

@@ -1,9 +1,10 @@
 <?php
 
+use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\BroadcastTokenService;
-use App\Services\LiquidsoapSupervisor;
+use App\Services\StationLifecycleService;
 
 use function Pest\Laravel\postJson;
 
@@ -103,11 +104,11 @@ it('ensures the station Liquidsoap container is running before allowing publish'
     $user = User::factory()->create();
     $station = Station::factory()->for($user, 'user')->create(['slug' => 'jazz']);
 
-    $supervisor = mock(LiquidsoapSupervisor::class);
-    $supervisor->shouldReceive('ensure')
+    $lifecycle = mock(StationLifecycleService::class);
+    $lifecycle->shouldReceive('ensureRunning')
         ->once()
         ->withArgs(fn (Station $s) => $s->slug === 'jazz');
-    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+    app()->instance(StationLifecycleService::class, $lifecycle);
 
     $token = app(BroadcastTokenService::class)->issue($user, $station);
 
@@ -118,13 +119,60 @@ it('ensures the station Liquidsoap container is running before allowing publish'
     ])->assertOk();
 });
 
+it('starts a stopped station when its owner goes live', function () {
+    // Going live is a stronger statement of intent than the power button:
+    // a station nobody started must not refuse the broadcast.
+    $user = User::factory()->create();
+    $station = Station::factory()->for($user, 'user')->create([
+        'slug' => 'jazz',
+        'desired_state' => Station::STATE_STOPPED,
+    ]);
+
+    $token = app(BroadcastTokenService::class)->issue($user, $station);
+
+    postJson('/api/internal/whip-auth', [
+        'action' => 'publish',
+        'path' => 'jazz/live',
+        'query' => 'token='.$token,
+    ])->assertOk();
+
+    expect($station->refresh()->desired_state)->toBe(Station::STATE_RUNNING)
+        ->and($station->started_at)->not->toBeNull();
+});
+
+it('refuses a publish that would exceed the plan concurrency limit', function () {
+    // Otherwise the cap is bypassable by hitting Go Live instead of Start.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['max_running_stations' => 1]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    Station::factory()->for($user, 'user')->create([
+        'slug' => 'already-on-air',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station = Station::factory()->for($user, 'user')->create([
+        'slug' => 'jazz',
+        'desired_state' => Station::STATE_STOPPED,
+    ]);
+
+    $token = app(BroadcastTokenService::class)->issue($user, $station);
+
+    postJson('/api/internal/whip-auth', [
+        'action' => 'publish',
+        'path' => 'jazz/live',
+        'query' => 'token='.$token,
+    ])->assertForbidden();
+
+    expect($station->refresh()->desired_state)->toBe(Station::STATE_STOPPED);
+});
+
 it('still allows publish when the supervisor cannot reach the docker daemon', function () {
     $user = User::factory()->create();
     $station = Station::factory()->for($user, 'user')->create(['slug' => 'jazz']);
 
-    $supervisor = mock(LiquidsoapSupervisor::class);
-    $supervisor->shouldReceive('ensure')->once()->andThrow(new RuntimeException('daemon down'));
-    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+    $lifecycle = mock(StationLifecycleService::class);
+    $lifecycle->shouldReceive('ensureRunning')->once()->andThrow(new RuntimeException('daemon down'));
+    app()->instance(StationLifecycleService::class, $lifecycle);
 
     $token = app(BroadcastTokenService::class)->issue($user, $station);
 

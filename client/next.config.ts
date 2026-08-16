@@ -5,6 +5,19 @@ import bundleAnalyzer from "@next/bundle-analyzer";
 const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "true" });
 
 const nextConfig: NextConfig = {
+  // Pin the workspace root to this directory.
+  //
+  // Turbopack otherwise infers the root by walking up looking for lockfiles,
+  // and any stray package-lock.json in a parent directory (a home directory
+  // is a common one) wins. It then tries to watch that whole tree, which
+  // fails outright with "An IO error occurred while attempting to create and
+  // acquire the lockfile / Permission denied" the moment it hits a directory
+  // it can't read. Inside the container there is nothing above /app to find,
+  // so this only bites when running `next dev` natively on a host.
+  turbopack: {
+    root: __dirname,
+  },
+
   /* Production optimizations */
   compress: true,
   // Emits a self-contained .next/standalone directory with only the files

@@ -14,7 +14,10 @@
 # --------------------------------------------------------------------
 # Shared base — PHP extensions, composer, workdir.
 # --------------------------------------------------------------------
-FROM dunglas/frankenphp:php8.4 AS base
+# Pinned to an exact FrankenPHP + PHP patch pair. `php8.4` alone is a moving
+# tag: a rebuild months from now would silently pick up a different runtime,
+# which is the kind of drift you only discover in production.
+FROM dunglas/frankenphp:1.12.7-php8.4.24 AS base
 
 # install-php-extensions is preinstalled by the FrankenPHP base image; it
 # fetches and builds the requested extensions with correct flags. Much more
@@ -92,6 +95,46 @@ RUN { \
     } > /usr/local/etc/php/conf.d/99-opcache-prod.ini
 
 COPY Caddyfile /etc/caddy/Caddyfile
+
+# --------------------------------------------------------------------
+# Drop root.
+#
+# This is the container with Docker API access (via the socket proxy), so
+# it's the one where running as uid 0 compounds worst: code execution in PHP
+# would otherwise start from root inside the container.
+#
+# Three things make this work:
+#
+#  1. GID 101 is not arbitrary. /var/gocast on the host is owned 100:101
+#     (the `liquidsoap` user inside savonet/liquidsoap) with mode 0775, and
+#     Laravel must write .liq files and playlist dirs there. Giving this user
+#     gid 101 as its primary group is what grants that write access without
+#     loosening permissions to 0777. Keep it in sync with infra/setup-host.sh.
+#
+#  2. Binding :80/:443 as non-root works because the FrankenPHP base image
+#     already ships the binary with cap_net_bind_service=ep. Verify with
+#     `getcap /usr/local/bin/frankenphp` after a base image bump — if a future
+#     image drops it, this container will fail to bind and the fix is a
+#     `setcap` line here, not a return to root.
+#
+#  3. /data and /config are Caddy's TLS state, /app/storage is Laravel's.
+#     Chowning them in the image matters because a NEW named volume inherits
+#     the ownership of the image directory it shadows.
+#
+# NOTE for an existing deployment: a volume that already exists keeps its old
+# root ownership — Docker only copies ownership when it first creates one. On
+# a host that ran the earlier root image, chown the volume once:
+#   docker compose run --rm --user root --entrypoint chown api -R 1001:101 /app/storage
+#
+# The dev target above deliberately stays root: it bind-mounts the source tree
+# from the host, and a fixed uid in the image can't match every developer's
+# host uid. Development containers aren't the threat model here.
+# --------------------------------------------------------------------
+RUN groupadd -g 101 gocast \
+  && useradd -u 1001 -g 101 -m -s /usr/sbin/nologin gocast \
+  && chown -R gocast:gocast /app /data /config
+
+USER gocast
 
 VOLUME ["/data", "/config"]
 EXPOSE 80 443 443/udp

@@ -29,10 +29,12 @@ class SendStationLiveNotifications implements ShouldQueue
     {
         $station = Station::query()->find($this->stationId);
 
-        if (! $station?->is_live) {
+        if ($station === null) {
             return;
         }
 
+        // The session check below is the live check — an open session is what
+        // "live" means — so there is nothing to test separately first.
         $sessionStillOpen = $station->streamSessions()
             ->whereKey($this->streamSessionId)
             ->whereNull('ended_at')
