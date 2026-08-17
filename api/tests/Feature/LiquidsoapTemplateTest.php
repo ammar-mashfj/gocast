@@ -187,6 +187,10 @@ it('keeps the raw playlist bound so its own methods survive', function () {
     expect($script)->toContain('autodj = playlist(')
         ->and($script)->toContain('autodj.remaining_files()')
         ->and($script)->toContain('autodj.length()')
+        // The actual regression guard: `autodj` must stay bound to the
+        // playlist. Asserting the playlist binding exists is not enough — a
+        // later `autodj = crossfade(...)` line would leave it intact.
+        ->and($script)->not->toContain('autodj = crossfade')
         // Readiness must be read off the same source the fallback selects.
         ->and($script)->toContain('elsif autodj_mix.is_ready() then');
 });
