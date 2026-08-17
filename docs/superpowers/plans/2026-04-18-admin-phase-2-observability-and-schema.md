@@ -1,5 +1,13 @@
 # Admin Panel — Phase 2: Observability & Schema Implementation Plan
 
+> **⛔ OBSOLETE — DO NOT IMPLEMENT.** This plan was executed in April 2026 and
+> then fully reverted on 2026-08-17. Filament, the `admins` table, the `admin`
+> auth guard, the admin-only commands, and every panel resource and widget were
+> removed from the codebase. This file is kept as a record of what once existed,
+> not as work to be done — the agentic directive below is void, and none of
+> these tasks should be executed. A replacement admin surface is planned but
+> will not be built on Filament.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the packages and schema the rest of the admin panel depends on: activity log, authentication log, log viewer, plus `deleted_at` on `users` and `stations`, and `last_login_at` on `users`. After this phase, every admin-significant action has an audit trail and destructive actions can soft-delete rather than hard-delete.

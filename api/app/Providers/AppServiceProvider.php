@@ -2,14 +2,11 @@
 
 namespace App\Providers;
 
-use App\Listeners\RecordAdminLastLogin;
-use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
-use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -55,7 +52,6 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Relation::enforceMorphMap([
-            'admin' => Admin::class,
             'user' => User::class,
             'station' => Station::class,
             'plan' => Plan::class,
@@ -64,8 +60,6 @@ class AppServiceProvider extends ServiceProvider
         // Drive per-station Liquidsoap containers from the Station model
         // lifecycle. See StationObserver for the create/update/delete hooks.
         Station::observe(StationObserver::class);
-
-        Event::listen(Login::class, RecordAdminLastLogin::class);
 
         // Send the welcome email the moment a user verifies. Anchored on
         // verification (not registration) so the email is reachable, and so

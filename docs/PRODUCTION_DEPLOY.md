@@ -47,7 +47,7 @@ You will end up with **four** subdomains, all pointing at the same VPS IP:
 | Hostname | Purpose | Cloudflare proxy? |
 |---|---|---|
 | `gocast.fm` | Public app (Next.js client) | ✅ Proxied (orange cloud) |
-| `api.gocast.fm` | Laravel API + Filament admin | ✅ Proxied |
+| `api.gocast.fm` | Laravel API | ✅ Proxied |
 | `icecast.gocast.fm` | Listener-facing audio stream | ✅ Proxied |
 | `stream.gocast.fm` | WHIP/RTMP/SRT broadcaster ingest + HLS | ❌ **DNS only** (grey cloud) — WebRTC needs direct UDP |
 
@@ -553,20 +553,7 @@ provider's network policy.
 
 ---
 
-## 7. Create the first admin user (~2 min)
-
-The Filament admin panel lives at `https://api.gocast.fm/admin`.
-
-```bash
-docker compose exec api php artisan admin:create
-```
-
-Follow the prompts (email + password). Then log in at
-`https://api.gocast.fm/admin` and verify you can see the dashboard.
-
----
-
-## 8. Smoke-test the broadcaster pipeline (~5 min)
+## 7. Smoke-test the broadcaster pipeline (~5 min)
 
 This is the moment of truth — end-to-end audio.
 
@@ -605,7 +592,7 @@ working URL from inside `host`-networked mediamtx (default is
 
 ---
 
-## 9. Set up nightly backups (~10 min)
+## 8. Set up nightly backups (~10 min)
 
 Restoring is a separate skill — practise it BEFORE you need it.
 
@@ -692,7 +679,7 @@ banner and verify a fresh backup landed in S3.
 
 ---
 
-## 10. Day-to-day operations
+## 9. Day-to-day operations
 
 ### Deploy a code update
 
@@ -757,7 +744,7 @@ attached and won't be pruned while compose is running.
 
 ---
 
-## 11. Troubleshooting — the things that will go wrong
+## 10. Troubleshooting — the things that will go wrong
 
 ### "HTTP/2 521" or "522" from Cloudflare
 
@@ -899,7 +886,7 @@ the consequences.
 
 ---
 
-## 12. Disaster recovery — restore from backup
+## 11. Disaster recovery — restore from backup
 
 Practise this **before** you need it. Spin up a second cheap VPS, run
 through this end-to-end, then tear it down. The first time you do this
@@ -945,7 +932,7 @@ docker compose exec api php artisan stations:relaunch
 
 ---
 
-## 13. What to do next (after first launch)
+## 12. What to do next (after first launch)
 
 - **Monitor**: hit `https://api.gocast.fm/api/internal/metrics` with the
   `X-Internal-Key` header from a Prometheus / Grafana Agent / Vector

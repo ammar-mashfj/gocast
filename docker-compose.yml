@@ -176,7 +176,7 @@ services:
           # small connection buffer, so this scales with the listener cap.
           memory: 512M
 
-  # ---------- Laravel API + Filament admin ----------
+  # ---------- Laravel API ----------
   # FrankenPHP serves HTTP/2 + HTTP/3 + PHP from one process. In prod, Caddy
   # underneath either negotiates Let's Encrypt directly (set SERVER_NAME) or
   # accepts the Cloudflare Origin Cert (mount Caddyfile.cloudflare via the

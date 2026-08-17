@@ -1,7 +1,13 @@
 # Admin Dashboard — Design (v1)
 
+> **⛔ SUPERSEDED — describes software that no longer exists.** The admin
+> dashboard designed here was built in April 2026 and removed in full on
+> 2026-08-17, together with Filament, the `admins` table, and the `admin` auth
+> guard. Kept for design history only; a future admin will be redesigned from
+> scratch rather than resumed from this document.
+
 **Date:** 2026-04-18
-**Status:** Approved design, pending implementation plan
+**Status:** Implemented April 2026 — removed in full 2026-08-17
 **Scope:** v1 admin panel for GoCast. **All changes live in the `api/` Laravel folder only.** No changes to the `client/` Next.js app or the `relay/` Node service are in scope.
 
 ---

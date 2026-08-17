@@ -4,7 +4,7 @@ A freemium internet radio streaming platform. Broadcast live audio from your bro
 
 ## Tech Stack
 
-- **API**: Laravel 13 + Sanctum + Filament 4 (admin) + MySQL 8 + Redis
+- **API**: Laravel 13 + Sanctum + MySQL 8 + Redis
 - **Client**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + shadcn/ui
 - **Ingest**: MediaMTX (WHIP/WebRTC from browsers, RTMP for OBS, SRT for pro rigs)
 - **Playout**: one Liquidsoap container per station (live/AutoDJ/silence fallback chain)
@@ -38,7 +38,7 @@ is always up and listeners are never dropped mid-reconnect.
 
 ```
 gocast/
-├── api/                # Laravel 13 API + Filament admin panel
+├── api/                # Laravel 13 API
 ├── client/             # Next.js 16 app (SPA-style App Router)
 ├── infra/
 │   ├── icecast/        # Icecast config template + entrypoint
@@ -64,7 +64,6 @@ gocast/
 - Listener library (recently played) stored client-side
 - Account self-service: profile, password, delete account
 - Waitlist capture for pricing tiers
-- Filament admin dashboard: users, stations, sessions, plans, waitlist, activity & auth logs
 - Inactive-broadcaster nudge email (day-7 drip)
 - Always-on mount per station so listeners don't drop on broadcaster reconnects
 - Live listener counts polled from Icecast every minute

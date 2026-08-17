@@ -1,5 +1,13 @@
 # Admin Panel — Phase 4: Dashboard Widgets Implementation Plan
 
+> **⛔ OBSOLETE — DO NOT IMPLEMENT.** This plan was executed in April 2026 and
+> then fully reverted on 2026-08-17. Filament, the `admins` table, the `admin`
+> auth guard, the admin-only commands, and every panel resource and widget were
+> removed from the codebase. This file is kept as a record of what once existed,
+> not as work to be done — the agentic directive below is void, and none of
+> these tasks should be executed. A replacement admin surface is planned but
+> will not be built on Filament.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Filament's default empty dashboard with the six widgets described in the spec: a stats overview (users, stations, live now, listener-hours), a waitlist stats overview, a signups chart, a stream-activity chart, a "Recent signups" table, and a "Currently live" table. All queries use 30-day windows and read from data the earlier phases populated.

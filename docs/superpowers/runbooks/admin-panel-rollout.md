@@ -1,5 +1,10 @@
 # Admin Panel — Production Rollout Runbook
 
+> **⛔ OBSOLETE — DO NOT RUN.** The admin panel this runbook rolls out was
+> removed on 2026-08-17. Following these steps would provision DNS, TLS, env
+> vars, and an admin account for an application surface that no longer exists.
+> Kept as a record of the original rollout only.
+
 1. **Branch merge.** PR `feature/admin-panel` into `main`. Verify CI green.
 2. **DNS.** Add an A/CNAME record for `admin.gocast.ai` pointing to the same host as `api.gocast.ai`.
 3. **Nginx.** Add a server block for `admin.gocast.ai` that proxies to the existing Laravel app (or aliases the same document root). Reload nginx.

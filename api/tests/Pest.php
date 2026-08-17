@@ -28,9 +28,9 @@ pest()->extend(TestCase::class)
         //     (cache) — symptom: `throttle:3,1` endpoints reject after
         //     test #4 in a file.
         //   • authenticated user on each guard (session) — symptom:
-        //     `actingAs(..., 'admin')` doesn't actually override a prior
-        //     test's admin auth, so the "customer should be Forbidden"
-        //     assertion silently sees the previous admin and gets 200.
+        //     `actingAs(...)` doesn't actually override a prior test's
+        //     auth, so an assertion expecting Forbidden silently sees the
+        //     previous test's user and gets 200.
         // Both surface as "passes alone, fails in suite" — the trickiest
         // form of flake to debug. Flushing all three sidesteps it.
         Cache::flush();

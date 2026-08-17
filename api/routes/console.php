@@ -8,11 +8,6 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('admin:detect-login-abuse')
-    ->everyFiveMinutes()
-    ->withoutOverlapping()
-    ->runInBackground();
-
 // Listener counts come from Icecast's admin API — nothing pushes them to us.
 // Every minute is a good balance: the dashboard number feels live without
 // hammering Icecast. withoutOverlapping so a slow/hung poll can't stack up.

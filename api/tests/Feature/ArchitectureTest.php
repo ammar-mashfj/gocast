@@ -10,10 +10,6 @@ arch('notifications extend the Laravel base notification')
     ->classes()
     ->toExtend('Illuminate\Notifications\Notification');
 
-arch('admin panel code never imports customer controllers')
-    ->expect('App\Filament')
-    ->not->toUse('App\Http\Controllers');
-
 arch('policies are classes in the App\\Policies namespace')
     ->expect('App\Policies')
     ->toBeClasses();

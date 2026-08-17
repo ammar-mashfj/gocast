@@ -11,10 +11,10 @@ it('updates users.last_login_at when a user logs in via the web guard', function
     expect($user->fresh()->last_login_at)->not->toBeNull();
 });
 
-it('does not update users.last_login_at when an admin logs in', function () {
+it('does not update users.last_login_at for a login on another guard', function () {
     $user = User::factory()->create(['last_login_at' => null]);
 
-    event(new Login('admin', $user, remember: false));
+    event(new Login('sanctum', $user, remember: false));
 
     expect($user->fresh()->last_login_at)->toBeNull();
 });

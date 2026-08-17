@@ -65,16 +65,14 @@ I cannot mark anything "verified" because I have not run the app. Below is what 
 - Featured stations endpoint (`GET /public/featured`)
 - Genre list endpoint
 
-### Admin (Filament v4)
-- Admin panel with separate `admins` table
-- Resources for Users, Stations, Stream Sessions, Plans, Waitlist, Activity Log, Auth Log, Admins
-- Login abuse detection command + notification
-- Idle-session expiration
+### Admin
+- None. The Filament panel, the `admins` table, and every admin-only command
+  were removed on 2026-08-17; a replacement is planned but not started. Ops is
+  artisan + direct DB access for now.
 
 ### Scheduled Jobs
 - `CleanStaleStreams` — marks sessions ended if offline > 1hr
 - `NudgeInactiveBroadcasters` — day-7 re-engagement email
-- `DetectAdminLoginAbuseCommand` — brute-force detection
 
 **Platform/browser testing:** No evidence in the repo of cross-browser testing matrix. One Playwright spec (`auth.spec.ts`, Chromium-only) covers auth flows. Mobile/Firefox/Safari are untested as far as I can tell.
 

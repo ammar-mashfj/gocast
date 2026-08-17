@@ -1,5 +1,13 @@
 # Admin Panel — Phase 3: Filament Resources Implementation Plan
 
+> **⛔ OBSOLETE — DO NOT IMPLEMENT.** This plan was executed in April 2026 and
+> then fully reverted on 2026-08-17. Filament, the `admins` table, the `admin`
+> auth guard, the admin-only commands, and every panel resource and widget were
+> removed from the codebase. This file is kept as a record of what once existed,
+> not as work to be done — the agentic directive below is void, and none of
+> these tasks should be executed. A replacement admin surface is planned but
+> will not be built on Filament.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the eight Filament resources that make up the management surface of the admin panel: Plan, WaitlistEntry, Admin, StreamSession, ActivityLog, AuthenticationLog, Station, User. After this phase the panel is fully browsable and the core destructive actions (soft-delete user/station, delete waitlist entry) are wired up end-to-end with typed-identifier confirmations and activity logging.

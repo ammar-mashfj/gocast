@@ -1,5 +1,13 @@
 # Admin Panel — Phase 5: Alerting & Polish Implementation Plan
 
+> **⛔ OBSOLETE — DO NOT IMPLEMENT.** This plan was executed in April 2026 and
+> then fully reverted on 2026-08-17. Filament, the `admins` table, the `admin`
+> auth guard, the admin-only commands, and every panel resource and widget were
+> removed from the codebase. This file is kept as a record of what once existed,
+> not as work to be done — the agentic directive below is void, and none of
+> these tasks should be executed. A replacement admin surface is planned but
+> will not be built on Filament.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the panel out: detect admin login-abuse on a schedule, surface alerts via Sentry + an in-panel database-notification bell, tighten the test suite with Pest 4 browser smoke tests and arch tests, and document the production rollout checklist.

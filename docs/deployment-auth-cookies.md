@@ -14,7 +14,6 @@ Example:
 ```text
 Frontend: https://gocast.fm
 API:      https://api.gocast.fm
-Admin:    https://admin.gocast.fm
 ```
 
 Use:
