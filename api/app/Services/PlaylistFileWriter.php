@@ -58,7 +58,7 @@ class PlaylistFileWriter
         $dir = $this->stationDir($station);
         File::ensureDirectoryExists($dir);
 
-        $tracks = $station->tracks()->get(['path', 'title', 'artist']);
+        $tracks = $station->tracks()->get(['path', 'title', 'artist', 'duration_seconds']);
 
         // Lines are Liquidsoap `annotate:` URIs — key="value" metadata pairs
         // followed by the audio file path. This makes the DB the single
@@ -78,7 +78,12 @@ class PlaylistFileWriter
             // absolute paths slipping into Track::$path — only the leaf name
             // is ever joined under the container playlist dir.
             $absolutePath = self::CONTAINER_PLAYLIST_DIR.'/'.basename((string) $track->path);
-            $lines[] = $this->annotateUri($track->title, $track->artist, $absolutePath);
+            $lines[] = $this->annotateUri(
+                $track->title,
+                $track->artist,
+                $absolutePath,
+                $track->duration_seconds === null ? null : (float) $track->duration_seconds,
+            );
         }
 
         // Write to a sibling .tmp and rename: rename(2) is atomic on the
@@ -123,15 +128,37 @@ class PlaylistFileWriter
 
     /**
      * Build a Liquidsoap `annotate:` URI like:
-     *   annotate:title="КАМИН",artist="EMIN feat. JONY":/data/playlists/abc.mp3
+     *   annotate:duration="184.74",title="КАМИН",artist="EMIN":/data/playlists/abc.mp3
      *
      * Double quotes inside values are backslash-escaped, which is how
      * Liquidsoap's lexer expects them. Empty fields are omitted so the
      * downstream "no artist" case doesn't pollute `m["artist"]` with "".
+     *
+     * `duration` is emitted because the crossfade needs to know where a track
+     * ends in order to time a transition, and it is the one field Liquidsoap
+     * would otherwise have to infer per playback. AzuraCast — the reference
+     * implementation for this pipeline — always annotates it for the same
+     * reason. We already store it, so there is no reason to make Liquidsoap
+     * guess. Omitted when unknown rather than sent as 0, which would read as
+     * a zero-length track.
+     *
+     * Formatted with 3 decimals via number_format: the default float cast can
+     * emit scientific notation ("1.8473799301908E+2") for some values, which
+     * Liquidsoap's annotate parser does not accept.
      */
-    private function annotateUri(string $title, ?string $artist, string $path): string
-    {
-        $parts = ['title="'.$this->escapeAnnotateValue($title).'"'];
+    private function annotateUri(
+        string $title,
+        ?string $artist,
+        string $path,
+        ?float $durationSeconds = null,
+    ): string {
+        $parts = [];
+
+        if ($durationSeconds !== null && $durationSeconds > 0) {
+            $parts[] = 'duration="'.number_format($durationSeconds, 3, '.', '').'"';
+        }
+
+        $parts[] = 'title="'.$this->escapeAnnotateValue($title).'"';
 
         $artist = trim((string) $artist);
         if ($artist !== '') {

@@ -161,6 +161,84 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | AutoDJ crossfade
+    |--------------------------------------------------------------------------
+    |
+    | Applies ONLY to transitions between AutoDJ tracks. A live broadcast is
+    | one continuous track with no boundaries, so fading it is always wrong —
+    | doing so once produced hundreds of stacked 2s gain ramps
+    | ("clock.cross: possible source leak") heard as the volume sliding down
+    | and snapping back up.
+    |
+    | `crossfade_enabled` is a kill switch, on purpose. Transitions have wedged
+    | AutoDJ playback in the past (two requests of the same file stuck on air,
+    | elapsed() running past 1200s on a 184s track, listeners hearing the
+    | track summed with a time-shifted copy of itself). The mechanism is not
+    | fully understood, so being able to fall back to hard cuts by flipping an
+    | env var — with no code change and no redeploy — is worth the config knob.
+    | Set LIQUIDSOAP_CROSSFADE_ENABLED=false to cut instead of fade.
+    |
+    | The smart-transition thresholds mirror AzuraCast's `cross.smart`, which
+    | is the reference implementation for this: rather than always overlapping,
+    | it compares the loudness of the outgoing and incoming track and only
+    | fades when the result will not turn to mush. Two loud tracks are hard
+    | cut instead of summed, which is what keeps a master limited to 0.0 dBFS
+    | from clipping the encoder during the overlap.
+    |
+    |   high   — above this (dB) a track counts as loud
+    |   medium — below this (dB) a track counts as quiet
+    |   margin — dB difference beyond which two tracks are "far apart"
+    */
+
+    // Still defaults to FALSE, but the reason is now historical rather than
+    // structural — read this before deciding.
+    //
+    // On Liquidsoap 2.4.0 cross() never survived a transition on this graph.
+    // Three formulations were tried — the crossfade() wrapper, a hand-written
+    // cross() transition, and the cross.smart port with duration annotated —
+    // and each wedged AutoDJ, the last on its very first track boundary. Output
+    // degenerated to a single buffered frame looping forever: a static harmonic
+    // spectrum, unchanging for 20s, heard as a stuck-PC buzz. elapsed() climbed
+    // past the track length, remaining() froze, decoder End_of_file stopped
+    // firing, and nothing at all was logged.
+    //
+    // That was an upstream bug, not our config: savonet#4851 attached the
+    // crossfade's `transition` and `pre_buffer` sources to the passive child
+    // clock instead of the top-level one, so nothing animated them. Fixed in
+    // Liquidsoap 2.4.3; the image is now pinned to 2.4.5, which additionally
+    // fixes savonet#5194 (cross/crossfade crash when source.skip is called
+    // from a harbor.http handler — this graph serves /status over harbor.http).
+    //
+    // So this is expected to work now. It stays off by default only because it
+    // has not yet been observed working here. To adopt it: confirm the station
+    // is healthy on 2.4.5 with this false, then set it true and relaunch, and
+    // watch for End_of_file every track length and elapsed+remaining summing to
+    // the track duration. Prefer a playlist with more than one track.
+    'crossfade_enabled' => (bool) env('LIQUIDSOAP_CROSSFADE_ENABLED', false),
+    // Two DIFFERENT things, which must not share a value:
+    //
+    //   crossfade_duration — the cross window. How much audio is buffered from
+    //                        the end of the old track and the start of the new.
+    //   crossfade_fade     — the length of the fade-in/fade-out envelopes drawn
+    //                        inside that window.
+    //
+    // The Liquidsoap book (§6.4) is explicit: "The total duration should always
+    // be strictly longer than the one of the fades, otherwise the fades will not
+    // be complete and you will hear abrupt changes in the volume." Its worked
+    // example of the broken case is fades of 3s inside a 2s duration.
+    //
+    // These were previously one value used for both, i.e. permanently in the
+    // degenerate case. Defaults here are the book's own: 5s window, 3s fades.
+    // LiquidsoapSupervisor clamps the fade below the window before rendering,
+    // so a bad env pairing cannot produce incomplete transitions.
+    'crossfade_duration' => (float) env('LIQUIDSOAP_CROSSFADE_DURATION', 5),
+    'crossfade_fade' => (float) env('LIQUIDSOAP_CROSSFADE_FADE', 3),
+    'crossfade_high_db' => (float) env('LIQUIDSOAP_CROSSFADE_HIGH_DB', -15),
+    'crossfade_medium_db' => (float) env('LIQUIDSOAP_CROSSFADE_MEDIUM_DB', -32),
+    'crossfade_margin_db' => (float) env('LIQUIDSOAP_CROSSFADE_MARGIN_DB', 4),
+
+    /*
+    |--------------------------------------------------------------------------
     | Idle auto-stop
     |--------------------------------------------------------------------------
     |

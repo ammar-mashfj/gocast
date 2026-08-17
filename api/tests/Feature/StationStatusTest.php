@@ -144,12 +144,17 @@ it('derives the four station states', function (string $desired, ?array $payload
     'broadcaster is live' => [Station::STATE_RUNNING, ['ready' => true, 'source' => 'live'], 'live'],
 ]);
 
-it('serves the status endpoint with the queue resolved to real tracks', function () {
+it('serves the queue from our own tracks table, anchored on what is playing', function () {
+    // up_next used to come from autodj.remaining_files() over /status. That is
+    // a method on the source cross() fast-forwards, and the Liquidsoap book
+    // (6.4) allows only one operator on such a source. We derive it from the DB
+    // instead: the playlist runs top-to-bottom looping, so "next" is simply the
+    // rows after the current one, wrapping at the end.
     $user = User::factory()->create();
     $station = runningStation($user);
 
-    $first = Track::factory()->for($station)->create(['title' => 'Opener', 'artist' => 'A']);
-    $second = Track::factory()->for($station)->create(['title' => 'Follow up', 'artist' => 'B']);
+    $first = Track::factory()->for($station)->create(['title' => 'Opener', 'artist' => 'A', 'position' => 1]);
+    $second = Track::factory()->for($station)->create(['title' => 'Follow up', 'artist' => 'B', 'position' => 2]);
 
     harborReturns([
         'ready' => true,
@@ -158,38 +163,55 @@ it('serves the status endpoint with the queue resolved to real tracks', function
         'artist' => 'A',
         'elapsed' => 10.0,
         'remaining' => 90.0,
-        'playlist_length' => 2,
-        'up_next' => [$first->path, $second->path],
     ]);
 
     actingAs($user)
         ->getJson("/api/stations/{$station->slug}/status")
         ->assertOk()
         ->assertJsonPath('data.state', 'on_air')
-        ->assertJsonPath('data.reachable', true)
         ->assertJsonPath('data.now_playing.title', 'Opener')
-        ->assertJsonPath('data.up_next.0.title', 'Opener')
-        ->assertJsonPath('data.up_next.1.title', 'Follow up')
-        ->assertJsonPath('data.up_next.1.id', $second->id);
+        // Counted here, not reported by the container.
+        ->assertJsonPath('data.playlist_length', 2)
+        // "Opener" is playing, so it is NOT what is up next; the list wraps.
+        ->assertJsonPath('data.up_next.0.title', 'Follow up')
+        ->assertJsonPath('data.up_next.0.id', $second->id)
+        ->assertJsonPath('data.up_next.1.title', 'Opener')
+        ->assertJsonPath('data.up_next.1.id', $first->id);
 });
 
-it('keeps a queued track in the list when its row has gone', function () {
-    // The queue is what it is — dropping entries would make "up next"
-    // disagree with what listeners actually hear.
+it('starts the queue at the top when the current track is unknown', function () {
+    // Live broadcast, the silence bed, or a title the container has not
+    // reported yet: anchor on the first row rather than guessing a position.
     $user = User::factory()->create();
     $station = runningStation($user);
 
+    Track::factory()->for($station)->create(['title' => 'Only', 'artist' => 'A', 'position' => 1]);
+
     harborReturns([
         'ready' => true,
-        'source' => 'autodj',
-        'up_next' => ['01HDELETED.mp3'],
+        'source' => 'live',
+        'title' => null,
+        'artist' => null,
     ]);
 
     actingAs($user)
         ->getJson("/api/stations/{$station->slug}/status")
         ->assertOk()
-        ->assertJsonPath('data.up_next.0.id', null)
-        ->assertJsonPath('data.up_next.0.title', '01HDELETED.mp3');
+        ->assertJsonPath('data.playlist_length', 1)
+        ->assertJsonPath('data.up_next.0.title', 'Only');
+});
+
+it('reports an empty queue for a station with no tracks', function () {
+    $user = User::factory()->create();
+    $station = runningStation($user);
+
+    harborReturns(['ready' => true, 'source' => 'autodj']);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.playlist_length', 0)
+        ->assertJsonPath('data.up_next', []);
 });
 
 it('reports an off-air station as offline without now-playing data', function () {

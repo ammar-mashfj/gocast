@@ -7,7 +7,6 @@ use App\Models\Track;
 use App\Services\StationStatusService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Collection;
 
 /**
  * Live audio state for one station, read from its Liquidsoap container.
@@ -25,6 +24,9 @@ use Illuminate\Support\Collection;
 class StationStatusController extends Controller
 {
     use AuthorizesRequests;
+
+    /** How many upcoming tracks the dashboard shows. */
+    private const UP_NEXT_LIMIT = 5;
 
     public function __invoke(Station $station, StationStatusService $statusService): JsonResponse
     {
@@ -54,8 +56,8 @@ class StationStatusController extends Controller
                 'now_playing' => $this->nowPlaying($status),
                 'elapsed' => $status['elapsed'] ?? null,
                 'remaining' => $status['remaining'] ?? null,
-                'playlist_length' => $status['playlist_length'] ?? null,
-                'up_next' => $this->upNext($station, $status['up_next'] ?? []),
+                'playlist_length' => $this->playlistLength($station),
+                'up_next' => $this->upNext($station, $status),
             ],
         ]);
     }
@@ -81,37 +83,60 @@ class StationStatusController extends Controller
     }
 
     /**
-     * Resolve the filenames Liquidsoap reports as upcoming back into Track
-     * rows. Tracks are stored as `{ulid}.{ext}`, which is exactly what the
-     * m3u carries, so a single lookup keyed on the filename covers the list.
+     * The upcoming tracks, derived from our own tracks table rather than from
+     * the container.
      *
-     * A file with no matching row (deleted while queued) still appears, with
-     * a null id — the queue is what it is, and silently dropping entries
-     * would make the "up next" list disagree with what listeners hear.
+     * This used to read `autodj.remaining_files()` over /status. That is a
+     * method on the source `cross()` fast-forwards during a transition, and the
+     * Liquidsoap book (§6.4) says such a source may only be used by one
+     * operator "otherwise we will run into synchronization issues" — so polling
+     * it every couple of seconds was a standing hazard once crossfade was on.
      *
-     * @param  list<string>  $filenames
      * @return list<array{id: ?string, title: string, artist: ?string}>
      */
-    private function upNext(Station $station, array $filenames): array
+    private function upNext(Station $station, ?array $status): array
     {
-        if ($filenames === []) {
+        $tracks = $station->tracks()
+            ->orderBy('position')
+            ->get(['id', 'title', 'artist'])
+            ->values();
+
+        if ($tracks->isEmpty()) {
             return [];
         }
 
-        /** @var Collection<string, Track> $tracks */
-        $tracks = $station->tracks()
-            ->whereIn('path', $filenames)
-            ->get(['id', 'path', 'title', 'artist'])
-            ->keyBy('path');
+        // Anchor on what the container says is playing. The AutoDJ playlist
+        // runs in `mode = "normal"` — top to bottom, looping — so everything
+        // after the current row, wrapping at the end, is what plays next.
+        $currentIndex = $tracks->search(
+            fn (Track $track): bool => $track->title === ($status['title'] ?? null)
+                && $track->artist === ($status['artist'] ?? null)
+        );
 
-        return array_map(function (string $filename) use ($tracks) {
-            $track = $tracks->get($filename);
+        // Unknown current track (live broadcast, silence bed, or a title the
+        // container has not reported yet) — start from the top rather than
+        // guessing a position.
+        $start = $currentIndex === false ? 0 : $currentIndex + 1;
 
-            return [
-                'id' => $track?->id,
-                'title' => $track?->title ?? $filename,
-                'artist' => $track?->artist,
+        $count = $tracks->count();
+        $upNext = [];
+
+        for ($offset = 0; $offset < min(self::UP_NEXT_LIMIT, $count); $offset++) {
+            /** @var Track $track */
+            $track = $tracks[($start + $offset) % $count];
+
+            $upNext[] = [
+                'id' => $track->id,
+                'title' => $track->title,
+                'artist' => $track->artist,
             ];
-        }, $filenames);
+        }
+
+        return $upNext;
+    }
+
+    private function playlistLength(Station $station): int
+    {
+        return $station->tracks()->count();
     }
 }

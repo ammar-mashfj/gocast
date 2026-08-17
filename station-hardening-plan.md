@@ -31,6 +31,11 @@ mark every station on the box unhealthy at once and the reconciler would recreat
 fleet, repeatedly and to no effect. It is surfaced as the new `degraded` state instead.
 Health drives automation; degraded drives attention.
 
+> **Version note (2026-08-17):** the image has since been bumped to **Liquidsoap 2.4.5**
+> (see the bump item below). Every "2.4.0" in this document is the version it was written
+> against, not the version now running. The API observations still hold; the crossfade
+> behaviour does not — 2.4.0's `cross()` clock bug (savonet#4851) is fixed from 2.4.3 on.
+
 Every claim was verified against the real `gocast/liquidsoap:latest` image
 (Liquidsoap 2.4.0) or read out of the current code — line references included so none of
 it has to be re-derived. The published docs describe the dev branch and disagree with
@@ -358,11 +363,18 @@ Today: browser WHIP through MediaMTX. Present in the image and unused:
 - [ ] **Richer control without restarts** — the playlist source exposes `reload(empty_queue,
       uri)`, `skip`, `seek`, `queue`, `set_queue`, `current`, `remaining_files`,
       `on_position`, `register_command`. Most of a "playlist console" is already there.
-- [ ] **Bump 2.4.0 → 2.4.2.** Both tags exist on Docker Hub (checked). 2.4.1 fixes *"audio
-      artifact in crossfade transitions"* and `input.harbor` metadata during fades; 2.4.2
-      fixes `source.dynamic` leaks and adds `clocks.dump` / `--describe-sources`, which is
-      what you want when a station is wedged. Caveat: 2.4.2 changed telnet `help`
-      formatting — harmless, and moot if the telnet port goes.
+- [x] **Bump 2.4.0 → 2.4.5.** DONE — `infra/liquidsoap/Dockerfile` now pins v2.4.5.
+      This was not a nice-to-have: on 2.4.0 every form of `cross()` wedged AutoDJ on a
+      track boundary, emitting one buffered frame forever (heard as a stuck-PC buzz) with
+      nothing in the log. Root cause was savonet#4851 — the crossfade's `transition` and
+      `pre_buffer` sources were attached to the passive child clock instead of the
+      top-level one, so nothing animated them — fixed in **2.4.3**. 2.4.5 additionally
+      fixes savonet#5194, a `cross`/`crossfade` crash when `source.skip` is called from a
+      `harbor.http` handler, which is exactly how this station serves /status. Also picks
+      up 2.4.1's *"audio artifact in crossfade transitions"*, and `clocks.dump` /
+      `--describe-sources`, which is what you want when a station is wedged.
+      Crossfade itself stays behind `LIQUIDSOAP_CROSSFADE_ENABLED` (default false) until
+      a clean transition is actually observed on 2.4.5.
 - [ ] **`cross.plot`** — dumps transition data for debugging crossfades.
 
 ---

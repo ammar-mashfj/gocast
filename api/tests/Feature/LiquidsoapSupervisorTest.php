@@ -102,9 +102,9 @@ it('omits health flags entirely when the healthcheck is disabled', function () {
 });
 
 it('takes the image from config so a bad upgrade is rolled back without a deploy', function () {
-    config(['liquidsoap.image' => 'gocast/liquidsoap:v2.4.2']);
+    config(['liquidsoap.image' => 'gocast/liquidsoap:v2.4.5']);
 
-    expect(runCommandFor($this->station))->toContain('gocast/liquidsoap:v2.4.2');
+    expect(runCommandFor($this->station))->toContain('gocast/liquidsoap:v2.4.5');
 });
 
 it('never lets the stop timeout exceed the docker process timeout', function () {

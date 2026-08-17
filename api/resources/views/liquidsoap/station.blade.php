@@ -258,7 +258,7 @@ autodj = playlist(
 )
 
 # Crossfade AutoDJ track transitions — 2s overlap between consecutive
-# playlist tracks. Liquidsoap 2.4 API: `duration` is the only required
+# playlist tracks. Liquidsoap 2.4+ API: `duration` is the only required
 # parameter (the old start_next/fade_in/fade_out signature was removed).
 #
 # This wraps `autodj` alone, and deliberately NOT the fallback below.
@@ -274,50 +274,125 @@ autodj = playlist(
 #
 # Bound to a NEW name rather than rebinding `autodj`: the cross operator
 # returns a plain source, which drops the playlist's own methods, and the
-# status endpoint below still calls autodj.remaining_files()/length().
+# status endpoint must never call methods on it (see the /status handler).
 #
-# `cross` rather than the `crossfade` convenience wrapper, because we need to
-# inspect both sides of the transition and refuse to fade a track into itself.
-# A one-track playlist loops forever, and crossfade would overlap the track's
-# tail with its own head every pass — two copies of the same recording summed
-# 2s apart, which is a flanging/doubling artifact, not a transition.
+# WHY THIS IS GATED, and what to look for if it comes back.
 #
-# `filename` is compared rather than title/artist: `annotate:` URIs can carry
-# identical tags for different files, and the guard must be about the actual
-# audio. The a != "" test keeps two tagless requests from looking equal.
-def autodj_transition(ending, starting) =
-  a = ending.metadata["filename"]
-  b = starting.metadata["filename"]
-  if a != "" and a == b then
-    # Same file looping — hard cut. `cross` has already buffered both edges,
-    # so playing them back to back is a clean splice with no overlap.
-    sequence([ending.source, starting.source])
+# On Liquidsoap 2.4.0 every form of cross() wedged AutoDJ on a track boundary:
+# the crossfade() wrapper, a hand-written cross() transition, and the
+# cross.smart port below. Output degenerated to a single buffered frame emitted
+# forever — a static harmonic spectrum, dead flat for 20s, which listeners hear
+# as a stuck-PC buzz. elapsed() climbed past the track length, remaining() froze
+# at a constant, decoder End_of_file stopped firing, and NOTHING was logged
+# while CPU and memory stayed healthy.
+#
+# Root cause was upstream, not this script: savonet#4851 attached the
+# crossfade's `transition` and `pre_buffer` sources to the passive child clock
+# instead of the top-level one, so nothing animated them. Fixed in Liquidsoap
+# 2.4.3. The image is pinned to 2.4.5, which also carries savonet#5194 — a
+# cross/crossfade crash when source.skip runs from a harbor.http handler, and
+# this script serves /status and /healthz over harbor.http.
+#
+# Detection, since none of it reaches the log: End_of_file should appear once
+# per track, and elapsed()+remaining() from /status should equal the track
+# duration. If EOF goes quiet while elapsed keeps climbing, it is wedged. Do NOT
+# use `request.all` returning two rids as the tell — the playlist legitimately
+# prefetches the next track, so two rids is normal on a healthy station.
+#
+# Recovery is LIQUIDSOAP_CROSSFADE_ENABLED=false plus a relaunch: hard cuts are
+# known good, and no code has to change to get there.
+@if ($crossfadeEnabled)
+# Level-aware transition ported from AzuraCast's `cross.smart`, which is the
+# reference implementation for this pipeline. The point is that it does NOT
+# always overlap: it compares the loudness of the outgoing and incoming track
+# and only fades when the result will not turn to mush, hard cutting otherwise.
+# That is what keeps a master limited to 0.0 dBFS — measured on the current
+# jazz track — from clipping the encoder while two tracks are summed.
+# duration = the cross WINDOW (audio buffered either side of the boundary).
+# fade     = the length of the envelopes drawn inside that window, and it must
+# be strictly shorter. Book §6.4: "The total duration should always be strictly
+# longer than the one of the fades, otherwise the fades will not be complete and
+# you will hear abrupt changes in the volume." These were one value for both
+# until now, i.e. permanently in exactly that broken case. Laravel clamps the
+# fade below the window before rendering.
+autodj_cross_duration = {{ number_format($crossfadeDuration, 1, '.', '') }}
+autodj_cross_fade = {{ number_format($crossfadeFade, 1, '.', '') }}
+autodj_cross_high = {{ number_format($crossfadeHigh, 1, '.', '') }}
+autodj_cross_medium = {{ number_format($crossfadeMedium, 1, '.', '') }}
+autodj_cross_margin = {{ number_format($crossfadeMargin, 1, '.', '') }}
+
+def autodj_cross_fade_out(s) =
+  fade.out(type="sin", duration=autodj_cross_fade, s)
+end
+
+def autodj_cross_fade_in(s) =
+  fade.in(type="sin", duration=autodj_cross_fade, s)
+end
+
+# add() relays metadata from the FIRST available source only, so the incoming
+# track is listed first: the other order makes /status announce the track that
+# just finished for the whole overlap. normalize=false because add()'s own
+# normalization divides by the source count, ducking every transition by 6dB.
+def autodj_cross_add(ending, starting) =
+  add(normalize=false, [starting, ending])
+end
+
+def autodj_cross(a, b) =
+  # cross() only exposes .metadata on these records if it is referenced, and
+  # the type checker needs to see that happen. AzuraCast does the same.
+  ignore(a.metadata["foo"])
+  ignore(b.metadata["foo"])
+
+  # The fades are built inside each branch, never up front: an unused source
+  # still gets created and has to be torn down again.
+  if
+    a.db_level <= autodj_cross_medium
+    and b.db_level <= autodj_cross_medium
+    and abs(a.db_level - b.db_level) <= autodj_cross_margin
+  then
+    # Both quiet and close together — safe to fade both ways.
+    autodj_cross_add(autodj_cross_fade_out(a.source), autodj_cross_fade_in(b.source))
+  elsif
+    b.db_level >= a.db_level + autodj_cross_margin
+    and a.db_level >= autodj_cross_medium
+    and b.db_level <= autodj_cross_high
+  then
+    # Incoming is much louder — fade the outgoing track out under it.
+    autodj_cross_add(autodj_cross_fade_out(a.source), b.source)
+  elsif
+    a.db_level >= b.db_level + autodj_cross_margin
+    and b.db_level >= autodj_cross_medium
+    and a.db_level <= autodj_cross_high
+  then
+    # Outgoing is much louder — fade the incoming track in under it.
+    autodj_cross_add(a.source, autodj_cross_fade_in(b.source))
+  elsif
+    b.db_level >= a.db_level + autodj_cross_margin
+    and a.db_level <= autodj_cross_medium
+    and b.db_level <= autodj_cross_high
+  then
+    # Outgoing is already near silence — overlap without fading it further.
+    autodj_cross_add(a.source, b.source)
   else
-    # `starting` is listed FIRST on purpose: add() relays metadata from the
-    # first available source only, so this makes the incoming track's title
-    # the one that reaches output_source.last_metadata() and the /status
-    # payload. Listing `ending` first reports the track that just finished.
-    #
-    # normalize=false: add()'s normalization divides by the source count,
-    # which would duck every transition by 6dB. The limiter below is what
-    # keeps the sum inside full scale instead.
-    add(normalize=false, [
-      fade.in(duration=2., starting.source),
-      fade.out(duration=2., ending.source)
-    ])
+    # Too loud to overlap, or too far apart for one to survive the mix.
+    # A hard cut is the honest answer. This is the arm a 0.0 dBFS master
+    # takes, which is why the clipping went away.
+    sequence([a.source, b.source])
   end
 end
 
-# The limiter is not loudness processing — it is overflow protection for the
-# 2s window where two tracks are summed. Modern masters are brick-walled to
-# 0.0 dBFS (the current jazz playlist track measures exactly that), leaving
-# no headroom, so any overlap exceeds full scale and the MP3 encoder clips it
-# into audible crackle. threshold=-1.0 gives the sum somewhere to go.
-#
-# Scoped to the AutoDJ arm deliberately: the live path stays untouched, for
-# the same reason the crossfade does. This is NOT normalize() — the gain is
+autodj_faded = cross(duration=autodj_cross_duration, autodj_cross, autodj)
+@else
+# Hard cuts: LIQUIDSOAP_CROSSFADE_ENABLED=false.
+autodj_faded = autodj
+@endif
+
+# The limiter is overflow protection, not loudness shaping, and it has no
+# track/timing logic that could hang. Masters brick-walled to 0.0 dBFS leave
+# the MP3 encoder no headroom even without an overlap. Scoped to the AutoDJ
+# arm so the live path is untouched. This is NOT normalize() — the gain is
 # static above threshold, so it cannot "breathe" on quiet passages.
-autodj_mix = limit(threshold=-1.0, cross(duration=2., autodj_transition, autodj))
+autodj_mix = limit(threshold=-1.0, autodj_faded)
 
 # Standby silence — infallible last resort.
 bed = mksafe(blank())
@@ -386,14 +461,6 @@ def current_source() =
   end
 end
 
-# Filenames of the next few tracks the playlist will play. Splitting on "/"
-# and taking the last segment survives `annotate:` URIs whose title contains
-# a slash ("AC/DC"), because the file path is always last. Laravel maps these
-# back to Track rows by their {ulid}.{ext} name.
-def basename_of(uri) =
-  list.hd(default="", list.rev(string.split(separator="/", uri)))
-end
-
 # `response.json` raises on NaN and infinity — JSON cannot represent either —
 # and a raised handler answers nothing at all, closing the socket. That turns
 # the single most load-bearing endpoint we have into a dead one: Laravel reads
@@ -409,12 +476,6 @@ end
 # "unknown" instead of introducing a second one.
 def finite(x) =
   if float.is_nan(x) or float.is_infinite(x) then -1. else x end
-end
-
-def up_next(n) =
-  indexed = list.mapi(fun (i, uri) -> (i, uri), autodj.remaining_files())
-  wanted = list.filter(fun (pair) -> fst(pair) < n, indexed)
-  list.map(fun (pair) -> basename_of(snd(pair)), wanted)
 end
 
 harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, response) ->
@@ -438,9 +499,15 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         title = meta["title"],
         artist = meta["artist"],
         elapsed = finite(output_source.elapsed()),
-        remaining = finite(output_source.remaining()),
-        playlist_length = autodj.length(),
-        up_next = up_next(5)
+        # playlist_length and up_next deliberately do NOT appear here.
+        # They used to call autodj.length()/remaining_files() — methods on the
+        # very source cross() is fast-forwarding. Book §6.4: that fast-forward
+        # "is only possible when only one operator is using the source,
+        # otherwise we will run into synchronization issues." This endpoint is
+        # polled every couple of seconds, so it was a second operator on a
+        # crossfaded source on every single poll. Laravel serves both fields
+        # from its own tracks table instead, where they are exact.
+        remaining = finite(output_source.remaining())
       }
     )
   end

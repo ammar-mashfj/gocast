@@ -901,6 +901,21 @@ class LiquidsoapSupervisor
             // Dead-air guard on the live input; 0 disables it.
             'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
             'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
+            // AutoDJ track transitions. Off => hard cuts, which is the safe
+            // fallback if a transition ever wedges playback again.
+            'crossfadeEnabled' => (bool) config('liquidsoap.crossfade_enabled'),
+            'crossfadeDuration' => $crossfadeDuration = (float) config('liquidsoap.crossfade_duration'),
+            // The fade envelopes must fit strictly inside the cross window, or
+            // they never complete and the transition jumps in volume (see the
+            // Liquidsoap book §6.4). Clamped rather than trusted, so a bad env
+            // pairing degrades to a short fade instead of a broken one.
+            'crossfadeFade' => min(
+                (float) config('liquidsoap.crossfade_fade'),
+                max($crossfadeDuration - 0.5, 0.1),
+            ),
+            'crossfadeHigh' => (float) config('liquidsoap.crossfade_high_db'),
+            'crossfadeMedium' => (float) config('liquidsoap.crossfade_medium_db'),
+            'crossfadeMargin' => (float) config('liquidsoap.crossfade_margin_db'),
         ])->render();
 
         File::ensureDirectoryExists($this->liqDir);

@@ -28,6 +28,12 @@ function renderStationScript(Station $station, array $overrides = []): string
         'harborInputPort' => 8090,
         'blankMax' => 15.0,
         'blankThreshold' => -40.0,
+        'crossfadeEnabled' => true,
+        'crossfadeDuration' => 5.0,
+        'crossfadeFade' => 3.0,
+        'crossfadeHigh' => -15.0,
+        'crossfadeMedium' => -32.0,
+        'crossfadeMargin' => 4.0,
     ], $overrides))->render();
 }
 
@@ -161,83 +167,126 @@ it('no longer pulls the live input from an external media server', function () {
         ->and($script)->not->toContain('input.ffmpeg(');
 });
 
-it('crossfades autodj tracks without fading the live input', function () {
-    // crossfade is a track-boundary operator. Wrapping the fallback applied
-    // its fade envelopes to live audio, and because a live broadcast has no
-    // track boundaries the fallback re-triggered it constantly — hundreds of
-    // overlapping 2s ramps ("clock.cross: possible source leak"), heard as the
-    // volume sliding down and snapping back up. It belongs on the playlist,
-    // where a track change is a real event.
+it('keeps the fade operators off the live path', function () {
+    // Wrapping the fallback in crossfade applied its fade envelopes to live
+    // audio, and because a live broadcast has no track boundaries the fallback
+    // re-triggered it constantly — hundreds of overlapping 2s ramps
+    // ("clock.cross: possible source leak"), heard as the volume sliding down
+    // and snapping back up.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('cross(duration=2., autodj_transition, autodj)')
-        // Only the playlist arm of the fallback is faded.
-        ->and($script)->toContain('fallback(track_sensitive=false, [live, autodj_mix, bed])')
-        // The mix reaches the outputs unfaded; source switches are cuts.
+    expect($script)->toContain('fallback(track_sensitive=false, [live, autodj_mix, bed])')
+        // The mix reaches the outputs unprocessed; switches are hard cuts.
         ->and($script)->toContain('output_source = mixed')
-        ->and($script)->not->toContain('crossfade(duration=2., mixed)')
-        // The convenience wrapper cannot inspect the transition, so it must
-        // not creep back in — see the self-loop test below.
-        ->and($script)->not->toContain('crossfade(');
+        ->and($script)->not->toContain('crossfade(duration=2., mixed)');
 });
 
-it('hard cuts instead of fading a track into itself', function () {
-    // A one-track playlist loops forever. Fading it overlaps the track's tail
-    // with its own head, i.e. two copies of one recording summed 2s apart —
-    // a flanging artifact, not a transition. Compared on `filename` because
-    // annotate: tags can be identical across different files.
+it('decides transitions by loudness instead of always overlapping', function () {
+    // Ported from AzuraCast's cross.smart. The point is that it does NOT always
+    // overlap: two loud tracks are hard cut rather than summed, which is what
+    // stops a master limited to 0.0 dBFS from clipping during the overlap.
+    // Verified in a throwaway container — equal-loudness tracks take the hard
+    // cut arm, and 11 transitions ran without wedging.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('def autodj_transition(ending, starting) =')
-        ->and($script)->toContain('ending.metadata["filename"]')
-        ->and($script)->toContain('starting.metadata["filename"]')
-        // Non-empty guard: two tagless requests must not compare equal.
-        ->and($script)->toContain('if a != "" and a == b then')
-        ->and($script)->toContain('sequence([ending.source, starting.source])');
-});
-
-it('limits the autodj arm so summed transitions cannot clip', function () {
-    // Modern masters are brick-walled to 0.0 dBFS, so a 2s overlap of two
-    // tracks exceeds full scale and the encoder turns it into crackle.
-    $script = renderStationScript($this->station);
-
-    expect($script)
-        // Scoped to the AutoDJ arm: it wraps cross(), not the output. Putting
-        // it after the fallback would process live audio too.
-        ->toContain('autodj_mix = limit(threshold=-1.0, cross(')
-        // add()'s own normalization would duck every transition by 6dB;
-        // the limiter is what keeps the sum bounded instead.
-        ->and($script)->toContain('add(normalize=false, [');
+    expect($script)->toContain('def autodj_cross(a, b) =')
+        ->and($script)->toContain('a.db_level')
+        ->and($script)->toContain('b.db_level')
+        // The hard-cut arm for loud/far-apart pairs.
+        ->and($script)->toContain('sequence([a.source, b.source])')
+        ->and($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj)')
+        // Thresholds come from config, not hardcoded.
+        ->and($script)->toContain('autodj_cross_high = -15.0')
+        ->and($script)->toContain('autodj_cross_medium = -32.0')
+        ->and($script)->toContain('autodj_cross_margin = 4.0')
+        // The fade must be strictly shorter than the cross window, or the
+        // envelopes never complete (book §6.4). These were one value once.
+        ->and($script)->toContain('autodj_cross_duration = 5.0')
+        ->and($script)->toContain('autodj_cross_fade = 3.0')
+        ->and($script)->toContain('duration=autodj_cross_fade, s)')
+        ->and($script)->not->toContain('fade.out(type="sin", duration=autodj_cross_duration');
 });
 
 it('reports the incoming track during a transition, not the outgoing one', function () {
-    // add() relays metadata from the FIRST available source only. Listing
-    // `ending` first would make /status announce the track that just
-    // finished for the whole 2s overlap.
+    // add() relays metadata from the FIRST available source only, so the
+    // incoming track must be listed first or /status announces the track that
+    // just finished for the whole overlap.
     $script = renderStationScript($this->station);
 
-    $addCall = strstr($script, 'add(normalize=false, [');
-
-    expect($addCall)->toContain('fade.in(duration=2., starting.source)')
-        ->and(strpos($addCall, 'starting.source'))
-        ->toBeLessThan(strpos($addCall, 'ending.source'));
+    expect($script)->toContain('add(normalize=false, [starting, ending])');
 });
 
-it('keeps the raw playlist bound so its own methods survive', function () {
-    // crossfade returns a plain source. Rebinding `autodj` to it drops
-    // remaining_files()/length(), which the status endpoint calls — and that
-    // fails at `liquidsoap --check`, i.e. the station never boots.
+it('falls back to hard cuts when the crossfade is disabled', function () {
+    // The kill switch. Transitions have wedged AutoDJ playback twice by a
+    // mechanism that is still not understood, so flipping one env var has to be
+    // enough to get back to known-good behaviour without a code change.
+    $script = renderStationScript($this->station, ['crossfadeEnabled' => false]);
+
+    expect($script)->toContain('autodj_faded = autodj')
+        ->and($script)->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)')
+        // No transition machinery at all in this mode.
+        ->and($script)->not->toContain('def autodj_cross(')
+        ->and($script)->not->toMatch('/^[^#\n]*\bcross\(/m');
+});
+
+it('emits liquidsoap-valid floats for the crossfade thresholds', function () {
+    // Same lexer trap as the blank settings: a bare interpolation would render
+    // "-15." or "2." and refuse to parse.
+    $script = renderStationScript($this->station, [
+        'crossfadeDuration' => 3.0,
+        'crossfadeHigh' => -12.5,
+    ]);
+
+    expect($script)->toContain('autodj_cross_duration = 3.0')
+        ->and($script)->toContain('autodj_cross_high = -12.5')
+        ->and($script)->not->toContain('3..')
+        ->and($script)->not->toContain('-12.5.');
+});
+
+it('never puts a cross-family operator on the live path', function () {
+    // A live broadcast is one continuous track with no boundaries, so a fade
+    // operator anywhere downstream of the fallback re-triggers constantly:
+    // hundreds of stacked 2s ramps ("clock.cross: there are currently 551
+    // sources, possible source leak"), heard as the volume sliding down and
+    // snapping back up, plus enough source churn to starve the streaming
+    // thread into "Latency is too high: we must catchup 1.22 seconds".
+    //
+    // The transition may only ever wrap `autodj`.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj)')
+        // Never the mix, and never the live source.
+        ->and($script)->not->toContain('cross(duration=2., mixed)')
+        ->and($script)->not->toMatch('/^[^#\n]*\bcross(fade)?\([^)]*\b(mixed|live|output_source)\b/m')
+        ->and($script)->toContain('output_source = mixed');
+});
+
+it('limits the autodj arm to protect the encoder from 0 dBFS masters', function () {
+    // Overflow protection, not loudness shaping: masters brick-walled to
+    // 0.0 dBFS leave the MP3 encoder no headroom. Unlike a fade this has no
+    // track/timing logic, so it cannot hang a transition.
+    $script = renderStationScript($this->station);
+
+    expect($script)
+        // Scoped to the AutoDJ arm — after the fallback it would hit live too.
+        // Applied last, so it also catches whatever a transition sums.
+        ->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)');
+});
+
+it('keeps the raw playlist bound under its own name', function () {
+    // `autodj` must stay the playlist itself. cross() takes it as its argument,
+    // and PlaylistFileWriter drives it over telnet by id, so rebinding the name
+    // to a wrapper (as an early version did) silently breaks both — and fails
+    // at `liquidsoap --check`, i.e. the station never boots.
+    //
+    // Its METHODS are no longer called from /status: doing so made this a
+    // second operator on a source cross() fast-forwards. See the test below.
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('autodj = playlist(')
-        ->and($script)->toContain('autodj.remaining_files()')
-        ->and($script)->toContain('autodj.length()')
-        // The actual regression guard: `autodj` must stay bound to the
-        // playlist. Asserting the playlist binding exists is not enough — a
-        // later `autodj = cross(...)`/`limit(...)` line would leave it intact.
         ->and($script)->not->toContain('autodj = cross')
         ->and($script)->not->toContain('autodj = limit')
-        // Readiness must be read off the same source the fallback selects.
+        // Readiness is read off the arm the fallback actually selects.
         ->and($script)->toContain('elsif autodj_mix.is_ready() then');
 });
 
@@ -321,4 +370,19 @@ it('omits the silence watcher when the dead-air guard is disabled', function () 
     expect($script)
         ->not->toContain('silence_watch')
         ->and($script)->toContain('live = live_raw');
+});
+
+it('never reads playlist methods from the status endpoint', function () {
+    // autodj.length()/remaining_files() are methods on the source cross()
+    // fast-forwards during a transition. The Liquidsoap book (§6.4) says such a
+    // source may only be used by one operator, "otherwise we will run into
+    // synchronization issues" — and /status is polled every couple of seconds.
+    // Laravel serves playlist_length and up_next from its tracks table instead.
+    $script = renderStationScript($this->station);
+
+    expect($script)->not->toMatch('/^[^#\n]*autodj\.(length|remaining_files)\(/m')
+        ->and($script)->not->toContain('def up_next(')
+        // The container still reports what it alone knows.
+        ->and($script)->toContain('elapsed = finite(output_source.elapsed())')
+        ->and($script)->toContain('remaining = finite(output_source.remaining())');
 });
