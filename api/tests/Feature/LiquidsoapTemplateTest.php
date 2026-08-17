@@ -170,12 +170,57 @@ it('crossfades autodj tracks without fading the live input', function () {
     // where a track change is a real event.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('autodj_mix = crossfade(duration=2., autodj)')
+    expect($script)->toContain('cross(duration=2., autodj_transition, autodj)')
         // Only the playlist arm of the fallback is faded.
         ->and($script)->toContain('fallback(track_sensitive=false, [live, autodj_mix, bed])')
-        // The mix reaches the outputs uncrossfaded; source switches are cuts.
+        // The mix reaches the outputs unfaded; source switches are cuts.
         ->and($script)->toContain('output_source = mixed')
-        ->and($script)->not->toContain('crossfade(duration=2., mixed)');
+        ->and($script)->not->toContain('crossfade(duration=2., mixed)')
+        // The convenience wrapper cannot inspect the transition, so it must
+        // not creep back in — see the self-loop test below.
+        ->and($script)->not->toContain('crossfade(');
+});
+
+it('hard cuts instead of fading a track into itself', function () {
+    // A one-track playlist loops forever. Fading it overlaps the track's tail
+    // with its own head, i.e. two copies of one recording summed 2s apart —
+    // a flanging artifact, not a transition. Compared on `filename` because
+    // annotate: tags can be identical across different files.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('def autodj_transition(ending, starting) =')
+        ->and($script)->toContain('ending.metadata["filename"]')
+        ->and($script)->toContain('starting.metadata["filename"]')
+        // Non-empty guard: two tagless requests must not compare equal.
+        ->and($script)->toContain('if a != "" and a == b then')
+        ->and($script)->toContain('sequence([ending.source, starting.source])');
+});
+
+it('limits the autodj arm so summed transitions cannot clip', function () {
+    // Modern masters are brick-walled to 0.0 dBFS, so a 2s overlap of two
+    // tracks exceeds full scale and the encoder turns it into crackle.
+    $script = renderStationScript($this->station);
+
+    expect($script)
+        // Scoped to the AutoDJ arm: it wraps cross(), not the output. Putting
+        // it after the fallback would process live audio too.
+        ->toContain('autodj_mix = limit(threshold=-1.0, cross(')
+        // add()'s own normalization would duck every transition by 6dB;
+        // the limiter is what keeps the sum bounded instead.
+        ->and($script)->toContain('add(normalize=false, [');
+});
+
+it('reports the incoming track during a transition, not the outgoing one', function () {
+    // add() relays metadata from the FIRST available source only. Listing
+    // `ending` first would make /status announce the track that just
+    // finished for the whole 2s overlap.
+    $script = renderStationScript($this->station);
+
+    $addCall = strstr($script, 'add(normalize=false, [');
+
+    expect($addCall)->toContain('fade.in(duration=2., starting.source)')
+        ->and(strpos($addCall, 'starting.source'))
+        ->toBeLessThan(strpos($addCall, 'ending.source'));
 });
 
 it('keeps the raw playlist bound so its own methods survive', function () {
@@ -189,8 +234,9 @@ it('keeps the raw playlist bound so its own methods survive', function () {
         ->and($script)->toContain('autodj.length()')
         // The actual regression guard: `autodj` must stay bound to the
         // playlist. Asserting the playlist binding exists is not enough — a
-        // later `autodj = crossfade(...)` line would leave it intact.
-        ->and($script)->not->toContain('autodj = crossfade')
+        // later `autodj = cross(...)`/`limit(...)` line would leave it intact.
+        ->and($script)->not->toContain('autodj = cross')
+        ->and($script)->not->toContain('autodj = limit')
         // Readiness must be read off the same source the fallback selects.
         ->and($script)->toContain('elsif autodj_mix.is_ready() then');
 });

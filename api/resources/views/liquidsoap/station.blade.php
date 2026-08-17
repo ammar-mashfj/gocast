@@ -272,10 +272,52 @@ autodj = playlist(
 # logged "Latency is too high: we must catchup 1.22 seconds" and skipped
 # samples to recover, adding an audible jump on top of the fades.
 #
-# Bound to a NEW name rather than rebinding `autodj`: crossfade returns a
-# plain source, which drops the playlist's own methods, and the status
-# endpoint below still calls autodj.remaining_files() and autodj.length().
-autodj_mix = crossfade(duration=2., autodj)
+# Bound to a NEW name rather than rebinding `autodj`: the cross operator
+# returns a plain source, which drops the playlist's own methods, and the
+# status endpoint below still calls autodj.remaining_files()/length().
+#
+# `cross` rather than the `crossfade` convenience wrapper, because we need to
+# inspect both sides of the transition and refuse to fade a track into itself.
+# A one-track playlist loops forever, and crossfade would overlap the track's
+# tail with its own head every pass — two copies of the same recording summed
+# 2s apart, which is a flanging/doubling artifact, not a transition.
+#
+# `filename` is compared rather than title/artist: `annotate:` URIs can carry
+# identical tags for different files, and the guard must be about the actual
+# audio. The a != "" test keeps two tagless requests from looking equal.
+def autodj_transition(ending, starting) =
+  a = ending.metadata["filename"]
+  b = starting.metadata["filename"]
+  if a != "" and a == b then
+    # Same file looping — hard cut. `cross` has already buffered both edges,
+    # so playing them back to back is a clean splice with no overlap.
+    sequence([ending.source, starting.source])
+  else
+    # `starting` is listed FIRST on purpose: add() relays metadata from the
+    # first available source only, so this makes the incoming track's title
+    # the one that reaches output_source.last_metadata() and the /status
+    # payload. Listing `ending` first reports the track that just finished.
+    #
+    # normalize=false: add()'s normalization divides by the source count,
+    # which would duck every transition by 6dB. The limiter below is what
+    # keeps the sum inside full scale instead.
+    add(normalize=false, [
+      fade.in(duration=2., starting.source),
+      fade.out(duration=2., ending.source)
+    ])
+  end
+end
+
+# The limiter is not loudness processing — it is overflow protection for the
+# 2s window where two tracks are summed. Modern masters are brick-walled to
+# 0.0 dBFS (the current jazz playlist track measures exactly that), leaving
+# no headroom, so any overlap exceeds full scale and the MP3 encoder clips it
+# into audible crackle. threshold=-1.0 gives the sum somewhere to go.
+#
+# Scoped to the AutoDJ arm deliberately: the live path stays untouched, for
+# the same reason the crossfade does. This is NOT normalize() — the gain is
+# static above threshold, so it cannot "breathe" on quiet passages.
+autodj_mix = limit(threshold=-1.0, cross(duration=2., autodj_transition, autodj))
 
 # Standby silence — infallible last resort.
 bed = mksafe(blank())
