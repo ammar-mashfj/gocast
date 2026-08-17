@@ -4,6 +4,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\LiquidsoapSupervisor;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 /**
  * The reconciler converges Docker onto `desired_state`. Every test here
@@ -280,4 +281,60 @@ it('stops recreating a station that has burned its hourly budget', function () {
     $this->artisan('stations:reconcile')
         ->expectsOutputToContain('already recreated')
         ->assertExitCode(1);
+});
+
+it('does not close the session of a broadcaster who has merely gone quiet', function () {
+    // `source != live` is not proof the broadcaster left: the dead-air guard
+    // demotes a silent-but-connected one to AutoDJ. Closing their session is
+    // unrecoverable — harbor fires on_connect once, so nothing reopens it when
+    // they speak again — and it costs them the idle reaper's protection
+    // mid-show. So the reconciler waits out the full strike budget.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'quiet-dj',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+
+    $supervisor = fakeSupervisor(['gocast-liquidsoap-quiet-dj']);
+    $supervisor->shouldReceive('containerHost')->andReturn('quiet-dj-host');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'icecast' => true, 'source' => 'autodj'], 200)]);
+
+    $limit = (int) config('liquidsoap.stranded_session_strikes');
+    expect($limit)->toBeGreaterThan(2);
+
+    // One short of the budget: still open, because they may just be quiet.
+    foreach (range(1, $limit - 1) as $pass) {
+        $this->artisan('stations:reconcile')->run();
+        Cache::forget('station-status:'.$station->id);
+    }
+
+    expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeTrue();
+
+    // Budget spent — now it is treated as stranded and closed.
+    $this->artisan('stations:reconcile')->run();
+
+    expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeFalse();
+});
+
+it('leaves an open session alone while the container still reports live', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'on-mic',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+
+    $supervisor = fakeSupervisor(['gocast-liquidsoap-on-mic']);
+    $supervisor->shouldReceive('containerHost')->andReturn('on-mic-host');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'icecast' => true, 'source' => 'live'], 200)]);
+
+    foreach (range(1, (int) config('liquidsoap.stranded_session_strikes') + 2) as $pass) {
+        $this->artisan('stations:reconcile')->run();
+        Cache::forget('station-status:'.$station->id);
+    }
+
+    expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeTrue();
 });

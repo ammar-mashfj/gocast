@@ -10,8 +10,9 @@
 export interface StationStatus {
   slug: string
   /**
-   * offline  — the owner has not started it, no container exists
-   * starting — meant to be on air; container booting (or being restarted)
+   * offline  — nothing is on air: either the owner never started it, or the
+   *            container it should have is gone. Same fix either way: start it
+   * starting — the container is up and building its audio graph
    * on_air   — playing the AutoDJ playlist, or silence behind an empty one
    * live     — a broadcaster is publishing and holds the fallback
    * degraded — producing audio, but Icecast is not carrying it: the station

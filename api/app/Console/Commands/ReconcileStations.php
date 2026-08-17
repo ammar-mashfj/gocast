@@ -52,8 +52,14 @@ use Throwable;
  * exempts the station from the idle reaper, and quietly inflates the airtime
  * totals billing is metered on.
  *
- * Runs every five minutes from the scheduler and after every deploy. Cost is
- * one `docker ps` plus one query; work only happens when there is drift.
+ * Runs every minute from the scheduler and after every deploy. Cost is one
+ * `docker ps` plus one query; work only happens when there is drift, which is
+ * what makes that cadence affordable — and the cadence is what decides how
+ * long a station whose container vanished stays silently off air.
+ *
+ * Both debounces below count CONSECUTIVE PASSES, so this interval is what
+ * turns them into wall-clock patience. Changing one means revisiting the
+ * other.
  */
 class ReconcileStations extends Command
 {
@@ -349,14 +355,27 @@ class ReconcileStations extends Command
             }
 
             $strikes = (int) Cache::get($key, 0) + 1;
+            $strikeLimit = max(1, (int) config('liquidsoap.stranded_session_strikes', 10));
 
             if ($dryRun) {
-                $this->line("  • {$station->slug} has an open session its container disagrees with (strike {$strikes})");
+                $this->line("  • {$station->slug} has an open session its container disagrees with (strike {$strikes}/{$strikeLimit})");
 
                 continue;
             }
 
-            if ($strikes < 2) {
+            // Deliberately patient, because `source != live` does not only mean
+            // "the broadcaster is gone". A connected broadcaster who goes quiet
+            // for longer than the dead-air guard is demoted by blank.strip, so
+            // their container reports `autodj` while their socket is still very
+            // much open. Closing their session then is unrecoverable: harbor
+            // fires on_connect once, so the `live_audio` event that follows
+            // them speaking again reopens nothing, and the station spends the
+            // rest of the show reading as not-live — under-counting airtime and
+            // forfeiting the idle reaper's protection mid-broadcast.
+            //
+            // Ten passes at a one-minute cadence keeps the ten minutes of grace
+            // this had when it ran every five minutes with a limit of two.
+            if ($strikes < $strikeLimit) {
                 Cache::put($key, $strikes, now()->addHour());
 
                 continue;

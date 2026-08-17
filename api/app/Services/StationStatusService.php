@@ -36,10 +36,14 @@ class StationStatusService
      */
     private const CACHE_PREFIX = 'station-status:';
 
-    /** No container: the owner has not started this station. */
+    /**
+     * Nothing is on air: either the owner never started this station, or the
+     * container it should have is gone. Both are the same answer to a
+     * listener, and the same fix for an owner — press start.
+     */
     public const STATE_OFFLINE = 'offline';
 
-    /** Intent is running, but the container isn't producing audio yet. */
+    /** The container is up, but hasn't finished building its audio graph. */
     public const STATE_STARTING = 'starting';
 
     /** On air, playing the AutoDJ playlist (or silence behind an empty one). */
@@ -77,13 +81,25 @@ class StationStatusService
             return null;
         }
 
-        $payload = Cache::remember(
+        $payload = $this->payload($station);
+
+        return ($payload['reachable'] ?? false) ? $payload['status'] : null;
+    }
+
+    /**
+     * The whole cached answer — the harbor status plus what Docker said about
+     * the container when harbor didn't reply. One cache entry covers both, so
+     * a failing station costs the same number of round trips as a healthy one.
+     *
+     * @return array{reachable: bool, status: array<string, mixed>|null, container_up?: bool}
+     */
+    private function payload(Station $station): array
+    {
+        return Cache::remember(
             self::CACHE_PREFIX.$station->id,
             (int) config('liquidsoap.status_ttl_seconds', 2),
             fn () => $this->pull($station),
         );
-
-        return ($payload['reachable'] ?? false) ? $payload['status'] : null;
     }
 
     /**
@@ -101,10 +117,13 @@ class StationStatusService
      * container reports. Pass an already-fetched status to avoid a second
      * read; omit it and the status is pulled.
      *
-     * "starting" covers both a container still building its audio graph and
-     * one that has died — from outside they look identical, and in both cases
-     * the honest answer is "not on air yet, we're working on it". The
-     * reconciler is what turns the second case back into the first.
+     * "starting" used to cover both a container building its audio graph and
+     * one that had died, on the grounds that they look identical from outside.
+     * They don't: Docker can tell them apart, and conflating them meant a
+     * station that would never come up showed "starting" forever — including
+     * after the reconciler hit its recreate cap and deliberately gave up.
+     * A container that is gone reads as offline, which is both true and
+     * actionable: the owner presses start.
      *
      * @param  array<string, mixed>|null  $status
      */
@@ -116,7 +135,18 @@ class StationStatusService
 
         $status ??= $this->fetch($station);
 
-        if ($status === null || ! ($status['ready'] ?? false)) {
+        // No answer at all. The container is either still coming up or it
+        // isn't there — only Docker knows which, and the two deserve
+        // different words.
+        if ($status === null) {
+            return $this->containerIsUp($station)
+                ? self::STATE_STARTING
+                : self::STATE_OFFLINE;
+        }
+
+        // It answered and said it isn't ready yet, which is precisely what
+        // booting looks like. No need to ask Docker.
+        if (! ($status['ready'] ?? false)) {
             return self::STATE_STARTING;
         }
 
@@ -162,7 +192,11 @@ class StationStatusService
                 ->get("http://{$host}:{$port}/status");
 
             if (! $response->successful()) {
-                return ['reachable' => false, 'status' => null];
+                return [
+                    'reachable' => false,
+                    'status' => null,
+                    'container_up' => $this->probeContainer($station),
+                ];
             }
 
             return ['reachable' => true, 'status' => $this->normalize($response->json())];
@@ -174,8 +208,51 @@ class StationStatusService
                 'error' => $e->getMessage(),
             ]);
 
-            return ['reachable' => false, 'status' => null];
+            return [
+                'reachable' => false,
+                'status' => null,
+                'container_up' => $this->probeContainer($station),
+            ];
         }
+    }
+
+    /**
+     * Is the station's container actually up? Only consulted when harbor did
+     * not answer, so the cost lands on the failure path and never on a healthy
+     * station.
+     *
+     * Deliberately reads `containerState()` rather than the supervisor's
+     * `isRunning()`: `restarting` — a container crash-looping on a broken
+     * script — must not read as up, and `containerState()` is the method that
+     * reports it (see the note on LiquidsoapSupervisor::isRunning).
+     */
+    private function probeContainer(Station $station): bool
+    {
+        try {
+            $name = $this->supervisor->containerName($station);
+
+            return $this->supervisor->containerState($name)['status'] === 'running';
+        } catch (Throwable $e) {
+            // Docker itself is unreachable. That is a fault in our tooling,
+            // not evidence about the station — don't turn it into "offline"
+            // and send an owner chasing a station that is on air.
+            Log::warning('Could not ask Docker about a station container', [
+                'station' => $station->slug,
+                'error' => $e->getMessage(),
+            ]);
+
+            return true;
+        }
+    }
+
+    /**
+     * Cached verdict on the container, for callers that already know harbor
+     * is silent. Absent from the payload when harbor answered — in which case
+     * the container is trivially up.
+     */
+    private function containerIsUp(Station $station): bool
+    {
+        return (bool) ($this->payload($station)['container_up'] ?? true);
     }
 
     /**

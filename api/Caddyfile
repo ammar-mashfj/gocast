@@ -29,33 +29,41 @@
 # ---------------------------------------------------------------------------
 # Broadcaster ingest + HLS playout vhost (stream.gocast.fm).
 #
-# Why this block exists: browsers refuse to POST a WHIP offer from an HTTPS
-# page to a plain-HTTP endpoint (mixed content), and MediaMTX serves WHIP over
-# plain HTTP on :8889 (webrtcEncryption: no). This terminates TLS for the
-# ingest hostname and forwards the signalling to MediaMTX on the host.
+# Why this block exists: browsers refuse to open a ws:// socket from an HTTPS
+# page (mixed content), and Liquidsoap's harbor input speaks plain ws inside
+# each station container. This terminates TLS once, here, and proxies the
+# upgraded connection through to the right container — so no station container
+# needs a certificate, a published port, or a DNS name of its own.
 #
-# Only the *signalling* (the one-shot SDP POST, and the DELETE on stop) goes
-# through this proxy. WebRTC media never touches Caddy — it flows as UDP
-# straight to MediaMTX on :8189, which is exactly why the ingest hostname must
-# stay grey-clouded (DNS-only) in Cloudflare.
+# Routing is by path: /broadcast/{slug} → gocast-liquidsoap-{slug}:8090.
+# Containers are created and destroyed by LiquidsoapSupervisor as stations come
+# and go, so the upstream is resolved from the path at request time rather than
+# configured per station — Docker's embedded DNS on gocast-network turns the
+# container name into an address, and a station that isn't running simply
+# fails to connect, which is the correct answer.
 #
-# The cert here must be publicly trusted (the browser talks directly to this
-# origin, with no Cloudflare edge in front), so this block always uses Caddy's
+# Unlike the WHIP setup this replaced, ALL broadcast traffic goes through this
+# proxy: audio rides the same WebSocket as the handshake. There is no separate
+# UDP media path, so this hostname no longer has to stay DNS-only in
+# Cloudflare, and no ICE/STUN/TURN is involved anywhere.
+#
+# The cert must be publicly trusted, so this block always uses Caddy's
 # automatic Let's Encrypt issuance — never the Cloudflare Origin Cert. HTTP-01
 # validation works because the hostname resolves straight to this host and
 # ports 80/443 are open.
 #
-# In dev the default `whip.localhost` is never routed to (the client talks to
-# MediaMTX directly on http://localhost:8889 per docker-compose.override.yml)
-# and Caddy signs it with its internal CA, so no ACME calls are made.
+# In dev the default `stream.localhost` is never routed to: Laravel hands the
+# studio a ws:// address pointing straight at the container's bridge IP (see
+# LiquidsoapSupervisor::ingestUrl), which Linux routes from the host without
+# any proxy at all.
 # ---------------------------------------------------------------------------
-{$WHIP_SERVER_NAME:whip.localhost} {
+{$WHIP_SERVER_NAME:stream.localhost} {
 	encode zstd br gzip
 
 	# HLS playout — Liquidsoap writes /var/gocast/hls/{slug}/playlist.m3u8
 	# plus segments; the api container has /var/gocast bind-mounted, so we
 	# serve them straight off disk. Matched by extension so it can't collide
-	# with the extensionless WHIP paths ({slug}/live/whip) below.
+	# with the broadcast paths below.
 	@hls path *.m3u8 *.ts *.aac *.mp4 *.m4s
 	handle @hls {
 		root * /var/gocast/hls
@@ -66,10 +74,15 @@
 		file_server
 	}
 
-	# Everything else is WHIP/WHEP signalling → MediaMTX. It runs with
-	# network_mode: host, so from inside this container it lives on the
-	# host gateway (extra_hosts in docker-compose.yml).
+	# Broadcaster ingest. The slug is constrained to the Str::slug() charset
+	# so a crafted path can't be used to reach an arbitrary host on the
+	# Docker network.
+	@broadcast path_regexp bslug ^/broadcast/([a-z0-9][a-z0-9-]{0,62})$
+	handle @broadcast {
+		reverse_proxy gocast-liquidsoap-{re.bslug.1}:8090
+	}
+
 	handle {
-		reverse_proxy host.docker.internal:8889
+		respond "Not found" 404
 	}
 }

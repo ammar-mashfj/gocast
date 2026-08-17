@@ -13,6 +13,21 @@ export interface QueueTrack {
 const MIC_BOOST = 3
 
 /**
+ * Capture/encode rate. Pinned rather than taking the device default because
+ * lamejs is constructed once for a fixed rate — a mismatch writes MP3 headers
+ * that disagree with the samples and plays back at the wrong pitch.
+ */
+const SAMPLE_RATE = 44100
+
+/**
+ * Ingest bitrate, stereo. Liquidsoap re-encodes to the station's Icecast
+ * output (%mp3 128k today), so this only needs enough headroom that the
+ * transcode isn't the weak link — 192 is comfortably above it without
+ * wasting the broadcaster's upstream.
+ */
+const MP3_BITRATE = 192
+
+/**
  * Client-side cap on total queued audio bytes. The browser will already
  * enforce its own IndexedDB quota, but that fails opaquely with
  * QuotaExceededError. A friendly upfront limit lets us reject adds
@@ -54,15 +69,17 @@ function readDurationFromFile(file: File): Promise<number> {
 }
 
 /**
- * Single AudioContext mixer. Files and mic both route through gain nodes
- * into a MediaStreamAudioDestinationNode, whose `.stream` is handed to a
- * WHIP RTCPeerConnection upstream. The browser handles encoding (Opus)
- * inside the WebRTC stack — we don't touch PCM bytes ourselves.
+ * Single AudioContext mixer. Files and mic route through gain nodes into an
+ * AudioWorklet that captures PCM and hands it — over a MessagePort, without
+ * touching the main thread — to a Worker running lamejs. The resulting MP3
+ * frames go out as binary webcast frames to Liquidsoap's harbor input.
  *
  * Chain:
  *   fileSource → fileGain ─┐
- *                           ├→ analyser → destination ─► MediaStream → WHIP
- *   micSource  → micGain  ─┘
+ *                           ├→ analyser → workletNode ──port──► Worker (lamejs)
+ *   micSource  → micGain  ─┘                                        │
+ *                                                                   ▼
+ *                                                          onChunk(ArrayBuffer)
  *
  * PTT: micGain 0→MIC_BOOST, fileGain 1→0.2. Release: reverse.
  *
@@ -76,7 +93,8 @@ export class AudioEngine {
   private fileGain: GainNode
   private micGain: GainNode
   private mixer: GainNode
-  private destination: MediaStreamAudioDestinationNode
+  private workletNode: AudioWorkletNode
+  private encoderWorker: Worker
 
   private micSource: MediaStreamAudioSourceNode | null = null
   private isTalking = false
@@ -102,8 +120,20 @@ export class AudioEngine {
   private listeners = new Set<() => void>()
   private version = 0
 
-  private constructor(ctx: AudioContext, micStream: MediaStream | null) {
+  private constructor(
+    ctx: AudioContext,
+    workletNode: AudioWorkletNode,
+    encoderWorker: Worker,
+    micStream: MediaStream | null,
+    onChunk: (data: ArrayBuffer) => void,
+  ) {
     this.ctx = ctx
+    this.workletNode = workletNode
+    this.encoderWorker = encoderWorker
+
+    this.encoderWorker.addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.type === 'chunk') onChunk(e.data.data as ArrayBuffer)
+    })
 
     this.mixer = this.ctx.createGain()
     this.mixer.gain.value = 1
@@ -127,10 +157,9 @@ export class AudioEngine {
     this.analyser.fftSize = 2048
     this.mixer.connect(this.analyser)
 
-    // Stereo destination — WebRTC reads `.stream` from this. Opus negotiation
-    // with stereo=1 happens at SDP level in BroadcastManager.
-    this.destination = this.ctx.createMediaStreamDestination()
-    this.analyser.connect(this.destination)
+    // Capture tap. The worklet only reads frames — it produces no output — so
+    // nothing downstream of here is audible, which is what we want.
+    this.analyser.connect(this.workletNode)
 
     // Save playback progress every 5 seconds
     this.progressTimer = setInterval(() => {
@@ -141,21 +170,79 @@ export class AudioEngine {
   }
 
   /**
-   * Factory that creates an AudioEngine with a running AudioContext routed
-   * to a MediaStreamAudioDestinationNode. The returned engine's
-   * {@link getOutputStream} feeds the WHIP peer connection.
+   * Factory that creates an AudioEngine with a running AudioContext, PCM
+   * capture worklet, and encoder Worker. Establishes a MessageChannel so the
+   * worklet forwards PCM straight to the worker without bouncing through the
+   * main thread.
+   *
+   * The context is pinned to SAMPLE_RATE: lamejs is constructed for one rate,
+   * and letting the context pick the device default (often 48kHz) would emit
+   * MP3 frames whose header disagrees with the actual audio, which Liquidsoap
+   * decodes as the wrong pitch.
    */
-  static async create(micStream: MediaStream | null): Promise<AudioEngine> {
+  static async create(
+    micStream: MediaStream | null,
+    onChunk: (data: ArrayBuffer) => void,
+  ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    // Default sample rate (usually 48kHz) — matches Opus's native rate; no
-    // resampling cost on the encoder side.
-    const ctx = new Ctor()
-    return new AudioEngine(ctx, micStream)
+    const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
+    await ctx.audioWorklet.addModule('/pcm-worklet.js')
+    const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+
+    const worker = new Worker('/encoder-worker.js')
+    const ready = new Promise<void>((resolve, reject) => {
+      const onReady = (e: MessageEvent) => {
+        if (e.data?.type === 'ready') {
+          worker.removeEventListener('message', onReady)
+          worker.removeEventListener('error', onError)
+          resolve()
+        }
+      }
+      const onError = (e: ErrorEvent) => {
+        worker.removeEventListener('message', onReady)
+        worker.removeEventListener('error', onError)
+        reject(new Error(`Encoder worker failed to load: ${e.message}`))
+      }
+      worker.addEventListener('message', onReady)
+      worker.addEventListener('error', onError)
+    })
+
+    const channel = new MessageChannel()
+    workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
+    worker.postMessage(
+      { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+      [channel.port2],
+    )
+    await ready
+
+    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk)
   }
 
-  /** MediaStream containing the mixed mic+files audio. Pass to RTCPeerConnection. */
-  getOutputStream(): MediaStream {
-    return this.destination.stream
+  /**
+   * Encoder settings, for the webcast hello frame — harbor is told what it is
+   * about to receive rather than having to sniff it.
+   */
+  static encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
+    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: MP3_BITRATE, encoder: 'libmp3lame' }
+  }
+
+  /**
+   * Flush any samples still buffered inside lamejs. Called on stop so the
+   * final partial MP3 frame reaches the server instead of being dropped.
+   */
+  flushEncoder(): Promise<void> {
+    return new Promise((resolve) => {
+      const handler = (e: MessageEvent) => {
+        if (e.data?.type === 'flushed') {
+          this.encoderWorker.removeEventListener('message', handler)
+          resolve()
+        }
+      }
+      this.encoderWorker.addEventListener('message', handler)
+      this.encoderWorker.postMessage({ type: 'flush' })
+      // Never let teardown hang on a wedged worker.
+      setTimeout(resolve, 1000)
+    })
   }
 
   // ── PTT ──
@@ -533,7 +620,8 @@ export class AudioEngine {
     this.mixer.disconnect()
     this.fileGain.disconnect()
     this.micGain.disconnect()
-    this.destination.disconnect()
+    this.workletNode.disconnect()
+    this.encoderWorker.terminate()
     if (this.ctx.state !== 'closed') await this.ctx.close()
   }
 }

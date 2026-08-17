@@ -23,13 +23,20 @@ Schedule::command('stations:sync-listeners')
 
 // Container convergence: removes containers for stations that are stopped,
 // soft-deleted or gone, and restarts containers for stations that should be
-// on air but aren't. Every five minutes rather than nightly — this is now the
-// safety net behind the power button (a start that failed on a busy daemon is
-// retried here) and behind `--restart unless-stopped`, which would otherwise
-// resurrect stopped stations after a host reboot. Cost is one `docker ps`
-// plus one query when there is no drift.
+// on air but aren't. This is the safety net behind the power button (a start
+// that failed on a busy daemon is retried here) and behind
+// `--restart unless-stopped`, which would otherwise resurrect stopped stations
+// after a host reboot. Cost is one `docker ps` plus one query when there is no
+// drift, which is why it can afford to run this often: a station whose
+// container vanished is off air the whole time nobody has noticed, and five
+// minutes of that is five minutes of dead air.
+//
+// Note for anyone changing this interval: the command debounces its two
+// destructive actions by counting CONSECUTIVE PASSES, so the interval is what
+// converts those counts into wall-clock patience. Both thresholds are config,
+// and both were rescaled when this moved from five minutes to one.
 Schedule::command('stations:reconcile')
-    ->everyFiveMinutes()
+    ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
 

@@ -22,14 +22,6 @@ export const env = {
   get appUrl(): string {
     return process.env.NEXT_PUBLIC_APP_URL ?? ""
   },
-  /**
-   * MediaMTX WHIP base URL (e.g. http://localhost:8889). The full per-station
-   * endpoint is ${whipUrl}/${slug}/live/whip — slug + "/live" is the MediaMTX
-   * path, "/whip" is the WHIP suffix MediaMTX adds.
-   */
-  get whipUrl(): string {
-    return process.env.NEXT_PUBLIC_WHIP_URL ?? ""
-  },
   /** Icecast server URL for stream playback (e.g. http://localhost:8888) */
   get icecastUrl(): string {
     return process.env.NEXT_PUBLIC_ICECAST_URL ?? ""

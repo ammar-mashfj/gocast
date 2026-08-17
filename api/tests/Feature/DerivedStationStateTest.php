@@ -2,6 +2,7 @@
 
 use App\Models\Station;
 use App\Models\User;
+use App\Services\LiquidsoapSupervisor;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Redis;
 
@@ -19,6 +20,32 @@ function onAirStation(array $attributes = []): Station
     return Station::factory()->for(User::factory(), 'user')->create(array_merge([
         'desired_state' => Station::STATE_RUNNING,
     ], $attributes));
+}
+
+/**
+ * Stand in for the Docker daemon. `$status` is what `docker inspect` would
+ * report for the station's container — 'running', 'restarting', 'absent' —
+ * or an exception to model a daemon we cannot reach at all.
+ */
+function fakeContainerStatus(string|Throwable $status): void
+{
+    test()->mock(LiquidsoapSupervisor::class, function ($mock) use ($status) {
+        $mock->shouldReceive('containerHost')->andReturn('station-host');
+        $mock->shouldReceive('containerName')->andReturn('gocast-liquidsoap-test');
+
+        $expectation = $mock->shouldReceive('containerState');
+
+        $status instanceof Throwable
+            ? $expectation->andThrow($status)
+            : $expectation->andReturn([
+                'exists' => $status !== 'absent',
+                'status' => $status,
+                'health' => 'none',
+                'exit_code' => 0,
+                'oom_killed' => false,
+                'restart_count' => 0,
+            ]);
+    });
 }
 
 beforeEach(function () {
@@ -151,6 +178,8 @@ it('reports live and prefers harbor metadata over the redis copy', function () {
 });
 
 it('reports an unreachable container as starting rather than on air', function () {
+    // The container is up (LiquidsoapSupervisor reports `running` in tests),
+    // it just hasn't answered yet. That is genuinely booting.
     $station = onAirStation(['slug' => 'booting-fm']);
     Http::fake(['*/status' => Http::response('', 500)]);
 
@@ -158,4 +187,44 @@ it('reports an unreachable container as starting rather than on air', function (
         ->assertOk()
         ->assertJsonPath('data.state', 'starting')
         ->assertJsonPath('data.is_on_air', false);
+});
+
+it('reports a station whose container is gone as offline, not starting forever', function () {
+    // Intent says running, but there is no container — a host that rebooted,
+    // a crash, or a reconciler that hit its recreate cap and gave up. Calling
+    // that "starting" left the dashboard promising "a few seconds" indefinitely
+    // with no way out. It is off air, and the owner can press start.
+    onAirStation(['slug' => 'vanished-fm']);
+    Http::fake(['*/status' => Http::response('', 500)]);
+    fakeContainerStatus('absent');
+
+    getJson('/api/public/stations/vanished-fm/listeners')
+        ->assertOk()
+        ->assertJsonPath('data.state', 'offline')
+        ->assertJsonPath('data.is_on_air', false);
+});
+
+it('does not call a crash-looping container on air', function () {
+    // `restarting` is what Docker reports for a container looping on a broken
+    // script. Nobody should be told to publish into it.
+    onAirStation(['slug' => 'looping-fm']);
+    Http::fake(['*/status' => Http::response('', 500)]);
+
+    fakeContainerStatus('restarting');
+
+    getJson('/api/public/stations/looping-fm/listeners')
+        ->assertJsonPath('data.state', 'offline');
+});
+
+it('keeps a station on air when docker itself cannot be reached', function () {
+    // Failing to ask Docker is a fault in our tooling, not evidence about the
+    // station. Reporting offline here would send an owner chasing a station
+    // that is fine.
+    onAirStation(['slug' => 'blind-fm']);
+    Http::fake(['*/status' => Http::response('', 500)]);
+
+    fakeContainerStatus(new RuntimeException('docker daemon unreachable'));
+
+    getJson('/api/public/stations/blind-fm/listeners')
+        ->assertJsonPath('data.state', 'starting');
 });

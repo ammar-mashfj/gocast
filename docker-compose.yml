@@ -57,7 +57,7 @@ x-logging: &default-logging
 #
 # Measured steady state on 2026-08-14, for reference when tuning:
 #   api 83M · queue 52M · scheduler 52M · redis 4M
-#   icecast 2M · mediamtx 4.4M · docker-proxy 4.7M
+#   icecast 2M · docker-proxy 4.7M
 # Limits below are roughly 5–10× those, which absorbs a legitimate spike
 # (opcache is configured for 256M alone in the prod api) while still bounding
 # a leak. The `client` figure is deliberately not listed: `next dev` sits at
@@ -176,47 +176,6 @@ services:
           # small connection buffer, so this scales with the listener cap.
           memory: 512M
 
-  # ---------- WebRTC ingest (WHIP/RTMP/SRT) ----------
-  # Browsers publish via WHIP; OBS via RTMP; pro setups via SRT. Liquidsoap
-  # pulls the resulting stream over RTSP. Host networking is required for
-  # WebRTC ICE — Docker's NAT breaks UDP candidate gathering.
-  mediamtx:
-    # ffmpeg variant has Alpine + sh + wget. Required because MediaMTX's
-    # runOnReady/runOnNotReady hooks are shell commands (calls Laravel via
-    # wget), and the bare scratch image has no shell to execute them.
-    image: bluenviron/mediamtx:1.10.0-ffmpeg
-    container_name: gocast-mediamtx
-    network_mode: host
-    environment:
-      # Where MediaMTX reaches the Laravel API for the auth + lifecycle
-      # webhooks. host networking → "localhost" is the host loopback.
-      # Prod publishes the api container on :80; dev override flips this
-      # to :8000.
-      INTERNAL_API_URL: ${MEDIAMTX_INTERNAL_API_URL:-http://localhost:80}
-      # Shared secret for the lifecycle webhooks (whip-ready / whip-not-ready).
-      # Sent as `X-Internal-Key` on every hook so the Laravel `internal`
-      # middleware can drop unauthenticated callers — without this, anyone
-      # who can reach the api can flip stations live/offline.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?required}
-      # Overrides authHTTPAddress in mediamtx.yml. Dev override uses :8000.
-      MTX_AUTHHTTPADDRESS: ${MEDIAMTX_INTERNAL_API_URL:-http://localhost:80}/api/internal/whip-auth
-    volumes:
-      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "--tries=1", "--timeout=3", "http://localhost:9997/v3/paths/list"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    logging: *default-logging
-    deploy:
-      resources:
-        limits:
-          # Grows with concurrent WebRTC sessions and any ffmpeg work the
-          # runOnReady hooks trigger, so this one gets real headroom.
-          memory: 1G
-    restart: unless-stopped
-
   # ---------- Laravel API + Filament admin ----------
   # FrankenPHP serves HTTP/2 + HTTP/3 + PHP from one process. In prod, Caddy
   # underneath either negotiates Let's Encrypt directly (set SERVER_NAME) or
@@ -239,11 +198,11 @@ services:
     environment:
       SERVER_NAME: ${SERVER_NAME:-:80}
       # Second vhost served by the same Caddy: terminates TLS for the
-      # broadcaster ingest hostname and reverse-proxies WHIP signalling to
-      # MediaMTX (plain HTTP on :8889), plus serves Liquidsoap's HLS output
-      # off /var/gocast/hls. Browsers can't POST a WHIP offer from an HTTPS
-      # page to an http:// endpoint, so this is what makes "go live" work in
-      # production. See api/Caddyfile for the full rationale.
+      # broadcaster ingest hostname and proxies the webcast WebSocket through
+      # to the right station container's harbor input, plus serves
+      # Liquidsoap's HLS output off /var/gocast/hls. Browsers can't open a
+      # ws:// socket from an HTTPS page, so this is what makes "go live" work
+      # in production. See api/Caddyfile for the full rationale.
       WHIP_SERVER_NAME: ${WHIP_HOSTNAME:-stream.gocast.fm}
       DB_HOST: host.docker.internal
       DB_DATABASE: ${MYSQL_DATABASE:-gocast}
@@ -408,7 +367,6 @@ services:
         NEXT_PUBLIC_API_URL: https://${API_HOSTNAME:-api.gocast.fm}/api
         NEXT_PUBLIC_APP_URL: https://${APP_HOSTNAME:-gocast.fm}
         NEXT_PUBLIC_ICECAST_URL: https://${ICECAST_HOSTNAME:-icecast.gocast.fm}
-        NEXT_PUBLIC_WHIP_URL: https://${WHIP_HOSTNAME:-stream.gocast.fm}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     container_name: gocast-client

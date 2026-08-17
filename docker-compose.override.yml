@@ -19,13 +19,8 @@ services:
       # from the host. Moving it sidesteps the collision permanently.
       - "6380:6379"
 
-  # MediaMTX hits the dev API on port 8000 (mapped to api container's :80).
-  # Prod uses :80 via the base compose; this just flips the host-side port.
-  mediamtx:
-    environment:
-      INTERNAL_API_URL: http://localhost:8000
-      MTX_AUTHHTTPADDRESS: http://localhost:8000/api/internal/whip-auth
-
+  # Dev API on port 8000 (mapped to the api container's :80). Prod uses :80
+  # via the base compose; this just flips the host-side port.
   api:
     build:
       target: dev
@@ -38,10 +33,10 @@ services:
       SERVER_NAME: ":80"
       # Pin the ingest vhost to the internal-CA default in dev. Without this
       # it inherits WHIP_HOSTNAME from the root .env and the dev container
-      # starts asking Let's Encrypt for a cert on your real domain. Dev
-      # broadcasters talk to MediaMTX directly on :8889 anyway (see the
-      # client build args below), so this vhost is never routed to locally.
-      WHIP_SERVER_NAME: whip.localhost
+      # starts asking Let's Encrypt for a cert on your real domain. Locally the
+      # studio is handed a ws:// address pointing straight at the station
+      # container's bridge IP, so this vhost is never routed to.
+      WHIP_SERVER_NAME: stream.localhost
 
   queue:
     build:
@@ -64,7 +59,6 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:8000/api
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         NEXT_PUBLIC_ICECAST_URL: http://localhost:8888
-        NEXT_PUBLIC_WHIP_URL: http://localhost:8889
     # `next dev` measured at ~1.5 GB on this project (Turbopack keeps the
     # module graph and compiler caches in memory), against the 1 GB prod
     # ceiling in the base file — which is sized for the standalone

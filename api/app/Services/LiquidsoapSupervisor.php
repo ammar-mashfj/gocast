@@ -606,6 +606,34 @@ class LiquidsoapSupervisor
         return $ip;
     }
 
+    /**
+     * WebSocket URL a browser uses to publish into this station's harbor.
+     *
+     * Production sets `liquidsoap.ingest_url` to a path on the main domain
+     * (e.g. `wss://gocast.fm/broadcast/{slug}`) which the reverse proxy routes
+     * to the right container — one TLS endpoint, no per-station DNS, and the
+     * ingest port is never exposed.
+     *
+     * With it unset — local hybrid dev — we address the container directly on
+     * the Docker bridge. That works because Linux routes to bridge IPs from
+     * the host, so the browser can reach it without publishing a port and
+     * without a proxy in front. It is not a production path: the IP changes on
+     * every restart and it is plain `ws://`.
+     */
+    public function ingestUrl(Station $station): string
+    {
+        $template = (string) config('liquidsoap.ingest_url');
+
+        if ($template !== '') {
+            return str_replace('{slug}', $station->slug, $template);
+        }
+
+        $host = $this->containerHost($station);
+        $port = (int) config('liquidsoap.harbor_input_port', 8090);
+
+        return "ws://{$host}:{$port}/{$station->slug}";
+    }
+
     private function run(Station $station): void
     {
         $cmd = array_merge(
@@ -864,11 +892,12 @@ class LiquidsoapSupervisor
             'icecastHost' => (string) config('liquidsoap.icecast_host'),
             'icecastPort' => (int) config('liquidsoap.icecast_port'),
             'apiUrl' => rtrim((string) config('liquidsoap.api_url'), '/'),
-            'rtspHost' => (string) config('liquidsoap.rtsp_host'),
-            'rtspPort' => (int) config('liquidsoap.rtsp_port'),
             // Harbor control surface — /status and /healthz, read by
             // StationStatusService over gocast-network.
             'harborPort' => (int) config('liquidsoap.harbor_port'),
+            // Harbor ingest — where broadcasters connect (webcast WebSocket
+            // or the Icecast source protocol).
+            'harborInputPort' => (int) config('liquidsoap.harbor_input_port'),
             // Dead-air guard on the live input; 0 disables it.
             'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
             'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 /**
  * Lifecycle events pushed by a station's Liquidsoap container.
@@ -45,15 +47,21 @@ class StationEventController extends Controller
         'icecast_error',
         'live_silent',
         'live_audio',
+        // Harbor's on_connect/on_disconnect. These are the only two that carry
+        // state beyond a cache entry: they open and close the StreamSession
+        // that makes a station read as live. They replaced MediaMTX's
+        // runOnReady/runOnNotReady webhooks.
+        'live_connected',
+        'live_disconnected',
     ];
 
     /** Cache key prefix holding the most recent event for a station. */
     public const CACHE_PREFIX = 'station-event:';
 
     /**
-     * How long a reported event stays interesting. Comfortably longer than the
-     * reconciler's five-minute pass so a station that reported once is not
-     * treated as silent in between.
+     * How long a reported event stays interesting. Comfortably longer than a
+     * reconciler pass so a station that reported once is not treated as silent
+     * in between.
      */
     private const TTL_SECONDS = 3600;
 
@@ -87,11 +95,57 @@ class StationEventController extends Controller
             $station->forceFill(['last_ready_at' => now()])->save();
         }
 
+        if ($validated['event'] === 'live_connected') {
+            $this->openSession($station);
+        }
+
+        if ($validated['event'] === 'live_disconnected') {
+            $this->closeSessions($station);
+        }
+
         Log::info('Station reported a lifecycle event', [
             'station' => $station->slug,
             'event' => $validated['event'],
         ]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Open the StreamSession that makes this station read as live.
+     *
+     * Idempotent: harbor can report a connection twice (a broadcaster that
+     * reconnects inside the same second, a retried notification), and a second
+     * open session would double-count airtime. Reuse whatever is already open.
+     */
+    private function openSession(Station $station): void
+    {
+        $existing = $station->streamSessions()->whereNull('ended_at')->exists();
+
+        if ($existing) {
+            return;
+        }
+
+        $session = $station->streamSessions()->create([
+            'started_at' => now(),
+            'source_type' => 'browser',
+        ]);
+
+        SendStationLiveNotifications::dispatch($station->id, $session->id)
+            ->delay(now()->addMinutes(2));
+    }
+
+    /**
+     * Close any open session and drop the now-playing payload, so the
+     * listener-facing API stops showing the last broadcaster track instead of
+     * waiting out its TTL.
+     */
+    private function closeSessions(Station $station): void
+    {
+        $station->streamSessions()
+            ->whereNull('ended_at')
+            ->update(['ended_at' => now()]);
+
+        Redis::del("metadata:{$station->id}");
     }
 }

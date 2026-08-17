@@ -64,10 +64,30 @@ return [
     'api_url' => env('LIQUIDSOAP_API_URL', 'http://api'),
 
     /*
-    | Where Liquidsoap pulls the live broadcaster's stream from (MediaMTX).
+    |--------------------------------------------------------------------------
+    | Broadcaster ingest (input.harbor)
+    |--------------------------------------------------------------------------
+    |
+    | Port inside each station container where broadcasters connect. Harbor
+    | speaks two protocols on it: the webcast WebSocket protocol (the studio)
+    | and the traditional Icecast source protocol (BUTT, Mixxx, and friends).
+    |
+    | This is per-container, so every station uses the same number — they are
+    | on separate network namespaces and never collide. Nothing publishes it to
+    | the host; the browser reaches it through the URL below.
     */
-    'rtsp_host' => env('LIQUIDSOAP_RTSP_HOST', 'host.docker.internal'),
-    'rtsp_port' => (int) env('LIQUIDSOAP_RTSP_PORT', 8554),
+    'harbor_input_port' => (int) env('LIQUIDSOAP_HARBOR_INPUT_PORT', 8090),
+
+    /*
+    | Public WebSocket base the studio connects to, with `{slug}` substituted.
+    |
+    | In production this is a path on the main domain, reverse-proxied to the
+    | right station container — one TLS endpoint, no per-station DNS. Leave it
+    | unset in local hybrid dev and Laravel falls back to addressing the
+    | container directly on the Docker bridge, which works on Linux without
+    | publishing any ports.
+    */
+    'ingest_url' => env('LIQUIDSOAP_INGEST_URL'),
 
     /*
     |--------------------------------------------------------------------------
@@ -272,12 +292,32 @@ return [
     | How many consecutive reconciler passes a station may be unhealthy before
     | the container is recreated, and how many recreates are allowed within an
     | hour before we stop trying and leave it for a human. Without the cap, a
-    | station whose script is genuinely broken is recreated every five minutes
+    | station whose script is genuinely broken is recreated every minute
     | forever.
+    |
+    | These are counted in PASSES, so their meaning depends on how often
+    | stations:reconcile is scheduled (currently every minute). Two passes is
+    | two minutes of a container continuously reporting restarting/exited/dead
+    | or a failing healthcheck — a booting station never qualifies, because the
+    | healthcheck's start period reports `starting` rather than `unhealthy`.
     */
 
     'unhealthy_passes_before_recreate' => (int) env('LIQUIDSOAP_UNHEALTHY_PASSES', 2),
     'unhealthy_recreates_per_hour' => (int) env('LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR', 3),
+
+    /*
+    | Consecutive passes an open StreamSession may disagree with its container
+    | before the reconciler closes it as stranded.
+    |
+    | Far more patient than the unhealthy threshold on purpose: the signal is
+    | `source != live`, which a broadcaster triggers merely by falling silent
+    | for longer than the dead-air guard. Closing a live broadcaster's session
+    | cannot be undone by anything the container will send afterwards, so this
+    | errs towards leaving a genuinely stranded session open for a few extra
+    | minutes rather than cutting a real show short.
+    */
+
+    'stranded_session_strikes' => (int) env('LIQUIDSOAP_STRANDED_SESSION_STRIKES', 10),
 
     /*
     |--------------------------------------------------------------------------

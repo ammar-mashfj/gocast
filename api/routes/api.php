@@ -5,9 +5,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
+use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\ListenerCountController;
-use App\Http\Controllers\MediaMtxAuthController;
-use App\Http\Controllers\MediaMtxLifecycleController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
@@ -76,10 +75,11 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('throttle:uploads')
             ->whereIn('type', ['images', 'sounds']);
 
-        // Issues a short-lived, station-scoped broadcaster token. The SPA puts
-        // this in the WHIP URL's ?token= so MediaMTX's auth webhook can verify
-        // the publisher belongs to the station owner — without ever exposing the
-        // long-lived Sanctum auth token to URLs / proxy logs.
+        // Issues a short-lived, station-scoped broadcaster token plus the
+        // WebSocket URL to publish to. The SPA sends the token as the password
+        // in the webcast hello frame, so harbor's auth callback can verify the
+        // publisher owns the station — without ever exposing the long-lived
+        // Sanctum auth token to URLs / proxy logs.
         //
         // Inside `verified` alongside the other productive routes: going live is
         // exactly the kind of action an unverified signup shouldn't reach, and
@@ -136,23 +136,15 @@ Route::middleware('throttle:5,60')->group(function () {
     Route::post('/waitlist', [WaitlistController::class, 'store']);
 });
 
-// MediaMTX auth webhook. MediaMTX cannot send custom headers with the auth
-// call, so this endpoint stays unauthenticated at the middleware level —
-// security is enforced by the per-broadcaster token in the WHIP URL's
-// ?token= query (validated inside MediaMtxAuthController against the
-// station owner). Throttled to prevent token-grinding attacks.
-Route::middleware(['throttle:internal'])->group(function () {
-    Route::post('/internal/whip-auth', MediaMtxAuthController::class);
-});
-
-// MediaMTX path-lifecycle webhooks (publisher connect/disconnect) and the
-// Liquidsoap now-playing push. All three are server-to-server calls from
-// containers we control; the `internal` middleware enforces the shared
-// X-Internal-Key secret so internet attackers can't flip live state or
-// inject now-playing metadata even though the api is internet-facing.
+// Liquidsoap harbor auth callback and the now-playing push. Both are
+// server-to-server calls from containers we control; the `internal`
+// middleware enforces the shared X-Internal-Key secret so internet attackers
+// can't admit publishers or inject now-playing metadata even though the api
+// is internet-facing.
 Route::middleware(['internal', 'throttle:internal'])->group(function () {
-    Route::post('/internal/whip-ready', [MediaMtxLifecycleController::class, 'ready']);
-    Route::post('/internal/whip-not-ready', [MediaMtxLifecycleController::class, 'notReady']);
+    // Called once per broadcaster connection attempt. The container fails
+    // closed on anything but a 200, so this is the gate on the ingest port.
+    Route::post('/internal/harbor-auth', HarborAuthController::class);
 
     // Per-station Liquidsoap pushes here on every track change; cached in
     // Redis for the listener-side now-playing API.

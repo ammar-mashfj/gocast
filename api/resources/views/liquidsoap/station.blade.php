@@ -77,20 +77,105 @@ end
 on_start(fun () -> notify("boot"))
 on_shutdown(fun () -> notify("shutdown"))
 
+# Validates a broadcaster before harbor accepts their connection.
+#
+# The password is the short-lived, station-scoped token Laravel minted for the
+# studio; the same token the WHIP path used to put in the URL query. Laravel
+# verifies its MAC, expiry and station binding and answers 200 or 4xx. Anything
+# other than a clean 200 is a refusal — a network blip must not become an open
+# door, so we fail closed.
+#
+# Blocking by design: harbor calls this on the connection thread and one
+# request per connection attempt is cheap.
+# log.severe, not log.important: important is level 3 and this script runs at
+# level 2, so a refusal would be invisible in `docker logs` — leaving an
+# operator staring at "the stream server closed the connection" with nothing
+# to go on. Every path through here says why, at a level that is actually
+# printed.
+def harbor_auth(login) =
+  try
+    response = http.post(
+      {!! json_encode("{$apiUrl}/api/internal/harbor-auth") !!},
+      data=json.stringify({
+        slug = {!! json_encode($station->slug) !!},
+        user = login.user,
+        password = login.password,
+        address = login.address
+      }),
+      headers=[
+        ("Content-Type", "application/json"),
+        ("Accept", "application/json"),
+        ("X-Internal-Key", {!! json_encode($internalApiKey) !!})
+      ],
+      timeout=5.
+    )
+
+    if response.status_code == 200 then
+      true
+    else
+      log.severe("harbor: refused #{login.user} from #{login.address} (HTTP #{response.status_code})")
+      false
+    end
+  catch _ do
+    # Laravel unreachable — DNS, a dev server bound to loopback, a restart
+    # mid-request. Still fail closed, because an API we cannot ask must never
+    # become an open door, but name the cause: this is indistinguishable from
+    # a bad password from the broadcaster's side.
+    log.severe(
+      "harbor: cannot reach the auth API at "
+      ^ {!! json_encode("{$apiUrl}/api/internal/harbor-auth") !!}
+      ^ " — refusing #{login.user}. Is the API reachable from this container?"
+    )
+    false
+  end
+end
+
 # === Inputs ===
 
-# Live broadcaster — pulled from MediaMTX over RTSP. Fallible: only
-# present when someone is publishing via WHIP/RTMP/SRT to the station's
-# MediaMTX path.
+# Live broadcaster — connects straight into this container over the webcast
+# WebSocket protocol (the studio) or the Icecast source protocol (BUTT, Mixxx,
+# RocketBroadcaster). Fallible: only present while someone is publishing.
 #
-# buffer() decouples the RTSP source's own clock from Liquidsoap's main
-# clock. Without this, fallback() rejects the source ("This source may
-# control its own latency") because input.ffmpeg pulls at its own pace.
-# 2s buffer = max 2s of latency from broadcaster to listener; max=10s
-# is the overflow threshold before Liquidsoap drops samples.
-live_raw = buffer(buffer=2., max=10.,
-  input.ffmpeg({!! json_encode("rtsp://{$rtspHost}:{$rtspPort}/{$station->slug}/live") !!})
+# Broadcasters publish here directly over the webcast protocol — a WebSocket
+# carrying a JSON hello frame then binary MP3. input.harbor speaks it natively
+# alongside the traditional Icecast source protocol, so BUTT, Mixxx and friends
+# can connect to the same mount with no extra machinery.
+#
+# This replaced an input.ffmpeg RTSP pull from MediaMTX. WebRTC needed ICE, and
+# ICE needs UDP the broadcaster's network may simply refuse: a VPN with leak
+# protection, a firewall that blocks UDP, or symmetric NAT all produced a
+# session that negotiated successfully and then never carried a byte. A
+# WebSocket reaches anyone who can load the studio page.
+#
+# `auth` is called per connection attempt and validates the short-lived
+# broadcast token Laravel minted for the studio (see harbor_auth below).
+#
+# buffer() decouples harbor's arrival timing from Liquidsoap's main clock so a
+# momentary network hiccup on the broadcaster's side doesn't underrun the
+# output. 2s nominal, 10s before samples are dropped.
+live_in = input.harbor(
+  {!! json_encode($station->slug) !!},
+  port={{ $harborInputPort }},
+  auth=harbor_auth
 )
+
+# on_connect/on_disconnect replace MediaMTX's runOnReady/runOnNotReady hooks:
+# they are what tells Laravel to open and close the StreamSession that makes a
+# station read as live. Same fast-path caveat as every other event here —
+# `stations:reconcile` closes any session a lost notification strands.
+#
+# Registered as METHODS on the source, not as arguments to input.harbor. The
+# argument form still works in 2.4 but logs a deprecation on every boot and is
+# slated for removal.
+#
+# synchronous=false is not optional here: notify() makes an HTTP POST with a
+# 5s timeout, and a synchronous callback runs on the streaming thread — a slow
+# or hanging API would stall the audio for every listener. Same reasoning as
+# the blank.detect callbacks below.
+live_in.on_connect(synchronous=false, fun (_) -> notify("live_connected"))
+live_in.on_disconnect(synchronous=false, fun () -> notify("live_disconnected"))
+
+live_raw = buffer(buffer=2., max=10., live_in)
 
 @if ($blankMax > 0)
 # Dead-air guard. A broadcaster who mutes their mic, sleeps their laptop or
@@ -172,6 +257,26 @@ autodj = playlist(
   end
 )
 
+# Crossfade AutoDJ track transitions — 2s overlap between consecutive
+# playlist tracks. Liquidsoap 2.4 API: `duration` is the only required
+# parameter (the old start_next/fade_in/fade_out signature was removed).
+#
+# This wraps `autodj` alone, and deliberately NOT the fallback below.
+# crossfade is a track-boundary operator: it buffers audio and applies a
+# fade-out envelope to the outgoing side and a fade-in to the incoming one.
+# A live broadcast is one continuous track, so wrapping the fallback meant
+# every re-evaluation of it started another 2s gain ramp over live audio.
+# Those ramps stacked — "clock.cross: there are currently 551 sources,
+# possible source leak" — and listeners heard the level slide down and then
+# snap back up. The churn also starved the streaming thread, which then
+# logged "Latency is too high: we must catchup 1.22 seconds" and skipped
+# samples to recover, adding an audible jump on top of the fades.
+#
+# Bound to a NEW name rather than rebinding `autodj`: crossfade returns a
+# plain source, which drops the playlist's own methods, and the status
+# endpoint below still calls autodj.remaining_files() and autodj.length().
+autodj_mix = crossfade(duration=2., autodj)
+
 # Standby silence — infallible last resort.
 bed = mksafe(blank())
 
@@ -184,13 +289,12 @@ bed = mksafe(blank())
 # Required because output operators downstream refuse fallible sources, and
 # fallback() is conservatively typed as fallible even when the last element
 # (bed = mksafe(blank())) is provably infallible at runtime.
-mixed = mksafe(fallback(track_sensitive=false, [live, autodj, bed]))
+mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))
 
-# Crossfade on transitions — 2s overlap on track changes and source switches.
-# Liquidsoap 2.4 API: `duration` is the only required parameter (the old
-# start_next/fade_in/fade_out signature was removed).
-# mksafe so the chain stays infallible all the way to the outputs.
-output_source = mksafe(crossfade(duration=2., mixed))
+# Nothing further processes the mix: source switches are hard cuts by design.
+# Fading between live and AutoDJ would mean fading live audio, which is the
+# bug described above. A broadcaster dropping off air should cut to AutoDJ.
+output_source = mixed
 
 # We deliberately do NOT run normalize() here. It's a dynamic AGC that
 # pumps quiet audio louder and crushes loud audio quieter — the classic
@@ -233,7 +337,7 @@ end
 def current_source() =
   if live.is_ready() then
     "live"
-  elsif autodj.is_ready() then
+  elsif autodj_mix.is_ready() then
     "autodj"
   else
     "silence"

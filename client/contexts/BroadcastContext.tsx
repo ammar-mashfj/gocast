@@ -73,54 +73,67 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const [stationSlug, setStationSlug] = useState<string | null>(null)
   const managerRef = useRef<BroadcastManager | null>(null)
   const stationIdRef = useRef<string | null>(null)
+  // Guards against a second start racing the first. Each call builds its own
+  // BroadcastManager, so without this two sockets open: the first claims the
+  // harbor mount and the second is refused with Mount_taken — killing a
+  // broadcast that was, in fact, already live. Reproduced by a double click
+  // and by React's development double-invoke.
+  const startingRef = useRef(false)
 
   const start = useCallback(async (stationId: string, options?: { skipMic?: boolean }) => {
-    if (managerRef.current) {
-      // Don't let a tear-down failure on the previous (possibly errored)
-      // manager block a fresh start — Try again must always reach the new
-      // manager.start() below.
-      try { await managerRef.current.stop() } catch { /* discard */ }
-    }
+    if (startingRef.current) return
+    startingRef.current = true
 
-    setError(null)
-    const manager = new BroadcastManager(stationId, {
-      onStepChange: setSteps,
-      onStateChange: (s) => {
-        setState(s)
-        if (s === 'live') {
-          setMicStream(manager.getMicStream())
-          setEngine(manager.getEngine())
-          // Persist a per-tab recovery record so an accidental refresh can
-          // resume from the right station with the right mic preference.
-          try {
-            sessionStorage.setItem(
-              RECOVERY_KEY,
-              JSON.stringify({
-                stationSlug: stationId,
-                micDisabled: !!options?.skipMic,
-                startedAt: Date.now(),
-              } satisfies BroadcastRecoveryRecord),
-            )
-          } catch {}
-          // First-ever broadcast celebration. Subsequent milestones
-          // (cumulative airtime / sessions count) live on the dashboard
-          // where we have access to the stats endpoint.
-          fireOnce('broadcaster:first-live', () => {
-            toast.success("🎙️ You're live for the first time — share your link!")
-          })
-        } else if (s === 'idle') {
-          setMicStream(null)
-          setEngine(null)
-          clearBroadcastRecovery()
-        }
-      },
-      onError: setError,
-    })
-    managerRef.current = manager
-    stationIdRef.current = stationId
-    setStationSlug(stationId)
-    setMicDisabled(!!options?.skipMic)
-    await manager.start(options)
+    try {
+      if (managerRef.current) {
+        // Don't let a tear-down failure on the previous (possibly errored)
+        // manager block a fresh start — Try again must always reach the new
+        // manager.start() below.
+        try { await managerRef.current.stop() } catch { /* discard */ }
+      }
+
+      setError(null)
+      const manager = new BroadcastManager(stationId, {
+        onStepChange: setSteps,
+        onStateChange: (s) => {
+          setState(s)
+          if (s === 'live') {
+            setMicStream(manager.getMicStream())
+            setEngine(manager.getEngine())
+            // Persist a per-tab recovery record so an accidental refresh can
+            // resume from the right station with the right mic preference.
+            try {
+              sessionStorage.setItem(
+                RECOVERY_KEY,
+                JSON.stringify({
+                  stationSlug: stationId,
+                  micDisabled: !!options?.skipMic,
+                  startedAt: Date.now(),
+                } satisfies BroadcastRecoveryRecord),
+              )
+            } catch {}
+            // First-ever broadcast celebration. Subsequent milestones
+            // (cumulative airtime / sessions count) live on the dashboard
+            // where we have access to the stats endpoint.
+            fireOnce('broadcaster:first-live', () => {
+              toast.success("🎙️ You're live for the first time — share your link!")
+            })
+          } else if (s === 'idle') {
+            setMicStream(null)
+            setEngine(null)
+            clearBroadcastRecovery()
+          }
+        },
+        onError: setError,
+      })
+      managerRef.current = manager
+      stationIdRef.current = stationId
+      setStationSlug(stationId)
+      setMicDisabled(!!options?.skipMic)
+      await manager.start(options)
+    } finally {
+      startingRef.current = false
+    }
   }, [])
 
   const stop = useCallback(async () => {

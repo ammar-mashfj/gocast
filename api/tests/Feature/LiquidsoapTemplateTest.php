@@ -24,9 +24,8 @@ function renderStationScript(Station $station, array $overrides = []): string
         'icecastHost' => 'icecast',
         'icecastPort' => 8000,
         'apiUrl' => 'http://api',
-        'rtspHost' => 'mediamtx',
-        'rtspPort' => 8554,
         'harborPort' => 8080,
+        'harborInputPort' => 8090,
         'blankMax' => 15.0,
         'blankThreshold' => -40.0,
     ], $overrides))->render();
@@ -113,12 +112,83 @@ it('escapes secrets and station text as liquidsoap string literals', function ()
         ->and($script)->not->toContain('&quot;');
 });
 
-it('points the live input at the station RTSP path', function () {
-    $script = renderStationScript($this->station, ['rtspHost' => 'host.docker.internal', 'rtspPort' => 8554]);
+it('opens a harbor ingest on the station mount', function () {
+    $script = renderStationScript($this->station, ['harborInputPort' => 8090]);
 
-    // json_encode escapes forward slashes; Liquidsoap's lexer accepts `\/`,
-    // and this is the form every URL in the script has always taken.
-    expect($script)->toContain(json_encode('rtsp://host.docker.internal:8554/night-shift/live'));
+    // Broadcasters connect straight into this container — over the webcast
+    // WebSocket protocol from the studio, or the Icecast source protocol from
+    // BUTT/Mixxx. The mount is the slug, which is what the studio publishes to.
+    expect($script)->toContain('input.harbor(')
+        ->and($script)->toContain(json_encode('night-shift'))
+        ->and($script)->toContain('port=8090')
+        ->and($script)->toContain('auth=harbor_auth');
+});
+
+it('authenticates broadcasters against laravel and fails closed', function () {
+    $script = renderStationScript($this->station, ['apiUrl' => 'http://api']);
+
+    expect($script)->toContain('def harbor_auth(login)')
+        ->and($script)->toContain(json_encode('http://api/api/internal/harbor-auth'))
+        // Anything but a clean 200 must refuse — a timeout or a 500 cannot
+        // become an open door onto the ingest port.
+        ->and($script)->toContain('if response.status_code == 200 then')
+        // An unreachable API must refuse too, and must SAY so: this script
+        // runs at log level 2, so a message logged any lower is invisible and
+        // the operator only sees "the stream server closed the connection".
+        ->and($script)->toContain('catch _ do')
+        ->and($script)->toContain('log.severe');
+});
+
+it('reports broadcaster connect and disconnect so laravel can track sessions', function () {
+    $script = renderStationScript($this->station);
+
+    // Method form, not the deprecated constructor arguments — and asynchronous,
+    // because notify() makes a 5s-timeout HTTP call and a synchronous callback
+    // runs on the streaming thread, stalling audio for every listener.
+    expect($script)->toContain('live_in.on_connect(synchronous=false, fun (_) -> notify("live_connected"))')
+        ->and($script)->toContain('live_in.on_disconnect(synchronous=false, fun () -> notify("live_disconnected"))')
+        ->and($script)->not->toContain('on_connect=fun');
+});
+
+it('no longer pulls the live input from an external media server', function () {
+    // The RTSP pull from MediaMTX is gone: it needed ICE, and ICE needs UDP
+    // that a VPN or firewall may simply refuse. Harbor reaches anyone who can
+    // load the studio page.
+    $script = renderStationScript($this->station);
+
+    expect($script)->not->toContain('rtsp://')
+        // The call, not the comment above it explaining why it went away.
+        ->and($script)->not->toContain('input.ffmpeg(');
+});
+
+it('crossfades autodj tracks without fading the live input', function () {
+    // crossfade is a track-boundary operator. Wrapping the fallback applied
+    // its fade envelopes to live audio, and because a live broadcast has no
+    // track boundaries the fallback re-triggered it constantly — hundreds of
+    // overlapping 2s ramps ("clock.cross: possible source leak"), heard as the
+    // volume sliding down and snapping back up. It belongs on the playlist,
+    // where a track change is a real event.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('autodj_mix = crossfade(duration=2., autodj)')
+        // Only the playlist arm of the fallback is faded.
+        ->and($script)->toContain('fallback(track_sensitive=false, [live, autodj_mix, bed])')
+        // The mix reaches the outputs uncrossfaded; source switches are cuts.
+        ->and($script)->toContain('output_source = mixed')
+        ->and($script)->not->toContain('crossfade(duration=2., mixed)');
+});
+
+it('keeps the raw playlist bound so its own methods survive', function () {
+    // crossfade returns a plain source. Rebinding `autodj` to it drops
+    // remaining_files()/length(), which the status endpoint calls — and that
+    // fails at `liquidsoap --check`, i.e. the station never boots.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('autodj = playlist(')
+        ->and($script)->toContain('autodj.remaining_files()')
+        ->and($script)->toContain('autodj.length()')
+        // Readiness must be read off the same source the fallback selects.
+        ->and($script)->toContain('elsif autodj_mix.is_ready() then');
 });
 
 it('tracks the icecast connection so status can tell ready from audible', function () {
