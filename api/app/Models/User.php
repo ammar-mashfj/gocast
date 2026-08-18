@@ -56,6 +56,26 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsTo(Plan::class);
     }
 
+    /**
+     * Does this user's audio carry the free-tier GoCast watermark?
+     *
+     * The single source of truth for that question — LiquidsoapSupervisor
+     * renders and pushes it, StationResource reports it, and both must agree,
+     * or the dashboard tells someone their stream is clean while the container
+     * is still ducking it.
+     *
+     * Two gates: the install-wide kill switch, and the plan flag. No station
+     * column takes part, on purpose — see the migration that added the column.
+     */
+    public function watermarked(): bool
+    {
+        if (! (bool) config('liquidsoap.watermark_enabled')) {
+            return false;
+        }
+
+        return (bool) ($this->plan?->watermark_enabled ?? false);
+    }
+
     public function stations(): HasMany
     {
         return $this->hasMany(Station::class);

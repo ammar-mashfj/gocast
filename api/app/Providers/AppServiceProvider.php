@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
+use App\Observers\UserObserver;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -52,6 +54,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Relation::enforceMorphMap([
+            'admin' => Admin::class,
             'user' => User::class,
             'station' => Station::class,
             'plan' => Plan::class,
@@ -60,6 +63,11 @@ class AppServiceProvider extends ServiceProvider
         // Drive per-station Liquidsoap containers from the Station model
         // lifecycle. See StationObserver for the create/update/delete hooks.
         Station::observe(StationObserver::class);
+
+        // Carries a plan change through to running containers — currently the
+        // free-tier watermark, which must stop the moment someone upgrades
+        // rather than at their next restart.
+        User::observe(UserObserver::class);
 
         // Send the welcome email the moment a user verifies. Anchored on
         // verification (not registration) so the email is reachable, and so

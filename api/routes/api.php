@@ -8,6 +8,7 @@ use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\MetricsController;
+use App\Http\Controllers\NextTrackController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PublicStationController;
@@ -149,6 +150,10 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
     // Per-station Liquidsoap pushes here on every track change; cached in
     // Redis for the listener-side now-playing API.
     Route::post('/internal/now-playing', NowPlayingController::class);
+
+    // Asked once per track boundary by every running station's
+    // `request.dynamic` rotation. See AutoDjScheduler.
+    Route::get('/internal/next-track', NextTrackController::class);
 
     // Container lifecycle: boot, shutdown, Icecast connect/disconnect, and
     // live-input silence. A fast path for state Laravel would otherwise have

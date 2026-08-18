@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -16,6 +17,16 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function () {
+            // The admin panel is registered on its own terms rather than
+            // nested inside web.php: separate file, separate prefix, separate
+            // guard. `web` is here for the session and CSRF the login form
+            // and the panel's POST actions need.
+            Route::middleware('web')
+                ->prefix('admin')
+                ->name('admin.')
+                ->group(base_path('routes/admin.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust the Caddy/FrankenPHP container sitting directly in front of
@@ -48,6 +59,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             UseAuthTokenCookie::class,
         ]);
+
+        // The API has no login page, so Laravel's default `route('login')`
+        // target does not exist and would throw. Only the admin panel has a
+        // browser login, so only admin paths get a redirect; everything else
+        // keeps today's behaviour (a 401 for JSON callers).
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is('admin', 'admin/*') ? route('admin.login') : null,
+        );
+
+        // Same reasoning in reverse: an already-signed-in admin who opens the
+        // login page belongs in the panel, not on the API's welcome page.
+        $middleware->redirectUsersTo(
+            fn (Request $request) => $request->is('admin', 'admin/*') ? route('admin.stations.index') : '/',
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         Integration::handles($exceptions);

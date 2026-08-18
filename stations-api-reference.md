@@ -24,6 +24,11 @@ All endpoints below require `Authorization: Bearer {token}` unless marked as pub
   "started_at": null,
   "state": "offline",
   "icecast_mount": "/stream/jazz-fm",
+  "watermarked": true,
+  "jingles_enabled": false,
+  "jingle_mode": "interval",
+  "jingle_interval_seconds": 1800,
+  "jingle_every_tracks": 5,
   "social_links": null,
   "theme_config": null,
   "created_at": "2026-04-03T19:46:48.000000Z",
@@ -258,6 +263,111 @@ GET /api/public/stations/{slug}/listeners
 
 ---
 
+## Jingles
+
+Station IDs and liners live in the same `tracks` table as the AutoDJ rotation,
+separated by a `kind` column (`music` | `jingle`). They share the station's
+storage cap, the upload endpoint, and the `autodj_enabled` plan gate — `kind`
+is the only thing that differs.
+
+Every list-scoped track endpoint takes an optional `kind`, defaulting to
+`music`, so a client that never sends it behaves exactly as before:
+
+| Request                                                        | Effect                                    |
+|----------------------------------------------------------------|-------------------------------------------|
+| `GET  /api/stations/{slug}/tracks?kind=jingle`                  | List the jingles                          |
+| `POST /api/stations/{slug}/tracks` with `kind=jingle`           | Upload into the jingle list               |
+| `PATCH /api/stations/{slug}/tracks/reorder` with `kind=jingle`  | Accepted, but ordering is not meaningful  |
+
+Positions are gap-free per **(station, kind)** — the two lists number
+independently, and a reorder request may only reference ids of the kind it
+declares.
+
+Scheduling is four station columns, updated through the normal
+`PATCH /api/stations/{slug}`:
+
+| Field                     | Rules                          | Meaning                                  |
+|---------------------------|--------------------------------|------------------------------------------|
+| `jingles_enabled`         | boolean                        | Master switch                            |
+| `jingle_mode`             | `interval` \| `tracks`         | How jingles are spaced                   |
+| `jingle_interval_seconds` | integer, 60 – 14400            | Gap in `interval` mode                   |
+| `jingle_every_tracks`     | integer, 1 – 100               | Gap in `tracks` mode                     |
+
+Both mode settings are stored regardless of which is active, so switching modes
+back and forth doesn't lose the other one's value.
+
+**`interval`** — "every 30 minutes". Predictable in wall-clock terms, which is
+what legal IDs and sponsor reads are specified in, and unaffected by how long
+the station's tracks are. The trade-off is that the real gap drifts past the
+setting on a station playing long tracks, because the jingle still waits for a
+boundary.
+
+**`tracks`** — "every 5 tracks". Even musical density, which is what the owner
+hears, at the cost of real-world spacing that swings with track length.
+
+Either way the setting is a **floor, not a schedule**: the jingle plays at the
+first track boundary *after* the gate opens, and never cuts into a song. Jingles
+are also always hard cut (never crossfaded) and excluded from the now-playing
+push, so the player keeps showing the last real track while an ID is on air.
+
+**None of these restart the station.** All four are declared as Liquidsoap
+interactive variables, so a change is pushed to the running container over
+telnet (`var.set jingles_enabled = true`) and takes effect at the next track
+boundary — nobody listening is disconnected. That includes switching modes:
+the script carries both gates at once and neutralises whichever the active mode
+isn't using, precisely so the mode itself can change without a new graph. The values are also rendered into
+the script as its initial state, so a stopped or unreachable station picks them
+up whenever it next boots; the telnet push is a fast path, the database row is
+the source of truth.
+
+Uploading and deleting jingles does not restart anything either — that is a
+playlist reload, same as the rotation.
+
+---
+
+## Free-tier watermark
+
+A short platform-owned clip ("powered by GoCast") mixed **over** the station
+every few minutes, ducking whatever is playing rather than replacing it. Driven
+entirely by `plans.watermark_enabled`.
+
+There is deliberately **no station column and no writable API field**. It is
+reported on the station object as a read-only `watermarked` boolean, and only to
+the owner — publishing it would tell the internet which stations are on the free
+plan. Upgrading is the only way to remove it.
+
+Note what it actually marks: free plans have `autodj_enabled = false`, so a free
+station has no library and its AutoDJ is silence. In practice the watermark
+rides over **live broadcasts** — over someone talking. That is why it ducks
+instead of interrupting, why it sits after the live/AutoDJ fallback (applied any
+earlier, going live would evade it), and why the defaults are conservative.
+
+Tuning is install-level, not per-station:
+
+| Env                             | Default | Meaning                                              |
+|---------------------------------|---------|------------------------------------------------------|
+| `LIQUIDSOAP_WATERMARK_ENABLED`  | `true`  | Fleet-wide kill switch, independent of any plan       |
+| `LIQUIDSOAP_WATERMARK_INTERVAL` | `600`   | Seconds between watermarks (floored at 60)            |
+| `LIQUIDSOAP_WATERMARK_DUCK`     | `0.15`  | Portion of station audio **kept** while it plays      |
+| `LIQUIDSOAP_WATERMARK_FADE`     | `1.0`   | Ramp down/up seconds                                  |
+
+The audio is whatever files sit in `/var/gocast/system/`, mounted read-only into
+every container at `/data/system`. It is a directory, not a fixed filename:
+several variants rotate at random, and an **empty directory simply means no
+watermark** — a missing clip can never stop a station from starting.
+
+Like the jingle settings this is hot: an upgrade pushes
+`var.set watermark_enabled = false` to the user's running containers, so a
+customer who has just paid stops hearing it within seconds and **their listeners
+are not disconnected**. `UserObserver` fires that on any `plan_id` change, in
+both directions.
+
+Two things the watermark deliberately does not touch: `/status` and the
+now-playing push both read the un-watermarked mix, so a platform ID never
+appears as the station's current track.
+
+---
+
 ## Plan Limits
 
 Plans belong to the **user** (`users.plan_id` → `plans`), not to individual
@@ -270,6 +380,7 @@ live schema.
 | `max_running_stations` | Stations that may be **on air at once** (each holds a container)     | 1    | 5   |
 | `max_listeners`        | Concurrent listeners                                                | 25   | 500 |
 | `autodj_enabled`       | May upload tracks and run an unattended playlist                    | no   | yes |
+| `watermark_enabled`    | Stream carries the audible "powered by GoCast" ID                    | yes  | no  |
 | `idle_stop_hours`      | Hours on air with no listeners before auto-stop (0 = never)          | 2    | 0   |
 
 Enforcement points:

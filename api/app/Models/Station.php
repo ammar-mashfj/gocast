@@ -33,6 +33,10 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $last_ready_at
  * @property string $icecast_mount
  * @property string $icecast_password
+ * @property bool $jingles_enabled
+ * @property string $jingle_mode one of JINGLE_MODE_INTERVAL | JINGLE_MODE_TRACKS
+ * @property int $jingle_interval_seconds
+ * @property int $jingle_every_tracks
  * @property array|null $social_links
  * @property array|null $theme_config
  * @property Carbon $created_at
@@ -60,6 +64,31 @@ class Station extends Model
     public const STATE_RUNNING = 'running';
 
     /**
+     * Minimum gap between two jingles for a station that has never set one —
+     * the "station ID twice an hour" convention. Mirrors the column default;
+     * kept here too because the model is rendered into the .liq before it is
+     * ever read back from the database.
+     */
+    public const DEFAULT_JINGLE_INTERVAL_SECONDS = 1800;
+
+    public const DEFAULT_JINGLE_EVERY_TRACKS = 5;
+
+    /**
+     * Space jingles by wall-clock time. Predictable for legal IDs and sponsor
+     * reads, and unaffected by how long the station's tracks are.
+     */
+    public const JINGLE_MODE_INTERVAL = 'interval';
+
+    /**
+     * Space jingles by how many rotation tracks have played. Even musical
+     * density; real-world spacing swings with track length.
+     */
+    public const JINGLE_MODE_TRACKS = 'tracks';
+
+    /** @var list<string> */
+    public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
+
+    /**
      * Generate a unique slug from the station name on creation, then derive
      * the Icecast mount and a random source password. Slug is immutable
      * after creation — there is no update hook to regenerate it.
@@ -76,6 +105,14 @@ class Station extends Model
             // model is never a null state: isRunning() and the API resource
             // both read this immediately after create(), before any refresh.
             $station->desired_state ??= self::STATE_STOPPED;
+
+            // Same reasoning. LiquidsoapSupervisor renders the .liq straight
+            // off the in-memory model, so a null interval here would reach
+            // delay() as 0 — a jingle between every single track.
+            $station->jingles_enabled ??= false;
+            $station->jingle_mode ??= self::JINGLE_MODE_INTERVAL;
+            $station->jingle_interval_seconds ??= self::DEFAULT_JINGLE_INTERVAL_SECONDS;
+            $station->jingle_every_tracks ??= self::DEFAULT_JINGLE_EVERY_TRACKS;
         });
     }
 
@@ -106,6 +143,9 @@ class Station extends Model
     {
         return [
             'featured' => 'boolean',
+            'jingles_enabled' => 'boolean',
+            'jingle_interval_seconds' => 'integer',
+            'jingle_every_tracks' => 'integer',
             'social_links' => 'array',
             'theme_config' => 'array',
             'started_at' => 'datetime',
@@ -185,13 +225,37 @@ class Station extends Model
     }
 
     /**
-     * AutoDJ tracks, ordered by manual position (drag-to-reorder UI). The
-     * `position` column is gap-free per station; PlaylistFileWriter relies
-     * on this ordering to write `playlist.m3u`.
+     * Every uploaded audio file for this station — rotation AND jingles.
+     * Ordered by manual position (drag-to-reorder UI); the `position` column
+     * is gap-free per station AND kind, so this ordering is only meaningful
+     * once the query is narrowed to one kind.
+     *
+     * Prefer musicTracks()/jingles() unless you genuinely want both (the
+     * storage quota is the one place that does — jingles count against the
+     * same per-station cap).
      */
     public function tracks(): HasMany
     {
         return $this->hasMany(Track::class)->orderBy('position');
+    }
+
+    /**
+     * The AutoDJ rotation. PlaylistFileWriter writes exactly this, in this
+     * order, to `playlist.m3u`.
+     */
+    public function musicTracks(): HasMany
+    {
+        return $this->tracks()->where('kind', Track::KIND_MUSIC);
+    }
+
+    /**
+     * Station IDs / liners. Written to `jingles.m3u`, which Liquidsoap reads
+     * in randomize mode — so the ordering carried here is cosmetic, it only
+     * gives the UI a stable list.
+     */
+    public function jingles(): HasMany
+    {
+        return $this->tracks()->where('kind', Track::KIND_JINGLE);
     }
 
     public function notifySubscriptions(): HasMany

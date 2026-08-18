@@ -50,7 +50,7 @@ export default async function LibraryPage({
         </p>
       </div>
 
-      <LibraryView slug={slug} initialTracks={initialTracks} initialMeta={meta} />
+      <LibraryView station={station} initialTracks={initialTracks} initialMeta={meta} />
     </div>
   )
 }

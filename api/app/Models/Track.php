@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\TrackFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -20,13 +21,14 @@ use Illuminate\Support\Carbon;
  *
  * @property string $id
  * @property string $station_id
+ * @property string $kind one of KIND_MUSIC | KIND_JINGLE
  * @property string $path relative path inside the station's playlist dir, e.g. "01HX....mp3"
  * @property string $original_filename
  * @property string $title
  * @property string|null $artist
  * @property float $duration_seconds
  * @property int $file_size_bytes
- * @property int $position 1-based, gap-free per station
+ * @property int $position 1-based, gap-free per station AND kind
  * @property Carbon $created_at
  * @property Carbon $updated_at
  */
@@ -35,7 +37,27 @@ class Track extends Model
     /** @use HasFactory<TrackFactory> */
     use HasFactory, HasUlids;
 
+    /**
+     * Part of the AutoDJ rotation — written to `playlist.m3u` and played in
+     * `position` order on loop.
+     */
+    public const KIND_MUSIC = 'music';
+
+    /**
+     * A station ID, liner or sweeper — written to `jingles.m3u` and played
+     * between rotation tracks on a timer, never in sequence. Order is
+     * meaningless here: Liquidsoap reads that playlist in `randomize` mode.
+     */
+    public const KIND_JINGLE = 'jingle';
+
+    /** @var list<string> */
+    public const KINDS = [self::KIND_MUSIC, self::KIND_JINGLE];
+
     protected $fillable = ['title', 'artist'];
+
+    protected $attributes = [
+        'kind' => self::KIND_MUSIC,
+    ];
 
     protected function casts(): array
     {
@@ -44,6 +66,27 @@ class Track extends Model
             'file_size_bytes' => 'integer',
             'position' => 'integer',
         ];
+    }
+
+    /**
+     * @param  Builder<Track>  $query
+     */
+    public function scopeMusic($query): void
+    {
+        $query->where('kind', self::KIND_MUSIC);
+    }
+
+    /**
+     * @param  Builder<Track>  $query
+     */
+    public function scopeJingles($query): void
+    {
+        $query->where('kind', self::KIND_JINGLE);
+    }
+
+    public function isJingle(): bool
+    {
+        return $this->kind === self::KIND_JINGLE;
     }
 
     public function station(): BelongsTo

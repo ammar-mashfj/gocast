@@ -11,6 +11,7 @@ import {
   IconX,
   IconLoader2,
   IconMusic,
+  IconMicrophone,
 } from "@tabler/icons-react"
 import {
   DndContext,
@@ -34,20 +35,34 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { formatBytes, formatDuration } from "@/lib/format"
+import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
+import { JinglesDialog } from "./JinglesDialog"
+import { AUDIO_ACCEPT, isAudioFile, uploadErrorMessage } from "./upload"
 
 interface Props {
-  slug: string
+  station: Station
   initialTracks: Track[]
   initialMeta: LibraryMeta
 }
 
-export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
+export function LibraryView({ station, initialTracks, initialMeta }: Props) {
+  const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [jinglesOpen, setJinglesOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // The storage cap covers the whole station, so a jingle upload or delete
+  // has to move this meter too.
+  const applyStorageDelta = useCallback((deltaBytes: number) => {
+    setMeta((prev) => ({
+      ...prev,
+      storage_used_bytes: prev.storage_used_bytes + deltaBytes,
+    }))
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -55,7 +70,7 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
   )
 
   const upload = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files).filter((f) => f.type.startsWith("audio/") || /\.(mp3|m4a|aac|flac|ogg|wav)$/i.test(f.name))
+    const list = Array.from(files).filter(isAudioFile)
     if (list.length === 0) {
       toast.error("No audio files in selection.")
       return
@@ -78,8 +93,7 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
       // Append uploaded tracks to the local list. Server-assigned positions
       // are already correct (max+1, max+2, …).
       setTracks((prev) => [...prev, ...data.data])
-      const usedDelta = data.data.reduce((sum, t) => sum + t.file_size_bytes, 0)
-      setMeta((prev) => ({ ...prev, storage_used_bytes: prev.storage_used_bytes + usedDelta }))
+      applyStorageDelta(data.data.reduce((sum, t) => sum + t.file_size_bytes, 0))
 
       if (data.errors.length > 0) {
         toast.error(data.errors[0].message)
@@ -87,18 +101,11 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
         toast.success(`Added ${data.data.length} track${data.data.length === 1 ? "" : "s"}.`)
       }
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { message?: string; errors?: Record<string, string[]> } } })
-        .response?.data
-      if (message?.errors) {
-        const first = Object.values(message.errors).flat()[0]
-        toast.error(first ?? "Upload failed")
-      } else {
-        toast.error(message?.message ?? "Upload failed")
-      }
+      toast.error(uploadErrorMessage(err))
     } finally {
       setUploading(false)
     }
-  }, [slug])
+  }, [slug, applyStorageDelta])
 
   const handleReorder = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event
@@ -140,7 +147,7 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
 
     const removed = target
     setTracks((prev) => prev.filter((t) => t.id !== id))
-    setMeta((prev) => ({ ...prev, storage_used_bytes: prev.storage_used_bytes - removed.file_size_bytes }))
+    applyStorageDelta(-removed.file_size_bytes)
 
     try {
       await api.delete(`/tracks/${id}`)
@@ -151,7 +158,7 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
       setTracks(data.data)
       setMeta(data.meta)
     }
-  }, [slug])
+  }, [slug, applyStorageDelta])
 
   const handleEdit = useCallback(async (id: string, fields: { title?: string; artist?: string | null }) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...fields } as Track : t)))
@@ -168,6 +175,29 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Jingles live behind a button rather than a second list on the page:
+          most visits here are about the rotation, and the two lists behave
+          differently enough (no ordering, no editing, a schedule) that showing
+          them side by side invites the wrong mental model. */}
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => setJinglesOpen(true)}>
+          <IconMicrophone size={16} />
+          Jingles
+          {station.jingles_enabled && (
+            <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              on
+            </span>
+          )}
+        </Button>
+      </div>
+
+      <JinglesDialog
+        open={jinglesOpen}
+        onClose={() => setJinglesOpen(false)}
+        station={station}
+        onStorageChange={applyStorageDelta}
+      />
+
       {/* Storage meter */}
       <Card>
         <CardContent className="py-4">
@@ -213,6 +243,9 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
             <p className="text-xs text-muted-foreground">
               MP3, M4A, AAC, FLAC, OGG, WAV · 50 MB per file · {formatBytes(meta.storage_cap_bytes)} per station
             </p>
+            <p className="text-xs text-muted-foreground">
+              Station IDs and liners go under <span className="font-medium">Jingles</span>, not here.
+            </p>
           </div>
           <Button variant="outline" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
             Browse files
@@ -220,7 +253,7 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="audio/*,.mp3,.m4a,.aac,.flac,.ogg,.wav"
+            accept={AUDIO_ACCEPT}
             multiple
             className="hidden"
             onChange={(e) => {
@@ -243,7 +276,22 @@ export function LibraryView({ slug, initialTracks, initialMeta }: Props) {
       ) : (
         <Card>
           <CardContent className="px-0 py-2">
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleReorder}>
+            {/* `id` is not cosmetic — without it this tree fails to hydrate.
+                dnd-kit derives the `aria-describedby` it puts on every drag
+                handle from useUniqueId(), which is backed by a MODULE-SCOPED
+                counter (@dnd-kit/utilities). That counter lives as long as the
+                process: the Node server keeps incrementing it across requests,
+                so the Nth render of this page emits "DndDescribedBy-(N-1)"
+                while the browser, starting from a fresh module, always emits
+                "DndDescribedBy-0". Every request after the first mismatches.
+                Passing an explicit id short-circuits the counter entirely —
+                useUniqueId returns the value it is given. */}
+            <DndContext
+              id="library-track-list"
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleReorder}
+            >
               <SortableContext items={tracks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {tracks.map((track) => (
                   <TrackRow

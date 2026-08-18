@@ -78,6 +78,49 @@ class LiquidsoapSupervisor
      */
     private const TELNET_TIMEOUT_SECONDS = 3;
 
+    /**
+     * Names of the `interactive.bool` / `interactive.float` variables the
+     * station script declares for jingle scheduling, addressed over telnet as
+     * `var.set <name> = <value>`.
+     *
+     * They exist so these two settings can change WITHOUT a container restart:
+     * baked in as literals, every tweak to how often a station ID plays would
+     * drop every listener mid-track. The rendered script carries the current
+     * values as its initial state, so telnet is a fast path and the row in the
+     * database remains the source of truth.
+     *
+     * Constants rather than strings at the call site because the same names
+     * appear in the Blade template — a typo on either side fails silently,
+     * with the setting simply never taking effect until the next restart.
+     */
+    public const VAR_JINGLES_ENABLED = 'jingles_enabled';
+
+    public const VAR_JINGLE_BY_TRACKS = 'jingle_by_tracks';
+
+    public const VAR_JINGLE_INTERVAL = 'jingle_interval';
+
+    public const VAR_JINGLE_EVERY_TRACKS = 'jingle_every_tracks';
+
+    /**
+     * Free-tier watermark, same interactive-variable mechanism as the jingle
+     * settings — and for a sharper reason. This one flips when somebody
+     * UPGRADES, and making a paying customer's listeners sit through a
+     * reconnect to stop hearing "powered by GoCast" would be a poor way to
+     * begin the relationship.
+     */
+    public const VAR_WATERMARK_ENABLED = 'watermark_enabled';
+
+    public const VAR_WATERMARK_INTERVAL = 'watermark_interval';
+
+    public const VAR_WATERMARK_DUCK = 'watermark_duck';
+
+    /**
+     * Where the shared clip directory is mounted inside every container.
+     * Read-only, and identical for all stations — it is platform content, not
+     * station content.
+     */
+    private const CONTAINER_SYSTEM_DIR = '/data/system';
+
     /** @var string Host path where per-station .liq files live. */
     private string $liqDir;
 
@@ -87,11 +130,15 @@ class LiquidsoapSupervisor
     /** @var string Host path where per-station HLS segments live (Caddy serves). */
     private string $hlsDir;
 
+    /** Shared platform audio (the watermark clip). One directory for the box. */
+    private string $systemDir;
+
     public function __construct()
     {
         $this->liqDir = config('liquidsoap.liq_dir', '/var/gocast/liq');
         $this->playlistsDir = config('liquidsoap.playlists_dir', '/var/gocast/playlists');
         $this->hlsDir = config('liquidsoap.hls_dir', '/var/gocast/hls');
+        $this->systemDir = config('liquidsoap.system_dir', '/var/gocast/system');
     }
 
     /**
@@ -548,6 +595,134 @@ class LiquidsoapSupervisor
     }
 
     /**
+     * Push the station's current jingle settings into its running container,
+     * live. Returns true if both landed.
+     *
+     * This is the reason jingle settings are interactive variables rather than
+     * literals in the rendered script: a restart re-reads the .liq but also
+     * disconnects every listener mid-track, which is an absurd price for
+     * changing how often a station ID plays.
+     *
+     * Best-effort by design, exactly like PlaylistFileWriter::reload(). A
+     * stopped or restarting station simply has nothing to tell — it will read
+     * the same values out of the freshly rendered script when it next boots,
+     * because renderLiqFile() emits them as the initial state. Losing this
+     * call can therefore delay a setting, never lose it.
+     */
+    public function applyJingleSettings(Station $station): bool
+    {
+        // Floats must carry a decimal point: Liquidsoap's `var.set` is typed,
+        // and "1800" for a float variable is refused outright. The int
+        // variable is the mirror image — "5.0" is refused there.
+        $interval = number_format(
+            max(60.0, (float) $station->jingle_interval_seconds),
+            1,
+            '.',
+            '',
+        );
+
+        // Both mode settings are always sent, not just the active one. They
+        // are independent variables in the script, and pushing only the mode
+        // in use would leave the other stale — so switching modes back would
+        // briefly apply whatever value was last written, until the next save.
+        $commands = [
+            self::VAR_JINGLES_ENABLED.' = '.($station->jingles_enabled ? 'true' : 'false'),
+            self::VAR_JINGLE_BY_TRACKS.' = '.($station->jingle_mode === Station::JINGLE_MODE_TRACKS ? 'true' : 'false'),
+            self::VAR_JINGLE_INTERVAL.' = '.$interval,
+            self::VAR_JINGLE_EVERY_TRACKS.' = '.max(1, (int) $station->jingle_every_tracks),
+        ];
+
+        foreach ($commands as $assignment) {
+            try {
+                $this->telnet($station, 'var.set '.$assignment);
+            } catch (\Throwable $e) {
+                Log::info('Jingle settings not applied live', [
+                    'station' => $station->slug,
+                    'command' => $assignment,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Does this station's OWNER's plan carry the free-tier watermark?
+     *
+     * Note the direction of the question. It is never "has this station opted
+     * in" — there is no station column, precisely so that no request, and no
+     * future form field added by accident, can switch it off. Upgrading is the
+     * only way it turns off, which is the entire point of it.
+     *
+     * A station whose owner or plan cannot be resolved is treated as NOT
+     * watermarked. Failing the other way would put "powered by GoCast" over a
+     * paying customer's show because of a missing eager-load.
+     */
+    public function watermarkEnabledFor(Station $station): bool
+    {
+        return $station->user?->watermarked() ?? false;
+    }
+
+    /**
+     * Push the watermark settings into a running container, live.
+     *
+     * Called when the OWNER'S PLAN changes rather than when the station does —
+     * an upgrade should silence the watermark within seconds, without the
+     * reconnect a restart would inflict on the listeners the customer just paid
+     * to keep. Best-effort for the same reason as the jingle settings: these
+     * values are also rendered into the script as its initial state, so a
+     * container that is down or unreachable is correct again on its next boot.
+     */
+    public function applyWatermarkSettings(Station $station): bool
+    {
+        $commands = [
+            self::VAR_WATERMARK_ENABLED.' = '.($this->watermarkEnabledFor($station) ? 'true' : 'false'),
+            self::VAR_WATERMARK_INTERVAL.' = '.number_format($this->watermarkInterval(), 1, '.', ''),
+            self::VAR_WATERMARK_DUCK.' = '.number_format($this->watermarkDuck(), 3, '.', ''),
+        ];
+
+        foreach ($commands as $assignment) {
+            try {
+                $this->telnet($station, 'var.set '.$assignment);
+            } catch (\Throwable $e) {
+                Log::info('Watermark settings not applied live', [
+                    'station' => $station->slug,
+                    'command' => $assignment,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Floored at 60s. Below a minute this stops reading as branding and starts
+     * reading as a fault — and since free stations are live-only, it would be
+     * ducking a person mid-sentence roughly once per paragraph.
+     */
+    private function watermarkInterval(): float
+    {
+        return max(60.0, (float) config('liquidsoap.watermark_interval_seconds'));
+    }
+
+    /**
+     * The portion of the station's own audio KEPT while the watermark plays.
+     * Clamped into (0, 1]: above 1 it would amplify rather than duck, and at
+     * exactly 0 the station is muted outright rather than ducked, which sounds
+     * like the stream dropped.
+     */
+    private function watermarkDuck(): float
+    {
+        return min(1.0, max(0.01, (float) config('liquidsoap.watermark_duck')));
+    }
+
+    /**
      * Resolve the address of a station container, for telnet (control) and
      * harbor HTTP (status) alike.
      *
@@ -855,6 +1030,11 @@ class LiquidsoapSupervisor
             '-v', "{$this->liqDir}/{$station->slug}.liq:/station.liq:ro",
             '-v', "{$this->playlistsDir}/{$station->slug}:/data/playlists:ro",
             '-v', "{$this->hlsDir}/{$station->slug}:/data/hls",
+            // Shared and read-only: the same clip directory for every station
+            // on the box. Mounted unconditionally, even when watermarking is
+            // switched off, so turning it back on is a re-render rather than a
+            // container recreate.
+            '-v', "{$this->systemDir}:".self::CONTAINER_SYSTEM_DIR.':ro',
             $this->image(),
             '/station.liq',
         ];
@@ -901,6 +1081,58 @@ class LiquidsoapSupervisor
             // Dead-air guard on the live input; 0 disables it.
             'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
             'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
+            // Jingles. Per-station rather than per-install: which IDs a
+            // station plays and how often is editorial, not operational.
+            // The source name and filename are passed through from
+            // PlaylistFileWriter's constants so the telnet reload command and
+            // the path in the script can never drift from what Laravel writes.
+            'jinglesEnabled' => (bool) $station->jingles_enabled,
+            // AutoDJ rotation. `autodjDynamic` picks which source the script
+            // is built around: Laravel answering one track at a time, or the
+            // legacy playlist file. See config/liquidsoap.php for why the
+            // switch exists — this is the audio path, and a rollback should
+            // not need a deploy.
+            'autodjDynamic' => (bool) config('liquidsoap.autodj_dynamic'),
+            'autodjRetryDelay' => max(1.0, (float) config('liquidsoap.autodj_retry_delay_seconds')),
+            // Built here rather than in the view so the slug is encoded once,
+            // by something that knows it is going into a URL.
+            'nextTrackUrl' => rtrim((string) config('liquidsoap.api_url'), '/')
+                .'/api/internal/next-track?slug='.rawurlencode($station->slug),
+            // The telnet namespace both modes answer on. StationPowerController
+            // sends "{source}.skip" without knowing which mode is live, so the
+            // two sources must share an id.
+            'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
+            'jinglesLiqSource' => PlaylistFileWriter::JINGLES_LIQ_SOURCE,
+            'jinglesFilename' => PlaylistFileWriter::JINGLES_FILENAME,
+            'jinglesEnabledVar' => self::VAR_JINGLES_ENABLED,
+            'jingleByTracksVar' => self::VAR_JINGLE_BY_TRACKS,
+            'jingleIntervalVar' => self::VAR_JINGLE_INTERVAL,
+            'jingleEveryTracksVar' => self::VAR_JINGLE_EVERY_TRACKS,
+            // The script takes a boolean rather than the mode string: it only
+            // ever asks "am I counting tracks?", and a string comparison in
+            // the audio graph would be a second place for the two spellings
+            // to drift apart.
+            'jingleByTracks' => $station->jingle_mode === Station::JINGLE_MODE_TRACKS,
+            'jingleEveryTracks' => max(1, (int) $station->jingle_every_tracks),
+            // Free-tier watermark. `supported` is the install-wide switch that
+            // decides whether the machinery exists at all; `enabled` is the
+            // per-station initial state, read from the OWNER'S PLAN and never
+            // from the station — there is deliberately no station column for
+            // it, so no request can turn it off.
+            'watermarkSupported' => (bool) config('liquidsoap.watermark_enabled'),
+            'watermarkEnabled' => $this->watermarkEnabledFor($station),
+            'watermarkEnabledVar' => self::VAR_WATERMARK_ENABLED,
+            'watermarkIntervalVar' => self::VAR_WATERMARK_INTERVAL,
+            'watermarkDuckVar' => self::VAR_WATERMARK_DUCK,
+            'watermarkContainerDir' => self::CONTAINER_SYSTEM_DIR,
+            'watermarkInterval' => $this->watermarkInterval(),
+            'watermarkDuck' => $this->watermarkDuck(),
+            'watermarkFade' => (float) config('liquidsoap.watermark_fade_seconds'),
+            // Floored well above zero: delay(0.) makes the jingle source
+            // permanently ready, so every single track boundary would fire a
+            // jingle. The request layer already enforces a 60s minimum — this
+            // is the backstop for a row edited by hand or by a seeder.
+            'jingleInterval' => max(60.0, (float) $station->jingle_interval_seconds),
             // AutoDJ track transitions. Off => hard cuts, which is the safe
             // fallback if a transition ever wedges playback again.
             'crossfadeEnabled' => (bool) config('liquidsoap.crossfade_enabled'),
@@ -929,6 +1161,13 @@ class LiquidsoapSupervisor
 
         File::ensureDirectoryExists($playlists);
         File::ensureDirectoryExists($hls);
+
+        // Shared, not per-station, but ensured here because this is the only
+        // path that runs before a `docker run`. Without it Docker creates the
+        // bind-mount source itself, as root:root — and then the clip an
+        // operator drops in later may not be readable by Liquidsoap's UID 100.
+        // Cheap: ensureDirectoryExists is a no-op once it exists.
+        File::ensureDirectoryExists($this->systemDir);
 
         // /var/gocast is set up by infra/setup-host.sh as 100:101 0775,
         // but mkdir() inside the api container (running as root) doesn't

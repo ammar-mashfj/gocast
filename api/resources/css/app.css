@@ -1,8 +1,20 @@
 @import 'tailwindcss';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
+/*
+ * ...but not the admin panel's, which has its own entry (admin.css) and its
+ * own component layer.
+ *
+ * Stock Laravel also scans `storage/framework/views/*.php` here. That glob is
+ * removed rather than narrowed: compiled views have hashed filenames, so there
+ * is no way to exclude the admin ones, and leaving it in silently pulled admin
+ * utilities into the public bundle the moment a panel page was rendered — the
+ * exact leak the separate admin.css entry exists to prevent. Nothing is lost:
+ * every class in a compiled view came from the .blade.php the glob below
+ * already scans.
+ */
+@source not '../views/admin';
 @source '../**/*.js';
 
 @theme {

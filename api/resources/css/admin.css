@@ -1,0 +1,21 @@
+/*
+ * Admin panel styles — deliberately a separate Vite entry from app.css.
+ *
+ * daisyUI ships a full component layer and a theme's worth of CSS variables.
+ * Loading it here rather than in app.css keeps all of that out of the public
+ * pages, and means the admin can be re-themed (or dropped) without touching
+ * anything the customer sees.
+ *
+ * `source(none)` turns off Tailwind v4's automatic content detection, which
+ * would otherwise scan the whole project — including the API-only PHP that
+ * has no classes in it. The two explicit sources below are the only places
+ * admin markup exists.
+ */
+@import 'tailwindcss' source(none);
+
+@source '../views/admin';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@plugin 'daisyui' {
+    themes: corporate --default, business --prefersdark;
+}

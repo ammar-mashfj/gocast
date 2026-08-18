@@ -16,8 +16,14 @@ use RuntimeException;
  *   - validates per-station storage cap
  *   - writes the file to disk under {playlist_dir}/{slug}/{id}.{ext}
  *   - reads ID3/M4A/Vorbis tags via getID3 (filename fallback)
- *   - creates the Track row at position max+1
- *   - regenerates the station's playlist.m3u
+ *   - creates the Track row at position max+1 *within its kind*
+ *   - regenerates the station's m3u files
+ *
+ * Music and jingles share this path entirely — same storage cap, same
+ * directory, same tag read, same quota lock. `kind` only decides which m3u
+ * the file lands in and which position sequence it joins, which is what
+ * makes jingles nearly free to support: there is no second upload pipeline
+ * to keep in step with this one.
  *
  * Caller is responsible for authorization. Throws on quota exceeded and on
  * write failure; rolls back the on-disk file if the DB insert blows up.
@@ -53,8 +59,13 @@ class TrackImporter
      * row-level lock on the station, so two concurrent uploads can't both
      * pass the quota check and write past the storage cap. The on-disk
      * file is rolled back if anything inside the transaction throws.
+     *
+     * `$kind` picks which list the file joins — Track::KIND_MUSIC (the
+     * rotation) or Track::KIND_JINGLE (station IDs). Jingles count against
+     * the same per-station storage cap: they are usually seconds long, and a
+     * second quota would be two numbers to explain in the UI for no benefit.
      */
-    public function import(Station $station, UploadedFile $file): Track
+    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC): Track
     {
         $size = $file->getSize();
         if ($size === false) {
@@ -73,6 +84,7 @@ class TrackImporter
 
         $track = (new Track)->forceFill([
             'station_id' => $station->id,
+            'kind' => $kind,
             'original_filename' => $originalName,
             'file_size_bytes' => $size,
         ]);
@@ -80,7 +92,7 @@ class TrackImporter
         $relativePath = $track->getKey().'.'.$extension;
         $absolutePath = $dir.'/'.$relativePath;
 
-        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track) {
+        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track, $kind) {
             // Lock the station row so two concurrent uploads serialize and
             // each sees the other's incremented total in the quota check.
             Station::whereKey($station->id)->lockForUpdate()->first();
@@ -98,7 +110,7 @@ class TrackImporter
                     'title' => $tags['title'] ?: ($derivedTitle ?: $this->titleFromFilename($originalName)),
                     'artist' => $tags['artist'] ?: $derivedArtist,
                     'duration_seconds' => (float) ($tags['duration'] ?? 0),
-                    'position' => $this->nextPosition($station),
+                    'position' => $this->nextPosition($station, $kind),
                 ]);
                 $track->save();
             } catch (\Throwable $e) {
@@ -135,11 +147,15 @@ class TrackImporter
         }
 
         $deletedPosition = $track->position;
+        $deletedKind = $track->kind;
         $track->delete();
 
         // Compact: every later track shifts down by one. Keeps positions
         // gap-free so a future "play track #N" feature is unambiguous.
+        // Scoped to the same kind — the two lists number independently, so
+        // deleting a jingle must not renumber the rotation.
         Track::where('station_id', $station->id)
+            ->where('kind', $deletedKind)
             ->where('position', '>', $deletedPosition)
             ->decrement('position');
 
@@ -148,14 +164,18 @@ class TrackImporter
     }
 
     /**
-     * Reorder a station's tracks. `$idsInOrder` is the desired sequence;
-     * any tracks not present are preserved at the tail in their existing
-     * relative order. Idempotent.
+     * Reorder a station's tracks within one kind. `$idsInOrder` is the
+     * desired sequence; any tracks of that kind not present are preserved at
+     * the tail in their existing relative order. Idempotent.
+     *
+     * Scoped to a kind because the two lists carry independent position
+     * sequences — reordering the rotation over the full track set would
+     * renumber jingles into the middle of it.
      */
-    public function reorder(Station $station, array $idsInOrder): void
+    public function reorder(Station $station, array $idsInOrder, string $kind = Track::KIND_MUSIC): void
     {
-        DB::transaction(function () use ($station, $idsInOrder) {
-            $tracks = $station->tracks()->lockForUpdate()->get()->keyBy('id');
+        DB::transaction(function () use ($station, $idsInOrder, $kind) {
+            $tracks = $station->tracks()->where('kind', $kind)->lockForUpdate()->get()->keyBy('id');
 
             $position = 1;
             $touched = [];
@@ -258,9 +278,9 @@ class TrackImporter
         return [$artist, $title];
     }
 
-    private function nextPosition(Station $station): int
+    private function nextPosition(Station $station, string $kind): int
     {
-        return ((int) $station->tracks()->max('position')) + 1;
+        return ((int) $station->tracks()->where('kind', $kind)->max('position')) + 1;
     }
 
     private function humanBytes(int $bytes): string

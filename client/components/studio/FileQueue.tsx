@@ -210,7 +210,15 @@ export function FileQueue() {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-0.5 overflow-y-auto flex-1 pt-0">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        {/* Stable id — see the note in LibraryView. dnd-kit's generated ids
+            come from a module-scoped counter that the server process keeps
+            incrementing across requests, so they never match the browser's. */}
+        <DndContext
+          id="studio-file-queue"
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
           <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
             {queue.map((track, i) => (
               <SortableRow

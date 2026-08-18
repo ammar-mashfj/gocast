@@ -2,6 +2,7 @@
 
 use App\Models\Station;
 use App\Models\User;
+use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\View;
 
@@ -34,6 +35,32 @@ function renderStationScript(Station $station, array $overrides = []): string
         'crossfadeHigh' => -15.0,
         'crossfadeMedium' => -32.0,
         'crossfadeMargin' => 4.0,
+        'jinglesEnabled' => false,
+        'autodjDynamic' => true,
+        'autodjRetryDelay' => 10.0,
+        'nextTrackUrl' => 'http://api/api/internal/next-track?slug=night-shift',
+        'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
+        'jinglesLiqSource' => PlaylistFileWriter::JINGLES_LIQ_SOURCE,
+        'jinglesFilename' => PlaylistFileWriter::JINGLES_FILENAME,
+        'jinglesEnabledVar' => LiquidsoapSupervisor::VAR_JINGLES_ENABLED,
+        'jingleByTracksVar' => LiquidsoapSupervisor::VAR_JINGLE_BY_TRACKS,
+        'jingleIntervalVar' => LiquidsoapSupervisor::VAR_JINGLE_INTERVAL,
+        'jingleEveryTracksVar' => LiquidsoapSupervisor::VAR_JINGLE_EVERY_TRACKS,
+        'jingleInterval' => 1800.0,
+        'jingleByTracks' => false,
+        'jingleEveryTracks' => 5,
+        // Watermark defaults here mirror a FREE station on a normal install:
+        // the machinery is compiled in and the switch is on. Tests that care
+        // about the paid case override `watermarkEnabled`.
+        'watermarkSupported' => true,
+        'watermarkEnabled' => true,
+        'watermarkEnabledVar' => LiquidsoapSupervisor::VAR_WATERMARK_ENABLED,
+        'watermarkIntervalVar' => LiquidsoapSupervisor::VAR_WATERMARK_INTERVAL,
+        'watermarkDuckVar' => LiquidsoapSupervisor::VAR_WATERMARK_DUCK,
+        'watermarkContainerDir' => '/data/system',
+        'watermarkInterval' => 600.0,
+        'watermarkDuck' => 0.15,
+        'watermarkFade' => 1.0,
     ], $overrides))->render();
 }
 
@@ -194,7 +221,7 @@ it('decides transitions by loudness instead of always overlapping', function () 
         ->and($script)->toContain('b.db_level')
         // The hard-cut arm for loud/far-apart pairs.
         ->and($script)->toContain('sequence([a.source, b.source])')
-        ->and($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj)')
+        ->and($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_rotation)')
         // Thresholds come from config, not hardcoded.
         ->and($script)->toContain('autodj_cross_high = -15.0')
         ->and($script)->toContain('autodj_cross_medium = -32.0')
@@ -222,7 +249,7 @@ it('falls back to hard cuts when the crossfade is disabled', function () {
     // enough to get back to known-good behaviour without a code change.
     $script = renderStationScript($this->station, ['crossfadeEnabled' => false]);
 
-    expect($script)->toContain('autodj_faded = autodj')
+    expect($script)->toContain('autodj_faded = autodj_rotation')
         ->and($script)->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)')
         // No transition machinery at all in this mode.
         ->and($script)->not->toContain('def autodj_cross(')
@@ -251,10 +278,14 @@ it('never puts a cross-family operator on the live path', function () {
     // snapping back up, plus enough source churn to starve the streaming
     // thread into "Latency is too high: we must catchup 1.22 seconds".
     //
-    // The transition may only ever wrap `autodj`.
+    // The transition may only ever wrap the AutoDJ arm.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj)')
+    expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_rotation)')
+        // `autodj_rotation` IS the AutoDJ arm — the rotation playlist and the
+        // jingle arm, and nothing else. It is strictly upstream of the
+        // live/AutoDJ fallback, which is the property this test protects.
+        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])')
         // Never the mix, and never the live source.
         ->and($script)->not->toContain('cross(duration=2., mixed)')
         ->and($script)->not->toMatch('/^[^#\n]*\bcross(fade)?\([^)]*\b(mixed|live|output_source)\b/m')
@@ -273,17 +304,17 @@ it('limits the autodj arm to protect the encoder from 0 dBFS masters', function 
         ->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)');
 });
 
-it('keeps the raw playlist bound under its own name', function () {
-    // `autodj` must stay the playlist itself. cross() takes it as its argument,
-    // and PlaylistFileWriter drives it over telnet by id, so rebinding the name
-    // to a wrapper (as an early version did) silently breaks both — and fails
-    // at `liquidsoap --check`, i.e. the station never boots.
+it('keeps the raw rotation bound under its own name', function () {
+    // `autodj` must stay the rotation source itself. cross() takes it as its
+    // argument, and the skip command is registered on it, so rebinding the
+    // name to a wrapper (as an early version did) silently breaks both — and
+    // fails at `liquidsoap --check`, i.e. the station never boots.
     //
     // Its METHODS are no longer called from /status: doing so made this a
     // second operator on a source cross() fast-forwards. See the test below.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('autodj = playlist(')
+    expect($script)->toContain('autodj = request.dynamic(')
         ->and($script)->not->toContain('autodj = cross')
         ->and($script)->not->toContain('autodj = limit')
         // Readiness is read off the arm the fallback actually selects.
@@ -385,4 +416,335 @@ it('never reads playlist methods from the status endpoint', function () {
         // The container still reports what it alone knows.
         ->and($script)->toContain('elapsed = finite(output_source.elapsed())')
         ->and($script)->toContain('remaining = finite(output_source.remaining())');
+});
+
+it('holds jingles behind a delay so they cannot cut into a track', function () {
+    // The three flags here ARE the feature:
+    //
+    //   delay(initial=true, N)     — a jingle is unavailable for N seconds
+    //                                after the last one ended, and at boot.
+    //   source.available(...)      — gated on the owner's switch, at a track
+    //                                boundary so turning it off never cuts a
+    //                                jingle that is already on air.
+    //   fallback(track_sensitive)  — the switch is only reconsidered at a
+    //                                track boundary, so a jingle becoming
+    //                                ready mid-song waits for the song.
+    //
+    // Drop track_sensitive and the station starts chopping songs in half on a
+    // half-hour timer, which is the exact failure this feature must not have.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    expect($script)->toContain('jingles = playlist(')
+        ->and($script)->toContain('id = "jingles_m3u"')
+        // Slash-escaped because every string here goes through json_encode —
+        // same as the api URLs above. Verified against 2.4.5: the lexer
+        // unescapes `\/` back to `/`.
+        ->and($script)->toContain('"\/data\/playlists\/jingles.m3u"')
+        // randomize: three station IDs must not play in a fixed cycle.
+        ->and($script)->toContain('mode = "randomize"')
+        ->and($script)->toContain('delay(initial=true, jingle_delay, jingles)')
+        ->and($script)->toContain('track_sensitive = true,')
+        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])');
+});
+
+it('re-reads the jingle count continuously, not only when a jingle ends', function () {
+    // REGRESSION. source.available(track_sensitive=true, ...) defers evaluation
+    // of the PREDICATE to an end-of-track of the source it wraps — the jingle,
+    // which is not playing while music runs. The count was therefore only
+    // re-read when a jingle ended, latching a stale "true": observed on a real
+    // station firing a jingle at counter=1 against a threshold of 3, and
+    // sometimes two jingles back to back.
+    //
+    // track_sensitive belongs on the fallback, which defers the SWITCH. Putting
+    // it here deferred the QUESTION.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    // Just the source.available call — bounded at the fallback that follows,
+    // which legitimately does carry track_sensitive.
+    $start = strpos($script, 'jingle_arm = source.available(');
+    $arm = substr($script, $start, strpos($script, 'autodj_rotation =', $start) - $start);
+
+    expect($arm)->not->toContain('track_sensitive')
+        // ...while the fallback that consumes it must still have it, or a
+        // jingle becoming due would chop the current song in half.
+        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true,');
+});
+
+it('neutralises the gate belonging to the mode that is not in use', function () {
+    // One graph, two gates. In track mode the time gate must go to zero, and
+    // in interval mode the count gate must be vacuously true — otherwise the
+    // two modes AND together and a station waits for both, which reads as
+    // "jingles are broken" rather than as a config mistake.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    expect($script)->toContain('if jingle_by_tracks() then 0.0 else jingle_interval() end')
+        ->and($script)->toContain('and (not jingle_by_tracks() or tracks_since_jingle() >= jingle_every_tracks())');
+});
+
+it('counts rotation tracks on the leaf sources, synchronously', function () {
+    // Counted on the playlists themselves, not on the fallback: a track mark
+    // downstream has already been through cross(), so it would count
+    // transitions rather than tracks.
+    //
+    // synchronous=true is load-bearing and deliberately against the
+    // convention in the rest of this script. The fallback re-evaluates
+    // availability at the same boundary that fires this handler, so a counter
+    // updated on a separate task can land after the decision it informs. It is
+    // safe here only because the handler does no I/O.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    expect($script)->toContain('tracks_since_jingle = ref(0)')
+        ->and($script)->toContain('autodj.on_track(synchronous=true,')
+        ->and($script)->toContain('jingles.on_track(synchronous=true,')
+        // The jingle resets the counter; without this it only ever fires once.
+        ->and($script)->toContain('tracks_since_jingle := 0');
+});
+
+it('renders the track count as an int and the interval as a float', function () {
+    // Liquidsoap's var.set is typed both ways: interactive.float refuses "5"
+    // and interactive.int refuses "5.0". Getting either wrong means the
+    // setting silently never applies.
+    $script = renderStationScript($this->station, [
+        'jingleByTracks' => true,
+        'jingleEveryTracks' => 8,
+        'jingleInterval' => 600.0,
+    ]);
+
+    expect($script)->toContain('interactive.int("jingle_every_tracks", 8)')
+        ->and($script)->not->toContain('interactive.int("jingle_every_tracks", 8.0)')
+        ->and($script)->toContain('interactive.float("jingle_interval", 600.0)')
+        ->and($script)->toContain('interactive.bool("jingle_by_tracks", true)');
+});
+
+it('builds the jingle source for every station, on or off', function () {
+    // The graph must not depend on the switch, because the switch is settable
+    // at runtime — a station that rendered without the jingle source could
+    // never be turned on without a restart, which is the whole thing this
+    // design exists to avoid.
+    $off = renderStationScript($this->station, ['jinglesEnabled' => false]);
+    $on = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    foreach ([$off, $on] as $script) {
+        expect($script)->toContain('jingles = playlist(')
+            ->and($script)->toContain('jingle_arm = source.available(');
+    }
+
+    // Only the initial value of the switch differs between the two.
+    expect($off)->toContain('interactive.bool("jingles_enabled", false)')
+        ->and($on)->toContain('interactive.bool("jingles_enabled", true)');
+});
+
+it('declares jingle settings as interactive variables so they need no restart', function () {
+    // Literals here would mean re-rendering and restarting the container to
+    // change how often a station ID plays — dropping every listener mid-track
+    // for a scheduling tweak. The names must match the constants Laravel sends
+    // over telnet; a typo on either side fails silently.
+    $script = renderStationScript($this->station, [
+        'jinglesEnabled' => true,
+        'jingleInterval' => 900.0,
+    ]);
+
+    expect($script)->toContain(
+        'jingles_enabled = interactive.bool("'.LiquidsoapSupervisor::VAR_JINGLES_ENABLED.'", true)'
+    )
+        ->and($script)->toContain(
+            'jingle_interval = interactive.float("'.LiquidsoapSupervisor::VAR_JINGLE_INTERVAL.'", 900.0)'
+        )
+        // The interval reaches delay() through the variable, never inlined —
+        // inlining would silently re-freeze it at render time.
+        ->and($script)->not->toMatch('/delay\(initial=true, [0-9]/');
+});
+
+it('emits a liquidsoap-valid float for the jingle interval', function () {
+    // Same lexer trap as every other numeric setting here: a bare
+    // interpolation of 1800 renders "1800" where interactive.float wants a
+    // float, and "1800." for a fractional value renders "1800.5." — a syntax
+    // error either way.
+    $script = renderStationScript($this->station, ['jingleInterval' => 1800.0]);
+
+    expect($script)->toContain('interactive.float("jingle_interval", 1800.0)')
+        ->and($script)->not->toContain('1800.0.');
+});
+
+it('never crossfades a jingle', function () {
+    // Sliding a produced station ID under the tail of a song defeats the
+    // point of playing it. The flag rides in on the annotate URI
+    // PlaylistFileWriter emits, because by the time the cross transition runs
+    // there is nothing left to say which source a request came from.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    expect($script)->toContain('a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"')
+        ->and($script)->toContain('sequence([a.source, b.source])');
+});
+
+it('keeps jingles out of the now-playing push', function () {
+    // No push means Laravel's cached payload stays on the last real track,
+    // so the player keeps showing the song rather than flashing "Station ID"
+    // for eight seconds.
+    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+
+    expect($script)->toMatch('/def push_now_playing\(m\) =\s*\n\s*if m\["jingle"\] == "true" then/');
+});
+
+it('mixes the watermark over the station instead of replacing it', function () {
+    // smooth_add, not fallback: a watermark rides on top and ducks the
+    // carrier. A fallback would take the station off its own air for the
+    // duration, which on a live show means cutting the host off mid-sentence.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('broadcast_source = smooth_add(')
+        ->and($script)->toContain('normal = output_source,')
+        ->and($script)->toContain('special = watermark_arm')
+        ->and($script)->toContain('p = watermark_duck,');
+});
+
+it('watermarks what listeners hear without touching what the api reports', function () {
+    // The whole reason for a separate `broadcast_source`. /status and the
+    // now-playing push read `output_source`, which must keep describing what
+    // the STATION is playing: a platform ID is not the station's now-playing,
+    // and routing it through would also let the clip's own metadata overwrite
+    // a real track title.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('output_source = mixed')
+        // Both outputs — Icecast and HLS — carry the mark.
+        ->and(substr_count($script, "\n  broadcast_source\n"))->toBe(2)
+        // ...and neither the status endpoint nor the metadata push does.
+        ->and($script)->toContain('output_source.on_metadata(synchronous=false, push_now_playing)')
+        ->and($script)->toContain('m = output_source.last_metadata()')
+        ->and($script)->not->toContain('broadcast_source.on_metadata')
+        ->and($script)->not->toContain('broadcast_source.last_metadata');
+});
+
+it('catches a free station going live, which is all a free station can do', function () {
+    // Free plans have autodj_enabled = false, so the AutoDJ arm is silence and
+    // everything audible is a live broadcast. The watermark therefore has to
+    // sit BELOW the live/AutoDJ fallback — applied to the AutoDJ arm it would
+    // be inaudible, and applied above the fallback it would be evaded simply
+    // by going live.
+    $script = renderStationScript($this->station);
+
+    $fallback = strpos($script, 'mixed = mksafe(fallback(');
+    $watermark = strpos($script, 'broadcast_source = smooth_add(');
+
+    expect($fallback)->not->toBeFalse()
+        ->and($watermark)->not->toBeFalse()
+        ->and($watermark)->toBeGreaterThan($fallback);
+});
+
+it('stays silent when the station itself is silent', function () {
+    // "Powered by GoCast" alone into an otherwise empty stream reads as a
+    // fault rather than as branding. Same readiness test /status uses to name
+    // the current source, so the two cannot disagree about whether anything
+    // is playing.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('watermark_enabled() and (live.is_ready() or autodj_mix.is_ready())');
+});
+
+it('does not wait for a track boundary, unlike a jingle', function () {
+    // A jingle replaces a track and must wait for a boundary. A watermark
+    // rides on top, and on a live stream there are no boundaries to wait for.
+    $script = renderStationScript($this->station);
+
+    $arm = substr($script, strpos($script, 'watermark_arm = source.available('), 200);
+
+    expect($arm)->not->toContain('track_sensitive');
+});
+
+it('reads the watermark from a directory so a missing clip cannot break a station', function () {
+    // playlist() over a directory: an empty one makes the source fallible and
+    // the station simply plays unmarked. A fixed filename that does not exist
+    // would be an unresolvable request on every station on the box.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('id = "watermark"')
+        ->and($script)->toContain('"\/data\/system"')
+        ->and($script)->toContain('mode = "randomize"');
+});
+
+it('drops the watermark machinery entirely when the install disables it', function () {
+    $script = renderStationScript($this->station, ['watermarkSupported' => false]);
+
+    expect($script)->toContain('broadcast_source = output_source')
+        ->and($script)->not->toContain('smooth_add(')
+        ->and($script)->not->toContain('id = "watermark"');
+});
+
+it('renders the watermark switch off for a paid station but keeps it settable', function () {
+    // Still compiled in, just off. That is what lets a DOWNGRADE take effect
+    // over telnet later without recreating the container.
+    $script = renderStationScript($this->station, ['watermarkEnabled' => false]);
+
+    expect($script)->toContain('interactive.bool("watermark_enabled", false)')
+        ->and($script)->toContain('broadcast_source = smooth_add(');
+});
+
+it('emits liquidsoap-valid floats for the watermark levels', function () {
+    // Same lexer trap as everywhere else, plus one specific to the duck: it is
+    // a fraction, so a bare interpolation of 0.15 must not lose its leading
+    // zero or gain a trailing dot.
+    $script = renderStationScript($this->station, [
+        'watermarkInterval' => 900.0,
+        'watermarkDuck' => 0.2,
+        'watermarkFade' => 1.5,
+    ]);
+
+    expect($script)->toContain('interactive.float("watermark_interval", 900.0)')
+        ->and($script)->toContain('interactive.float("watermark_duck", 0.200)')
+        ->and($script)->toContain('duration = 1.5,');
+});
+
+/**
+ * The rotation is the one part of this script that talks back to Laravel on
+ * the audio path, so what it emits is asserted rather than eyeballed.
+ */
+it('builds the rotation as request.dynamic, not a playlist file', function () {
+    $script = renderStationScript($this->station);
+
+    // json_encode escapes the slashes, which is the file's convention for
+    // every string it emits; Liquidsoap resolves \/ back to / at parse time
+    // (verified against the image, same as the harbor-auth URL above).
+    expect($script)->toContain('request.dynamic(')
+        ->toContain('next-track?slug=night-shift')
+        ->toContain('X-Internal-Key')
+        // The whole point: no list in the container means no reload to send.
+        ->not->toContain('"/data/playlists/playlist.m3u"');
+});
+
+/**
+ * `request.dynamic` registers `.flush_and_skip`, never `.skip` — and
+ * StationPowerController sends "{source}.skip". Without this registration the
+ * skip-track button answers "unknown command" and silently does nothing.
+ */
+it('registers the skip command the power controller sends', function () {
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('autodj.register_command(')
+        ->toContain('"skip"');
+});
+
+it('falls back to the playlist file when dynamic mode is switched off', function () {
+    $script = renderStationScript($this->station, ['autodjDynamic' => false]);
+
+    expect($script)->toContain('autodj = playlist(')
+        ->toContain('/data/playlists/playlist.m3u')
+        ->not->toContain('request.dynamic(');
+});
+
+it('keeps one telnet namespace across both rotation modes', function () {
+    $dynamic = renderStationScript($this->station);
+    $legacy = renderStationScript($this->station, ['autodjDynamic' => false]);
+
+    // Laravel sends "{source}.skip" / ".reload" without knowing which mode the
+    // container was rendered in, so the ids must not diverge.
+    expect($dynamic)->toContain('id = "'.PlaylistFileWriter::LIQ_SOURCE.'"')
+        ->and($legacy)->toContain('id = "'.PlaylistFileWriter::LIQ_SOURCE.'"');
+});
+
+it('never asks the API on a tight loop when a station has no rotation', function () {
+    $script = renderStationScript($this->station, ['autodjRetryDelay' => 10.0]);
+
+    // Liquidsoap's own default is 0.1s — ten requests a second, forever.
+    expect($script)->toContain('retry_delay = { 10.0 }');
 });

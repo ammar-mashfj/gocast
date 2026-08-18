@@ -3,6 +3,7 @@
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\File;
 
@@ -129,4 +130,123 @@ it('writes an empty playlist when the station has no tracks', function () {
     app(PlaylistFileWriter::class)->write($station);
 
     expect(File::get($this->tmpDir.'/empty/playlist.m3u'))->toBe("#EXTM3U\n");
+});
+
+it('writes jingles to their own m3u and keeps them out of the rotation', function () {
+    // Two lists, two files. Mixing jingles into playlist.m3u would put them
+    // in the rotation — played in order, once per loop — which is the exact
+    // behaviour the delay/fallback in the .liq exists to avoid.
+    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'split']);
+    Track::factory()->for($station)->create([
+        'path' => '01song.mp3',
+        'title' => 'A Song',
+        'artist' => 'Someone',
+        'duration_seconds' => 200,
+        'position' => 1,
+    ]);
+    Track::factory()->for($station)->jingle()->create([
+        'path' => '01id.mp3',
+        'title' => 'Station ID',
+        'duration_seconds' => 6,
+        'position' => 1,
+    ]);
+
+    app(PlaylistFileWriter::class)->write($station);
+
+    $rotation = File::get($this->tmpDir.'/split/playlist.m3u');
+    $jingles = File::get($this->tmpDir.'/split/jingles.m3u');
+
+    expect($rotation)->toContain('/data/playlists/01song.mp3')
+        ->and($rotation)->not->toContain('01id.mp3')
+        ->and($jingles)->toContain('/data/playlists/01id.mp3')
+        ->and($jingles)->not->toContain('01song.mp3');
+});
+
+it('flags jingle entries so the audio graph can recognise them downstream', function () {
+    // The .liq reads this annotation in two places — the crossfade (hard cut,
+    // never a mix) and the now-playing push (a station ID is not "now
+    // playing"). Both run long after the request left its source, so the flag
+    // has to travel on the request itself.
+    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'flagged']);
+    Track::factory()->for($station)->jingle()->create([
+        'path' => '01id.mp3',
+        'title' => 'Top of the hour',
+        'artist' => null,
+        'duration_seconds' => 8,
+        'position' => 1,
+    ]);
+    Track::factory()->for($station)->create([
+        'path' => '01song.mp3',
+        'title' => 'A Song',
+        'artist' => null,
+        'duration_seconds' => 200,
+        'position' => 1,
+    ]);
+
+    app(PlaylistFileWriter::class)->write($station);
+
+    expect(File::get($this->tmpDir.'/flagged/jingles.m3u'))
+        ->toContain('annotate:jingle="true",duration="8.000",title="Top of the hour":/data/playlists/01id.mp3')
+        // Never on a rotation entry — a stray flag there would hard cut every
+        // transition and blank now-playing for the whole station.
+        ->and(File::get($this->tmpDir.'/flagged/playlist.m3u'))->not->toContain('jingle=');
+});
+
+it('always writes a jingles file, even when the station has none', function () {
+    // The rendered script references jingles.m3u by path. A missing file is a
+    // decoding error on every read; an empty one just makes the source
+    // fallible, which the fallback already handles.
+    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'nojingles']);
+
+    app(PlaylistFileWriter::class)->write($station);
+
+    expect(File::get($this->tmpDir.'/nojingles/jingles.m3u'))->toBe("#EXTM3U\n");
+});
+
+/**
+ * The fix itself. `playlist_m3u.reload` restarts the rotation at track one
+ * (measured on 2.4.5), and dynamic mode has no list to reload — so sending it
+ * would reintroduce the exact bug the mode removes.
+ */
+it('does not reload the rotation when the rotation is not a file', function () {
+    config(['liquidsoap.autodj_dynamic' => true]);
+
+    $station = Station::factory()->create(['jingles_enabled' => false]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class);
+    $supervisor->shouldNotReceive('telnet');
+
+    (new PlaylistFileWriter($supervisor))->reload($station);
+});
+
+it('still reloads the rotation in legacy playlist mode', function () {
+    config(['liquidsoap.autodj_dynamic' => false]);
+
+    $station = Station::factory()->create(['jingles_enabled' => false]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class);
+    $supervisor->shouldReceive('telnet')
+        ->once()
+        ->with(Mockery::type(Station::class), PlaylistFileWriter::LIQ_SOURCE.'.reload')
+        ->andReturn('');
+
+    (new PlaylistFileWriter($supervisor))->reload($station);
+});
+
+/**
+ * Jingles are still a playlist file, so they still need telling — and their
+ * source is randomized, so a cursor reset there is inaudible.
+ */
+it('still reloads jingles in dynamic mode', function () {
+    config(['liquidsoap.autodj_dynamic' => true]);
+
+    $station = Station::factory()->create(['jingles_enabled' => true]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class);
+    $supervisor->shouldReceive('telnet')
+        ->once()
+        ->with(Mockery::type(Station::class), PlaylistFileWriter::JINGLES_LIQ_SOURCE.'.reload')
+        ->andReturn('');
+
+    (new PlaylistFileWriter($supervisor))->reload($station);
 });

@@ -37,7 +37,11 @@ cd "$(dirname "$0")/.."
 #                    Liquidsoap containers keep write access through gid 101.
 DATA_OWNER="${GOCAST_DATA_OWNER:-100}"
 
-sudo mkdir -p /var/gocast/liq /var/gocast/playlists /var/gocast/hls
+# `system` holds platform-owned audio shared by every station — currently the
+# free-tier watermark clip, mounted read-only into each container at
+# /data/system. Liquidsoap plays whatever files are in it, so an empty
+# directory simply means no watermark; it is never fatal.
+sudo mkdir -p /var/gocast/liq /var/gocast/playlists /var/gocast/hls /var/gocast/system
 sudo chown -R "${DATA_OWNER}:101" /var/gocast
 sudo chmod -R 0775 /var/gocast
 
@@ -69,6 +73,7 @@ docker network inspect gocast-network >/dev/null 2>&1 || docker network create \
 docker build -t gocast/liquidsoap:latest infra/liquidsoap/
 
 echo "✓ Host setup complete"
-echo "  Data dirs: /var/gocast/{liq,playlists,hls}"
+echo "  Data dirs: /var/gocast/{liq,playlists,hls,system}"
+echo "  Drop the free-tier watermark clip in /var/gocast/system/ (any audio file)."
 echo "  Network:   gocast-network"
 echo "  Image:     gocast/liquidsoap:latest"

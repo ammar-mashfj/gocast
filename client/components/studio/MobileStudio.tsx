@@ -361,7 +361,16 @@ export function MobileStudio() {
 
         {/* Queue list */}
         <div className="flex flex-col gap-0.5 overflow-y-auto flex-1 px-3">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          {/* Stable id, or dnd-kit's module-scoped counter numbers the
+              drag handles' aria-describedby differently on the server than in
+              the browser and the tree fails to hydrate. Must be unique across
+              every DndContext in the app. */}
+          <DndContext
+            id="mobile-studio-queue"
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
             <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
               {queue.map((qTrack, i) => (
                 <SortableMobileRow

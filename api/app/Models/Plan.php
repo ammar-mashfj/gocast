@@ -16,6 +16,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property int $max_running_stations
  * @property int $max_listeners
  * @property bool $autodj_enabled
+ * @property bool $watermark_enabled
  * @property int|null $idle_stop_hours
  */
 class Plan extends Model
@@ -37,13 +38,14 @@ class Plan extends Model
     {
         return [
             'autodj_enabled' => 'boolean',
+            'watermark_enabled' => 'boolean',
         ];
     }
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'slug', 'max_stations', 'max_running_stations', 'max_listeners', 'autodj_enabled'])
+            ->logOnly(['name', 'slug', 'max_stations', 'max_running_stations', 'max_listeners', 'autodj_enabled', 'watermark_enabled'])
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
     }

@@ -112,6 +112,31 @@ class StationResource extends JsonResource
             },
             'now_playing' => $this->nowPlaying($nowPlaying),
             'icecast_mount' => $this->icecast_mount,
+            // Owner-facing AutoDJ config. Cheap (plain columns) and the
+            // library screen needs them to render its jingle dialog without
+            // a second round trip.
+            // READ-ONLY, and the only place the watermark appears in the API.
+            // It is derived from the owner's plan, has no station column, and
+            // is absent from UpdateStationRequest — a free user must not be
+            // one PATCH away from removing the thing they pay to remove. It is
+            // surfaced at all so the dashboard can say so honestly, and offer
+            // the upgrade, rather than leaving people wondering what the voice
+            // on their stream is.
+            //
+            // Owner-only, for two independent reasons. It would otherwise tell
+            // the whole internet which stations are on the free plan, via
+            // /discover. And it is read off the AUTHENTICATED user rather than
+            // off each station's owner, so a page of stations costs one plan
+            // query in total instead of one per row — this resource is
+            // deliberately N+1-free and must stay that way.
+            'watermarked' => $this->when(
+                $request->user()?->id === $this->user_id,
+                fn () => $request->user()->watermarked(),
+            ),
+            'jingles_enabled' => (bool) $this->jingles_enabled,
+            'jingle_mode' => $this->jingle_mode,
+            'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
+            'jingle_every_tracks' => (int) $this->jingle_every_tracks,
             'social_links' => $this->social_links,
             'theme_config' => $this->theme_config,
             'created_at' => $this->created_at,

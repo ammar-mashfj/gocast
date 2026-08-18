@@ -137,3 +137,49 @@ it('keeps the script and segments when a station is only soft-deleted', function
 
     File::deleteDirectory($liqDir);
 });
+
+it('applies jingle settings live instead of restarting the station', function () {
+    // The point of declaring these as interactive variables. A restart drops
+    // every listener mid-track, which is an absurd price for changing how
+    // often a station ID plays — so `up()` must not be called at all here.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    $supervisor->shouldReceive('applyJingleSettings')->twice();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['jingles_enabled' => true]);
+    $station->update(['jingle_interval_seconds' => 600]);
+});
+
+it('does not reach for the container when a stopped station changes jingles', function () {
+    // Nothing to tell: up() renders the current values as the script's initial
+    // state, so a stopped station is already correct whenever it next starts.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_STOPPED,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    $supervisor->shouldNotReceive('applyJingleSettings');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['jingles_enabled' => true]);
+});
+
+it('still restarts a running station for changes that are baked into the script', function () {
+    // The jingle carve-out must not leak: name/genre/mount are literals in the
+    // rendered .liq and there is no telnet command that can change them.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldReceive('up')->once();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['genre' => 'Ambient']);
+});

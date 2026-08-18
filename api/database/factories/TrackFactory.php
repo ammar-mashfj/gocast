@@ -27,6 +27,7 @@ class TrackFactory extends Factory
 
         return [
             'station_id' => Station::factory(),
+            'kind' => Track::KIND_MUSIC,
             'path' => $ulid.'.mp3',
             'original_filename' => fake()->word().'.mp3',
             'title' => fake()->sentence(3),
@@ -35,5 +36,20 @@ class TrackFactory extends Factory
             'file_size_bytes' => fake()->numberBetween(1024, 5_000_000),
             'position' => 1,
         ];
+    }
+
+    /**
+     * A station ID / liner. Short by construction — the length is what makes
+     * jingle-shaped test data behave like the real thing (a 4-second file
+     * either side of a crossfade window is the interesting case).
+     */
+    public function jingle(): static
+    {
+        return $this->state(fn () => [
+            'kind' => Track::KIND_JINGLE,
+            'title' => 'Station ID',
+            'artist' => null,
+            'duration_seconds' => fake()->numberBetween(3, 12),
+        ]);
     }
 }

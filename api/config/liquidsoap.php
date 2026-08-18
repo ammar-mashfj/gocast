@@ -26,6 +26,13 @@ return [
     'hls_dir' => env('LIQUIDSOAP_HLS_DIR', '/var/gocast/hls'),
 
     /*
+    | Platform-owned audio, shared by every station and mounted read-only at
+    | /data/system. Currently just the free-tier watermark clip. Unlike the
+    | three above this is NOT per-station — one directory, one copy on disk.
+    */
+    'system_dir' => env('LIQUIDSOAP_SYSTEM_DIR', '/var/gocast/system'),
+
+    /*
     |--------------------------------------------------------------------------
     | Addresses as seen FROM INSIDE a station container
     |--------------------------------------------------------------------------
@@ -236,6 +243,88 @@ return [
     'crossfade_high_db' => (float) env('LIQUIDSOAP_CROSSFADE_HIGH_DB', -15),
     'crossfade_medium_db' => (float) env('LIQUIDSOAP_CROSSFADE_MEDIUM_DB', -32),
     'crossfade_margin_db' => (float) env('LIQUIDSOAP_CROSSFADE_MARGIN_DB', 4),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Free-tier watermark
+    |--------------------------------------------------------------------------
+    |
+    | A short platform-owned clip ("powered by GoCast") mixed OVER the station
+    | at intervals, ducking whatever is playing rather than replacing it. Which
+    | stations get it is a plan question (`plans.watermark_enabled`); how it
+    | sounds is an install question, which is what lives here.
+    |
+    | Read this before tuning: free plans have no AutoDJ, so a free station is
+    | live-only and this rides over a HUMAN TALKING, not over music. That makes
+    | it noticeably more intrusive than the same numbers would be on a music
+    | bed — two voices at once is worse than one, which is why the duck is deep
+    | and the interval is measured in minutes.
+    |
+    | The audio itself is any file dropped in `system_dir`. That is a directory
+    | rather than a fixed filename on purpose: Liquidsoap plays whatever is in
+    | it (several variants rotate at random), and an EMPTY directory simply
+    | makes the source fallible — no watermark, station unaffected. A missing
+    | clip must never be able to take stations off air.
+    |
+    |   enabled  — global kill switch, independent of any plan. Turn the whole
+    |              feature off across the fleet without touching plan rows.
+    |   interval — seconds between watermarks. 600 = 6/hour; measured against a
+    |              typical show length before choosing it. Do not go below a
+    |              couple of minutes: over live speech it stops reading as
+    |              branding and starts reading as a fault.
+    |   duck     — the PORTION of the station's own audio kept while the
+    |              watermark plays (Liquidsoap's `p`), not the amount removed.
+    |              0.15 means the host drops to 15%, about -16dB. Liquidsoap's
+    |              own default of 0.2 is tuned for music; speech wants deeper.
+    |   fade     — seconds to ramp down and back. Long enough not to sound like
+    |              a dropout, short enough not to swallow the clip's first word.
+    */
+
+    'watermark_enabled' => (bool) env('LIQUIDSOAP_WATERMARK_ENABLED', true),
+    'watermark_interval_seconds' => (float) env('LIQUIDSOAP_WATERMARK_INTERVAL', 600),
+    'watermark_duck' => (float) env('LIQUIDSOAP_WATERMARK_DUCK', 0.15),
+    'watermark_fade_seconds' => (float) env('LIQUIDSOAP_WATERMARK_FADE', 1.0),
+
+    /*
+    | Largest clip the admin panel will accept into `system_dir`. These are
+    | seconds-long platform IDs, not music, and the directory is mounted into
+    | every container on the box — so the cap is small on purpose.
+    */
+    'watermark_clip_max_bytes' => (int) env('LIQUIDSOAP_WATERMARK_CLIP_MAX_BYTES', 5 * 1024 * 1024),
+
+    /*
+    |--------------------------------------------------------------------------
+    | AutoDJ rotation source
+    |--------------------------------------------------------------------------
+    |
+    | How a station's Liquidsoap gets its next rotation track.
+    |
+    |   true  (dynamic) — `request.dynamic` asks Laravel for one track at a
+    |                     time over /api/internal/next-track. This is what
+    |                     AzuraCast and LibreTime do, and it is the only way
+    |                     the ordering can be OURS: rotation rules, dayparting
+    |                     and ad breaks are all "which track is next", which is
+    |                     a question a playlist file cannot be asked.
+    |   false (playlist) — the legacy `playlist()` source reading playlist.m3u.
+    |
+    | Why the switch exists at all: measured on 2.4.5, `playlist.reload` — which
+    | the file mode must send after every track change — restarts the list at
+    | index 0. A listener hears the rotation jump back to song one because
+    | somebody uploaded a track. Dynamic mode has no list to reset.
+    |
+    | Kept switchable for the same reason crossfade is: this is the audio path,
+    | and a rollback should be an env var and a relaunch rather than a deploy.
+    | The m3u is still written in both modes, so flipping back needs nothing else.
+    */
+    'autodj_dynamic' => (bool) env('LIQUIDSOAP_AUTODJ_DYNAMIC', true),
+
+    /*
+    | Seconds before Liquidsoap re-asks after the API answers "nothing to
+    | play" (an empty rotation) or fails. Liquidsoap's own default is 0.1s,
+    | which would mean ten requests a second, forever, for every station with
+    | an empty library — a busy box's worth of traffic to be told nothing.
+    */
+    'autodj_retry_delay_seconds' => (float) env('LIQUIDSOAP_AUTODJ_RETRY_DELAY', 10.0),
 
     /*
     |--------------------------------------------------------------------------

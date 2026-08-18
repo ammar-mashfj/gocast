@@ -13,19 +13,26 @@ use App\Services\StationLifecycleService;
 use App\Services\TrackImporter;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use RuntimeException;
 
 /**
  * AutoDJ track management for a station.
  *
  * Routes (see routes/api.php):
- *   GET    /stations/{station:slug}/tracks            -> index
- *   POST   /stations/{station:slug}/tracks            -> store    (multipart, files[])
- *   PATCH  /stations/{station:slug}/tracks/reorder    -> reorder  (ids[])
+ *   GET    /stations/{station:slug}/tracks            -> index    (?kind=)
+ *   POST   /stations/{station:slug}/tracks            -> store    (multipart, files[], kind)
+ *   PATCH  /stations/{station:slug}/tracks/reorder    -> reorder  (ids[], kind)
  *   PATCH  /tracks/{track}                            -> update   (title, artist)
  *   DELETE /tracks/{track}                            -> destroy
+ *
+ * Every list-scoped route takes an optional `kind` — "music" (the rotation,
+ * and the default) or "jingle" (station IDs). The two lists are separate
+ * sequences over the same storage quota; `update` and `destroy` need no kind
+ * because the track itself carries it.
  */
 class TrackController extends Controller
 {
@@ -36,17 +43,25 @@ class TrackController extends Controller
         private readonly StationLifecycleService $lifecycle,
     ) {}
 
-    public function index(Station $station): JsonResponse
+    public function index(Request $request, Station $station): JsonResponse
     {
         $this->authorize('viewAny', [Track::class, $station]);
 
-        $tracks = $station->tracks()->get();
+        $kind = $request->validate([
+            'kind' => ['sometimes', Rule::in(Track::KINDS)],
+        ])['kind'] ?? Track::KIND_MUSIC;
+
+        $tracks = $station->tracks()->where('kind', $kind)->get();
         $cap = (int) config('liquidsoap.station_storage_bytes');
+        // Usage is deliberately NOT scoped to `kind`: one cap covers the
+        // whole station, so the meter must read the same number whichever
+        // list you are looking at.
         $used = (int) $station->tracks()->sum('file_size_bytes');
 
         return response()->json([
             'data' => TrackResource::collection($tracks),
             'meta' => [
+                'kind' => $kind,
                 'storage_used_bytes' => $used,
                 'storage_cap_bytes' => $cap,
             ],
@@ -63,11 +78,13 @@ class TrackController extends Controller
         // someone's files behind a paywall.
         $this->lifecycle->assertAutoDjEnabled($request->user());
 
+        $kind = $request->kind();
+
         $created = [];
         $errors = [];
         foreach ($request->file('files', []) as $idx => $file) {
             try {
-                $created[] = $this->importer->import($station, $file);
+                $created[] = $this->importer->import($station, $file, $kind);
             } catch (RuntimeException $e) {
                 // Quota exceeded mid-batch — surface which file and stop;
                 // partial successes are kept (status code reflects that).
@@ -121,8 +138,9 @@ class TrackController extends Controller
     {
         $this->authorize('reorder', [Track::class, $station]);
 
-        $this->importer->reorder($station, $request->validated('ids'));
+        $kind = $request->kind();
+        $this->importer->reorder($station, $request->validated('ids'), $kind);
 
-        return TrackResource::collection($station->tracks()->get());
+        return TrackResource::collection($station->tracks()->where('kind', $kind)->get());
     }
 }

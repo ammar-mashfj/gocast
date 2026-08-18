@@ -25,6 +25,9 @@ use Throwable;
  *                metadata block) and restart — but only while the station is
  *                meant to be running. A stopped station picks up the change
  *                when it next starts, since up() always re-renders.
+ *                Jingle settings are the exception: they are interactive
+ *                variables in the script, so they go over telnet and cost no
+ *                listener their audio.
  *  • deleting  → stop and remove the container (also fires for soft deletes;
  *                listeners stop hearing the station as soon as it's "deleted")
  *  • restored  → bring a soft-deleted station back, if it was running
@@ -62,8 +65,34 @@ class StationObserver
         'artwork_url',
     ];
 
+    /**
+     * Columns that reach a running container over telnet instead of through a
+     * restart. Deliberately NOT in the list above: these two are declared as
+     * interactive variables in the script (see LiquidsoapSupervisor's
+     * VAR_JINGLES_* constants), so changing how often a station ID plays costs
+     * nobody their audio.
+     *
+     * The rendered script still carries them as its initial state, so a
+     * station that is stopped — or one whose telnet push fails — picks the new
+     * values up on its next start regardless.
+     */
+    private const JINGLE_COLUMNS = [
+        'jingles_enabled',
+        'jingle_mode',
+        'jingle_interval_seconds',
+        'jingle_every_tracks',
+    ];
+
     public function updated(Station $station): void
     {
+        // Handled first and independently of everything below: a jingle change
+        // is applied to the live container, never by restarting it. A station
+        // that is stopped needs nothing at all — up() renders the current
+        // values into the script whenever it next starts.
+        if ($station->wasChanged(self::JINGLE_COLUMNS) && $station->isRunning()) {
+            $this->safely('jingle-settings', $station, fn () => $this->supervisor->applyJingleSettings($station));
+        }
+
         if (! $station->wasChanged(self::LIQ_RELEVANT_COLUMNS)) {
             return;
         }
