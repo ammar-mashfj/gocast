@@ -22,3 +22,7 @@
 *.zip
 *.sql
 *.dump
+
+# Native-deploy host config. domains.env holds the real hostnames and paths
+# for a specific box; the .example beside it is the committed template.
+infra/native/env/domains.env

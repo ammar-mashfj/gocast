@@ -86,6 +86,28 @@ return [
     'harbor_input_port' => (int) env('LIQUIDSOAP_HARBOR_INPUT_PORT', 8090),
 
     /*
+    | Seconds harbor waits on a stalled source before declaring it gone.
+    |
+    | This is the reconnect window, and it is the reason it is not left at
+    | Liquidsoap's default of 30. A broadcaster whose connection dies WITHOUT a
+    | clean close — a sleeping laptop, a wifi handover, a tunnel dropping — is
+    | not disconnected as far as harbor is concerned until this elapses, and
+    | for that whole time the mount is still taken and every reconnect attempt
+    | is refused. Thirty seconds of a studio being told "rejected" while it is
+    | in fact the only thing entitled to that mount is a long time on air.
+    |
+    | Ten is comfortably above any real network stall — the studio's own
+    | connect timeout is 10s and harbor is fed a continuous MP3 stream, so a
+    | source with nothing to say for ten seconds has genuinely gone — and it
+    | quarters the window in which a returning broadcaster is locked out.
+    |
+    | The studio retries for two minutes regardless (RECONNECT_BUDGET_MS in
+    | client/lib/broadcast.ts), so this value tunes how FAST a reconnect lands,
+    | not whether it can.
+    */
+    'harbor_input_timeout' => (float) env('LIQUIDSOAP_HARBOR_INPUT_TIMEOUT', 10.0),
+
+    /*
     | Public WebSocket base the studio connects to, with `{slug}` substituted.
     |
     | In production this is a path on the main domain, reverse-proxied to the
@@ -246,6 +268,197 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Peak limiter
+    |--------------------------------------------------------------------------
+    |
+    | Overflow protection on the way to the encoders — NOT loudness shaping.
+    | The gain is static above the threshold, so unlike normalize() it cannot
+    | breathe on quiet passages, and unlike cross() it has no track logic that
+    | could wedge on a broadcast with no track boundaries.
+    |
+    | `include_live` is where it sits in the graph, and the default changed:
+    |
+    |   true  — bottom of the graph, past the live/AutoDJ fallback and past the
+    |           watermark, so everything a listener hears is guarded.
+    |   false — the old placement, wrapping the AutoDJ arm alone.
+    |
+    | The old placement followed this file's rule of keeping operators off the
+    | live path, and in doing so protected only the arm whose levels we already
+    | control while leaving a hot broadcaster to hit the encoder with no
+    | headroom at all. The rule is really about TRACK-BOUNDARY operators — the
+    | ones that re-trigger forever on a live stream that is one endless track —
+    | and limit() is not one; the same argument already puts smooth_add on the
+    | live path for the watermark. Verified, not assumed: 42s of an endless,
+    | mark-free carrier through limit() produced no source leak and no latency
+    | catch-up on 2.4.5.
+    |
+    | Set LIQUIDSOAP_LIMITER_INCLUDE_LIVE=false to restore the old placement
+    | exactly, on the same principle as the crossfade and rotation switches:
+    | this is the audio path, so a way back should be an env var and a relaunch.
+    |
+    | The threshold is a ceiling in dBFS. -1.0 leaves the MP3 encoder a dB of
+    | headroom, which is what a master brick-walled to 0.0 dBFS does not.
+    */
+
+    'limiter_threshold_db' => (float) env('LIQUIDSOAP_LIMITER_THRESHOLD_DB', -1.0),
+    'limiter_include_live' => (bool) env('LIQUIDSOAP_LIMITER_INCLUDE_LIVE', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Broadcaster metadata
+    |--------------------------------------------------------------------------
+    |
+    | Harbor accepts the metadata a broadcaster's own client sends in band
+    | (`icy=true` in the template) — the track titles BUTT, Mixxx and friends
+    | already push on every song change. Before that, those frames were parsed
+    | and discarded, so a DJ running a playlist showed listeners whichever
+    | AutoDJ track happened to be up when they connected, for the whole show.
+    |
+    | `live_broadcast_text` is the placeholder for the other case: a broadcaster
+    | who sends no metadata at all, which includes the studio page. Without it
+    | the stale AutoDJ title simply stays put — the stream asserting something
+    | false rather than saying nothing. A real title arriving later replaces it.
+    |
+    | `metadata_charset` decodes what the client sends. Source clients disagree
+    | about this and there is no negotiation, so it is a per-install choice
+    | rather than a guess: UTF-8 is right for anything modern, and the failure
+    | mode for the rest is mojibake in a track title, not lost audio. It is set
+    | for both the Icecast source protocol and the webcast path, which harbor
+    | configures separately.
+    |
+    | This is untrusted text bound for listeners and for Redis. The cap lives in
+    | NowPlayingController (500 chars, trimmed), not in the container.
+    */
+
+    'live_broadcast_text' => env('LIQUIDSOAP_LIVE_BROADCAST_TEXT', 'Live Broadcast'),
+    'metadata_charset' => env('LIQUIDSOAP_METADATA_CHARSET', 'UTF-8'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Track analysis
+    |--------------------------------------------------------------------------
+    |
+    | Every upload is measured once, in a queued job, for two things: how loud
+    | it is (EBU R128 integrated loudness plus true peak) and where the audio
+    | actually starts and stops. Those become `liq_amplify`, `liq_cue_in` and
+    | `liq_cue_out` annotations on the track's request, so the corrections
+    | happen at playback and the uploaded file is never modified.
+    |
+    | It fixes the two things a station's own library does to it. A mastered
+    | single sits at 0 dBFS next to a podcast export 20 dB below it, which is a
+    | listener reaching for the volume between every track; and a rip carries
+    | three seconds of leading silence, which is a gap that reads as the stream
+    | having died. Neither is repairable downstream — a master-bus compressor
+    | can only squash the difference after the fact, and nothing can invent the
+    | audio a silent lead-in isn't playing.
+    |
+    | `analysis_enabled` gates the job, not the annotations: switching it off
+    | stops new uploads being measured and leaves everything already measured
+    | playing corrected. `apply_amplify` is the separate question of whether the
+    | audio graph acts on the gain at all — it drops the `amplify` operator from
+    | the script, which is the kill switch for loudness correction across the
+    | fleet without touching a single row.
+    |
+    | `analysis_ffmpeg` is the path to a local ffmpeg. Leave it empty and the
+    | analyser borrows the station image's, one throwaway container per track:
+    | the same build that decodes the file on air, no second ffmpeg in the API
+    | image, and no new dependency, since Liquidsoap needs a container in every
+    | supported run mode anyway. Set it if a local binary is available and the
+    | per-track container startup is worth avoiding.
+    */
+
+    'analysis_enabled' => (bool) env('LIQUIDSOAP_ANALYSIS_ENABLED', true),
+    'analysis_ffmpeg' => env('LIQUIDSOAP_ANALYSIS_FFMPEG', ''),
+    'analysis_timeout_seconds' => (int) env('LIQUIDSOAP_ANALYSIS_TIMEOUT', 120),
+
+    /*
+    | Loudness leveling.
+    |
+    |   target  — where tracks are moved to, in LUFS. -14 is the streaming
+    |             convention (Spotify, YouTube, Apple all land within a dB or
+    |             two of it), so a library leveled here sounds right next to
+    |             whatever the listener played before us. Broadcast radio
+    |             traditionally runs hotter; going much above -14 leaves so
+    |             little headroom that the ceiling below does all the work.
+    |   ceiling — dBFS the true peak may not exceed after gain. Matched to the
+    |             limiter threshold on purpose: the limiter is for what we
+    |             failed to predict, not the plan, and a limiter working hard
+    |             is audible distortion.
+    |   max_gain— the most anything is lifted. A near-silent field recording
+    |             needs +30 dB to reach target and that amplifies its noise
+    |             floor into a hiss louder than the content ever was. Past a
+    |             point the honest answer is that the file is quiet.
+    |
+    | Attenuation is deliberately uncapped: turning something down cannot
+    | introduce noise, and the loud files are the ones causing the problem.
+    |
+    | These are read when the annotation is built, not when the track is
+    | analysed — only the raw measurements are stored. Retuning the target
+    | relevels the whole library at each station's next track boundary, with no
+    | re-analysis and no restart.
+    */
+
+    'apply_amplify' => (bool) env('LIQUIDSOAP_APPLY_AMPLIFY', true),
+    'loudness_target_lufs' => (float) env('LIQUIDSOAP_LOUDNESS_TARGET', -14.0),
+    'loudness_ceiling_db' => (float) env('LIQUIDSOAP_LOUDNESS_CEILING', -1.0),
+    'loudness_max_gain_db' => (float) env('LIQUIDSOAP_LOUDNESS_MAX_GAIN', 12.0),
+
+    /*
+    | Silence trimming.
+    |
+    |   silence_db      — level below which audio counts as silence. Generous
+    |                     at -50: a quiet fade-in is not silence, and trimming
+    |                     into real audio is far worse than leaving a gap.
+    |   silence_seconds — how long it must stay there to count. Short bursts
+    |                     under this are part of the music.
+    |   min_playable    — a measurement that would trim a track to less than
+    |                     this is discarded whole. A mis-detected threshold on
+    |                     an ambient intro would otherwise truncate the track on
+    |                     air while the file itself looks fine to anyone who
+    |                     goes to check.
+    |
+    | Only the head and tail are trimmed. Silence in the middle is either
+    | intentional or a gap between movements, and cutting it would be editing
+    | the audio rather than trimming its edges.
+    */
+
+    'analysis_silence_db' => (float) env('LIQUIDSOAP_ANALYSIS_SILENCE_DB', -50.0),
+    'analysis_silence_seconds' => (float) env('LIQUIDSOAP_ANALYSIS_SILENCE_SECONDS', 0.25),
+    'cue_min_playable_seconds' => (float) env('LIQUIDSOAP_CUE_MIN_PLAYABLE', 5.0),
+
+    /*
+    |--------------------------------------------------------------------------
+    | OCaml GC tuning
+    |--------------------------------------------------------------------------
+    |
+    | `space_overhead` is the percentage of live heap the collector tolerates
+    | before working harder; OCaml's default of 120 lets a process hold roughly
+    | twice its live data. Lower means more frequent collection: less memory,
+    | more CPU. That is the right trade on a box running one container per
+    | station, where memory is the resource that has actually bitten us — the
+    | 256m default SIGKILLed every station at boot (exit 137, empty logs,
+    | restart loop) before the cap was raised to 512m against an ~85MB steady
+    | state.
+    |
+    | AzuraCast ships the same knob as three presets, which are the values to
+    | reach for: 20 (less memory), 80 (balanced), 140 (less CPU). We default to
+    | balanced. The template also sets allocation_policy = 2 (best-fit), which
+    | fragments the major heap less under the churn of decoding one track after
+    | another.
+    |
+    | Set to 0 to omit the block entirely and run the stock GC — the rollback
+    | if a station starts burning CPU. Worth re-measuring at your real station
+    | count rather than adopting on faith; this is a trade, not free.
+    |
+    | Deliberately absent: `settings.init.compact_before_start`. The image
+    | already defaults it to true (verified with --list-settings on 2.4.5), so
+    | setting it would only be a claim that we chose it.
+    */
+
+    'gc_space_overhead' => (int) env('LIQUIDSOAP_GC_SPACE_OVERHEAD', 80),
+
+    /*
+    |--------------------------------------------------------------------------
     | Free-tier watermark
     |--------------------------------------------------------------------------
     |
@@ -337,6 +550,35 @@ return [
     */
 
     'idle_stop_hours' => (int) env('LIQUIDSOAP_IDLE_STOP_HOURS', 6),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Silent-station auto-stop
+    |--------------------------------------------------------------------------
+    |
+    | Seconds a station with NO AutoDJ rotation may sit on air after its
+    | broadcaster disconnects, before the container is stopped. 0 disables it.
+    |
+    | This is a much shorter fuse than `idle_stop_hours` above, and it is a
+    | different situation. A station with a rotation still has something to
+    | play when the broadcaster leaves, so taking it off air interrupts real
+    | audio; a station with an empty library has nothing but the silence bed,
+    | so every second it stays up is a container, an Icecast source slot and a
+    | continuous HLS write spent transmitting nothing.
+    |
+    | Only a station that HAS had a broadcaster is on this clock — the moment
+    | measured is the end of its last stream session. One that was started and
+    | never broadcast to is left to `idle_stop_hours`, so pressing the power
+    | button and going live a few minutes later cannot have the station switch
+    | itself off underneath the owner.
+    |
+    | 60s is deliberately longer than it looks: the studio reconnects across a
+    | dropped socket for up to two minutes, and a reconnect inside this window
+    | keeps the container. A broadcaster who genuinely comes back later simply
+    | starts the station again, which the studio does for them.
+    */
+
+    'silent_stop_seconds' => (int) env('LIQUIDSOAP_SILENT_STOP_SECONDS', 60),
 
     /*
     | Per-station AutoDJ storage cap. Total bytes of all tracks combined.

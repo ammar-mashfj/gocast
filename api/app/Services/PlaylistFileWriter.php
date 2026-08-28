@@ -157,6 +157,7 @@ class PlaylistFileWriter
             self::CONTAINER_PLAYLIST_DIR.'/'.basename((string) $track->path),
             $track->duration_seconds === null ? null : (float) $track->duration_seconds,
             $isJingle,
+            $track,
         );
     }
 
@@ -237,6 +238,9 @@ class PlaylistFileWriter
      * metadata — it is how the .liq script recognises a station ID once the
      * request has been handed downstream, which is what lets it hard cut the
      * transition and keep the ID out of now-playing.
+     *
+     * `liq_cue_in` / `liq_cue_out` / `liq_amplify` are Liquidsoap's own
+     * instruction keys and come from the analyser — see analysisAnnotations().
      */
     private function annotateUri(
         string $title,
@@ -244,11 +248,16 @@ class PlaylistFileWriter
         string $path,
         ?float $durationSeconds = null,
         bool $isJingle = false,
+        ?Track $track = null,
     ): string {
         $parts = [];
 
         if ($isJingle) {
             $parts[] = 'jingle="true"';
+        }
+
+        foreach ($this->analysisAnnotations($track) as $annotation) {
+            $parts[] = $annotation;
         }
 
         if ($durationSeconds !== null && $durationSeconds > 0) {
@@ -263,6 +272,70 @@ class PlaylistFileWriter
         }
 
         return 'annotate:'.implode(',', $parts).':'.$path;
+    }
+
+    /**
+     * The analyser's findings, as instructions Liquidsoap acts on.
+     *
+     * These three keys are not ours: `liq_cue_in`, `liq_cue_out` and
+     * `liq_amplify` are read by Liquidsoap itself — the first two by the
+     * request layer (`settings.playlist.cue_in_metadata`), the third by the
+     * `amplify` operator the script wraps the rotation in. Rename one and it
+     * silently stops doing anything.
+     *
+     * Derived here rather than stored, which is the point of keeping raw
+     * measurements: the loudness target lives in config and is applied at the
+     * moment this runs, so retuning it relevels the whole library at each
+     * station's next track boundary — no re-analysis, no restart, nothing
+     * written.
+     *
+     * An unanalysed track contributes nothing and plays exactly as it did
+     * before any of this existed. `apply_amplify=false` drops the gain but
+     * keeps the cue points, because they are separate corrections and the
+     * reason to distrust one is not a reason to distrust the other.
+     *
+     * @return list<string>
+     */
+    private function analysisAnnotations(?Track $track): array
+    {
+        if ($track === null) {
+            return [];
+        }
+
+        $parts = [];
+
+        [$cueIn, $cueOut] = (new TrackAnalysis(
+            loudnessLufs: $track->loudness_lufs,
+            truePeakDb: $track->true_peak_db,
+            cueInSeconds: $track->cue_in_seconds,
+            cueOutSeconds: $track->cue_out_seconds,
+        ))->cuePoints((float) $track->duration_seconds);
+
+        if ($cueIn !== null) {
+            $parts[] = 'liq_cue_in="'.number_format($cueIn, 3, '.', '').'"';
+        }
+
+        if ($cueOut !== null) {
+            $parts[] = 'liq_cue_out="'.number_format($cueOut, 3, '.', '').'"';
+        }
+
+        if (! config('liquidsoap.apply_amplify', true)) {
+            return $parts;
+        }
+
+        $amplify = (new TrackAnalysis(
+            loudnessLufs: $track->loudness_lufs,
+            truePeakDb: $track->true_peak_db,
+        ))->amplifyDb();
+
+        if ($amplify !== null) {
+            // The `dB` suffix is required: a bare float is read as a linear
+            // multiplier, so "-6" would mean inverted phase at six times the
+            // volume rather than six decibels down.
+            $parts[] = 'liq_amplify="'.number_format($amplify, 2, '.', '').' dB"';
+        }
+
+        return $parts;
     }
 
     private function escapeAnnotateValue(string $value): string

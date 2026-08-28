@@ -1,0 +1,46 @@
+[Unit]
+Description=GoCast web client (Next.js standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+
+# The standalone bundle is self-contained but position-dependent: server.js
+# expects ./public and ./.next/static to sit NEXT TO IT, which is why
+# deploy-native.sh copies them in after every build. Running from anywhere
+# else yields a site that renders HTML with no CSS and no images — a
+# failure that looks like a broken build rather than a wrong path.
+WorkingDirectory=__APP_ROOT__/client/.next/standalone
+
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=PORT=__CLIENT_PORT__
+# Loopback only. nginx is the only thing that should reach this; binding
+# 0.0.0.0 would publish an untrusted-header HTTP server straight onto the
+# internet alongside the properly configured vhost.
+Environment=HOSTNAME=127.0.0.1
+
+ExecStart=/usr/bin/node server.js
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-client
+
+# Read-only everywhere. Unlike the PHP units this one genuinely writes
+# nothing: no uploads, no cache on disk, no logs outside the journal.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

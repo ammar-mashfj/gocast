@@ -39,6 +39,27 @@ class TrackFactory extends Factory
     }
 
     /**
+     * A track the analyser has measured. Values are a realistic pairing: a
+     * modern master sitting a little above the -14 LUFS target with almost no
+     * headroom, and a second of silence at each end.
+     */
+    public function analyzed(
+        float $loudnessLufs = -9.0,
+        float $truePeakDb = -0.5,
+        ?float $cueIn = 1.5,
+        ?float $cueOut = null,
+    ): static {
+        return $this->state(fn (array $attributes): array => [
+            'loudness_lufs' => $loudnessLufs,
+            'true_peak_db' => $truePeakDb,
+            'cue_in_seconds' => $cueIn,
+            'cue_out_seconds' => $cueOut ?? max(10.0, ((float) ($attributes['duration_seconds'] ?? 180)) - 2.0),
+            'analyzed_at' => now(),
+            'analysis_error' => null,
+        ]);
+    }
+
+    /**
      * A station ID / liner. Short by construction — the length is what makes
      * jingle-shaped test data behave like the real thing (a 4-second file
      * either side of a crossfade window is the interesting case).

@@ -1,0 +1,113 @@
+# The only two containers a native deploy runs permanently.
+#
+# Everything else from docker-compose.yml moves to the host: nginx replaces
+# Caddy/FrankenPHP, php-fpm runs Laravel, apt packages provide MySQL, Redis
+# and Icecast, and systemd units run the queue worker, the scheduler and the
+# Next.js server.
+#
+# What genuinely cannot move:
+#
+#   • Per-station Liquidsoap. infra/liquidsoap/Dockerfile pins v2.4.5 and
+#     documents why (savonet#4851 crossfade wedge, savonet#5194 crash in
+#     source.skip from a harbor.http handler). Ubuntu ships 2.2.x, which
+#     cannot even parse the generated .liq. Those containers are spawned by
+#     LiquidsoapSupervisor via `docker run`, not declared here — compose
+#     cannot scale a service per database row.
+#
+#   • The two services below, which exist to serve those containers.
+#
+# Run from the repo root:
+#     docker compose -f infra/native/docker-compose.native.yml up -d
+
+name: gocast-native
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ---------- Docker socket proxy ----------
+  # Native Laravel needs to run `docker` to manage station containers. The
+  # obvious way — adding the php-fpm user to the `docker` group — is
+  # root-equivalent on the host: anyone with code execution in PHP could
+  # `docker run -v /:/host` and read or rewrite the entire filesystem,
+  # /etc/shadow included.
+  #
+  # This proxy is what the containerised deployment already used, and it is
+  # worth MORE here, not less: in compose the api was itself a container, so
+  # an escape was already a second step. Natively, PHP runs on the metal.
+  #
+  # Point Laravel at it with DOCKER_HOST=tcp://127.0.0.1:2375. Published on
+  # loopback only — an unauthenticated Docker API on a public interface is
+  # the fastest way to lose a box.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: gocast-docker-proxy
+    environment:
+      # Exactly what LiquidsoapSupervisor calls: run, start, stop, rm,
+      # inspect, ps, logs.
+      CONTAINERS: 1
+      # Required for `docker run --network gocast-network`.
+      NETWORKS: 1
+      # Read-only image list/inspect. No build, pull or push.
+      IMAGES: 1
+      # Allows the POST verbs above; without it the API is read-only and
+      # every station start fails with a 403 from the proxy.
+      POST: 1
+      # Stays denied. The supervisor's telnet() opens a plain TCP socket to
+      # the container rather than shelling out to `docker exec`, precisely
+      # so this can remain 0 — the proxy cannot scope exec by container
+      # name, so enabling it would hand a compromised PHP a shell in every
+      # container on the network.
+      EXEC: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:2375:2375"
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2375/_ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  # ---------- Station router ----------
+  # Resolves gocast-liquidsoap-{slug} for host nginx. See
+  # station-router/nginx.conf for the full rationale.
+  station-router:
+    image: nginx:1.29-alpine
+    container_name: gocast-station-router
+    volumes:
+      - ./station-router/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:8091:8091"
+    networks:
+      - default
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8091/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+networks:
+  # Must be the SAME network the per-station containers join —
+  # LiquidsoapSupervisor hardcodes `gocast-network` as a class constant.
+  #
+  # `external: true` because setup-native.sh creates it, not compose. That
+  # is what lets the subnet be pinned, which in turn lets the firewall rules
+  # name a stable CIDR instead of a `br-<netid>` interface whose name
+  # changes every time the network is recreated. Compose will not create or
+  # remove it, so `down` here never strips the network out from under a
+  # running station.
+  default:
+    name: gocast-network
+    external: true

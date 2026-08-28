@@ -27,6 +27,12 @@ use Illuminate\Support\Carbon;
  * @property string $title
  * @property string|null $artist
  * @property float $duration_seconds
+ * @property float|null $loudness_lufs integrated loudness (EBU R128), null until analysed
+ * @property float|null $true_peak_db true peak in dBFS, the ceiling on any gain we apply
+ * @property float|null $cue_in_seconds where the audio really starts
+ * @property float|null $cue_out_seconds where the audio really stops
+ * @property Carbon|null $analyzed_at set on success and on failure alike
+ * @property string|null $analysis_error why the analyser gave up, if it did
  * @property int $file_size_bytes
  * @property int $position 1-based, gap-free per station AND kind
  * @property Carbon $created_at
@@ -63,6 +69,11 @@ class Track extends Model
     {
         return [
             'duration_seconds' => 'float',
+            'loudness_lufs' => 'float',
+            'true_peak_db' => 'float',
+            'cue_in_seconds' => 'float',
+            'cue_out_seconds' => 'float',
+            'analyzed_at' => 'datetime',
             'file_size_bytes' => 'integer',
             'position' => 'integer',
         ];

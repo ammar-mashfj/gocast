@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\AnalyzeTrack;
 use App\Models\Station;
 use App\Models\Track;
 use getID3;
@@ -126,6 +127,16 @@ class TrackImporter
         // doesn't extend the lock window.
         $this->playlistWriter->write($station);
         $this->playlistWriter->reload($station);
+
+        // Loudness and cue points, measured on the queue. Deliberately after
+        // the commit and outside the transaction: the job looks the track up
+        // by id, and a worker fast enough to beat the commit would find
+        // nothing. Deliberately not awaited either — it decodes the whole
+        // file, and an upload must not wait on that. The track is playable
+        // immediately and simply plays uncorrected until the job lands.
+        if (config('liquidsoap.analysis_enabled', true)) {
+            AnalyzeTrack::dispatch($track->getKey());
+        }
 
         return $track;
     }

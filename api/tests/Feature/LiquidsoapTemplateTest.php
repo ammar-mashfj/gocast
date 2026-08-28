@@ -27,6 +27,7 @@ function renderStationScript(Station $station, array $overrides = []): string
         'apiUrl' => 'http://api',
         'harborPort' => 8080,
         'harborInputPort' => 8090,
+        'harborInputTimeout' => 10.0,
         'blankMax' => 15.0,
         'blankThreshold' => -40.0,
         'crossfadeEnabled' => true,
@@ -61,6 +62,14 @@ function renderStationScript(Station $station, array $overrides = []): string
         'watermarkInterval' => 600.0,
         'watermarkDuck' => 0.15,
         'watermarkFade' => 1.0,
+        // Defaults mirror config/liquidsoap.php: the limiter guards the whole
+        // broadcast, and the GC block is emitted at the balanced preset.
+        'limiterThreshold' => -1.0,
+        'limiterIncludeLive' => true,
+        'liveBroadcastText' => 'Live Broadcast',
+        'metadataCharset' => 'UTF-8',
+        'gcSpaceOverhead' => 80,
+        'applyAmplify' => true,
     ], $overrides))->render();
 }
 
@@ -221,7 +230,7 @@ it('decides transitions by loudness instead of always overlapping', function () 
         ->and($script)->toContain('b.db_level')
         // The hard-cut arm for loud/far-apart pairs.
         ->and($script)->toContain('sequence([a.source, b.source])')
-        ->and($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_rotation)')
+        ->and($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_leveled)')
         // Thresholds come from config, not hardcoded.
         ->and($script)->toContain('autodj_cross_high = -15.0')
         ->and($script)->toContain('autodj_cross_medium = -32.0')
@@ -249,8 +258,8 @@ it('falls back to hard cuts when the crossfade is disabled', function () {
     // enough to get back to known-good behaviour without a code change.
     $script = renderStationScript($this->station, ['crossfadeEnabled' => false]);
 
-    expect($script)->toContain('autodj_faded = autodj_rotation')
-        ->and($script)->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)')
+    expect($script)->toContain('autodj_faded = autodj_leveled')
+        ->and($script)->toContain('autodj_mix = autodj_faded')
         // No transition machinery at all in this mode.
         ->and($script)->not->toContain('def autodj_cross(')
         ->and($script)->not->toMatch('/^[^#\n]*\bcross\(/m');
@@ -281,7 +290,7 @@ it('never puts a cross-family operator on the live path', function () {
     // The transition may only ever wrap the AutoDJ arm.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_rotation)')
+    expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_leveled)')
         // `autodj_rotation` IS the AutoDJ arm — the rotation playlist and the
         // jingle arm, and nothing else. It is strictly upstream of the
         // live/AutoDJ fallback, which is the property this test protects.
@@ -292,16 +301,42 @@ it('never puts a cross-family operator on the live path', function () {
         ->and($script)->toContain('output_source = mixed');
 });
 
-it('limits the autodj arm to protect the encoder from 0 dBFS masters', function () {
+it('limits the whole broadcast, not just the autodj arm', function () {
     // Overflow protection, not loudness shaping: masters brick-walled to
-    // 0.0 dBFS leave the MP3 encoder no headroom. Unlike a fade this has no
-    // track/timing logic, so it cannot hang a transition.
+    // 0.0 dBFS leave the MP3 encoder no headroom, and so does a broadcaster
+    // running hot. The limiter used to wrap the AutoDJ arm alone, which
+    // protected the one arm whose levels we already control and left live
+    // audio to hit the encoder unguarded.
     $script = renderStationScript($this->station);
 
     expect($script)
-        // Scoped to the AutoDJ arm — after the fallback it would hit live too.
-        // Applied last, so it also catches whatever a transition sums.
-        ->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)');
+        // Bottom of the graph: past the live/AutoDJ fallback AND past the
+        // watermark, so the peak being guarded is the one that ships.
+        ->toContain('broadcast_out = limit(threshold=-1.0, broadcast_source)')
+        // ...and therefore NOT on the AutoDJ arm any more.
+        ->and($script)->toContain('autodj_mix = autodj_faded')
+        // Both outputs take the limited source, or the limiter guards nothing.
+        ->and(substr_count($script, "\n  broadcast_out\n"))->toBe(2);
+});
+
+it('restores the old autodj-only limiter placement on request', function () {
+    // The rollback for an audio-path change, same as the crossfade and
+    // rotation switches: an env var and a relaunch, no code change. This has
+    // to reproduce the previous graph exactly — limiter on the AutoDJ arm,
+    // nothing on the broadcast path.
+    $script = renderStationScript($this->station, ['limiterIncludeLive' => false]);
+
+    expect($script)->toContain('autodj_mix = limit(threshold=-1.0, autodj_faded)')
+        ->and($script)->toContain('broadcast_out = broadcast_source')
+        ->and($script)->not->toContain('limit(threshold=-1.0, broadcast_source)');
+});
+
+it('renders a liquidsoap-valid float for the limiter threshold', function () {
+    // Same lexer trap as the blank and crossfade settings: a bare
+    // interpolation renders "-2" where Liquidsoap demands "-2.0".
+    $script = renderStationScript($this->station, ['limiterThreshold' => -2.0]);
+
+    expect($script)->toContain('limit(threshold=-2.0, broadcast_source)');
 });
 
 it('keeps the raw rotation bound under its own name', function () {
@@ -593,7 +628,7 @@ it('mixes the watermark over the station instead of replacing it', function () {
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('broadcast_source = smooth_add(')
-        ->and($script)->toContain('normal = output_source,')
+        ->and($script)->toContain('normal = listener_source,')
         ->and($script)->toContain('special = watermark_arm')
         ->and($script)->toContain('p = watermark_duck,');
 });
@@ -608,12 +643,14 @@ it('watermarks what listeners hear without touching what the api reports', funct
 
     expect($script)->toContain('output_source = mixed')
         // Both outputs — Icecast and HLS — carry the mark.
-        ->and(substr_count($script, "\n  broadcast_source\n"))->toBe(2)
+        ->and(substr_count($script, "\n  broadcast_out\n"))->toBe(2)
         // ...and neither the status endpoint nor the metadata push does.
         ->and($script)->toContain('output_source.on_metadata(synchronous=false, push_now_playing)')
         ->and($script)->toContain('m = output_source.last_metadata()')
         ->and($script)->not->toContain('broadcast_source.on_metadata')
-        ->and($script)->not->toContain('broadcast_source.last_metadata');
+        ->and($script)->not->toContain('broadcast_source.last_metadata')
+        ->and($script)->not->toContain('listener_source.on_metadata')
+        ->and($script)->not->toContain('listener_source.last_metadata');
 });
 
 it('catches a free station going live, which is all a free station can do', function () {
@@ -666,7 +703,7 @@ it('reads the watermark from a directory so a missing clip cannot break a statio
 it('drops the watermark machinery entirely when the install disables it', function () {
     $script = renderStationScript($this->station, ['watermarkSupported' => false]);
 
-    expect($script)->toContain('broadcast_source = output_source')
+    expect($script)->toContain('broadcast_source = listener_source')
         ->and($script)->not->toContain('smooth_add(')
         ->and($script)->not->toContain('id = "watermark"');
 });
@@ -747,4 +784,136 @@ it('never asks the API on a tight loop when a station has no rotation', function
 
     // Liquidsoap's own default is 0.1s — ten requests a second, forever.
     expect($script)->toContain('retry_delay = { 10.0 }');
+});
+
+it('keeps a jingle out of the listener-facing title without hiding it from the api', function () {
+    // Two metadata streams, deliberately. `output_source` is the truth — it is
+    // what /status reports and what the now-playing push reads, and a station
+    // ID genuinely IS on air. `listener_source` is what a player displays, and
+    // flipping every listener's StreamTitle to the jingle for eight seconds and
+    // back is worse than leaving the last real track up.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('listener_source = replay_jingle_metadata(output_source)')
+        ->and($script)->toContain('if m["jingle"] == "true" then')
+        // update=false replaces wholesale, so the jingle's own title cannot
+        // survive underneath; strip=true covers the case with nothing to
+        // replay by emitting no metadata rather than an empty title.
+        ->and($script)->toContain('metadata.map(update=false, strip=true, rewrite, s)');
+
+    // The rewrite must sit BELOW the truth surface, or /status starts lying.
+    $truth = strpos($script, 'output_source = mixed');
+    $rewrite = strpos($script, 'listener_source = replay_jingle_metadata');
+    expect($truth)->toBeLessThan($rewrite);
+});
+
+it('accepts the metadata a broadcaster sends in band', function () {
+    // BUTT and Mixxx already push a title on every song change; without
+    // icy=true those frames were parsed and discarded, so a DJ running a
+    // playlist showed listeners whichever AutoDJ track was up when they
+    // connected, for the whole show.
+    $script = renderStationScript($this->station, ['metadataCharset' => 'UTF-8']);
+
+    expect($script)->toContain('icy=true')
+        // Both spellings: harbor configures the Icecast source protocol and
+        // the webcast path separately.
+        ->and($script)->toContain('icy_metadata_charset="UTF-8"')
+        ->and($script)->toContain('metadata_charset="UTF-8"');
+});
+
+it('names a broadcaster who sends no metadata at all', function () {
+    // The studio page sends none, and so does any client with its title field
+    // blank. Without this the stale AutoDJ title sits in every listener's
+    // player for the whole show — the stream asserting something false.
+    $script = renderStationScript($this->station, ['liveBroadcastText' => 'On Air Now']);
+
+    expect($script)->toContain('[("title", "On Air Now")]')
+        // insert_missing is what makes it fire: metadata.map only runs on
+        // metadata events, and a client that sends none never produces one.
+        ->and($script)->toContain('metadata.map(insert_missing=true, live_metadata, live_in)')
+        // Attached at the source, so it survives the buffer and blank.strip.
+        ->and($script)->toContain('buffer(buffer=2., max=10., live_tagged)');
+});
+
+it('does not re-push metadata that has not changed', function () {
+    // Metadata events are not one per track: harbor re-sends a broadcaster's
+    // title and a source switch re-announces whatever is playing, so the same
+    // title arrives several times in a row and Laravel writes the identical
+    // Redis value each time.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('last_pushed_title = ref("")')
+        ->and($script)->toContain('elsif m["title"] == last_pushed_title() and m["artist"] == last_pushed_artist() then');
+});
+
+it('tunes the gc towards memory, which is what actually kills stations', function () {
+    // The 256m cap SIGKILLed every station at boot with empty logs. Trading
+    // CPU for a smaller heap is the right side of that trade here.
+    $script = renderStationScript($this->station, ['gcSpaceOverhead' => 20]);
+
+    expect($script)->toContain('space_overhead = 20')
+        ->and($script)->toContain('allocation_policy = 2')
+        // Already true in the image; setting it would only be a claim. The
+        // template still mentions it in a comment, so match a real statement.
+        ->and($script)->not->toMatch('/^settings\.init\.compact_before_start/m');
+});
+
+it('runs the stock gc when the tuning is switched off', function () {
+    $script = renderStationScript($this->station, ['gcSpaceOverhead' => 0]);
+
+    expect($script)->not->toContain('runtime.gc.set');
+});
+
+it('levels tracks before the crossfade decides how to transition', function () {
+    // cross() picks its transition by comparing the db_level of the outgoing
+    // and incoming tracks, so it has to see the levels a listener will hear.
+    // Leveling afterwards would leave it reasoning about the raw files and
+    // hard cutting pairs that are, once corrected, safe to fade.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('autodj_leveled = amplify(1., autodj_rotation)');
+
+    $level = strpos($script, 'autodj_leveled = amplify(');
+    $cross = strpos($script, 'autodj_faded = cross(');
+    expect($level)->toBeLessThan($cross);
+});
+
+it('levels jingles too, not just the rotation', function () {
+    // A station ID recorded on a phone should not be the loudest thing on the
+    // station. Wrapping the fallback rather than the rotation source is what
+    // puts both arms through it.
+    $script = renderStationScript($this->station);
+
+    $fallback = strpos($script, 'autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])');
+    $amplify = strpos($script, 'autodj_leveled = amplify(');
+    expect($fallback)->toBeLessThan($amplify);
+});
+
+it('drops the amplify operator when loudness correction is switched off', function () {
+    // The fleet-wide kill switch: every liq_amplify annotation goes inert
+    // without touching a single row.
+    $script = renderStationScript($this->station, ['applyAmplify' => false]);
+
+    expect($script)->toContain('autodj_leveled = autodj_rotation')
+        ->and($script)->not->toContain('amplify(1.,');
+});
+
+it('renders the harbor source timeout as a Liquidsoap float', function () {
+    // This is the reconnect window: until it expires, harbor still believes a
+    // dropped broadcaster holds the mount and refuses the studio's retries. A
+    // bare integer is a syntax error in Liquidsoap, so the station would not
+    // start at all.
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+
+    $script = renderStationScript($station, ['harborInputTimeout' => 10.0]);
+
+    expect($script)->toContain('timeout=10.0,');
+});
+
+it('keeps a fractional harbor timeout intact', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+
+    $script = renderStationScript($station, ['harborInputTimeout' => 7.5]);
+
+    expect($script)->toContain('timeout=7.5,');
 });

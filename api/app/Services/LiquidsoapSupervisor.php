@@ -1078,6 +1078,7 @@ class LiquidsoapSupervisor
             // Harbor ingest — where broadcasters connect (webcast WebSocket
             // or the Icecast source protocol).
             'harborInputPort' => (int) config('liquidsoap.harbor_input_port'),
+            'harborInputTimeout' => (float) config('liquidsoap.harbor_input_timeout'),
             // Dead-air guard on the live input; 0 disables it.
             'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
             'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
@@ -1145,6 +1146,24 @@ class LiquidsoapSupervisor
                 (float) config('liquidsoap.crossfade_fade'),
                 max($crossfadeDuration - 0.5, 0.1),
             ),
+            // Peak limiter. `includeLive` picks where in the graph it sits:
+            // at the bottom past the live/AutoDJ fallback (guarding everything
+            // a listener hears), or wrapping the AutoDJ arm alone, which is the
+            // previous behaviour kept as the rollback.
+            'limiterThreshold' => (float) config('liquidsoap.limiter_threshold_db'),
+            'limiterIncludeLive' => (bool) config('liquidsoap.limiter_include_live'),
+            // Metadata a broadcaster sends in band. The placeholder covers the
+            // client that sends none — without it the last AutoDJ title stays
+            // in every listener's player for the whole show.
+            'liveBroadcastText' => (string) config('liquidsoap.live_broadcast_text'),
+            'metadataCharset' => (string) config('liquidsoap.metadata_charset'),
+            // OCaml GC. 0 omits the block and runs the stock collector.
+            'gcSpaceOverhead' => max(0, (int) config('liquidsoap.gc_space_overhead')),
+            // Whether the graph acts on the analyser's per-track gain. Off
+            // drops the amplify operator and any liq_amplify annotation
+            // becomes inert — the kill switch for loudness correction across
+            // the fleet without touching a row.
+            'applyAmplify' => (bool) config('liquidsoap.apply_amplify'),
             'crossfadeHigh' => (float) config('liquidsoap.crossfade_high_db'),
             'crossfadeMedium' => (float) config('liquidsoap.crossfade_medium_db'),
             'crossfadeMargin' => (float) config('liquidsoap.crossfade_margin_db'),

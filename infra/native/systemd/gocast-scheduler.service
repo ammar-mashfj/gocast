@@ -1,0 +1,54 @@
+[Unit]
+Description=GoCast scheduler (schedule:work)
+After=network-online.target mysql.service redis-server.service docker.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+WorkingDirectory=__APP_ROOT__/api
+
+# Same reason as the php-fpm pool's env[] block: `config:cache` makes Laravel
+# skip loading .env, so DOCKER_HOST must be a REAL environment variable or the
+# docker CLI falls back to /var/run/docker.sock and is denied. This unit needs
+# it because stations:reconcile, stations:reap-idle and stations:reap-silent
+# all create and destroy station containers.
+Environment=DOCKER_HOST=__DOCKER_HOST__
+
+# `schedule:work` rather than a crontab entry calling `schedule:run`. It is
+# the long-running form — it ticks once a minute in the foreground — so it
+# supervises like every other unit here instead of needing a cron line that
+# nobody remembers exists.
+#
+# Without this, every Schedule::command() in api/routes/console.php is dead
+# code. Concretely that means: listener counts pin at 0 forever
+# (stations:sync-listeners), orphaned containers are never reaped
+# (stations:reconcile), idle and silent stations are never stopped
+# (stations:reap-idle, stations:reap-silent), and the day-7 nudge email
+# never sends.
+ExecStart=/usr/bin/php artisan schedule:work
+
+# EXACTLY ONE INSTANCE. The schedule's withoutOverlapping locks are
+# per-process unless a shared cache store backs them, so a second scheduler
+# double-fires every job — including the reconciler, which would then race
+# itself tearing station containers down.
+Restart=always
+RestartSec=10
+
+KillSignal=SIGTERM
+TimeoutStopSec=70
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-scheduler
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -44,6 +44,20 @@ Schedule::command('stations:reap-idle')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Silent-station reaper — the backstop behind StopSilentStation, which is
+// dispatched with a delay when harbor reports a broadcaster gone. A station
+// with an empty rotation has only the silence bed to play once its broadcaster
+// leaves, so the window is a minute rather than the hours `reap-idle` allows.
+//
+// Runs every minute because the fast path is best-effort in three places (the
+// container has to reach the API, the event has to be accepted, the queue has
+// to still be up a minute later) and any of them failing would otherwise leave
+// a container transmitting silence until the hourly reaper noticed.
+Schedule::command('stations:reap-silent')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Day-7 inactive-broadcaster nudge — runs once a day at 16:00 UTC (a typical
 // open-rate sweet spot) to email users who signed up a week ago and haven't
 // gone live yet. The command itself is idempotent (skips users already

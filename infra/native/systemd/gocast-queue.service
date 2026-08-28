@@ -1,0 +1,58 @@
+[Unit]
+Description=GoCast queue worker
+# Redis backs the queue; MySQL backs everything the jobs touch. Starting
+# before either is up means the worker dies immediately and systemd's
+# restart budget starts burning for no reason.
+After=network-online.target mysql.service redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+WorkingDirectory=__APP_ROOT__/api
+
+# The queue worker needs DOCKER_HOST for the same reason the scheduler does:
+# StopSilentStation stops a station's container. See the php-fpm pool's env[]
+# block for why api/.env alone does not supply it.
+Environment=DOCKER_HOST=__DOCKER_HOST__
+
+# --tries=3 and --timeout=60 are carried over verbatim from the `queue`
+# service in docker-compose.yml. Do not raise --timeout past
+# request_terminate_timeout thinking; this is the CLI, and the ceiling that
+# matters is max_execution_time in the CLI php.ini copy.
+#
+# --max-time recycles the worker hourly. Long-lived PHP workers hold the
+# framework in memory, so a code deploy is invisible to them until they
+# restart; deploy-native.sh restarts this unit explicitly, and the hourly
+# bound is the backstop for when someone deploys by hand.
+ExecStart=/usr/bin/php artisan queue:work --tries=3 --timeout=60 --max-time=3600
+
+# `queue:restart` sets a flag the worker checks between jobs and then exits
+# 0. Without Restart=always that graceful exit would stop the service for
+# good — which is how a deploy silently leaves the queue dead.
+Restart=always
+RestartSec=5
+
+# Give a running job the chance to finish. queue:work finishes the current
+# job on SIGTERM rather than aborting it; killing it sooner means a
+# half-processed upload with no retry, because the job was already reserved.
+KillSignal=SIGTERM
+TimeoutStopSec=90
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-queue
+
+# Hardening. NOT ProtectSystem=strict: the worker writes Laravel's storage
+# tree and the per-station playlist directories under /var/gocast, and both
+# have to stay writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -31,6 +31,14 @@
       $watermarkFade      — float (ramp down/up seconds)
       $watermarkContainerDir — string (mount point of the clip directory)
 
+      $limiterThreshold   — float (dBFS ceiling for the peak limiter)
+      $limiterIncludeLive — bool  (limit the whole broadcast, or AutoDJ only)
+      $liveBroadcastText  — string (placeholder title when a broadcaster sends
+                                    no metadata of their own)
+      $metadataCharset    — string (how to decode metadata a broadcaster sends)
+      $gcSpaceOverhead    — int   (OCaml GC tuning; 0 leaves the default)
+      $applyAmplify       — bool  (act on the analyser's per-track gain)
+
     IMPORTANT: every string we emit into Liquidsoap source goes through
     json_encode (via @json). Blade's default {{ }} HTML-escapes, which is
     the wrong escaping for a Liquidsoap script — it would turn `&` into
@@ -60,6 +68,42 @@ settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set("0.0.0.0")
 settings.server.telnet.port.set(1234)
 
+@if ($gcSpaceOverhead > 0)
+# === Memory ===
+#
+# OCaml's GC, tuned for a box packing one container per station rather than for
+# a single process with a machine to itself.
+#
+# `space_overhead` is the percentage of live heap the collector is willing to
+# leave uncollected before it works harder — the default 120 means a process
+# may hold roughly twice its live data. Lowering it collects more often and
+# holds less: less memory, more CPU. That is the right side of the trade here,
+# because memory is the resource that actually kills us. The container cap was
+# 256m until it was found to SIGKILL every station at boot (exit 137, empty
+# `docker logs`, restart loop); it now sits at 512m against a ~85MB steady
+# state, and the headroom exists for a boot spike we would rather shrink than
+# keep paying for.
+#
+# `allocation_policy = 2` is best-fit, which fragments the major heap less than
+# the default under the steady churn of decoding one track after another —
+# fragmentation being what makes RSS drift upward on a process that is not
+# actually leaking.
+#
+# Tuned per install rather than baked in: the right number depends on how many
+# stations share the box. LIQUIDSOAP_GC_SPACE_OVERHEAD=0 omits this block
+# entirely and restores the stock GC, which is the rollback if a station starts
+# burning CPU. AzuraCast ships the same knob as three presets — 20 (less
+# memory), 80 (balanced), 140 (less CPU); we default to the balanced one.
+#
+# Note `settings.init.compact_before_start` is NOT set here: the image already
+# defaults it to true (verified with --list-settings on 2.4.5), so writing it
+# again would only be a claim that we chose it.
+runtime.gc.set(runtime.gc.get().{
+  space_overhead = {{ $gcSpaceOverhead }},
+  allocation_policy = 2
+})
+
+@endif
 # === Lifecycle reporting ===
 #
 # The container is the only thing that knows it came up. Laravel's `docker run`
@@ -165,10 +209,36 @@ end
 # buffer() decouples harbor's arrival timing from Liquidsoap's main clock so a
 # momentary network hiccup on the broadcaster's side doesn't underrun the
 # output. 2s nominal, 10s before samples are dropped.
+#
+# `timeout` is how long a stalled source is kept before harbor declares it gone,
+# and it is deliberately below Liquidsoap's default of 30. A broadcaster whose
+# connection dies without a clean close — a sleeping laptop, a wifi handover —
+# is still holding this mount as far as harbor is concerned, and every attempt
+# the studio makes to reconnect is refused until it expires. That window is the
+# single thing standing between a dropped broadcast and a recovered one, so it
+# is config rather than a literal (LIQUIDSOAP_HARBOR_INPUT_TIMEOUT).
+#
+# `icy=true` accepts the metadata the broadcaster's own client sends in band —
+# the track titles BUTT and Mixxx already push on every song change. Without
+# it those frames were parsed and thrown away, so a DJ running a playlist
+# showed listeners whatever AutoDJ track happened to be up when they connected,
+# forever. The charset is explicit because source clients disagree about it and
+# the wrong guess turns every non-Latin title into mojibake; both spellings are
+# set since harbor uses one for the Icecast source protocol and one for the
+# webcast path.
+#
+# This is untrusted text on its way to listeners and to our database. Laravel
+# is where that is enforced — NowPlayingController caps title and artist at 500
+# characters and trims them — not here, because a station container is exactly
+# the wrong place to be the last line of defence.
 live_in = input.harbor(
   {!! json_encode($station->slug) !!},
   port={{ $harborInputPort }},
-  auth=harbor_auth
+  auth=harbor_auth,
+  timeout={{ number_format($harborInputTimeout, 1, '.', '') }},
+  icy=true,
+  icy_metadata_charset={!! json_encode($metadataCharset) !!},
+  metadata_charset={!! json_encode($metadataCharset) !!}
 )
 
 # on_connect/on_disconnect replace MediaMTX's runOnReady/runOnNotReady hooks:
@@ -187,7 +257,28 @@ live_in = input.harbor(
 live_in.on_connect(synchronous=false, fun (_) -> notify("live_connected"))
 live_in.on_disconnect(synchronous=false, fun () -> notify("live_disconnected"))
 
-live_raw = buffer(buffer=2., max=10., live_in)
+# A broadcaster who sends no metadata at all — the studio page, and every
+# source client with its title field left blank — used to leave the last AutoDJ
+# track sitting in every listener's player for the whole show. That is not a
+# cosmetic problem: it is the stream actively asserting something false.
+#
+# `insert_missing=true` is what makes this fire. metadata.map only runs on
+# metadata events, and a broadcaster who sends none never produces one; the
+# flag makes Liquidsoap synthesise the call at the start of a track that
+# arrived without any, which is exactly the case we are fixing. A client that
+# DOES send a title takes the else branch and passes through untouched, and a
+# title arriving later simply replaces this one.
+def live_metadata(m) =
+  if m == [] then
+    [("title", {!! json_encode($liveBroadcastText) !!})]
+  else
+    m
+  end
+end
+
+live_tagged = metadata.map(insert_missing=true, live_metadata, live_in)
+
+live_raw = buffer(buffer=2., max=10., live_tagged)
 
 @if ($blankMax > 0)
 # Dead-air guard. A broadcaster who mutes their mic, sleeps their laptop or
@@ -491,6 +582,46 @@ jingle_arm = source.available(
 
 autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])
 
+@if ($applyAmplify)
+# === Per-track loudness ===
+#
+# A station's library is other people's files: a mastered single sits at
+# 0 dBFS, a podcast export twenty decibels below it, and played back to back
+# that is a listener reaching for the volume knob between every track. Laravel
+# measures each upload once (EBU R128 integrated loudness and true peak) and
+# annotates the gain that moves it to the install's target — this operator is
+# what makes that annotation mean anything.
+#
+# `amplify(1., s)` looks like a no-op and is one, until a track arrives
+# carrying `liq_amplify`. The 1.0 is the factor for everything else; the
+# metadata key overrides it per track, and the name is not ours to choose —
+# `settings.amplify.override` is what binds it, and renaming the annotation
+# silently stops it applying. Values take a `dB` suffix, without which
+# Liquidsoap reads a bare float as a LINEAR multiplier, so "-6" would mean
+# inverted phase at six times the volume rather than six decibels down.
+#
+# ABOVE the crossfade on purpose. cross() decides whether to overlap by
+# comparing the db_level of the outgoing and incoming tracks, so it has to see
+# the levels a listener will actually hear — leveling afterwards would have it
+# reasoning about the raw files and hard cutting pairs that are, once
+# corrected, perfectly safe to fade. This is also why an unlevelled library
+# made that decision so pessimistic.
+#
+# Wraps both arms, so jingles are levelled too: a station ID recorded on a
+# phone should not be the loudest thing on the station.
+#
+# This is NOT a compressor and not normalize(). It is one static gain per
+# track, chosen before the track starts and unchanged while it plays, so
+# nothing here can breathe or pump. LIQUIDSOAP_APPLY_AMPLIFY=false removes the
+# operator and the whole library plays at its original levels.
+autodj_leveled = amplify(1., autodj_rotation)
+@else
+# Loudness correction is switched off for this install
+# (LIQUIDSOAP_APPLY_AMPLIFY): tracks play at whatever level they were uploaded
+# at, and any liq_amplify annotation is inert.
+autodj_leveled = autodj_rotation
+@endif
+
 # Crossfade AutoDJ track transitions — 2s overlap between consecutive
 # playlist tracks. Liquidsoap 2.4+ API: `duration` is the only required
 # parameter (the old start_next/fade_in/fade_out signature was removed).
@@ -625,18 +756,42 @@ def autodj_cross(a, b) =
   end
 end
 
-autodj_faded = cross(duration=autodj_cross_duration, autodj_cross, autodj_rotation)
+autodj_faded = cross(duration=autodj_cross_duration, autodj_cross, autodj_leveled)
 @else
 # Hard cuts: LIQUIDSOAP_CROSSFADE_ENABLED=false.
-autodj_faded = autodj_rotation
+autodj_faded = autodj_leveled
 @endif
 
-# The limiter is overflow protection, not loudness shaping, and it has no
-# track/timing logic that could hang. Masters brick-walled to 0.0 dBFS leave
-# the MP3 encoder no headroom even without an overlap. Scoped to the AutoDJ
-# arm so the live path is untouched. This is NOT normalize() — the gain is
-# static above threshold, so it cannot "breathe" on quiet passages.
-autodj_mix = limit(threshold=-1.0, autodj_faded)
+# The limiter is overflow protection, not loudness shaping. Masters
+# brick-walled to 0.0 dBFS leave the MP3 encoder no headroom even without an
+# overlap. This is NOT normalize() — the gain is static above threshold, so it
+# cannot "breathe" on quiet passages.
+#
+# WHERE IT SITS is the interesting part, and it moved. It used to wrap the
+# AutoDJ arm alone, on the rule this file applies everywhere else: keep
+# operators off the live path. That left a hole exactly the size of the problem
+# it was there to solve — a broadcaster running hot hit the encoder with no
+# headroom at all, and the one arm that was protected was the one whose levels
+# we control. It now sits at the bottom of the graph instead, past the
+# live/AutoDJ fallback, where it catches everything that reaches a listener.
+#
+# The live-path rule still holds; it just does not apply to this operator. What
+# it forbids is TRACK-BOUNDARY operators — cross() re-triggered forever on a
+# broadcast that is one endless track and stacked hundreds of gain ramps.
+# limit() has no track logic at all: it reads samples and applies static gain
+# above a threshold, the same argument that put smooth_add on the live path for
+# the watermark. Verified the same way rather than argued: 42 seconds of an
+# endless, mark-free carrier through limit() produced no source leak and no
+# latency catch-up.
+#
+# LIQUIDSOAP_LIMITER_INCLUDE_LIVE=false puts it back on the AutoDJ arm, which
+# is the previous behaviour exactly — the rollback for an audio-path change,
+# same as the crossfade and rotation switches.
+@if ($limiterIncludeLive)
+autodj_mix = autodj_faded
+@else
+autodj_mix = limit(threshold={{ number_format($limiterThreshold, 1, '.', '') }}, autodj_faded)
+@endif
 
 # Standby silence — infallible last resort.
 bed = mksafe(blank())
@@ -656,6 +811,47 @@ mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))
 # Fading between live and AutoDJ would mean fading live audio, which is the
 # bug described above. A broadcaster dropping off air should cut to AutoDJ.
 output_source = mixed
+
+# === Listener-facing metadata ===
+#
+# From here down the graph splits in two, and the split is the point:
+# `output_source` stays the TRUTH — it is what /status reports and what the
+# now-playing push reads — while `listener_source` carries what a listener's
+# player should display. Those are not always the same sentence.
+#
+# The case that separates them is the jingle. A station ID is genuinely on air,
+# so /status must say so; but swapping every listener's StreamTitle to
+# "GoCast FM Jingle" for eight seconds and back is worse than leaving the last
+# real track up. The now-playing push already declined to report jingles — this
+# closes the other half, which the push could never reach, because
+# output.icecast derives its in-stream ICY title from the source's own metadata
+# rather than from anything we send Laravel.
+#
+# `update=false` replaces the metadata wholesale rather than merging, so the
+# jingle's own title cannot survive underneath; `strip=true` handles the one
+# case with nothing to replay — a jingle before any music has played, which
+# `delay(initial=true)` already makes unreachable — by emitting no metadata
+# rather than an empty title.
+#
+# Verified on 2.4.5 with two annotated playlists and a listener on each stream:
+# through two jingles, the truth stream reported "Station ID" and the listener
+# stream held "Real Song" without a flicker.
+def replay_jingle_metadata(s) =
+  last_meta = ref(([] : [(string * string)]))
+
+  def rewrite(m) =
+    if m["jingle"] == "true" then
+      last_meta()
+    else
+      last_meta := m
+      m
+    end
+  end
+
+  metadata.map(update=false, strip=true, rewrite, s)
+end
+
+listener_source = replay_jingle_metadata(output_source)
 
 # === Free-tier watermark ===
 #
@@ -734,12 +930,29 @@ watermark_arm = source.available(
 broadcast_source = smooth_add(
   duration = {{ number_format($watermarkFade, 1, '.', '') }},
   p = watermark_duck,
-  normal = output_source,
+  normal = listener_source,
   special = watermark_arm
 )
 @else
 # Watermarking is switched off for this install (LIQUIDSOAP_WATERMARK_ENABLED).
-broadcast_source = output_source
+broadcast_source = listener_source
+@endif
+
+@if ($limiterIncludeLive)
+# The peak limiter, at the bottom of the graph — see the note where the AutoDJ
+# arm is built for why it lives here and not up there.
+#
+# Last thing before the encoders, and deliberately below the watermark: the
+# clip is platform audio mixed on top of a station we do not control the level
+# of, so the sum is the only signal whose peak is worth guarding. Below
+# `listener_source` too, which costs nothing — metadata passes through
+# untouched — and keeps the ordering "decide what is playing, then decide how
+# loud it may be".
+broadcast_out = limit(threshold={{ number_format($limiterThreshold, 1, '.', '') }}, broadcast_source)
+@else
+# Legacy placement: the limiter is on the AutoDJ arm and live audio reaches the
+# encoders unguarded (LIQUIDSOAP_LIMITER_INCLUDE_LIVE=false).
+broadcast_out = broadcast_source
 @endif
 
 # We deliberately do NOT run normalize() here. It's a dynamic AGC that
@@ -889,15 +1102,29 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/healthz", fun (_, r
 # up, which is what skipping the push achieves (Laravel caches the last
 # payload; no push means no change).
 #
-# Note this does NOT suppress the in-stream ICY title, which output.icecast
-# derives from the same metadata: a listener watching their player's own
-# StreamTitle readout still sees the jingle go by. Suppressing that would mean
-# rewriting the metadata on the source itself, which would also blank it out
-# of /status — and /status should keep reporting what is genuinely on air.
+# The in-stream ICY title is handled separately and does not need suppressing
+# here — `listener_source` above already replays the previous track's metadata
+# over a jingle, which is the half of this that a push to Laravel could never
+# reach. This callback reads `output_source`, upstream of that rewrite, so it
+# still sees the jingle and still declines to report it.
+#
+# Repeats are dropped. Metadata events are not one per track: harbor re-sends a
+# broadcaster's title, and a source switch re-announces whatever is playing, so
+# the same title can arrive several times in a row. Laravel would write the
+# identical Redis value each time. Cheap to check, and it keeps the API's
+# request log an honest record of when the track actually changed.
+last_pushed_title = ref("")
+last_pushed_artist = ref("")
+
 def push_now_playing(m) =
   if m["jingle"] == "true" then
     ()
+  elsif m["title"] == last_pushed_title() and m["artist"] == last_pushed_artist() then
+    ()
   else
+    last_pushed_title := m["title"]
+    last_pushed_artist := m["artist"]
+
     payload = json.stringify(
       {
         slug = {!! json_encode($station->slug) !!},
@@ -937,7 +1164,7 @@ icecast_out = output.icecast(
   # CJK, accented letters in some forms) to "*" before the metadata even
   # leaves the server.
   encoding = "UTF-8",
-  broadcast_source
+  broadcast_out
 )
 
 # The only place that knows whether listeners can actually hear this station.
@@ -989,5 +1216,5 @@ output.file.hls(
   persist_at = "/data/hls/state.json",
   playlist = "playlist.m3u8",
   [("aac", %ffmpeg(format="mpegts", %audio(codec="aac", b="128k")))],
-  broadcast_source
+  broadcast_out
 )
