@@ -98,10 +98,9 @@ echo "==> Docker network"
 # interface whose name changes whenever the network is recreated.
 #
 # The labels are what compose stamps on networks it creates itself. They are
-# not needed by docker-compose.native.yml, which declares the network
-# `external` — but they keep the root docker-compose.yml able to adopt this
-# same network if you ever run the containerised stack on this box, instead
-# of failing with "network gocast-network was found but has incorrect label
+# not strictly needed by docker-compose.native.yml, which declares the network
+# `external`, but they keep `docker compose` from ever complaining that
+# "network gocast-network was found but has incorrect label
 # com.docker.compose.network".
 if ! docker network inspect gocast-network >/dev/null 2>&1; then
   docker network create \
@@ -159,7 +158,7 @@ fi
 if [[ -z "${ICECAST_SOURCE_PASSWORD:-}" ]]; then
   echo "  ! ICECAST_SOURCE_PASSWORD is not set in api/.env — skipping"
   echo "    /etc/icecast2/icecast.xml. Fill the Icecast block in api/.env"
-  echo "    (see infra/native/env/api.env.native.example) and re-run."
+  echo "    (see api/.env.example) and re-run."
 else
   # Same envsubst call the container entrypoint uses, restricted to exactly
   # these four names so any literal '$' elsewhere in the XML survives.

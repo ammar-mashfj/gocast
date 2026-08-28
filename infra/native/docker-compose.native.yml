@@ -1,11 +1,10 @@
-# The only two containers a native deploy runs permanently.
+# The only two containers GoCast runs permanently.
 #
-# Everything else from docker-compose.yml moves to the host: nginx replaces
-# Caddy/FrankenPHP, php-fpm runs Laravel, apt packages provide MySQL, Redis
-# and Icecast, and systemd units run the queue worker, the scheduler and the
-# Next.js server.
+# Everything else is a host service: nginx + php-fpm serve Laravel, apt
+# packages provide MySQL, Redis and Icecast, and systemd units run the queue
+# worker, the scheduler and the Next.js server. See infra/native/README.md.
 #
-# What genuinely cannot move:
+# What cannot be a host service:
 #
 #   • Per-station Liquidsoap. infra/liquidsoap/Dockerfile pins v2.4.5 and
 #     documents why (savonet#4851 crossfade wedge, savonet#5194 crash in
@@ -13,6 +12,8 @@
 #     cannot even parse the generated .liq. Those containers are spawned by
 #     LiquidsoapSupervisor via `docker run`, not declared here — compose
 #     cannot scale a service per database row.
+#
+#     This is the ONLY reason Docker is installed at all.
 #
 #   • The two services below, which exist to serve those containers.
 #
@@ -35,9 +36,11 @@ services:
   # `docker run -v /:/host` and read or rewrite the entire filesystem,
   # /etc/shadow included.
   #
-  # This proxy is what the containerised deployment already used, and it is
-  # worth MORE here, not less: in compose the api was itself a container, so
-  # an escape was already a second step. Natively, PHP runs on the metal.
+  # Read the caveat in LiquidsoapSupervisor's class docblock before trusting
+  # this too far: the proxy filters by API path and method, never by request
+  # body, and this app needs CONTAINERS + POST — which is `/containers/create`
+  # with an arbitrary HostConfig. It keeps the gocast user off the raw socket;
+  # it does not contain code execution.
   #
   # Point Laravel at it with DOCKER_HOST=tcp://127.0.0.1:2375. Published on
   # loopback only — an unauthenticated Docker API on a public interface is
@@ -107,7 +110,8 @@ networks:
   # name a stable CIDR instead of a `br-<netid>` interface whose name
   # changes every time the network is recreated. Compose will not create or
   # remove it, so `down` here never strips the network out from under a
-  # running station.
+  # running station — which matters, because the stations on it are the
+  # whole product.
   default:
     name: gocast-network
     external: true

@@ -47,28 +47,30 @@ return [
     | container renders identically whether Laravel is containerised or not,
     | so a wrong default here breaks prod silently.
     |
-    | Override them when Laravel/Icecast run natively on the host instead of
-    | in compose. From inside a container the host is `host.docker.internal`
-    | (LiquidsoapSupervisor passes --add-host host-gateway on every station),
-    | and the port becomes the PUBLISHED host port rather than the internal
-    | container port:
+    | These are addresses from the STATION CONTAINER's point of view, not
+    | Laravel's. Everything a station calls back to — Icecast, the Laravel API
+    | — runs on the host, so the defaults are `host.docker.internal`, which
+    | LiquidsoapSupervisor wires up with --add-host host-gateway on every
+    | `docker run`.
     |
-    |   LIQUIDSOAP_ICECAST_HOST=host.docker.internal
-    |   LIQUIDSOAP_ICECAST_PORT=8888
-    |   LIQUIDSOAP_API_URL=http://host.docker.internal:8000
-    |
-    | RTSP is the exception that needs no override: MediaMTX runs with
-    | network_mode: host in both setups, so it is always on the host gateway.
+    | Trap: host-gateway resolves to the DEFAULT bridge gateway (172.17.0.1)
+    | even for containers on gocast-network. Both services must therefore
+    | listen on all interfaces, not loopback, and the firewall is what keeps
+    | them off the public internet. setup-native.sh installs those rules.
     */
 
-    'icecast_host' => env('LIQUIDSOAP_ICECAST_HOST', 'icecast'),
+    'icecast_host' => env('LIQUIDSOAP_ICECAST_HOST', 'host.docker.internal'),
     'icecast_port' => (int) env('LIQUIDSOAP_ICECAST_PORT', 8000),
 
     /*
     | Base URL a station container uses to call Laravel back (now-playing
     | metadata pushes). No trailing slash — the .liq appends the path.
+    |
+    | Port 8081 is the internal-only nginx vhost (INTERNAL_API_PORT in
+    | infra/native/env/domains.env), not the public one — station callbacks
+    | never leave the box.
     */
-    'api_url' => env('LIQUIDSOAP_API_URL', 'http://api'),
+    'api_url' => env('LIQUIDSOAP_API_URL', 'http://host.docker.internal:8081'),
 
     /*
     |--------------------------------------------------------------------------
@@ -110,11 +112,15 @@ return [
     /*
     | Public WebSocket base the studio connects to, with `{slug}` substituted.
     |
-    | In production this is a path on the main domain, reverse-proxied to the
-    | right station container — one TLS endpoint, no per-station DNS. Leave it
-    | unset in local hybrid dev and Laravel falls back to addressing the
-    | container directly on the Docker bridge, which works on Linux without
-    | publishing any ports.
+    | In production this is a path on the ingest domain, reverse-proxied to the
+    | right station container by host nginx plus the station-router container
+    | — one TLS endpoint, no per-station DNS. See infra/native/nginx/
+    | gocast-stream.conf.
+    |
+    | Leave it unset in local development and Laravel falls back to addressing
+    | the container directly on the Docker bridge, which works on Linux without
+    | publishing any ports. That path is plain ws:// and the IP changes on every
+    | restart, so it is development-only.
     */
     'ingest_url' => env('LIQUIDSOAP_INGEST_URL'),
 
@@ -127,19 +133,24 @@ return [
     | commands to a running station. How it addresses that container depends
     | on where Laravel itself runs:
     |
-    |   'name' — connect to the container name (gocast-liquidsoap-<slug>) and
-    |            let Docker's embedded DNS resolve it. Requires Laravel to be
-    |            ON gocast-network, i.e. running as a compose service. This is
-    |            the production path and the default.
-    |
     |   'ip'   — ask the daemon for the container's IP with `docker inspect`
-    |            and connect to that directly. Needed when Laravel runs
-    |            natively on the host, where Docker's DNS does not exist. Works
-    |            on Linux because the host routes to container bridge IPs.
-    |            Costs one extra docker call per telnet command.
+    |            and connect to that directly. This is the default and the only
+    |            supported production path: Laravel runs natively on the host,
+    |            where Docker's embedded DNS does not exist. Works on Linux
+    |            because the host routes to container bridge IPs. Costs one
+    |            extra docker call per telnet command and per status poll.
+    |
+    |   'name' — connect to the container name (gocast-liquidsoap-<slug>) and
+    |            let Docker's embedded DNS resolve it. Only works for a process
+    |            that is itself ON gocast-network. Nothing in the shipped
+    |            deployment is, so this exists for a containerised Laravel and
+    |            for tests.
+    |
+    | Set to 'name' from the host and stations start fine, then sit in
+    | `starting` forever because every status poll times out.
     */
 
-    'telnet_resolve' => env('LIQUIDSOAP_TELNET_RESOLVE', 'name'),
+    'telnet_resolve' => env('LIQUIDSOAP_TELNET_RESOLVE', 'ip'),
 
     /*
     |--------------------------------------------------------------------------

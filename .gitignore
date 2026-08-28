@@ -1,9 +1,8 @@
-# Root-level environment overrides — docker compose auto-loads this on
-# `up`. Never commit, it contains prod secrets (MySQL password, Icecast
-# passwords, Grafana Cloud API keys, Sentry auth token, hostnames).
+# Real environment files anywhere in the tree — api/.env above all, which
+# holds the DB password, both Icecast passwords and the internal API key.
+# Only the committed templates are allowed through.
 .env
 .env.*
-!.env.docker.example
 !.env.example
 
 # OS / editor cruft
@@ -23,6 +22,9 @@
 *.sql
 *.dump
 
-# Native-deploy host config. domains.env holds the real hostnames and paths
-# for a specific box; the .example beside it is the committed template.
-infra/native/env/domains.env
+# Native-deploy host config. These hold the real hostnames, paths and
+# credentials for a specific box; the .example files beside them are the
+# committed templates. Match on the directory, not on a leading dot — these
+# are named `api.env` / `domains.env`, so the `.env*` rules above miss them.
+infra/native/env/*.env
+!infra/native/env/*.example

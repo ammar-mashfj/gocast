@@ -28,12 +28,25 @@ use Illuminate\Support\Facades\View;
  *  • restart()— stop + start (for picking up .liq changes).
  *  • exists() — is the container currently running?
  *
- * This service shells out to the `docker` CLI, which talks to the
- * docker-socket-proxy sidecar rather than the host daemon socket directly
- * (DOCKER_HOST=tcp://docker-proxy:2375, set in docker-compose.yml). The proxy
- * allowlists only the container/network/image endpoints used here, so a
- * compromised api process can manage stations but can't mount the host root or
- * spawn privileged containers. Notably it does NOT allow exec — see telnet().
+ * Laravel runs natively on the host, so this service shells out to the
+ * `docker` CLI pointed at the socket proxy from
+ * infra/native/docker-compose.native.yml rather than at /var/run/docker.sock
+ * (DOCKER_HOST=tcp://127.0.0.1:2375). That variable has to be a REAL
+ * environment variable, not just an api/.env line — `config:cache` stops
+ * Laravel loading .env at all — so it is set in the php-fpm pool, in the
+ * queue and scheduler units, and across the sudo boundary in
+ * deploy-native.sh. See infra/native/README.md.
+ *
+ * What the proxy does and does not buy: it keeps the `gocast` user off the
+ * raw daemon socket, so a file-read or file-write bug cannot reach Docker.
+ * It does NOT contain code execution. The proxy filters by API path and
+ * method only — it never inspects the request body — and this app needs
+ * CONTAINERS + POST, which is `/containers/create` with an arbitrary
+ * HostConfig. Bind mounts and Privileged live in that body. Treat PHP RCE on
+ * this host as root, and do not rely on the proxy to change that.
+ *
+ * EXEC is nonetheless denied, which is why telnet() opens a plain TCP socket
+ * instead of shelling out to `docker exec`.
  */
 class LiquidsoapSupervisor
 {
@@ -911,11 +924,11 @@ class LiquidsoapSupervisor
             // --filter label=` work.
             '--label', 'gocast.station='.$station->slug,
             '--label', 'gocast.station_id='.$station->id,
-            // Log rotation. These containers are spawned outside compose, so
-            // the `x-logging` policy in docker-compose.yml does not reach
-            // them — without these flags each station's log grows without
-            // bound until it fills the disk. A station that is retrying an
-            // RTSP connect logs continuously, so this is not theoretical.
+            // Log rotation. Docker's default json-file driver keeps container
+            // logs forever — no size cap, no rotation — so without these flags
+            // each station's log grows until /var/lib/docker fills the disk.
+            // A station stuck retrying an Icecast connect logs continuously,
+            // so this is not theoretical.
             '--log-opt', 'max-size=10m',
             '--log-opt', 'max-file=3',
         ];

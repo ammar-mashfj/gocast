@@ -54,7 +54,7 @@ return [
         // /admin/stats here). The default resolves the `icecast` compose
         // service by name, which is correct in both dev and prod — this is not
         // the public listener URL (NEXT_PUBLIC_ICECAST_URL).
-        'url' => env('ICECAST_INTERNAL_URL', 'http://icecast:8000'),
+        'url' => env('ICECAST_INTERNAL_URL', 'http://127.0.0.1:8000'),
     ],
 
 ];

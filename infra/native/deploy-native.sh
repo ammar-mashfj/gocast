@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy GoCast on a native host. The nginx/php-fpm counterpart of
-# ./deploy.sh, which drives the containerised stack.
+# the containerised stack's deploy.sh, which is gone.
 #
 #   sudo bash infra/native/deploy-native.sh
 #
@@ -9,7 +9,7 @@
 # that touches the app tree — so a deploy never leaves root-owned files that
 # php-fpm cannot write.
 #
-# Safety model, unchanged from deploy.sh:
+# Safety model:
 #   1. A mysqldump taken BEFORE migrations run.
 #   2. A health gate after the swap.
 #   3. Code rolls back automatically; the DATABASE deliberately does not.

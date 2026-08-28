@@ -19,7 +19,7 @@ WorkingDirectory=__APP_ROOT__/api
 Environment=DOCKER_HOST=__DOCKER_HOST__
 
 # --tries=3 and --timeout=60 are carried over verbatim from the `queue`
-# service in docker-compose.yml. Do not raise --timeout past
+# queue worker. Do not raise --timeout past
 # request_terminate_timeout thinking; this is the CLI, and the ceiling that
 # matters is max_execution_time in the CLI php.ini copy.
 #

@@ -70,8 +70,8 @@ source socket is never closed, so the mount lingers until Icecast times it out.
 timeout on every docker call, so `-t 15` would be killed by Laravel *mid-shutdown*.
 Graceful shutdown measured at 0.5 s, so `-t 5` is generous.
 
-**Proxy:** allowed — `docker-compose.yml` sets `CONTAINERS: 1` + `POST: 1`, which covers
-`/containers/{id}/stop`.
+**Proxy:** allowed — `infra/native/docker-compose.native.yml` sets `CONTAINERS: 1` +
+`POST: 1`, which covers `/containers/{id}/stop`.
 
 - [x] `removeContainer()` → stop-then-rm
 - [x] `--stop-signal SIGTERM --stop-timeout 5` at run time so *every* stop path is graceful

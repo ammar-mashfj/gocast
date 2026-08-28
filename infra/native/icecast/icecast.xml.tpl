@@ -2,7 +2,7 @@
 <!--
     GoCast Icecast 2 config — NATIVE (Debian/Ubuntu icecast2 package).
 
-    Content is identical to infra/icecast/icecast.xml.tpl; only the <paths>
+    Rendered by setup-native.sh into /etc/icecast2/icecast.xml. The <paths>
     block differs. The Alpine package installs under /usr/share/icecast and
     logs to /var/log/icecast; Debian's icecast2 package uses
     /usr/share/icecast2 and /var/log/icecast2. Pointing at the Alpine paths
@@ -26,8 +26,8 @@
 
     <limits>
         <clients>500</clients>
-        <!-- Raised from the stock 2 so concurrent broadcasters are not
-             squeezed out by the always-on standby source. -->
+        <!-- Raised from the stock 2: one SOURCE is held per running
+             station container, not per live broadcaster. -->
         <sources>50</sources>
         <queue-size>524288</queue-size>
         <client-timeout>30</client-timeout>
@@ -54,7 +54,8 @@
         Two different clients reach Icecast and they arrive on different
         addresses: host nginx connects over loopback, and each station's
         Liquidsoap container connects as a SOURCE via
-        `host.docker.internal`, which `--add-host host-gateway` resolves to
+        `host.docker.internal`, which the `add-host host-gateway` flag
+        resolves to
         the docker0 gateway (172.17.0.1). A loopback-only listener is
         invisible to every container, and the failure looks like Icecast
         refusing connections for no reason.
@@ -73,16 +74,22 @@
     </http-headers>
 
     <mount type="default">
-        <!-- Listeners are moved here transparently whenever a station's
-             source drops, and back the moment it returns, so a broadcaster
-             reconnect does not disconnect the audience. Fed by
-             gocast-standby.service. -->
-        <fallback-mount>/standby.mp3</fallback-mount>
-        <fallback-override>1</fallback-override>
         <hidden>0</hidden>
         <public>0</public>
-        <!-- Tuned down from the defaults: a smaller burst means a shorter
-             audible gap on the fallback transition. -->
+        <!-- No <fallback-mount>. There used to be one pointing at
+             /standby.mp3, fed by a separate host Liquidsoap process, so that
+             listeners survived a broadcaster dropping their SOURCE.
+             Per-station AutoDJ replaced it: the station container holds the
+             Icecast source for as long as it is running and falls back to its
+             own rotation, so the source no longer drops when a broadcaster
+             leaves. The only case left is a station being powered off
+             entirely, where disconnecting listeners is the correct answer.
+
+             The standby feeder was never installed on a native host anyway —
+             the config declared the fallback and nothing fed it, which means
+             listeners were being dropped regardless. Restoring it would mean
+             a host Liquidsoap plus its own systemd unit; see
+             infra/icecast/ at commit 09a8e7f, before it was deleted. -->
         <burst-size>16384</burst-size>
         <queue-size>131072</queue-size>
         <!-- Incoming StreamTitle from Liquidsoap is UTF-8. Without this
@@ -91,17 +98,7 @@
         <charset>UTF-8</charset>
     </mount>
 
-    <!-- Declared explicitly so it does NOT inherit the default's
-         fallback-mount, which would make it fall back to itself. -->
-    <mount type="normal">
-        <mount-name>/standby.mp3</mount-name>
-        <hidden>1</hidden>
-        <public>0</public>
-        <burst-size>65536</burst-size>
-    </mount>
-
-    <!-- Debian/Ubuntu package layout. This is the only block that differs
-         from the containerised template. -->
+    <!-- Debian/Ubuntu package layout. -->
     <paths>
         <basedir>/usr/share/icecast2</basedir>
         <logdir>/var/log/icecast2</logdir>

@@ -1,8 +1,8 @@
-# Deploying GoCast on a native nginx + PHP + MySQL VPS
+# Deploying GoCast
 
-This is the runbook for a box where nginx, PHP and MySQL are **host
-packages**, not containers. It replaces `docs/PRODUCTION_DEPLOY.md`, which
-assumes the all-Docker stack in `docker-compose.yml`.
+This is **the** runbook. GoCast runs on a box where nginx, PHP, MySQL, Redis
+and Icecast are host packages. Docker is installed for one reason: one
+Liquidsoap container per on-air station.
 
 Everything in this directory is rendered and installed by
 `setup-native.sh`; you should not need to hand-edit anything except
@@ -10,23 +10,26 @@ Everything in this directory is rendered and installed by
 
 ---
 
-## What moves, and what doesn't
+## What runs where
 
-| Piece | Containerised stack | Native host |
-|---|---|---|
-| Web server + PHP | FrankenPHP (Caddy) in `api` | **nginx + php-fpm** |
-| MySQL | already on the host | unchanged |
-| Redis | `redis` service | `apt install redis-server` |
-| Icecast | `icecast` service | `apt install icecast2` |
-| Queue worker | `queue` service | `gocast-queue.service` |
-| Scheduler | `scheduler` service | `gocast-scheduler.service` |
-| Next.js client | `client` service | `gocast-client.service` |
-| TLS | Caddy auto-ACME | `certbot --nginx` |
-| Docker API guard | `docker-proxy` service | **kept** (see below) |
-| Station routing | a Caddy vhost | **`station-router`** (see below) |
-| Per-station playout | `docker run` per station | **unchanged — still Docker** |
+| Piece | How it runs |
+|---|---|
+| Web server + PHP | nginx + php-fpm |
+| MySQL, Redis, Icecast | apt packages, on loopback |
+| Queue worker | `gocast-queue.service` |
+| Scheduler | `gocast-scheduler.service` |
+| Next.js client | `gocast-client.service` |
+| TLS | `certbot --nginx` |
+| Docker API guard | `docker-proxy` container (see below) |
+| Station routing | `station-router` container (see below) |
+| Per-station playout | one `docker run` per on-air station |
 
-### Why Docker is still installed
+So: **two long-lived containers, plus one per on-air station.** Nothing else
+is containerised. If you find yourself reaching for a `docker-compose.yml` at
+the repo root, it was deleted deliberately — the whole application stack used
+to live there and every service in it is now a host service.
+
+### Why Docker is installed at all
 
 Two things need it, and only two.
 
@@ -48,21 +51,23 @@ it is a five-minute `apt install docker-ce`; replacing it is a rewrite.
 **2. The station router.** More on this below.
 
 Docker runs exactly two long-lived containers of its own
-(`docker-compose.native.yml`), plus one short-lived container per on-air
-station.
+(`docker-compose.native.yml`), plus one container per on-air station.
+
+**On the socket proxy, honestly.** It keeps the `gocast` user off
+`/var/run/docker.sock`, so a file-read or file-write bug cannot reach the
+daemon. It does *not* contain code execution: it filters by API path and
+method and never inspects the request body, and this app needs `CONTAINERS`
++ `POST`, i.e. `/containers/create` with an arbitrary `HostConfig` — where
+bind mounts and `Privileged` live. Treat PHP RCE on this host as root. The
+fix, if you want one, is an argv-validating sudo wrapper in place of the
+proxy, not a different proxy setting.
 
 ### The station-router container
 
-`api/Caddyfile` routes broadcaster ingest with one line:
-
-```
-reverse_proxy gocast-liquidsoap-{re.bslug.1}:8090
-```
-
-That works because Caddy ran *inside* the Docker network and had Docker's
-embedded DNS. **Host nginx does not.** Container names are unresolvable from
-the host, and a station's bridge IP changes on every restart, so there is
-nothing stable to put in a config file.
+Broadcaster ingest has to reach `gocast-liquidsoap-{slug}:8090`, and **host
+nginx cannot resolve that name.** Docker's embedded DNS at `127.0.0.11` is
+only reachable from inside a container, and a station's bridge IP changes on
+every restart, so there is nothing stable to put in a config file.
 
 `station-router/nginx.conf` is a ~20-line nginx container that sits on
 `gocast-network`, resolves the container name per request through
@@ -70,10 +75,15 @@ nothing stable to put in a config file.
 `/broadcast/{slug}` there and the router does the rest. Nothing needs
 regenerating when stations come and go.
 
-The alternative — teaching `LiquidsoapSupervisor` to publish a host port per
-station and regenerating an nginx `map` plus a reload on every lifecycle
-event — costs a code change and a reload on every power-button press. The
-router costs 8 MB.
+The alternatives all cost more. Publishing a host port per station, or
+pinning a container IP per station, means a code change plus a generated
+nginx `map` plus a reload whenever the set of stations changes — and a new
+failure mode where the map drifts and a live station 404s. Resolving at
+request time cannot drift. The router costs 8 MB.
+
+(Laravel has the same problem and solves it differently: it runs on the host
+too, so `LIQUIDSOAP_TELNET_RESOLVE=ip` makes it look each address up with
+`docker inspect`. That is fine for a poll and wrong for a proxy.)
 
 ---
 
@@ -104,11 +114,10 @@ Four A records, all pointing at the VPS:
 | `icecast.gocast.fm` | listener audio |
 | `stream.gocast.fm` | broadcaster WebSocket + HLS |
 
-> `docs/PRODUCTION_DEPLOY.md` says `stream.` must be grey-cloud (DNS-only)
-> in Cloudflare because WebRTC needs direct UDP. **That is stale on this
-> branch.** MediaMTX and WHIP are gone; ingest is a Liquidsoap harbor
-> WebSocket over 443, so there is no UDP media path and Cloudflare's proxy
-> is fine in front of all four.
+> Older docs said `stream.` had to be grey-cloud (DNS-only) in Cloudflare
+> because WebRTC needed direct UDP. That is gone: MediaMTX and WHIP were
+> removed, ingest is a Liquidsoap harbor WebSocket over 443, so there is no
+> UDP media path and Cloudflare's proxy is fine in front of all four.
 
 ---
 
@@ -122,9 +131,9 @@ sudo apt update && sudo apt install -y \
   certbot python3-certbot-nginx git unzip ufw
 ```
 
-The PHP extension list mirrors what `api/Dockerfile` installs
-(`pdo_mysql redis bcmath gd zip intl mbstring opcache`). `opcache` is built
-into the Debian `php8.4-cli`/`fpm` packages. Verify nothing is missing:
+Laravel needs `pdo_mysql redis bcmath gd zip intl mbstring opcache`;
+`opcache` is built into the Debian `php8.4-cli`/`fpm` packages. Verify
+nothing is missing:
 
 ```bash
 cd api && composer check-platform-reqs
@@ -144,10 +153,10 @@ Docker (for Liquidsoap only):
 curl -fsSL https://get.docker.com | sudo sh
 ```
 
-> Do **not** add the php-fpm user to the `docker` group. That makes code
-> execution in PHP equivalent to root on the host — `docker run -v /:/host`
-> reads and rewrites everything, `/etc/shadow` included. The socket proxy in
-> `docker-compose.native.yml` exists precisely to avoid this.
+> Do **not** add the php-fpm user to the `docker` group. That hands any PHP
+> file-read or file-write bug the daemon socket, which is root on the host.
+> The socket proxy in `docker-compose.native.yml` is what keeps the `gocast`
+> user off it. Read the caveat above about what the proxy does *not* stop.
 
 ## 2. Database
 
@@ -178,36 +187,32 @@ cp infra/native/env/domains.env.example infra/native/env/domains.env
 $EDITOR infra/native/env/domains.env          # your four hostnames
 
 cp api/.env.example api/.env
-$EDITOR api/.env                               # merge in the block from
-                                               # infra/native/env/api.env.native.example
+sed -i 's/gocast\.fm/YOURDOMAIN.com/g' api/.env
+$EDITOR api/.env                               # fill the five FILL ME values
 php api/artisan key:generate
 ```
 
-`api.env.native.example` is the **delta** — the keys whose value differs
-between the two deployment shapes. Read it; several of them fail silently if
-left at their defaults. The three that catch everyone:
+`api/.env.example` is a complete, commented file for exactly this deployment
+— not a patch to merge. The defaults in `config/liquidsoap.php` already match
+it, so an unset key is correct rather than dangerous. Three still deserve a
+second look, because a wrong value fails silently:
 
-- **`LIQUIDSOAP_TELNET_RESOLVE=ip`.** Docker's embedded DNS does not exist
-  for a host process, so Laravel cannot resolve `gocast-liquidsoap-{slug}`
-  to poll a station's `/status`. Left at the default `name`, stations start
-  fine and then sit in `starting` forever because every status poll times
-  out.
-- **`ICECAST_SOURCE_PASSWORD` and `INTERNAL_API_KEY`.** Both were injected
-  by `docker-compose.yml`'s `environment:` block, which beats `env_file` —
-  so they may be absent from `api/.env` entirely and nothing noticed. Empty
-  source password renders `password = null` into every `.liq` and every
-  station crashes on start; a wrong internal key means broadcasters cannot
-  go live and the studio does not say why.
+- **`LIQUIDSOAP_TELNET_RESOLVE`.** Must stay `ip`. Docker's embedded DNS does
+  not exist for a host process, so Laravel cannot resolve
+  `gocast-liquidsoap-{slug}` to poll a station's `/status`. Set to `name`,
+  stations start fine and then sit in `starting` forever because every status
+  poll times out.
+- **`ICECAST_SOURCE_PASSWORD` and `INTERNAL_API_KEY`.** Both are blank in the
+  example and there is no other source for them. An empty source password
+  renders `password = null` into every `.liq` and every station crashes on
+  start; a wrong internal key means broadcasters cannot go live and the
+  studio does not say why.
 - **`LIQUIDSOAP_INGEST_URL`.** Empty means Laravel hands the studio a raw
   `ws://<container-ip>:8090/{slug}` — plain text, and unreachable from
   anywhere but this host.
 
-### Client image domains — edit before building
-
-`client/next.config.ts` hardcodes `api.gocast.fm` in `images.remotePatterns`.
-Next's image optimizer refuses any host not on that list, so on a different
-domain **every piece of station artwork 400s**. Change the hostname there to
-your `API_HOST` before the first build.
+`setup-native.sh` reads `api/.env` to render `/etc/icecast2/icecast.xml`, so
+fill the Icecast block *before* running it.
 
 ## 5. Provision the host
 
@@ -298,23 +303,23 @@ keeping those two ports off the public internet. `ufw status` should show
 them allowed from the Docker CIDRs and nowhere else.
 
 **`storage:link` must be `--relative`.** `api/public/storage` may already be
-an absolute symlink to `/app/storage/app/public` — the path *inside* the old
-container. On the host that target does not exist and every artwork URL
-404s while the files are plainly there.
+an absolute symlink to `/app/storage/app/public` — a path from the old
+containerised layout. On the host that target does not exist and every
+artwork URL 404s while the files are plainly there.
 
 **`NEXT_PUBLIC_*` are build-time.** They are inlined into the browser bundle
 by `next build`. Setting them in `gocast-client.service` does nothing; a
 wrong API URL can only be fixed by rebuilding.
 
 **The standalone bundle needs `public/` and `.next/static` copied in.**
-`next build` does not do it — the Dockerfile did, in its final COPY layer.
-`deploy-native.sh` reproduces it. Skip it and the site renders unstyled.
+`next build` does not do it. `deploy-native.sh` does. Skip that step and the
+site renders unstyled.
 
-**`opcache.validate_timestamps`.** The container image set it to `0`, which
-is correct for an immutable image but wrong here: a native deploy rewrites
-files under a running php-fpm, so with validation off `git pull` changes
-nothing until a reload — and a half-reloaded box serves old code against a
-new schema. `99-gocast.ini` sets `1` with a 2s revalidation instead.
+**`opcache.validate_timestamps` must be `1`.** `0` is correct for an
+immutable image and wrong here: a deploy rewrites files under a running
+php-fpm, so with validation off `git pull` changes nothing until a reload —
+and a half-reloaded box serves old code against a new schema. `99-gocast.ini`
+sets `1` with a 2s revalidation.
 
 **One scheduler, always.** `withoutOverlapping` locks are per-process unless
 a shared cache store backs them, so a second `schedule:work` double-fires
@@ -330,9 +335,8 @@ environment with no `PATH` either. The `docker` CLI then falls back to
 `/var/run/docker.sock`, which the `gocast` user deliberately cannot read, and
 every station start fails on a permission error.
 
-Compose hid this: `DOCKER_HOST` was a real container env var. Natively it is
-set in three places — `env[]` in the php-fpm pool, `Environment=` in the queue
-and scheduler units, and explicitly across the `sudo` boundary in
+So it is set in three places — `env[]` in the php-fpm pool, `Environment=` in
+the queue and scheduler units, and explicitly across the `sudo` boundary in
 `deploy-native.sh`. Keep the `api/.env` line too; it is what a bare
 `php artisan` uses once the config cache is cleared.
 
@@ -346,21 +350,17 @@ removing it.
 
 `input.harbor(slug, port=8090)` registers its mount at **`/{slug}`**. The
 public ingest URL is `/broadcast/{slug}`, so the prefix has to be dropped
-before the request reaches harbor.
+before the request reaches harbor. `station-router/nginx.conf` does that —
+putting `/$slug` after the upstream in `proxy_pass` replaces the request URI
+outright.
 
-`station-router/nginx.conf` does that (`proxy_pass http://$upstream/$slug`
-replaces the URI outright). **`api/Caddyfile` does not** — `handle`
-preserves the matched path; only `handle_path` strips it — so the
-containerised path forwards `/broadcast/{slug}` verbatim. Since
-`LIQUIDSOAP_INGEST_URL` is empty in `.env.example`, that route has probably
-never been exercised end to end on this branch.
+The router is now the only implementation of this route. The Caddy vhost that
+used to do it was deleted with the containerised stack, and it got this
+*wrong* (`handle` preserves the matched path; only `handle_path` strips it),
+which is one reason not to mourn it.
 
-Either harbor is more lenient than its docs suggest, or the Caddy config has
-a latent bug. Worth confirming against a live station before launch; the
-router config here is correct under both readings.
-
-**Verified** (nginx 1.29-alpine, throwaway network, stub backend named
-`gocast-liquidsoap-testslug`):
+**Verified in isolation** (nginx 1.29-alpine, throwaway network, stub backend
+named `gocast-liquidsoap-testslug`):
 
 | Request to the router | Result |
 |---|---|
@@ -368,6 +368,57 @@ router config here is correct under both readings.
 | `/broadcast/nosuchstation` | `502` — name does not resolve, which is the correct answer for a station that is not running |
 | `/broadcast/evil.host` | `404` — the dot is outside the slug charset, so it never reached the proxy at all |
 
-What that does *not* prove is how real harbor responds to the un-stripped
-`/broadcast/{slug}` that Caddy forwards. Only a live station can settle
-that.
+**Still unverified against real harbor.** A stub backend proves the router
+rewrites and upgrades correctly; it does not prove Liquidsoap's harbor
+accepts the result. Do this before launch: start a station, go live from the
+studio, and watch `docker logs gocast-station-router`. It is the one step in
+this runbook nothing else covers.
+
+---
+
+## Local development
+
+Same shape as production, which is the point — there is no separate
+development stack any more. On a laptop:
+
+```bash
+sudo apt install -y redis-server icecast2 docker.io
+```
+
+Then run the app processes directly, and only the audio in Docker:
+
+```bash
+docker compose -f infra/native/docker-compose.native.yml up -d   # proxy + router
+cd api    && php artisan serve                                   # :8000
+cd client && npm run dev                                         # :3000
+cd api    && php artisan queue:work
+```
+
+`api/.env` for a laptop differs from the server in three ways:
+
+- `APP_ENV=local`, `APP_DEBUG=true`
+- `LIQUIDSOAP_INGEST_URL=` — **empty**. Laravel then hands the studio a raw
+  `ws://<container-ip>:8090/{slug}`, which works because Linux routes to
+  Docker bridge IPs from the host, so no nginx and no TLS is needed. This is
+  the one place development legitimately diverges.
+- `ICECAST_INTERNAL_URL=http://127.0.0.1:8000` and
+  `LIQUIDSOAP_ICECAST_PORT=8000` — matching whatever your host Icecast uses.
+
+Note that host Redis binds `127.0.0.1:6379` and is enabled at boot on Ubuntu,
+which is exactly what the app expects.
+
+---
+
+## Observability (optional)
+
+Grafana Alloy ships a `.deb` — install it as a host service rather than a
+container:
+
+```bash
+sudo apt install -y alloy        # after adding Grafana's apt repo
+```
+
+`infra/alloy/config.alloy` is written for it. It keeps one Docker block, for
+per-station container logs, and reads everything else off the filesystem:
+nginx, php-fpm, and the systemd journal. The six `GRAFANA_CLOUD_*` values go
+in `/etc/default/alloy`.

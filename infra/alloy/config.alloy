@@ -1,56 +1,111 @@
-// Grafana Alloy config — ships container logs and host metrics to Grafana
-// Cloud. Nothing in this file is GoCast-specific beyond the compose-service
-// relabel rules; point the endpoints at self-hosted Loki/Prometheus/Mimir
-// and it's the same config.
+// Grafana Alloy config — ships logs and host metrics to Grafana Cloud.
 //
-// Authentication is pulled from the container environment so secrets don't
-// land in the repo — see docker-compose.observability.yml.
+// Alloy runs as a HOST service here (apt install alloy), not as a container.
+// That is deliberate: the only containers on this box are the per-station
+// Liquidsoap ones plus the two support containers, and shipping an
+// observability agent as a ninth container to watch two is backwards.
+//
+// Running on the host also removes the /rootfs, /host/sys and /host/proc
+// bind mounts the containerised version needed to see past its own namespace
+// — the node exporter below now reads the real thing by default.
+//
+// Auth comes from the environment. Put the six GRAFANA_CLOUD_* values in
+// /etc/default/alloy (mode 0600, root-owned) so they stay out of the repo.
+//
+// Endpoints are Grafana Cloud by default; point them at a self-hosted
+// Loki/Mimir and nothing else changes.
 
 // ---------------------------------------------------------------------
-// LOGS — discover every Docker container and ship its stdout/stderr to
-// Grafana Cloud Loki. Labels carry the compose service name so you can
-// filter {service="api"} in Explore.
+// LOGS 1/2 — per-station Liquidsoap containers.
+//
+// This is the one place Docker discovery is still needed: station
+// containers come and go with the power button, so they cannot be listed in
+// a static file. Everything else on this box logs to disk or the journal.
 // ---------------------------------------------------------------------
 
-discovery.docker "containers" {
+discovery.docker "stations" {
+	// The socket directly, read-only. Alloy runs as root via systemd, so it
+	// does not go through the socket proxy — the proxy exists to keep the
+	// `gocast` user off the socket, and Alloy is not that user.
 	host             = "unix:///var/run/docker.sock"
 	refresh_interval = "5s"
+
+	filter {
+		name   = "label"
+		values = ["gocast.station"]
+	}
 }
 
-discovery.relabel "containers" {
-	targets = discovery.docker.containers.targets
+discovery.relabel "stations" {
+	targets = discovery.docker.stations.targets
 
-	// Container name (strip the leading "/")
+	// Container name, minus Docker's leading "/".
 	rule {
 		source_labels = ["__meta_docker_container_name"]
 		regex         = "/(.*)"
 		target_label  = "container"
 	}
 
-	// Compose service name — this is the label you'll filter on most.
+	// The station slug, stamped as a label by LiquidsoapSupervisor. This is
+	// what you filter on: {station="my-show"}.
 	rule {
-		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		source_labels = ["__meta_docker_container_label_gocast_station"]
+		target_label  = "station"
+	}
+
+	rule {
+		source_labels = []
 		target_label  = "service"
-	}
-
-	// Compose project name — useful when you run multiple stacks on one host.
-	rule {
-		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
-		target_label  = "compose_project"
-	}
-
-	// Drop Alloy's own logs so we don't ship ourselves shipping ourselves.
-	rule {
-		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
-		regex         = "alloy"
-		action        = "drop"
+		replacement   = "liquidsoap"
 	}
 }
 
-loki.source.docker "containers" {
+loki.source.docker "stations" {
 	host       = "unix:///var/run/docker.sock"
-	targets    = discovery.relabel.containers.output
+	targets    = discovery.relabel.stations.output
 	forward_to = [loki.write.grafana_cloud.receiver]
+
+	labels = {
+		host = sys.env("HOSTNAME"),
+	}
+}
+
+// ---------------------------------------------------------------------
+// LOGS 2/2 — host services, off the filesystem and the journal.
+//
+// Replaces what Docker discovery used to pick up when api, client, queue,
+// scheduler and icecast were containers.
+// ---------------------------------------------------------------------
+
+local.file_match "app" {
+	path_targets = [
+		{__path__ = "/srv/gocast/app/api/storage/logs/*.log", service = "laravel"},
+		{__path__ = "/var/log/nginx/gocast-*.log", service = "nginx"},
+		{__path__ = "/var/log/php8.4-fpm.log", service = "php-fpm"},
+		{__path__ = "/var/log/icecast2/*.log", service = "icecast"},
+	]
+}
+
+loki.source.file "app" {
+	targets    = local.file_match.app.targets
+	forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+// The queue worker, the scheduler and the Next.js server are systemd units,
+// so their output is in the journal rather than in a file.
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "service"
+	}
+}
+
+loki.source.journal "units" {
+	forward_to    = [loki.write.grafana_cloud.receiver]
+	relabel_rules = loki.relabel.journal.rules
+	matches       = "_SYSTEMD_UNIT=gocast-queue.service+_SYSTEMD_UNIT=gocast-scheduler.service+_SYSTEMD_UNIT=gocast-client.service"
 
 	labels = {
 		host = sys.env("HOSTNAME"),
@@ -69,17 +124,13 @@ loki.write "grafana_cloud" {
 }
 
 // ---------------------------------------------------------------------
-// METRICS — host-level CPU / memory / disk / network via the unix (node)
-// exporter. Shipped to Grafana Cloud Mimir (Prometheus-compatible).
+// METRICS — host CPU / memory / disk / network.
 // ---------------------------------------------------------------------
 
 prometheus.exporter.unix "host" {
-	// These paths are the host's /proc, /sys, and / bind-mounted read-only
-	// into the Alloy container — without them the exporter would report
-	// the container's resources instead of the host's.
-	rootfs_path = "/rootfs"
-	sysfs_path  = "/host/sys"
-	procfs_path = "/host/proc"
+	// No rootfs_path/sysfs_path/procfs_path overrides: running on the host,
+	// the defaults (/, /sys, /proc) are already the real thing. The
+	// containerised version needed bind mounts to see past its namespace.
 }
 
 prometheus.scrape "host" {
@@ -89,15 +140,14 @@ prometheus.scrape "host" {
 }
 
 // Icecast exposes a JSON status endpoint at /status-json.xsl with listener
-// counts and mount info. Alloy can scrape it directly — the HTTP exporter
-// plus a downstream JSON parser turns it into metrics you can graph.
-// Commented out by default because it's optional; uncomment to enable.
+// counts and mount info. Optional; uncomment to enable. Loopback now that
+// Icecast is a host service rather than a compose service named `icecast`.
 //
 // prometheus.scrape "icecast_status" {
 // 	targets = [{
-// 		__address__ = "icecast:8000",
+// 		__address__      = "127.0.0.1:8000",
 // 		__metrics_path__ = "/status-json.xsl",
-// 		job = "icecast",
+// 		job              = "icecast",
 // 	}]
 // 	forward_to = [prometheus.remote_write.grafana_cloud.receiver]
 // }

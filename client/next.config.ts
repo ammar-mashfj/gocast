@@ -43,10 +43,22 @@ const nextConfig: NextConfig = {
     // matches any path; the empty `search` forbids query strings (Laravel
     // storage URLs don't use them).
     remotePatterns: [
-      // Production API — station artwork uploads (served from /storage)
+      // Production API — station artwork uploads (served from /storage).
+      //
+      // Next's image optimizer rejects any host not listed here, so on a
+      // different domain EVERY piece of station artwork 400s while the files
+      // are plainly there. Derived from NEXT_PUBLIC_API_URL so it follows the
+      // deployment instead of having to be hand-edited; the literal below is
+      // only the fallback for a build with no env set.
       {
         protocol: "https",
-        hostname: "api.gocast.fm",
+        hostname: (() => {
+          try {
+            return new URL(process.env.NEXT_PUBLIC_API_URL ?? "").hostname
+          } catch {
+            return "api.gocast.fm"
+          }
+        })(),
         port: "",
         pathname: "/storage/**",
         search: "",
@@ -74,7 +86,7 @@ const nextConfig: NextConfig = {
     // CORS preflight (stock Icecast 2.x does not answer OPTIONS). In prod, nginx
     // fronts Icecast and NEXT_PUBLIC_ICECAST_URL points at that host directly.
     if (process.env.NODE_ENV !== "development") return []
-    const icecastOrigin = process.env.INTERNAL_ICECAST_URL ?? "http://localhost:8888"
+    const icecastOrigin = process.env.INTERNAL_ICECAST_URL ?? "http://127.0.0.1:8000"
     return [
       { source: "/stream-proxy/:path*", destination: `${icecastOrigin}/:path*` },
     ]
