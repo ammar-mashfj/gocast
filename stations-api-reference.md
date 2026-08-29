@@ -381,7 +381,6 @@ live schema.
 | `max_listeners`        | Concurrent listeners                                                | 25   | 500 |
 | `autodj_enabled`       | May upload tracks and run an unattended playlist                    | no   | yes |
 | `watermark_enabled`    | Stream carries the audible "powered by GoCast" ID                    | yes  | no  |
-| `idle_stop_hours`      | Hours on air with no listeners before auto-stop (0 = never)          | 2    | 0   |
 
 Enforcement points:
 
@@ -391,6 +390,10 @@ Enforcement points:
 * `POST /api/stations/{slug}/tracks` → `autodj_enabled`
   (`code: autodj_not_available`). Listing and deleting tracks stay open on
   every plan so a downgrade never traps a user's files.
-* `stations:reap-idle` (hourly) → `idle_stop_hours`.
+* `stations:sweep` (every minute) → stops a station only when it is producing
+  no audio and has nothing attached that could produce any. Listener count is
+  not an input, so an AutoDJ rotation playing to an empty room is never
+  stopped; `autodj_enabled` is consulted only to tell a broken rotation
+  (reported, not stopped) from a station with nothing to play.
 
 Slug format: lowercase letters, numbers, hyphens only. Regex: `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`

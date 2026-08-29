@@ -16,10 +16,13 @@ import {
 } from "@/components/ui/breadcrumb"
 import api from "@/lib/axios"
 
+// No entry for "stations": it is a path segment, not a destination. There is
+// one station per user and no list to go back to, so the crumb is dropped and
+// the station's own name becomes the root — see buildCrumbs.
 const SEGMENT_LABELS: Record<string, string> = {
-  stations: "Stations",
   broadcasts: "Broadcasts",
   settings: "Settings",
+  library: "AutoDJ",
   live: "Go live",
   studio: "Studio",
 }
@@ -56,6 +59,13 @@ export function DashboardHeader() {
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
       href += `/${seg}`
+
+      // Skipped, not labelled: /dashboard/stations exists only as a redirect
+      // now, so a crumb pointing at it would bounce the user to the page they
+      // are already on.
+      if (segments[0] === "stations" && i === 0) {
+        continue
+      }
 
       if (segments[0] === "stations" && i === 1) {
         crumbs.push({ label: stationName ?? "", href, pending: !stationName })

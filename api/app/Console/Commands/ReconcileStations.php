@@ -46,8 +46,8 @@ use Throwable;
  * driven by us instead of by Docker.
  *
  * Also closes stranded broadcast sessions. A StreamSession is opened by
- * MediaMTX's runOnReady webhook and closed by runOnNotReady, and an open
- * session is what makes a station read as live — so a single lost webhook
+ * harbor's `live_connected` event and closed by `live_disconnected`, and an
+ * open session is what makes a station read as live — so a single lost event
  * leaves one open forever, which permanently refuses stop (409), permanently
  * exempts the station from the idle reaper, and quietly inflates the airtime
  * totals billing is metered on.
@@ -317,8 +317,8 @@ class ReconcileStations extends Command
      * Close broadcast sessions left open on stations whose container says
      * nobody is publishing.
      *
-     * A StreamSession is opened by MediaMTX's runOnReady hook and closed by
-     * runOnNotReady. Lose the second webhook once — a failed curl, an api
+     * A StreamSession is opened by harbor's `live_connected` event and closed
+     * by `live_disconnected`. Lose the second one once — a failed POST, an api
      * restart mid-request — and the session stays open forever. Because an
      * open session is what makes a station read as live, that refuses every
      * stop with 409 and exempts the station from the idle reaper, exactly as
@@ -327,7 +327,7 @@ class ReconcileStations extends Command
      *
      * The container is the authority here, not Redis: the broadcast-state key
      * has a 90-second TTL and nothing refreshes it during a broadcast, so its
-     * absence means "the webhook is old", not "nobody is live".
+     * absence means "the event is old", not "nobody is live".
      *
      * Requires consecutive disagreeing passes so a momentary reconnect (the
      * publisher dropping and re-joining between polls) doesn't end a session.

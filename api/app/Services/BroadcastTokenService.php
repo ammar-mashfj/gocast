@@ -8,15 +8,18 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Mints + verifies short-lived broadcaster tokens for MediaMTX WHIP publishes.
+ * Mints + verifies short-lived broadcaster tokens for webcast publishes into
+ * a station's Liquidsoap harbor input. The studio sends one as the `password`
+ * of its webcast hello frame; harbor's auth callback hands it to
+ * HarborAuthController, which verifies it here.
  *
- * Replaces the prior model of mirroring the Sanctum auth token into the WHIP
- * URL — that exposed a long-lived bearer (good for the whole API) to anything
- * downstream of the WHIP request: MediaMTX access logs, reverse-proxy logs,
- * browser history, error reporters. These tokens are:
+ * Replaces the prior model of mirroring the Sanctum auth token into the
+ * publish URL — that exposed a long-lived bearer (good for the whole API) to
+ * anything downstream of the request: access logs, reverse-proxy logs, browser
+ * history, error reporters. These tokens are:
  *
  *   • Scoped — usable only for one specific station.
- *   • Ephemeral — 60-second default TTL, just enough for the WHIP handshake.
+ *   • Ephemeral — 60-second default TTL, just enough for the handshake.
  *   • Self-contained — no DB hit on validation; MAC-only.
  *
  * Format: base64url(payload).base64url(hmac), where payload is a tiny JSON

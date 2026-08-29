@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  * down on its next pass.
  *
  * Every transition takes a per-station lock. Two rapid clicks on the power
- * button, or a click racing the WHIP auth hook's implicit start, would
+ * button, or a click racing the studio's start-before-broadcast, would
  * otherwise interleave a `docker run` and a `docker rm -f` on the same
  * container name.
  */
@@ -83,9 +83,9 @@ class StationLifecycleService
             }
 
             // The observer no longer seeds an m3u at create time, so this is
-            // the first moment a playlist file is guaranteed to be needed.
+            // the first moment the jingle file is guaranteed to be needed.
             // Writing it before the container boots keeps Liquidsoap from
-            // logging "file not found" on a station with no tracks yet.
+            // logging "file not found" on a station with no jingles yet.
             $this->playlistWriter->write($station);
             $this->supervisor->up($station);
 
@@ -130,23 +130,6 @@ class StationLifecycleService
 
             return $station;
         });
-    }
-
-    /**
-     * Make sure a station is on air, starting it if the owner never pressed
-     * the button. Called from the WHIP auth hook: hitting "Go live" is a
-     * stronger statement of intent than the power switch, so a stopped
-     * station comes up rather than the publish being refused.
-     *
-     * Plan limits still apply — otherwise the concurrency cap would be
-     * bypassable by going live instead of pressing start — but only when a
-     * new container is actually needed.
-     *
-     * @throws StationLifecycleException When the owner's plan is out of slots.
-     */
-    public function ensureRunning(Station $station, string $reason = 'broadcast'): Station
-    {
-        return $this->start($station, $reason);
     }
 
     /**

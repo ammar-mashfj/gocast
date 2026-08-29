@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #08080a; }
+  a { color: #a78bfa; text-decoration: none; }
+  a:hover { color: #c4b5fd; }
+  @keyframes pulseDot { 0%,100% { opacity: .35; transform: scale(1); } 50% { opacity: 1; transform: scale(1.35); } }
+</style>
+</helmet>
+
+<div style="display: flex; min-height: 100vh; background: #08080a; color: #e8e8ea; font-family: Outfit, system-ui, sans-serif; -webkit-font-smoothing: antialiased;">
+
+  <aside style="width: 248px; flex: 0 0 248px; border-right: 1px solid #1c1c20; padding: 22px 14px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; box-sizing: border-box; flex-shrink: 0;">
+    <div style="font-size: 21px; font-weight: 600; letter-spacing: -0.02em; padding: 0 10px;">Go<span style="color: #8b5cf6;">Cast</span><span style="color: #6b6b73;">.fm</span></div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65; padding: 0 10px 8px;">Station</div>
+      <div style="display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px; background: #17171b; font-size: 14px; font-weight: 500;">
+        <span style="width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(140deg, #8b5cf6, #4c1d95); display: block;"></span>
+        Overview
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">
+        <span>AutoDJ library</span><span style="font-size: 12px; color: #5c5c65;">42</span>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">
+        <span>Broadcasts</span><span style="font-size: 12px; color: #5c5c65;">6</span>
+      </div>
+      <div style="display: flex; align-items: center; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Settings</div>
+    </div>
+
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 14px;">
+      <div style="border: 1px solid #1c1c20; border-radius: 11px; padding: 12px 13px; display: flex; flex-direction: column; gap: 7px;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #71717a;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #52525b; display: block;"></span> Currently off air
+        </div>
+        <div style="font-size: 12px; color: #52525b; line-height: 1.5;">Listeners hear your AutoDJ rotation.</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px;">
+        <span style="width: 30px; height: 30px; border-radius: 50%; background: #26262c; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #a1a1aa;">A</span>
+        <div style="min-width: 0;">
+          <div style="font-size: 13px; font-weight: 500;">Ammar Mashfj</div>
+          <div style="font-size: 11px; color: #5c5c65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ammarmashfj.ru@gmail.com</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 900px; padding: 30px 34px 64px; display: flex; flex-direction: column; gap: 22px; max-width: 1560px;">
+
+    <header style="display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap;">
+      <span style="width: 60px; height: 60px; border-radius: 14px; background: linear-gradient(145deg, #7c3aed, #2e1065); flex: 0 0 60px; display: block;"></span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px;">
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.02em;">jazz</h1>
+          <span style="font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: #a1a1aa; border: 1px solid #2a2a30; border-radius: 999px; padding: 3px 9px;">Public</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; color: #71717a; flex-wrap: wrap;">
+          <span>Created Aug 17</span><span style="color: #35353c;">•</span>
+          <span>MP3 128 kbps</span><span style="color: #35353c;">•</span>
+          <span>6 broadcasts</span><span style="color: #35353c;">•</span>
+          <span>Last on air 2 hours ago</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 9px; flex: 0 0 auto;">
+        <button style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 9px 15px; font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;" style-hover="background: #131316; border-color: #3a3a42;">Player page</button>
+        <button style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 9px 15px; font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;" style-hover="background: #131316; border-color: #3a3a42;">Edit station</button>
+      </div>
+    </header>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) 348px; gap: 22px; align-items: start;">
+
+      <div style="display: flex; flex-direction: column; gap: 22px; min-width: 0;">
+
+        <section style="border: 1px solid #221f2e; border-radius: 16px; background: linear-gradient(120deg, #131022 0%, #0f0f13 55%); padding: 22px 24px; display: flex; align-items: center; gap: 26px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #a78bfa; display: block; animation: pulseDot 2s ease-in-out infinite;"></span>
+              <span style="font-size: 13px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: #a78bfa;">AutoDJ on air</span>
+            </div>
+            <div style="font-size: 19px; font-weight: 500; letter-spacing: -0.01em;">Bill Evans Trio — Peace Piece</div>
+            <div style="font-size: 13px; color: #8b8b96;">Up next: Chet Baker — Alone Together • 0 listeners tuned in</div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 9px; align-items: stretch; min-width: 190px;">
+            <button style="background: #8b5cf6; border: none; color: #fff; border-radius: 10px; padding: 12px 20px; font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" style-hover="background: #7c4ceb;">Take over live</button>
+            <button style="background: transparent; border: 1px solid #2f2b3d; color: #a1a1aa; border-radius: 10px; padding: 9px 20px; font: inherit; font-size: 13px; cursor: pointer;" style-hover="border-color: #45405a; color: #d4d4d8;">Pause AutoDJ</button>
+          </div>
+        </section>
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; padding: 20px 24px 24px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Listening activity</h2>
+            <span style="font-size: 12.5px; color: #71717a;">Last 14 days</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 24px;">
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <div style="font-size: 12px; color: #71717a;">Total airtime</div>
+              <div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">2h 35m</div>
+              <div style="font-size: 12px; color: #4ade80;">+41m vs prior 14d</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <div style="font-size: 12px; color: #71717a;">Broadcast sessions</div>
+              <div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">6</div>
+              <div style="font-size: 12px; color: #71717a;">avg 26m each</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <div style="font-size: 12px; color: #71717a;">Peak listeners</div>
+              <div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">0</div>
+              <div style="font-size: 12px; color: #71717a;">share your link to grow</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <div style="font-size: 12px; color: #71717a;">Listening hours</div>
+              <div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em;">0h</div>
+              <div style="font-size: 12px; color: #71717a;">across all sessions</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-end; gap: 6px; height: 84px;">
+            <sc-for list="{{ bars }}" as="bar" hint-placeholder-count="14">
+              <div title="{{ bar.label }}" style="{{ bar.style }}"></div>
+            </sc-for>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #52525b; margin-top: 9px;">
+            <span>Aug 16</span><span>Aug 23</span><span>Aug 29</span>
+          </div>
+        </section>
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 18px 24px 14px;">
+            <div>
+              <h2 style="margin: 0 0 3px; font-size: 15px; font-weight: 600;">AutoDJ rotation</h2>
+              <div style="font-size: 12.5px; color: #71717a;">42 tracks • 2h 51m • plays in order whenever you're off air</div>
+            </div>
+            <button style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;" style-hover="background: #17171b; border-color: #3a3a42;">Manage tracks</button>
+          </div>
+          <sc-for list="{{ queue }}" as="t" hint-placeholder-count="4">
+            <div style="display: grid; grid-template-columns: 26px minmax(0,1fr) 130px 64px; align-items: center; gap: 14px; padding: 11px 24px; border-top: 1px solid #17171b; font-size: 13.5px;" style-hover="background: #121216;">
+              <span style="font-size: 12px; color: #52525b; font-family: 'JetBrains Mono', monospace;">{{ t.pos }}</span>
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.title }}</span>
+              <span style="color: #71717a; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.artist }}</span>
+              <span style="color: #71717a; font-size: 12.5px; text-align: right; font-family: 'JetBrains Mono', monospace;">{{ t.dur }}</span>
+            </div>
+          </sc-for>
+          <div style="padding: 12px 24px; border-top: 1px solid #17171b; font-size: 12.5px; color: #5c5c65;">38 more tracks in rotation</div>
+        </section>
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 18px 24px 14px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Recent broadcasts</h2>
+            <a href="#" style="font-size: 13px;">View all 6</a>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(140px,1.4fr) 88px 96px 62px 62px; gap: 14px; padding: 0 24px 10px; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #5c5c65;">
+            <span>Started</span><span>Source</span><span>Duration</span><span style="text-align: right;">Peak</span><span style="text-align: right;">Avg</span>
+          </div>
+          <sc-for list="{{ broadcasts }}" as="b" hint-placeholder-count="3">
+            <div style="display: grid; grid-template-columns: minmax(140px,1.4fr) 88px 96px 62px 62px; gap: 14px; align-items: center; padding: 13px 24px; border-top: 1px solid #17171b; font-size: 13.5px; cursor: pointer;" style-hover="background: #121216;">
+              <span>{{ b.started }}</span>
+              <span style="font-size: 12px; color: #a1a1aa; border: 1px solid #2a2a30; border-radius: 999px; padding: 2px 9px; justify-self: start;">{{ b.source }}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #d4d4d8;">{{ b.dur }}</span>
+              <span style="text-align: right; color: #a1a1aa;">{{ b.peak }}</span>
+              <span style="text-align: right; color: #a1a1aa;">{{ b.avg }}</span>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 22px; min-width: 0;">
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; padding: 20px;">
+          <h2 style="margin: 0 0 4px; font-size: 15px; font-weight: 600;">Share your station</h2>
+          <p style="margin: 0 0 14px; font-size: 12.5px; color: #71717a; line-height: 1.5;">Anyone with this link can tune in from a browser.</p>
+          <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #26262c; border-radius: 10px; padding: 9px 10px 9px 12px; background: #121216;">
+            <span style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #c4b5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">gocast.fm/station/jazz</span>
+            <button onClick="{{ copyLink }}" style="background: #26262c; border: none; color: #e8e8ea; border-radius: 7px; padding: 6px 11px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; flex: 0 0 auto;" style-hover="background: #33333b;">{{ copyLabel }}</button>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button style="flex: 1; background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 8px; font: inherit; font-size: 12.5px; cursor: pointer;" style-hover="background: #17171b;">Embed player</button>
+            <button style="flex: 1; background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 8px; font: inherit; font-size: 12.5px; cursor: pointer;" style-hover="background: #17171b;">QR code</button>
+          </div>
+        </section>
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; padding: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Encoder settings</h2>
+            <span style="font-size: 11.5px; color: #71717a;">Icecast</span>
+          </div>
+          <p style="margin: 0 0 14px; font-size: 12.5px; color: #71717a; line-height: 1.5;">Paste these into Mixxx, BUTT or OBS to broadcast live.</p>
+          <div style="display: flex; flex-direction: column; gap: 1px; border: 1px solid #26262c; border-radius: 10px; overflow: hidden; background: #26262c;">
+            <sc-for list="{{ creds }}" as="c" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 10px; background: #121216; padding: 10px 12px;">
+                <span style="flex: 0 0 76px; font-size: 12px; color: #71717a;">{{ c.label }}</span>
+                <span style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ c.value }}</span>
+                <span style="font-size: 11.5px; color: #6b6b73; cursor: pointer;" style-hover="color: #c4b5fd;">Copy</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; padding: 20px;">
+          <h2 style="margin: 0 0 14px; font-size: 15px; font-weight: 600;">Finish setting up</h2>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <sc-for list="{{ checklist }}" as="i" hint-placeholder-count="3">
+              <div style="display: flex; align-items: flex-start; gap: 11px;">
+                <span style="{{ i.dot }}"></span>
+                <div style="min-width: 0;">
+                  <div style="font-size: 13.5px; color: #e8e8ea;">{{ i.title }}</div>
+                  <div style="font-size: 12px; color: #71717a; line-height: 1.5;">{{ i.hint }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+    <aside style="width: 320px; flex: 0 0 320px; border-left: 1px solid #1c1c20; background: #0b0b0e; padding: 26px 22px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; height: 100vh; box-sizing: border-box; flex-shrink: 0; overflow: auto;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">What changed & why</div>
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="6">
+        <div style="display: flex; flex-direction: column; gap: 5px; border-bottom: 1px solid #17171b; padding-bottom: 16px;">
+          <div style="font-size: 13.5px; font-weight: 600; color: #c4b5fd;">{{ n.title }}</div>
+          <div style="font-size: 12.5px; color: #8b8b96; line-height: 1.55;">{{ n.body }}</div>
+        </div>
+      </sc-for>
+      <div style="font-size: 12px; color: #52525b; line-height: 1.55;">Danger zone moved to Settings → it isn't something you need on the page you visit every day.</div>
+    </aside>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { copied: false };
+
+  renderVals() {
+    const vals = [12, 0, 0, 34, 8, 0, 0, 0, 19, 44, 0, 61, 0, 139];
+    const max = Math.max(...vals, 1);
+    const bars = vals.map((v, i) => ({
+      label: v ? v + " min" : "no airtime",
+      style: {
+        flex: 1,
+        height: Math.max(4, Math.round((v / max) * 84)) + "px",
+        borderRadius: "4px",
+        background: v ? "linear-gradient(180deg, #8b5cf6, #5b31c4)" : "#17171b"
+      }
+    }));
+
+    const dot = (color) => ({
+      width: "8px", height: "8px", borderRadius: "50%", background: color,
+      display: "block", marginTop: "6px", flex: "0 0 8px"
+    });
+
+    return {
+      bars,
+      showNotes: this.props.showNotes ?? true,
+      copyLabel: this.state.copied ? "Copied" : "Copy",
+      copyLink: () => {
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 1400);
+      },
+      queue: [
+        { pos: "1", title: "Peace Piece", artist: "Bill Evans Trio", dur: "6:42" },
+        { pos: "2", title: "Alone Together", artist: "Chet Baker", dur: "5:18" },
+        { pos: "3", title: "Django", artist: "Modern Jazz Quartet", dur: "7:03" },
+        { pos: "4", title: "Naima", artist: "John Coltrane", dur: "4:26" }
+      ],
+      broadcasts: [
+        { started: "Aug 29, 18:04", source: "AutoDJ", dur: "2h 19m", peak: "0", avg: "0", data: "128 MB" },
+        { started: "Aug 29, 14:41", source: "Live", dur: "3m 19s", peak: "0", avg: "0", data: "3 MB" },
+        { started: "Aug 29, 14:38", source: "Live", dur: "1m 41s", peak: "0", avg: "0", data: "1 MB" }
+      ],
+      creds: [
+        { label: "Server", value: "stream.gocast.fm" },
+        { label: "Port", value: "8000" },
+        { label: "Mount", value: "/jazz" },
+        { label: "Password", value: "••••••••••••" }
+      ],
+      checklist: [
+        { title: "Station artwork added", hint: "Shows on the player page and in shares.", dot: dot("#4ade80") },
+        { title: "Add a description", hint: "Two lines telling listeners what you play.", dot: dot("#8b5cf6") },
+        { title: "No listeners yet", hint: "Share your link — peak listeners is still 0.", dot: dot("#8b5cf6") }
+      ],
+      notes: [
+        { title: "One place to go live", body: "The old page had “Go live” and “Put on air” doing overlapping jobs. Now a single status panel owns airtime, and the header only holds low-risk actions." },
+        { title: "The status bar says something", body: "Off air used to be a dead pill. It now answers the real question — what listeners hear right now, what plays next, how many are tuned in." },
+        { title: "Numbers with context", body: "Three lonely tiles became four metrics plus a 14-day airtime chart, each with a comparison line so a 0 reads as a signal, not a bug." },
+        { title: "AutoDJ shows its contents", body: "A card that only said “tracks that play in order” now shows count, runtime and the next four tracks." },
+        { title: "Encoder settings surfaced", body: "The single most-hunted thing on a radio dashboard was missing entirely. It now lives in the rail, copy-ready." },
+        { title: "Setup checklist", body: "Turns “what do I do now?” into two or three concrete next steps." }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

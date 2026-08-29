@@ -111,14 +111,24 @@ export default function RootLayout({
       className={cn("dark h-full", "antialiased", "font-sans", montserrat.variable)}
     >
       <head>
-        <Script defer src="https://cloud.umami.is/script.js" data-website-id="892346df-9d2f-4c40-b76b-442a74ee4557" strategy="afterInteractive" />
-        <Script src="https://www.googletagmanager.com/gtag/js?id=G-44FJYHJWQR" strategy="afterInteractive" />
-        <Script id="gtag-init" strategy="afterInteractive">
-          {`window.dataLayer = window.dataLayer || [];
+        {/* 
+        only load on production environment
+      */}
+        {process.env.NODE_ENV === "production" && (
+          <Script defer src="https://cloud.umami.is/script.js" data-website-id="892346df-9d2f-4c40-b76b-442a74ee4557" strategy="afterInteractive" />
+        )}
+        {process.env.NODE_ENV === "production" && (
+          <Script src="https://www.googletagmanager.com/gtag/js?id=G-44FJYHJWQR" strategy="afterInteractive" />
+        )}
+        {process.env.NODE_ENV === "production" && (
+          <Script id="gtag-init" strategy="afterInteractive">
+            {`window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
 gtag('config', 'G-44FJYHJWQR');`}
-        </Script>
+          </Script>
+        )}
+
       </head>
       <body className="min-h-full flex flex-col">
         {/* JSON-LD as a native <script> per the Next.js docs guide —
@@ -127,12 +137,14 @@ gtag('config', 'G-44FJYHJWQR');`}
             otherwise cause hydration mismatches.
             `\u003c` substitution closes the XSS hole that JSON.stringify
             doesn't cover (per the same guide). */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(ORG_JSON_LD).replace(/</g, "\\u003c"),
-          }}
-        />
+        {process.env.NODE_ENV === "production" && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(ORG_JSON_LD).replace(/</g, "\\u003c"),
+            }}
+          />
+        )}
         {children}
         <Toaster />
       </body>

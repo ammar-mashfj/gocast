@@ -12,7 +12,7 @@ use function Pest\Laravel\getJson;
 use function Pest\Laravel\postJson;
 
 beforeEach(function () {
-    // Starting a station writes an empty playlist.m3u; keep it out of
+    // Starting a station writes an empty jingles.m3u; keep it out of
     // /var/gocast.
     $this->tmpDir = sys_get_temp_dir().'/gocast-power-test-'.uniqid();
     config(['liquidsoap.playlists_dir' => $this->tmpDir]);
@@ -60,13 +60,13 @@ it('starts a station and records when it went on air', function () {
         ->and($station->started_at)->not->toBeNull();
 });
 
-it('writes an empty playlist when a station starts so Liquidsoap has a file to read', function () {
+it('writes an empty jingles playlist when a station starts so Liquidsoap has a file to read', function () {
     $user = proUser();
     $station = Station::factory()->for($user, 'user')->create();
 
     actingAs($user)->postJson("/api/stations/{$station->slug}/start")->assertStatus(202);
 
-    expect(file_exists($this->tmpDir.'/'.$station->slug.'/'.PlaylistFileWriter::FILENAME))->toBeTrue();
+    expect(file_exists($this->tmpDir.'/'.$station->slug.'/'.PlaylistFileWriter::JINGLES_FILENAME))->toBeTrue();
 });
 
 it('stops a station and clears its start time', function () {

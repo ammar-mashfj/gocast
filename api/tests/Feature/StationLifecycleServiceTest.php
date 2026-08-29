@@ -51,6 +51,9 @@ it('does not restart a healthy container when start is pressed twice', function 
 });
 
 it('brings a station back up when its container has died', function () {
+    // Intent already says running, so this is not a first start — it is the
+    // recovery path: the short-circuit above must NOT fire when the container
+    // behind that intent is gone.
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'desired_state' => Station::STATE_RUNNING,
     ]);
@@ -60,7 +63,7 @@ it('brings a station back up when its container has died', function () {
     $supervisor->shouldReceive('up')->once();
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
-    app(StationLifecycleService::class)->ensureRunning($station);
+    app(StationLifecycleService::class)->start($station);
 });
 
 it('stops the container and records the intent', function () {

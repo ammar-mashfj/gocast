@@ -7,11 +7,10 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authenticates server-to-server calls (MediaMTX lifecycle webhooks,
- * Liquidsoap now-playing pushes) using a shared secret in the X-Internal-Key
- * header. The shared secret is INTERNAL_API_KEY; configured in compose for
- * the mediamtx container and baked into per-station .liq files by the
- * Liquidsoap blade template.
+ * Authenticates server-to-server calls from the station containers — harbor
+ * auth callbacks, lifecycle events, now-playing pushes — using a shared secret
+ * in the X-Internal-Key header. The shared secret is INTERNAL_API_KEY, baked
+ * into per-station .liq files by the Liquidsoap blade template.
  */
 class VerifyInternalKey
 {

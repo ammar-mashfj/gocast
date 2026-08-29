@@ -17,9 +17,9 @@ use Illuminate\Http\JsonResponse;
  *
  * Two consumers:
  *   • the power button, polling until `state` leaves "starting"
- *   • the broadcast pre-flight, which waits for `ready` before publishing
- *     WHIP so the broadcaster's first seconds aren't dropped into a
- *     container that hasn't finished building its audio graph
+ *   • the broadcast pre-flight, which waits for `ready` before opening the
+ *     webcast socket, so the broadcaster's first seconds aren't dropped into
+ *     a container that hasn't finished building its audio graph
  */
 class StationStatusController extends Controller
 {
@@ -92,11 +92,17 @@ class StationStatusController extends Controller
      * operator "otherwise we will run into synchronization issues" — so polling
      * it every couple of seconds was a standing hazard once crossfade was on.
      *
+     * Rotation only. Jingles live in the same table but in their own list,
+     * written to a separate playlist Liquidsoap plays on a timer — they are
+     * never "next" in the sense this card means, and reading tracks() rather
+     * than musicTracks() showed a station whose rotation was empty a queue of
+     * its station IDs while it played silence.
+     *
      * @return list<array{id: ?string, title: string, artist: ?string}>
      */
     private function upNext(Station $station, ?array $status): array
     {
-        $tracks = $station->tracks()
+        $tracks = $station->musicTracks()
             ->orderBy('position')
             ->get(['id', 'title', 'artist'])
             ->values();
@@ -135,8 +141,9 @@ class StationStatusController extends Controller
         return $upNext;
     }
 
+    /** Rotation length — what AutoDJ actually cycles through, jingles excluded. */
     private function playlistLength(Station $station): int
     {
-        return $station->tracks()->count();
+        return $station->musicTracks()->count();
     }
 }

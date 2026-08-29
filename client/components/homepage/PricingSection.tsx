@@ -2,17 +2,18 @@ import Link from "next/link"
 import { IconCheck } from "@tabler/icons-react"
 import WaitlistButton from "./WaitlistButton"
 
+const LAST_UPDATED = "30 August 2026"
+
 const FREE_FEATURES = [
-  "1 station",
-  "25 concurrent listeners",
+  "100 concurrent listeners",
   "Browser broadcasting + push-to-talk",
   "Drag-and-drop file queue",
   "Shareable player page with live metadata",
 ]
 
 const PRO_FEATURES = [
-  "Up to 5 stations",
-  "500 concurrent listeners",
+  "24/7 AutoDJ from your track library",
+  "1,000 concurrent listeners",
   "Custom domain for your player page",
   "Listener analytics & history",
   "Higher-bitrate audio",
@@ -49,7 +50,7 @@ export default function PricingSection() {
             <div className="text-sm text-text-faint">/mo</div>
           </div>
           <div className="text-sm text-text-faint mb-6 leading-relaxed">
-            Everything you need to launch your first station.
+            Open a tab, you&apos;re on air. Close it, you&apos;re off.
           </div>
           <ul className="list-none p-0 flex-1">
             {FREE_FEATURES.map((feature) => (
@@ -80,7 +81,7 @@ export default function PricingSection() {
             </span>
           </div>
           <div className="flex items-baseline gap-1.5 mb-1">
-            <div className="text-4xl font-semibold text-text-primary -tracking-wide">$20</div>
+            <div className="text-4xl font-semibold text-text-primary -tracking-wide">$15</div>
             <div className="text-sm text-text-faint">/mo</div>
           </div>
           <div className="text-sm text-text-faint mb-6 leading-relaxed">
@@ -105,6 +106,10 @@ export default function PricingSection() {
           </WaitlistButton>
         </div>
       </div>
+
+      <p className="text-xs text-text-faint text-center mt-8 md:mt-10">
+        Pricing last updated {LAST_UPDATED}
+      </p>
     </section>
   )
 }

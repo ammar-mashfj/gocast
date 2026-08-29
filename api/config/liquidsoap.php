@@ -232,6 +232,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Output level window
+    |--------------------------------------------------------------------------
+    |
+    | Averaging window for the `rms()` operator on the station's output, which
+    | is what lets /status report whether a station is actually producing sound
+    | rather than merely which source won the fallback.
+    |
+    | It is also the update interval: rms() reports 0.0 until the first window
+    | completes and then refreshes once per window (verified against the image).
+    | Keep it short — well under the status poll — so a reachable container
+    | always has a real reading. Smoothing out inter-track gaps is NOT this
+    | window's job; that is what the sweep's silence timer is for.
+    */
+
+    'rms_window_seconds' => (float) env('LIQUIDSOAP_RMS_WINDOW_SECONDS', 2),
+
+    /*
+    |--------------------------------------------------------------------------
     | AutoDJ crossfade
     |--------------------------------------------------------------------------
     |
@@ -549,29 +567,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | AutoDJ rotation source
+    | AutoDJ rotation
     |--------------------------------------------------------------------------
     |
-    | How a station's Liquidsoap gets its next rotation track.
+    | A station's Liquidsoap gets its rotation from `request.dynamic`, which
+    | asks Laravel for ONE track at a time over /api/internal/next-track. This
+    | is what AzuraCast and LibreTime do, and it is the only way the ordering
+    | can be OURS: rotation rules, dayparting and ad breaks are all "which
+    | track is next", which is a question a playlist file cannot be asked.
     |
-    |   true  (dynamic) — `request.dynamic` asks Laravel for one track at a
-    |                     time over /api/internal/next-track. This is what
-    |                     AzuraCast and LibreTime do, and it is the only way
-    |                     the ordering can be OURS: rotation rules, dayparting
-    |                     and ad breaks are all "which track is next", which is
-    |                     a question a playlist file cannot be asked.
-    |   false (playlist) — the legacy `playlist()` source reading playlist.m3u.
-    |
-    | Why the switch exists at all: measured on 2.4.5, `playlist.reload` — which
-    | the file mode must send after every track change — restarts the list at
-    | index 0. A listener hears the rotation jump back to song one because
-    | somebody uploaded a track. Dynamic mode has no list to reset.
-    |
-    | Kept switchable for the same reason crossfade is: this is the audio path,
-    | and a rollback should be an env var and a relaunch rather than a deploy.
-    | The m3u is still written in both modes, so flipping back needs nothing else.
+    | It replaced a `playlist()` source reading playlist.m3u, and there is no
+    | switch back. Measured on 2.4.5, `playlist.reload` — which the file mode
+    | had to send after every track change — restarts the list at index 0, so a
+    | listener heard the rotation jump to song one because somebody uploaded a
+    | track. Manual reload and reload_mode="watch" behave the same; there is no
+    | cursor-preserving reload, which makes the file mode unshippable rather
+    | than merely worse.
     */
-    'autodj_dynamic' => (bool) env('LIQUIDSOAP_AUTODJ_DYNAMIC', true),
 
     /*
     | Seconds before Liquidsoap re-asks after the API answers "nothing to
@@ -583,44 +595,49 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Idle auto-stop
+    | Auto-stop
     |--------------------------------------------------------------------------
     |
-    | Fallback window for `stations:reap-idle` when a plan does not set its
-    | own `idle_stop_hours`. Hours a station may stay on air with no listeners
-    | and no broadcaster before it is taken off air; 0 disables the reaper.
-    */
-
-    'idle_stop_hours' => (int) env('LIQUIDSOAP_IDLE_STOP_HOURS', 6),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Silent-station auto-stop
-    |--------------------------------------------------------------------------
+    | Seconds a station may produce NO AUDIO, with nothing attached that could
+    | start producing some, before `stations:sweep` takes it off air. 0 disables
+    | stopping entirely.
     |
-    | Seconds a station with NO AutoDJ rotation may sit on air after its
-    | broadcaster disconnects, before the container is stopped. 0 disables it.
+    | WHAT THIS IS NOT. It is not an idle timeout. Listener count plays no part
+    | in the decision: an AutoDJ rotation playing to an empty room is a paid
+    | feature working exactly as sold, and stopping it would be an outage, not a
+    | saving. The predecessor of this setting — an hourly reaper keyed on
+    | listener count — only produced the right answer because the free plan has
+    | no AutoDJ, so "no listeners" happened to coincide with "no broadcaster".
     |
-    | This is a much shorter fuse than `idle_stop_hours` above, and it is a
-    | different situation. A station with a rotation still has something to
-    | play when the broadcaster leaves, so taking it off air interrupts real
-    | audio; a station with an empty library has nothing but the silence bed,
-    | so every second it stays up is a container, an Icecast source slot and a
-    | continuous HLS write spent transmitting nothing.
+    | A broadcaster who is CONNECTED BUT SILENT is never on this clock. Their
+    | mic being muted demotes them off the live source, but the container
+    | reports the socket separately, and an attached broadcaster resets the
+    | window however quiet they are.
     |
-    | Only a station that HAS had a broadcaster is on this clock — the moment
-    | measured is the end of its last stream session. One that was started and
-    | never broadcast to is left to `idle_stop_hours`, so pressing the power
-    | button and going live a few minutes later cannot have the station switch
-    | itself off underneath the owner.
+    | The window is measured from the first observation of silence, not from
+    | the end of the last stream session, so a station that was started and
+    | never broadcast to is treated the same as one whose broadcaster left.
+    | That is safe because the studio starts a station itself before going live
+    | (and again on every reconnect) — nobody has to press the power button
+    | first, so an on-air station with nothing attached is genuinely waste.
     |
-    | 60s is deliberately longer than it looks: the studio reconnects across a
-    | dropped socket for up to two minutes, and a reconnect inside this window
-    | keeps the container. A broadcaster who genuinely comes back later simply
-    | starts the station again, which the studio does for them.
+    | Effective time to stop is one to two windows: the sweep needs one pass to
+    | start the clock and another to act on it.
     */
 
     'silent_stop_seconds' => (int) env('LIQUIDSOAP_SILENT_STOP_SECONDS', 60),
+
+    /*
+    | Output level (0.0–1.0, from the rms() meter on the station's output) at or
+    | below which a station counts as producing nothing.
+    |
+    | Not simply 0.0: digital silence is exactly zero, but an encoder's noise
+    | floor or a DC offset can sit a hair above it, and a station inaudible to
+    | every listener should not be held on air by the eighth decimal place.
+    | ~0.0001 is about -80 dBFS.
+    */
+
+    'silence_rms_threshold' => (float) env('LIQUIDSOAP_SILENCE_RMS_THRESHOLD', 0.0001),
 
     /*
     | Per-station AutoDJ storage cap. Total bytes of all tracks combined.

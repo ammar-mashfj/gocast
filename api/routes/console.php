@@ -35,25 +35,21 @@ Schedule::command('stations:reconcile')
     ->withoutOverlapping()
     ->runInBackground();
 
-// Idle reaper — takes stations off air when nobody is listening and nobody is
-// broadcasting. A running station costs a full container whether or not it has
-// an audience, so this is what keeps unattended AutoDJ rotations from holding
-// capacity indefinitely. Owners restart with one click.
-Schedule::command('stations:reap-idle')
-    ->hourly()
-    ->withoutOverlapping()
-    ->runInBackground();
-
-// Silent-station reaper — the backstop behind StopSilentStation, which is
-// dispatched with a delay when harbor reports a broadcaster gone. A station
-// with an empty rotation has only the silence bed to play once its broadcaster
-// leaves, so the window is a minute rather than the hours `reap-idle` allows.
+// Auto-stop — the single decision tree for taking a station off air. Replaces
+// `stations:reap-idle` and `stations:reap-silent`, which split the same
+// question across two schedules reasoning from different proxies, and so could
+// disagree about one station in one minute. See SweepStations for what each of
+// them got wrong at the seam.
 //
-// Runs every minute because the fast path is best-effort in three places (the
-// container has to reach the API, the event has to be accepted, the queue has
-// to still be up a minute later) and any of them failing would otherwise leave
-// a container transmitting silence until the hourly reaper noticed.
-Schedule::command('stations:reap-silent')
+// A station is stopped only when it is producing no audio AND has nothing
+// attached that could produce any. Listener count decides nothing: an AutoDJ
+// rotation playing to an empty room is a paid feature working correctly.
+//
+// Every minute, and the interval is load-bearing — it is what turns the
+// `silent_stop_seconds` window into wall-clock patience. A station needs one
+// pass to start its clock and another to be stopped by it, so the effective
+// time from "nothing to play" to "off air" is one to two windows.
+Schedule::command('stations:sweep')
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();

@@ -254,8 +254,33 @@ live_in = input.harbor(
 # 5s timeout, and a synchronous callback runs on the streaming thread — a slow
 # or hanging API would stall the audio for every listener. Same reasoning as
 # the blank.detect callbacks below.
-live_in.on_connect(synchronous=false, fun (_) -> notify("live_connected"))
-live_in.on_disconnect(synchronous=false, fun () -> notify("live_disconnected"))
+# Local mirror of the same connect/disconnect facts, for /status to report.
+#
+# WHY THIS EXISTS SEPARATELY FROM `source`. `live` is wrapped in blank.strip
+# below, so a broadcaster who mutes their mic is demoted and `current_source()`
+# starts saying "autodj" while their socket is still wide open. Anything that
+# decides whether to STOP a station must be able to tell "nobody is here" from
+# "here but quiet" — stopping the second is yanking a live show off air.
+#
+# A ref driven by these callbacks rather than only `live_in.is_ready()`: these
+# are in-process calls that cannot be lost the way the notify() HTTP posts can,
+# and the reader below ORs the two so the answer fails SAFE — any evidence of a
+# broadcaster reads as connected.
+live_connected = ref(false)
+
+live_in.on_connect(synchronous=false, fun (_) -> begin
+  live_connected := true
+  notify("live_connected")
+end)
+live_in.on_disconnect(synchronous=false, fun () -> begin
+  live_connected := false
+  notify("live_disconnected")
+end)
+
+# True when a source client is attached, MUTED OR NOT.
+def broadcaster_attached() =
+  live_connected() or live_in.is_ready()
+end
 
 # A broadcaster who sends no metadata at all — the studio page, and every
 # source client with its title field left blank — used to leave the last AutoDJ
@@ -318,7 +343,6 @@ silence_watch.on_noise(synchronous=false, fun () -> notify("live_audio"))
 live = live_raw
 @endif
 
-@if ($autodjDynamic)
 # === AutoDJ rotation — one track at a time, from Laravel ===
 #
 # WHY THIS IS NOT A PLAYLIST. The obvious shape is `playlist("playlist.m3u")`,
@@ -399,55 +423,24 @@ autodj.register_command(
   "skip",
   fun (_) -> begin autodj.skip() ; "Done" end
 )
-@else
-# === AutoDJ rotation — legacy playlist file ===
-#
-# Reached only with LIQUIDSOAP_AUTODJ_DYNAMIC=false. Kept as the rollback path
-# for the dynamic rotation above, on the same principle as the crossfade gate:
-# this is the audio path, so a way back should be an env var and a relaunch.
-# PlaylistFileWriter still writes playlist.m3u in both modes, so flipping back
-# needs nothing else.
-#
-# Known defect, which is why it is no longer the default: the reload Laravel
-# must send after a track change restarts the list at index 0 — verified on
-# 2.4.5 for both manual reload and reload_mode="watch".
-#
-# Reads playlist.m3u, written by PlaylistFileWriter on every track mutation.
-# The file sits in the dir mounted as /data/playlists/. `mode = "normal"`
-# plays top-to-bottom and loops; `reload_mode = "never"` leaves reloading to
-# Laravel's telnet call. Fallible when the m3u is missing or empty, which lets
-# fallback() below demote to the silence bed until tracks exist.
-#
-# Not wrapped in normalize() — it pumps quiet sections loud and crushes louder
-# ones, which sounds like the volume is breathing on its own. If we ever need
-# cross-track loudness leveling, swap in a proper LUFS limiter.
-#
-# `on_fail` fires when no track resolves after `max_fail` attempts. It must
-# return a list of replacement URIs; we have none, so the empty list lets the
-# fallback demote to the bed as it would anyway.
-autodj = playlist(
-  id = {!! json_encode($liqSource) !!},
-  "/data/playlists/playlist.m3u",
-  mode = "normal",
-  reload_mode = "never",
-  on_fail = fun () -> begin
-    log(level=2, "playlist: no playable track — falling through to silence")
-    ([] : [string])
-  end
-)
-@endif
 
 # === Jingles ===
 #
 # Station IDs, liners, sweepers — whatever the owner uploaded to the jingle
-# list. Read from a SECOND m3u (PlaylistFileWriter writes both on every track
-# mutation) rather than being mixed into the rotation, because a jingle is not
-# a rotation entry: it must not take its turn in order, must not be reordered
-# by the user's drag handles, and must not be crossfaded.
+# list. This is the one m3u left in the graph (PlaylistFileWriter writes it on
+# every track mutation): a jingle stays a list rather than joining the rotation
+# query above, because it is not a rotation entry — it must not take its turn
+# in order, must not be reordered by the user's drag handles, and must not be
+# crossfaded.
+#
+# The reload defect that drove the rotation off a playlist file does not bite
+# here: `jingles_m3u.reload` also restarts the list at index 0, but the list is
+# shuffled per read and a jingle is a few seconds long, so there is no cursor
+# worth preserving.
 #
 # `mode = "randomize"` shuffles within the list, so a station with three IDs
-# doesn't play them in a fixed cycle. `reload_mode = "never"` matches the
-# rotation: Laravel fires `jingles_m3u.reload` over telnet after any change.
+# doesn't play them in a fixed cycle. `reload_mode = "never"` leaves reloading
+# to Laravel: it fires `jingles_m3u.reload` over telnet after any change.
 #
 # This block is rendered for EVERY station, including the majority that never
 # turn jingles on — see the interactive variables below for why. Measured on
@@ -810,7 +803,23 @@ mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))
 # Nothing further processes the mix: source switches are hard cuts by design.
 # Fading between live and AutoDJ would mean fading live audio, which is the
 # bug described above. A broadcaster dropping off air should cut to AutoDJ.
-output_source = mixed
+#
+# `rms()` is what makes /status able to report whether this station is ACTUALLY
+# producing sound, as opposed to which arm won the fallback. Those are not the
+# same question: a rotation of undecodable files reports `source = "autodj"`
+# and emits nothing, and before this there was no way to tell from outside.
+#
+# Inserted ONCE, here, as a permanent operator in the graph — /status then just
+# reads the float it maintains. It must never be applied per request: that is
+# exactly the mistake `playlist_length`/`up_next` made (see the /status handler),
+# where every poll added a second operator to a crossfaded source.
+#
+# `duration` is the averaging window, and it is also the UPDATE INTERVAL —
+# verified against the image, not assumed: rms() reports 0.0 until the first
+# window completes, then refreshes once per window. Keep it short enough that
+# any reachable container has a real reading, and let the sweep's multi-minute
+# silence timer — not this window — be what absorbs inter-track gaps.
+output_source = rms(duration={{ number_format($rmsWindow, 1, '.', '') }}, mixed)
 
 # === Listener-facing metadata ===
 #
@@ -1038,6 +1047,13 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         # from "playing to nobody".
         icecast = ice_up(),
         source = current_source(),
+        # Is a broadcaster attached? Distinct from `source == "live"`, which
+        # goes false the moment blank.strip demotes a muted mic.
+        broadcaster = broadcaster_attached(),
+        # Is sound ACTUALLY leaving this station? Ground truth, independent of
+        # which arm won. 0.0 with no broadcaster and no rotation means the
+        # silence bed; 0.0 with a rotation means the rotation is broken.
+        rms = output_source.rms(),
         title = meta["title"],
         artist = meta["artist"],
         elapsed = finite(output_source.elapsed()),
@@ -1192,12 +1208,41 @@ icecast_out.on_error(synchronous=false, fun (~restart_in, _) -> begin
 end)
 
 # HLS — listener URL: https://stream.gocast.fm/{{ $station->slug }}/playlist.m3u8
-# Caddy serves /var/gocast/hls/{slug}/ (mounted here at /data/hls) from the
-# ingest vhost — see the @hls matcher in api/Caddyfile.
+# nginx serves /var/gocast/hls/{slug}/ (mounted here at /data/hls) from the
+# stream vhost — see infra/native/nginx/gocast-stream.conf, which splits
+# manifests (no-cache) from segments (immutable) because they want opposite
+# caching. Its segment matcher already covers .aac.
 #
 # The web player streams from Icecast, not from here; HLS exists for clients
 # that can't hold a long-lived MP3 socket (iOS lock screen, native apps, CDN
 # pull). Single bitrate for v1; add a 64k variant later for cellular ABR.
+#
+# `format="adts"` — raw AAC elementary segments, NOT mpegts. This is purely a
+# bandwidth decision, and the gap is much wider than it looks: the AAC payload
+# is 128k in every case, but the container is not free. Measured in this image
+# (44.1k stereo, 4s segments, bytes actually written to disk):
+#
+#     mpegts   216 kbit/s   92.6 MB/listener-hour   ← what this used to be
+#     fMP4     169 kbit/s   72.5 MB/listener-hour
+#     adts     130 kbit/s   55.9 MB/listener-hour   ← now
+#
+# mpegts pads everything into 188-byte packets and repeats PAT/PMT, which costs
+# 66% on top of the audio at these bitrates. fMP4 looks like the modern answer
+# but Liquidsoap flushes one fragment per AAC frame (168 moof boxes in a 4s
+# segment, ~21 KB of pure box headers) and neither frag_duration nor dropping
+# +frag_custom changes that — all three variants measured byte-identical.
+# adts has no container at all, so the wire cost is the bitrate. The HLS spec
+# has allowed elementary AAC streams for audio-only since v3, and Liquidsoap
+# still prepends the ID3 tag each segment needs, so in-band now-playing
+# metadata survives the change.
+#
+# Cost of adts: no CMAF, so low-latency HLS would need fMP4 if we ever want it.
+# Not a trade today — anyone who needs low latency gets the Icecast mount.
+#
+# 4s segments rather than 2s: halves the request rate (a listener polls the
+# manifest and pulls a segment on every segment boundary), which matters once
+# a CDN is in front and we are billed per request as well as per byte. It adds
+# a few seconds of startup latency, which HLS listeners are already accepting.
 #
 # `persist_at` lets a restart resume the existing HLS stream instead of
 # starting a fresh one. Station edits re-render the .liq and restart the
@@ -1210,11 +1255,11 @@ end)
 # a 404.
 output.file.hls(
   "/data/hls",
-  segment_duration = 2.,
+  segment_duration = 4.,
   segments = 5,
   segments_overhead = 5,
   persist_at = "/data/hls/state.json",
   playlist = "playlist.m3u8",
-  [("aac", %ffmpeg(format="mpegts", %audio(codec="aac", b="128k")))],
+  [("aac", %ffmpeg(format="adts", %audio(codec="aac", b="128k")))],
   broadcast_out
 )

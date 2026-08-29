@@ -23,7 +23,7 @@ export function DeleteStation({ slug }: DeleteStationProps) {
     try {
       await api.delete(`/stations/${slug}`)
       toast.success("Station deleted")
-      router.push("/dashboard/stations")
+      router.push("/dashboard")
       router.refresh()
       // Leave `deleting` true so the button stays disabled through the navigation.
     } catch {

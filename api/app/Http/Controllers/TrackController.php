@@ -113,12 +113,12 @@ class TrackController extends Controller
         $this->authorize('update', $track);
 
         $track->update($request->validated());
-        // Title/artist are stamped into the m3u's EXTINF lines, which
-        // Liquidsoap caches on read. Without a reload, edits stick in the DB
-        // but listeners keep hearing the old StreamTitle on every replay
-        // until LS reloads for some other reason. In LS 2.4 the currently-
-        // playing track survives a reload (only the queue rebuilds), so the
-        // listener-side cost is essentially zero.
+        // For a jingle, title/artist are baked into the annotate: URIs in
+        // jingles.m3u, which Liquidsoap caches on read — without a rewrite,
+        // edits stick in the DB but listeners keep hearing the old
+        // StreamTitle on every replay. A music track needs none of this (the
+        // rotation reads the DB per request), but write() is cheap and
+        // idempotent, so it is not worth branching on kind here.
         $writer->write($track->station);
         $writer->reload($track->station);
 

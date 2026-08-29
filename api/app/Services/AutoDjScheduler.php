@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\DB;
  * Decides which rotation track a station plays next.
  *
  * This is the half of the AutoDJ that used to live inside Liquidsoap. The
- * playlist() source held the running order in its own memory and re-read
- * playlist.m3u only when told to — and that reload, measured on 2.4.5, restarts
- * the list at index 0. So adding a track sent listeners back to song one.
+ * playlist() source held the running order in its own memory and re-read its
+ * m3u only when told to — and that reload, measured on 2.4.5, restarts the
+ * list at index 0. So adding a track sent listeners back to song one.
  *
  * Here the running order is a query, asked one track at a time by
  * `request.dynamic` (the same design AzuraCast and LibreTime use). There is no
@@ -35,7 +35,7 @@ class AutoDjScheduler
      * Null is a normal answer, not a failure: a station with an empty library
      * is the common case for a live-only broadcaster. The script turns it into
      * an unavailable source, and the fallback demotes to the silence bed —
-     * exactly what an empty playlist.m3u used to do.
+     * exactly what an empty rotation file used to do.
      */
     public function next(Station $station): ?string
     {

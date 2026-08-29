@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Redis;
  * read.
  *
  * Icecast is the only component that knows how many listeners a station has:
- * Liquidsoap just pushes bytes at a mount, and MediaMTX only sees the inbound
+ * Liquidsoap just pushes bytes at a mount, and harbor only sees the inbound
  * broadcaster. So we ask Icecast's admin API directly rather than having
  * anything push to us. (The old Node relay did this same poll; when it was
  * removed nothing took the job over and every station reported 0 listeners.)

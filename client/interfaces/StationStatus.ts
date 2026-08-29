@@ -36,9 +36,20 @@ export interface StationStatus {
   /** Which source won the fallback. */
   source: "live" | "autodj" | "silence" | null
   now_playing: { title: string | null; artist: string | null } | null
-  /** Seconds into the current track; null when unknown. */
+  /**
+   * Seconds into the current track; null when unknown.
+   *
+   * Deliberately not rendered. Status is polled every 10s (see
+   * useStationStatus) over a 2s server cache, so this is a stopwatch that
+   * lurches in 10-second steps and can be 12 seconds stale. The fixes are
+   * both worse: polling every second multiplies container load for a
+   * cosmetic, and ticking it client-side between polls invents a number that
+   * then snaps backwards on each poll. On the silence bed it is not even a
+   * track position — `blank()` is one endless track, so it counts how long
+   * the station has been silent.
+   */
   elapsed: number | null
-  /** Seconds left of the current track; null when unknown (e.g. a live feed). */
+  /** Seconds left of the current track; null when unknown (e.g. a live feed). Not rendered, for the same reason as elapsed. */
   remaining: number | null
   playlist_length: number | null
   up_next: Array<{ id: string | null; title: string; artist: string | null }>

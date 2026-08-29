@@ -43,8 +43,25 @@ interface NavItem {
   isActive?: (pathname: string) => boolean
 }
 
+/**
+ * Both station-scoped items link to a slugless route that resolves the user's
+ * one station and forwards. The sidebar renders on every dashboard page and
+ * cannot know the slug without a fetch of its own, and one redirect hop is a
+ * better trade than an API call per page render.
+ *
+ * Their matchers are written out because prefix-on-href cannot separate them:
+ * every library URL is also a /dashboard/stations/{slug} URL, so a plain
+ * startsWith would light up "Station" while the user is in AutoDJ.
+ */
 const NAV_ITEMS: NavItem[] = [
-  { title: "Stations", href: "/dashboard/stations", icon: IconRadio },
+  {
+    title: "Station",
+    href: "/dashboard",
+    icon: IconRadio,
+    isActive: (p) =>
+      p === "/dashboard" ||
+      (/^\/dashboard\/stations\/[^/]+/.test(p) && !/^\/dashboard\/stations\/[^/]+\/library/.test(p)),
+  },
   {
     title: "AutoDJ",
     href: "/dashboard/library",

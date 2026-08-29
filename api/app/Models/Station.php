@@ -30,6 +30,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property bool $is_live
  * @property string $desired_state
  * @property Carbon|null $started_at
+ * @property Carbon|null $silent_since
  * @property Carbon|null $last_ready_at
  * @property string $icecast_mount
  * @property string $icecast_password
@@ -149,6 +150,7 @@ class Station extends Model
             'social_links' => 'array',
             'theme_config' => 'array',
             'started_at' => 'datetime',
+            'silent_since' => 'datetime',
             'last_ready_at' => 'datetime',
         ];
     }
@@ -179,10 +181,10 @@ class Station extends Model
      * Stations with a human broadcaster publishing right now.
      *
      * There is no `is_live` column to read: live-ness is derived from the open
-     * StreamSession the MediaMTX runOnReady hook opens and runOnNotReady
-     * closes. Same webhooks that used to write the column, but against a
-     * record we already keep for billing rather than a second copy that could
-     * drift from it.
+     * StreamSession that harbor's `live_connected` event opens and
+     * `live_disconnected` closes. Same signal that used to write the column,
+     * but against a record we already keep for billing rather than a second
+     * copy that could drift from it.
      *
      * Use this for fan-out (lists, admin widgets, metrics) where asking each
      * container over HTTP would mean one socket per row. For a single station,
@@ -240,8 +242,8 @@ class Station extends Model
     }
 
     /**
-     * The AutoDJ rotation. PlaylistFileWriter writes exactly this, in this
-     * order, to `playlist.m3u`.
+     * The AutoDJ rotation, in the order AutoDjScheduler walks it to answer
+     * the container's "what do I play next?".
      */
     public function musicTracks(): HasMany
     {

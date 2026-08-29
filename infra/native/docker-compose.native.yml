@@ -105,13 +105,43 @@ networks:
   # Must be the SAME network the per-station containers join —
   # LiquidsoapSupervisor hardcodes `gocast-network` as a class constant.
   #
-  # `external: true` because setup-native.sh creates it, not compose. That
-  # is what lets the subnet be pinned, which in turn lets the firewall rules
-  # name a stable CIDR instead of a `br-<netid>` interface whose name
-  # changes every time the network is recreated. Compose will not create or
-  # remove it, so `down` here never strips the network out from under a
-  # running station — which matters, because the stations on it are the
-  # whole product.
+  # The CIDRs are literals, not config. They are a constant of the system:
+  # a /16 is 65534 addresses, which is more stations than this will ever
+  # run, and it is private space that collides with nothing. Making them
+  # tunable bought nothing and cost a required --env-file on every compose
+  # invocation.
+  #
+  # THIS FILE IS THE SOURCE OF TRUTH for the block. The other two places it
+  # appears both derive from here rather than restating it:
+  #   • the ufw rules in setup-native.sh read the live network back with
+  #     `docker network inspect`, so they cannot drift from what Docker did.
+  #   • api/config/liquidsoap.php defaults container_subnet to the same
+  #     /16. If you ever change the subnet here, change it there too —
+  #     that one is a genuine second copy, because PHP computes station
+  #     addresses from it without ever asking Docker.
+  #
+  # subnet is pinned so the ufw rules can name a stable CIDR instead of a
+  # `br-<netid>` interface whose name changes every time the network is
+  # recreated.
+  #
+  # ip_range is load-bearing, not tidiness. Station containers are started
+  # with an explicit --ip derived from the station's container_index,
+  # counting up from the bottom of the subnet. Docker's IPAM knows nothing
+  # about that and, left alone, allocates from the bottom too — so the
+  # router would sit exactly where a station is about to land, and some
+  # later station start would fail with "address already in use". Confining
+  # IPAM to the last /24 keeps them apart: everything auto-assigned lives at
+  # the top, every station at the bottom.
+  #
+  # NOTE: `docker compose down` will try to remove this network. With any
+  # station container attached the removal fails harmlessly ("has active
+  # endpoints") and the network survives. With every station off air it IS
+  # removed — and recreated identically on the next `up`, because the block
+  # is pinned here rather than left to Docker's default pool.
   default:
     name: gocast-network
-    external: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+          ip_range: 172.28.255.0/24

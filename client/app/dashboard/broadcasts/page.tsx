@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { IconHistory } from "@tabler/icons-react"
 import { apiFetch } from "@/lib/api-server"
+import { getMyStation } from "@/lib/station-server"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,36 +17,31 @@ import {
 import { Button } from "@/components/ui/button"
 import { formatDate, formatDateRange } from "@/lib/format"
 
+/**
+ * Every finished broadcast on the user's station, newest first.
+ *
+ * This used to fan out across all of the user's stations and tag each row
+ * with the station it belonged to. With one station per user both the
+ * fan-out and the column are noise — every row would carry the same name.
+ */
 export default async function BroadcastsPage() {
-  let stations: Station[]
+  let station: Station | null
+  let sessions: StreamSession[]
 
   try {
-    const res = await apiFetch<{ data: Station[] }>("/stations")
-    stations = res.data
+    station = await getMyStation()
+    sessions = station
+      ? (await apiFetch<{ data: StreamSession[] }>(`/stations/${station.slug}/sessions`)).data
+      : []
   } catch {
     notFound()
   }
 
-  // Fetch sessions for all stations in parallel
-  const sessionsPerStation = await Promise.all(
-    stations.map(async (station) => {
-      try {
-        const res = await apiFetch<{ data: StreamSession[] }>(`/stations/${station.slug}/sessions`)
-        return res.data
-          .filter((s) => s.ended_at)
-          .map((s) => ({ ...s, stationName: station.name, stationSlug: station.slug }))
-      } catch {
-        return []
-      }
-    }),
-  )
-
-  // Flatten and sort by most recent first
-  const allSessions = sessionsPerStation
-    .flat()
+  const finished = sessions
+    .filter((s) => s.ended_at)
     .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
 
-  if (allSessions.length === 0) {
+  if (finished.length === 0) {
     return (
       <div>
         <h1 className="text-xl font-medium mb-6">Broadcasts</h1>
@@ -60,7 +56,9 @@ export default async function BroadcastsPage() {
             </EmptyDescription>
           </EmptyHeader>
           <Button asChild>
-            <Link href="/dashboard/stations">Pick a station to broadcast</Link>
+            <Link href="/dashboard">
+              {station ? "Go to your station" : "Create your station"}
+            </Link>
           </Button>
         </Empty>
       </div>
@@ -78,26 +76,19 @@ export default async function BroadcastsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-[140px_1fr_100px_80px] px-3 py-2 text-xs text-muted-foreground tracking-wide uppercase">
+          <div className="grid grid-cols-[1fr_140px_80px] px-3 py-2 text-xs text-muted-foreground tracking-wide uppercase">
             <span>Date</span>
-            <span>Station</span>
             <span>Duration</span>
             <span className="text-right">Peak</span>
           </div>
           <Separator />
 
-          {allSessions.map((s) => (
+          {finished.map((s) => (
             <div
               key={s.id}
-              className="grid grid-cols-[140px_1fr_100px_80px] px-3 py-2.5 border-t border-border text-sm"
+              className="grid grid-cols-[1fr_140px_80px] px-3 py-2.5 border-t border-border text-sm"
             >
               <span className="text-muted-foreground">{formatDate(s.started_at, "short")}</span>
-              <Link
-                href={`/dashboard/stations/${s.stationSlug}`}
-                className="text-foreground no-underline hover:text-primary transition-colors truncate"
-              >
-                {s.stationName}
-              </Link>
               <span className="text-muted-foreground">{formatDateRange(s.started_at, s.ended_at!)}</span>
               <span className="text-right text-muted-foreground">{s.peak_listeners}</span>
             </div>

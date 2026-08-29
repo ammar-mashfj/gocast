@@ -71,7 +71,7 @@ class StationStatusService
      * Current audio state, or null when the station has no reachable
      * container (stopped, still booting, or crashed).
      *
-     * @return array{ready: bool, source: string, title: ?string, artist: ?string, elapsed: ?float, remaining: ?float, playlist_length: ?int, up_next: list<string>}|null
+     * @return array{ready: bool, icecast: ?bool, source: string, broadcaster: ?bool, rms: ?float, title: ?string, artist: ?string, elapsed: ?float, remaining: ?float, playlist_length: ?int, up_next: list<string>}|null
      */
     public function fetch(Station $station): ?array
     {
@@ -100,6 +100,38 @@ class StationStatusService
             (int) config('liquidsoap.status_ttl_seconds', 2),
             fn () => $this->pull($station),
         );
+    }
+
+    /**
+     * The same answer as {@see self::fetch()}, but never from the cache.
+     *
+     * For the auto-stop decision, which must not conclude "silent" from a
+     * reading taken before the moment it is reasoning about. The two-second
+     * TTL exists so that rendering a page of fifty stations does not open
+     * fifty sockets; a once-a-minute sweep has the opposite requirement and
+     * would rather pay for the socket.
+     *
+     * The fresh answer is written back to the cache, so a dashboard request
+     * arriving just behind the sweep is served the newer reading rather than
+     * opening a second connection to the same container.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function pullFresh(Station $station): ?array
+    {
+        if (! $station->isRunning()) {
+            return null;
+        }
+
+        $payload = $this->pull($station);
+
+        Cache::put(
+            self::CACHE_PREFIX.$station->id,
+            $payload,
+            (int) config('liquidsoap.status_ttl_seconds', 2),
+        );
+
+        return ($payload['reachable'] ?? false) ? $payload['status'] : null;
     }
 
     /**
@@ -292,6 +324,18 @@ class StationStatusService
             // only the second one is a fault.
             'icecast' => array_key_exists('icecast', $json) ? (bool) $json['icecast'] : null,
             'source' => (string) ($json['source'] ?? 'silence'),
+            // Is a broadcaster attached, muted or not? Null on containers that
+            // predate the field. Same convention as `icecast`, and it matters
+            // more here: anything deciding whether to STOP a station must read
+            // null as "unknown, do not act", never as "nobody is here".
+            'broadcaster' => array_key_exists('broadcaster', $json) ? (bool) $json['broadcaster'] : null,
+            // Output level, 0.0–1.0. The ground truth for "is this station
+            // actually producing sound", independent of which arm won the
+            // fallback. Null when unreported — again, unknown, not silent.
+            //
+            // 0.0 is a legitimate value, so this cannot reuse the $seconds
+            // helper, which maps anything non-positive to null.
+            'rms' => is_numeric($json['rms'] ?? null) ? round((float) $json['rms'], 4) : null,
             'title' => $text('title'),
             'artist' => $text('artist'),
             'elapsed' => $seconds('elapsed'),

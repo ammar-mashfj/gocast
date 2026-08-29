@@ -313,9 +313,9 @@ export class AudioEngine {
 
   /**
    * Reload queue metadata from IndexedDB. Does NOT resume playback — callers
-   * must invoke {@link resumePlayback} once the WHIP connection is live,
-   * otherwise the first seconds of audio leave the mixer before any
-   * peer connection is consuming the destination stream.
+   * must invoke {@link resumePlayback} once the webcast socket is live,
+   * otherwise the first seconds of audio leave the mixer before anything is
+   * encoding and shipping them.
    */
   async restoreQueue(): Promise<void> {
     const stored = await loadQueue()
@@ -335,7 +335,7 @@ export class AudioEngine {
 
   /**
    * Resume playback at the saved position, if any. Pairs with
-   * {@link restoreQueue}; call only after the WHIP peer connection is live.
+   * {@link restoreQueue}; call only after the webcast socket is live.
    */
   async resumePlayback(): Promise<void> {
     const playback = await loadPlayback()

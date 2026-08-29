@@ -73,7 +73,7 @@ export default function MobileMenu({ links, authed }: MobileMenuProps) {
         {authed && (
           <div className="border-t border-border-subtle mt-4 px-4 pt-4">
             <Link
-              href="/dashboard/stations"
+              href="/dashboard"
               onClick={() => setOpen(false)}
               className="block px-3 py-2.5 rounded-lg text-base text-white text-center bg-violet-full hover:brightness-110 transition-all no-underline"
             >

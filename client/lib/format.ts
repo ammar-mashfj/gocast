@@ -93,10 +93,31 @@ export function formatBytes(bytes: number): string {
 
 /**
  * HH:MM:SS for live timers (studio elapsed counters, file progress).
+ *
+ * Floors to whole seconds first. Track durations arrive from the analyzer as
+ * floats, and the seconds field used to print the fractional remainder
+ * verbatim — a 0.8-second file rendered as `00:00.8025` rather than `00:00`.
  */
 export function formatClock(seconds: number): string {
-  const h = String(Math.floor(seconds / 3600)).padStart(2, "0")
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")
-  const s = String(Math.max(0, seconds) % 60).padStart(2, "0")
+  const total = Math.floor(Math.max(0, seconds))
+  const h = String(Math.floor(total / 3600)).padStart(2, "0")
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0")
+  const s = String(total % 60).padStart(2, "0")
   return `${h}:${m}:${s}`
+}
+
+/**
+ * "Aug 29, 6:04 PM" — a timestamp precise enough to tell two broadcasts on the
+ * same day apart, which `formatDate(iso, "short")` cannot. Distinct from
+ * `"full"`, which leads with the weekday and is too wide for a table column.
+ */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
 }

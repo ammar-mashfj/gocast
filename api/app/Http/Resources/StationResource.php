@@ -69,9 +69,10 @@ class StationResource extends JsonResource
         $map = $request->attributes->get(self::PRELOAD_ATTR, []);
         $preloaded = $map[$this->id] ?? $this->loadRealtimeState();
 
-        // is_live: a real human broadcaster is publishing into MediaMTX right
-        // now — derived from the session the runOnReady/runOnNotReady webhook
-        // chain opens and closes, never from a stored flag.
+        // is_live: a real human broadcaster is publishing into the station's
+        // harbor input right now — derived from the session the
+        // live_connected/live_disconnected events open and close, never from
+        // a stored flag.
         $isRunning = $this->resource->isRunning();
         $isLive = $isRunning && $preloaded['is_live'];
         $nowPlaying = $preloaded['metadata'];

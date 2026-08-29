@@ -388,7 +388,7 @@ sudo apt install -y redis-server icecast2 docker.io
 Then run the app processes directly, and only the audio in Docker:
 
 ```bash
-docker compose -f infra/native/docker-compose.native.yml up -d   # proxy + router
+docker compose -f infra/native/docker-compose.native.yml up -d   # network + proxy + router
 cd api    && php artisan serve                                   # :8000
 cd client && npm run dev                                         # :3000
 cd api    && php artisan queue:work

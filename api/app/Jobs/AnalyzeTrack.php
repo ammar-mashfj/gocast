@@ -87,12 +87,12 @@ class AnalyzeTrack implements ShouldQueue
             'analysis_error' => null,
         ])->saveQuietly();
 
-        // The m3u carries the annotations too, so it is now stale. Rewritten
-        // without a telnet reload on purpose: `reload` restarts the list at
-        // index 0 (the defect that moved rotation to request.dynamic in the
-        // first place), and the dynamic path reads the database per track and
-        // never sees this file. The rewrite is for the legacy rollback mode,
-        // which picks it up at its next natural reload.
+        // jingles.m3u bakes these annotations into its URIs, so it is now
+        // stale for a jingle; the rotation reads the database per request and
+        // needs nothing. Rewritten without a telnet reload on purpose:
+        // `reload` restarts the list at index 0, and a jingle whose cue points
+        // land one playback late is not worth that. The file is picked up at
+        // the next natural reload.
         $writer->write($station);
     }
 

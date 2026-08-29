@@ -14,8 +14,8 @@ Group=__RUN_USER__
 WorkingDirectory=__APP_ROOT__/api
 
 # The queue worker needs DOCKER_HOST for the same reason the scheduler does:
-# StopSilentStation stops a station's container. See the php-fpm pool's env[]
-# block for why api/.env alone does not supply it.
+# StopStation stops a station's container. See the php-fpm pool's env[] block
+# for why api/.env alone does not supply it.
 Environment=DOCKER_HOST=__DOCKER_HOST__
 
 # --tries=3 and --timeout=60 are carried over verbatim from the `queue`

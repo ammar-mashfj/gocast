@@ -3,9 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\SendStationLiveNotifications;
-use App\Jobs\StopSilentStation;
 use App\Models\Station;
-use App\Services\SilentStationPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -103,7 +101,6 @@ class StationEventController extends Controller
 
         if ($validated['event'] === 'live_disconnected') {
             $this->closeSessions($station);
-            $this->scheduleSilentStop($station);
         }
 
         Log::info('Station reported a lifecycle event', [
@@ -136,30 +133,6 @@ class StationEventController extends Controller
 
         SendStationLiveNotifications::dispatch($station->id, $session->id)
             ->delay(now()->addMinutes(2));
-    }
-
-    /**
-     * Start the clock on a station that has nothing to play now that its
-     * broadcaster is gone.
-     *
-     * Only a station with an empty rotation is a candidate, and that is
-     * re-checked when the job runs — this is a cheap pre-filter so the common
-     * case (a station with a library) never queues anything at all.
-     *
-     * Fire-and-forget by design. SilentStationPolicy decides at execution
-     * time, and `stations:reap-silent` applies the same rule every minute, so
-     * a job that never runs costs freshness rather than a stranded container.
-     */
-    private function scheduleSilentStop(Station $station): void
-    {
-        $policy = app(SilentStationPolicy::class);
-
-        if (! $policy->enabled() || $station->musicTracks()->exists()) {
-            return;
-        }
-
-        StopSilentStation::dispatch($station->id)
-            ->delay(now()->addSeconds($policy->windowSeconds()));
     }
 
     /**

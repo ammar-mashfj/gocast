@@ -42,7 +42,7 @@ set -a; source "$DOMAINS"; set +a
 : "${APP_HOST:?}" "${API_HOST:?}" "${ICECAST_HOST:?}" "${STREAM_HOST:?}"
 : "${APP_ROOT:?}" "${RUN_USER:?}" "${PHP_VERSION:?}"
 : "${CLIENT_PORT:?}" "${ICECAST_PORT:?}" "${ROUTER_PORT:?}" "${INTERNAL_API_PORT:?}"
-: "${GOCAST_SUBNET:?}" "${GOCAST_IPAM_RANGE:?}" "${DOCKER_HOST_ADDR:?}"
+: "${DOCKER_HOST_ADDR:?}"
 
 # Renders a template, substituting the __TOKEN__ placeholders. Kept as one
 # function so a new placeholder only has to be added in one place.
@@ -93,44 +93,26 @@ install -d -o "$RUN_USER" -g 101 -m 0775 \
 echo "  ✓ /var/gocast/{liq,playlists,hls,system}"
 
 echo "==> Docker network"
-# Created here rather than by compose so the subnet can be pinned: the
-# firewall rules below name a stable CIDR instead of a `br-<netid>`
-# interface whose name changes whenever the network is recreated.
+# Declared in docker-compose.native.yml (pinned subnet + ip_range) and
+# created by the `up` further down, not here. Nothing between this point and
+# there needs it to exist — the ufw rules now run after that `up` and read
+# the block back off the live network.
 #
-# The labels are what compose stamps on networks it creates itself. They are
-# not strictly needed by docker-compose.native.yml, which declares the network
-# `external`, but they keep `docker compose` from ever complaining that
-# "network gocast-network was found but has incorrect label
-# com.docker.compose.network".
-#
-# --ip-range is load-bearing, not tidiness. Station containers are started with
-# an explicit --ip derived from the station's container_index, counting up from
-# the bottom of the subnet. Docker's IPAM knows nothing about that and, left
-# alone, allocates from the bottom too — so the router would sit exactly where
-# a station is about to land, and some later station start would fail with
-# "address already in use". Confining IPAM to the last /24 keeps them apart:
-# everything auto-assigned lives at the top, every station at the bottom.
-if ! docker network inspect gocast-network >/dev/null 2>&1; then
-  docker network create \
-    --subnet "$GOCAST_SUBNET" \
-    --ip-range "$GOCAST_IPAM_RANGE" \
-    --label com.docker.compose.project=gocast-native \
-    --label com.docker.compose.network=default \
-    gocast-network
-  echo "  ✓ created gocast-network ($GOCAST_SUBNET, IPAM confined to $GOCAST_IPAM_RANGE)"
-elif ! docker network inspect gocast-network \
-       --format '{{range .IPAM.Config}}{{.IPRange}}{{end}}' 2>/dev/null | grep -q .; then
-  # Predates --ip-range. Docker cannot change a network's IPAM in place, so say
-  # so rather than leave a collision to surface months later as one station
-  # that will not start.
-  echo "  ! gocast-network exists WITHOUT an --ip-range."
-  echo "    IPAM will allocate from the bottom of $GOCAST_SUBNET, where per-station"
+# The one case compose cannot handle is a network that already exists with
+# the wrong IPAM — it adopts such a network silently, because Docker cannot
+# change a network's addressing in place. Say so here rather than leave the
+# collision to surface months later as one station that will not start.
+if docker network inspect gocast-network >/dev/null 2>&1 \
+   && ! docker network inspect gocast-network \
+        --format '{{range .IPAM.Config}}{{.IPRange}}{{end}}' 2>/dev/null | grep -q .; then
+  echo "  ! gocast-network exists WITHOUT an ip_range."
+  echo "    IPAM will allocate from the bottom of the subnet, where per-station"
   echo "    addresses live. Recreate it with every station stopped:"
-  echo "      docker compose -f infra/native/docker-compose.native.yml down"
+  echo "      docker compose -f $NATIVE/docker-compose.native.yml down"
   echo "      docker rm -f \$(docker ps -aq --filter name=gocast-liquidsoap-)"
   echo "      docker network rm gocast-network && sudo bash $0"
 else
-  echo "  · gocast-network exists"
+  echo "  · declared in docker-compose.native.yml; created below"
 fi
 
 echo "==> Liquidsoap image"
@@ -197,6 +179,10 @@ else
   echo "  ✓ /etc/icecast2/icecast.xml"
 fi
 
+echo "==> Support containers"
+docker compose -f "$NATIVE/docker-compose.native.yml" up -d
+echo "  ✓ gocast-network, gocast-docker-proxy, gocast-station-router"
+
 echo "==> Firewall"
 # Icecast and the internal API vhost both bind all interfaces, because
 # `host.docker.internal` resolves to the docker0 gateway (172.17.0.1) and a
@@ -206,6 +192,16 @@ echo "==> Firewall"
 # Two CIDRs because the two bridges are different: containers live on
 # gocast-network but reach the host through the docker0 gateway address, so
 # packets arrive with a gocast-network source IP on the docker0 address.
+#
+# The gocast-network block is read back off the network that compose just
+# created rather than restated in domains.env. That is why this step runs
+# here and not before the `up`: a rule naming a CIDR the network does not
+# actually use is indistinguishable from a working firewall until a station
+# cannot reach Icecast.
+GOCAST_SUBNET="$(docker network inspect gocast-network \
+  --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')"
+: "${GOCAST_SUBNET:?could not read the gocast-network subnet}"
+
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 80/tcp  >/dev/null
   ufw allow 443/tcp >/dev/null
@@ -220,9 +216,6 @@ else
   echo "    listening on all interfaces — close them before going live."
 fi
 
-echo "==> Support containers"
-docker compose -f "$NATIVE/docker-compose.native.yml" up -d
-echo "  ✓ gocast-docker-proxy, gocast-station-router"
 
 echo ""
 echo "✓ Host provisioned."

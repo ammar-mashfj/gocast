@@ -43,7 +43,7 @@ export default function RegisterPage() {
     if (!existingUser) return
 
     if (existingUser.email_verified_at) {
-      router.replace("/dashboard/stations")
+      router.replace("/dashboard")
       return
     }
 
@@ -82,7 +82,7 @@ export default function RegisterPage() {
       const userRes = await axios.get("/user")
       saveAuth(null, userRes.data.data)
       toast.success("Welcome to GoCast")
-      router.push("/dashboard/stations")
+      router.push("/dashboard")
     } catch {
       toast.error("Something went wrong. Please try again.")
     } finally {

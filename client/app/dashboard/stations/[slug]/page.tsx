@@ -1,20 +1,31 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { IconArrowLeft, IconExternalLink, IconArrowRight, IconPlaylist } from "@tabler/icons-react"
+import { IconExternalLink, IconSettings } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
+import { Track } from "@/interfaces/Track"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import { CopyButton } from "@/components/dashboard/CopyButton"
 import { StationArtwork } from "@/components/StationArtwork"
 import { StationPower } from "@/components/dashboard/StationPower"
-import { formatDate, formatAirtime, formatDateRange } from "@/lib/format"
+import { StationActivity } from "@/components/dashboard/StationActivity"
+import { AutoDjRotation } from "@/components/dashboard/AutoDjRotation"
+import { RecentBroadcasts } from "@/components/dashboard/RecentBroadcasts"
+import { StationChecklist } from "@/components/dashboard/StationChecklist"
+import { StationShare } from "@/components/dashboard/StationShare"
+import { formatDate } from "@/lib/format"
 import { StationActions } from "./StationActions"
-import { DeleteStation } from "./DeleteStation"
+
+/**
+ * Every station encodes identically — it is hardcoded in the Liquidsoap
+ * template (`%mp3(bitrate=128, samplerate=44100)`), not a per-station setting,
+ * so there is nothing to read off the API. Stated here because "what quality
+ * do my listeners get?" is a question the page should answer without anyone
+ * having to ask support.
+ */
+const STREAM_FORMAT = "MP3 128 kbps"
 
 export default async function StationDetailPage({
   params,
@@ -25,14 +36,18 @@ export default async function StationDetailPage({
 
   let station: Station
   let sessions: StreamSession[]
+  let sessionTotal: number
 
   try {
     const [stationRes, sessionsRes] = await Promise.all([
       apiFetch<{ data: Station }>(`/stations/${slug}`),
-      apiFetch<{ data: StreamSession[] }>(`/stations/${slug}/sessions`),
+      // Laravel's paginator, so `total` is what tells us whether the 14-day
+      // window below is complete or merely the first page of a busy station.
+      apiFetch<{ data: StreamSession[]; total?: number }>(`/stations/${slug}/sessions`),
     ])
     station = stationRes.data
     sessions = sessionsRes.data
+    sessionTotal = sessionsRes.total ?? sessionsRes.data.length
   } catch (err) {
     // Only render the 404 page when the backend actually said the station
     // is missing. Any other failure (timeout, 401 from a stale cookie, 5xx)
@@ -45,188 +60,113 @@ export default async function StationDetailPage({
     throw err
   }
 
-  const recentSessions = sessions.filter((s) => s.ended_at).slice(0, 3)
+  // The rotation is a nice-to-have on this page, not the point of it: a failing
+  // track fetch degrades one card rather than taking the whole route down.
+  let tracks: Track[] = []
+  let tracksUnavailable = false
+  try {
+    const res = await apiFetch<{ data: Track[] }>(`/stations/${slug}/tracks`)
+    tracks = res.data
+  } catch (err) {
+    console.error(`[station/${slug}] track fetch failed:`, err)
+    tracksUnavailable = true
+  }
+
   const playerUrl = `${env.appUrl}/station/${station.slug}`
+  const lastEnded = sessions.find((s) => s.ended_at)?.ended_at ?? null
+
+  // Header meta line. Each part is dropped rather than shown empty, so a brand
+  // new station gets a short honest line instead of a row of dashes.
+  const meta = [
+    `Created ${formatDate(station.created_at)}`,
+    STREAM_FORMAT,
+    sessionTotal > 0 ? `${sessionTotal} broadcast${sessionTotal === 1 ? "" : "s"}` : null,
+    station.state !== "offline"
+      ? "On air now"
+      : lastEnded
+        ? `Last on air ${formatDate(lastEnded, "relative")}`
+        : null,
+  ].filter(Boolean) as string[]
 
   return (
-    <div>
-      {/* Back */}
-      <Link
-        href="/dashboard/stations"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
-      >
-        <IconArrowLeft size={14} />
-        Back to stations
-      </Link>
-
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex gap-4 items-start">
-          <StationArtwork
-            src={station.artwork_url}
-            alt={station.name}
-            className="size-16 md:size-[72px] rounded-2xl shrink-0"
-            iconSize={24}
-            sizes="72px"
-          />
-          <div className="flex-1 min-w-0">
-            {/* State badge lives in the StationPower card below: it polls the
-                container, so it can say "starting" and stay honest, which a
-                server-rendered badge cannot. */}
-            <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-medium truncate">{station.name}</h1>
-            </div>
-            {station.description && (
-              <p className="text-sm text-muted-foreground mb-1 max-w-md truncate">{station.description}</p>
+    <div className="flex flex-col gap-6">
+      {/* Header — identity and low-risk actions only. Anything that changes
+          what listeners hear lives in the status panel below, so there is one
+          place to look rather than two buttons that both mean "begin". */}
+      <header className="flex flex-col gap-4 md:flex-row md:items-start md:gap-5">
+        <StationArtwork
+          src={station.artwork_url}
+          alt={station.name}
+          className="size-16 md:size-[72px] rounded-2xl shrink-0"
+          iconSize={24}
+          sizes="72px"
+        />
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-2xl font-medium truncate">{station.name}</h1>
+            {station.genre && (
+              <Badge variant="secondary" className="shrink-0">{station.genre}</Badge>
             )}
-            <div className="flex flex-wrap gap-2 mt-2">
-              {station.genre && (
-                <Badge variant="secondary">{station.genre}</Badge>
-              )}
-              <Badge variant="secondary">Created {formatDate(station.created_at)}</Badge>
-            </div>
           </div>
-
-          {/* Desktop: buttons next to station info */}
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            <Button variant="outline" asChild>
-              <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
-                <IconExternalLink data-icon="inline-start" />
-                Player page
-              </a>
-            </Button>
-            <StationActions station={station} mode="edit" />
-            <StationActions station={station} mode="live" />
-          </div>
-        </div>
-
-        {/* Mobile: buttons below */}
-        <div className="flex flex-col gap-2 mt-4 md:hidden">
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" asChild>
-              <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
-                <IconExternalLink data-icon="inline-start" />
-                Player page
-              </a>
-            </Button>
-            <StationActions station={station} mode="edit" />
-          </div>
-          <StationActions station={station} mode="live" />
-        </div>
-      </div>
-
-      {/* Power + live audio state, read from the station's own container */}
-      <div className="mb-6">
-        <StationPower station={station} />
-      </div>
-
-      {/* Stats + Share */}
-      <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-stretch">
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 md:flex md:gap-3 shrink-0">
-          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
-            <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-xs text-muted-foreground mb-0.5">Sessions</div>
-              <div className="text-xl md:text-2xl font-medium">{station.stats?.sessions ?? 0}</div>
-            </CardContent>
-          </Card>
-          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
-            <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-xs text-muted-foreground mb-0.5">Airtime</div>
-              <div className="text-xl md:text-2xl font-medium">{formatAirtime(station.stats?.total_airtime_seconds ?? 0)}</div>
-            </CardContent>
-          </Card>
-          <Card className="py-2 md:py-3 gap-0 md:px-2 justify-center">
-            <CardContent className="px-2 md:px-4 text-center">
-              <div className="text-xs text-muted-foreground mb-0.5">Peak</div>
-              <div className="text-xl md:text-2xl font-medium">{station.stats?.peak_listeners ?? 0}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Share + Embed */}
-        <Card className="flex-1">
-          <CardHeader>
-            <CardTitle className="text-base font-medium">
-              Share your station
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">
-              Send this link to your listeners so they can tune in from any browser.
+          {station.description && (
+            <p className="text-sm text-muted-foreground max-w-xl line-clamp-2">
+              {station.description}
             </p>
-            <div className="flex items-center justify-between gap-2">
-              <code className="text-xs text-muted-foreground truncate">{playerUrl}</code>
-              <CopyButton text={playerUrl} />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* AutoDJ library */}
-      <Card className="mb-6">
-        <CardContent className="flex items-center justify-between gap-4 py-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="size-10 rounded-md bg-muted flex items-center justify-center shrink-0">
-              <IconPlaylist size={18} className="text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">AutoDJ library</div>
-              <div className="text-xs text-muted-foreground">Tracks that play in order when you&apos;re not live.</div>
-            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {meta.map((part, i) => (
+              <span key={part} className="inline-flex items-center gap-2">
+                {i > 0 && <span className="text-border">•</span>}
+                {part}
+              </span>
+            ))}
           </div>
-          <Button variant="outline" asChild className="shrink-0">
-            <Link href={`/dashboard/stations/${station.slug}/library`}>
-              Manage tracks
-              <IconArrowRight data-icon="inline-end" />
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" className="flex-1 md:flex-initial" asChild>
+            <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
+              <IconExternalLink data-icon="inline-start" />
+              Player page
+            </a>
+          </Button>
+          <StationActions station={station} mode="edit" />
+          <Button variant="outline" size="icon" asChild title="Station settings">
+            <Link href={`/dashboard/stations/${station.slug}/settings`}>
+              <IconSettings />
+              <span className="sr-only">Station settings</span>
             </Link>
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </header>
 
-      {/* Recent broadcasts */}
-      <Card className="mb-6">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">
-            Recent broadcasts
-          </CardTitle>
-          <Link
-            href="/dashboard/broadcasts"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground no-underline hover:text-foreground transition-colors"
-          >
-            View all
-            <IconArrowRight size={14} />
-          </Link>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2 text-xs text-muted-foreground">
-            <span>Date</span>
-            <span>Duration</span>
-            <span className="text-right">Peak</span>
-          </div>
-          <Separator />
+      <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="flex flex-col gap-6 min-w-0">
+          {/* Power, now playing, up next, listeners, and every action that
+              changes any of them. */}
+          <StationPower station={station} />
 
-          {recentSessions.length === 0 ? (
-            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-              No broadcasts yet. Go live to see your session history here.
-            </div>
-          ) : (
-            recentSessions.map((s) => (
-              <div
-                key={s.id}
-                className="grid grid-cols-[100px_1fr_60px] md:grid-cols-[140px_1fr_80px] px-3 py-2.5 border-t border-border"
-              >
-                <span className="text-muted-foreground">{formatDate(s.started_at)}</span>
-                <span className="text-muted-foreground">{formatDateRange(s.started_at, s.ended_at!)}</span>
-                <span className="text-right text-muted-foreground">{s.peak_listeners}</span>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+          <StationActivity
+            sessions={sessions}
+            stats={station.stats}
+            truncated={sessionTotal > sessions.length}
+          />
 
-      {/* Danger zone */}
-      <DeleteStation slug={station.slug} />
+          <AutoDjRotation slug={station.slug} tracks={tracks} unavailable={tracksUnavailable} />
+
+          <RecentBroadcasts sessions={sessions} />
+        </div>
+
+        <aside className="flex flex-col gap-6 min-w-0">
+          <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
+
+          <StationChecklist
+            station={station}
+            trackCount={tracks.length}
+            peakListeners={station.stats?.peak_listeners ?? 0}
+          />
+        </aside>
+      </div>
     </div>
   )
 }

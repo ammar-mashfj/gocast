@@ -231,7 +231,8 @@ class LiquidsoapSupervisor
      * right call after a station record changes (name/genre/etc affect the
      * Icecast metadata block in the script). It is deliberately blunt: a
      * restart drops connected listeners, so callers that only want a station
-     * to be on air — the power button, the WHIP auth hook — go through
+     * to be on air — the power button, the studio's start-before-broadcast —
+     * go through
      * StationLifecycleService, which skips the restart when the container is
      * already healthy.
      */
@@ -872,6 +873,11 @@ class LiquidsoapSupervisor
             $this->mountFlags($station),
         );
 
+        Log::info('Running liquidsoap container', [
+            'station' => $station->slug,
+            'command' => $cmd,
+        ]);
+
         $this->docker($cmd);
 
         Log::info('Liquidsoap container started', [
@@ -1139,6 +1145,8 @@ class LiquidsoapSupervisor
             // or the Icecast source protocol).
             'harborInputPort' => (int) config('liquidsoap.harbor_input_port'),
             'harborInputTimeout' => (float) config('liquidsoap.harbor_input_timeout'),
+            // Averaging window for the output-level meter /status reports.
+            'rmsWindow' => (float) config('liquidsoap.rms_window_seconds'),
             // Dead-air guard on the live input; 0 disables it.
             'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
             'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
@@ -1148,20 +1156,17 @@ class LiquidsoapSupervisor
             // PlaylistFileWriter's constants so the telnet reload command and
             // the path in the script can never drift from what Laravel writes.
             'jinglesEnabled' => (bool) $station->jingles_enabled,
-            // AutoDJ rotation. `autodjDynamic` picks which source the script
-            // is built around: Laravel answering one track at a time, or the
-            // legacy playlist file. See config/liquidsoap.php for why the
-            // switch exists — this is the audio path, and a rollback should
-            // not need a deploy.
-            'autodjDynamic' => (bool) config('liquidsoap.autodj_dynamic'),
+            // AutoDJ rotation. The script asks Laravel for one track at a
+            // time; `autodjRetryDelay` is how long it waits before re-asking
+            // after "nothing to play".
             'autodjRetryDelay' => max(1.0, (float) config('liquidsoap.autodj_retry_delay_seconds')),
             // Built here rather than in the view so the slug is encoded once,
             // by something that knows it is going into a URL.
             'nextTrackUrl' => rtrim((string) config('liquidsoap.api_url'), '/')
                 .'/api/internal/next-track?slug='.rawurlencode($station->slug),
-            // The telnet namespace both modes answer on. StationPowerController
-            // sends "{source}.skip" without knowing which mode is live, so the
-            // two sources must share an id.
+            // The telnet namespace the rotation answers on.
+            // StationPowerController sends "{source}.skip" against the same
+            // constant, so the command and the source can never drift.
             'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
             'jinglesLiqSource' => PlaylistFileWriter::JINGLES_LIQ_SOURCE,
             'jinglesFilename' => PlaylistFileWriter::JINGLES_FILENAME,

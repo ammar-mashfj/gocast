@@ -56,7 +56,7 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
       const fresh = res.data.data
       saveAuth(null, fresh)
       if (fresh.email_verified_at) {
-        router.replace("/dashboard/stations")
+        router.replace("/dashboard")
       }
     }).catch(() => {
       // Transient; stay on the form.
@@ -74,7 +74,7 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
 
     saveAuth(null, data.data)
     toast.success("Email verified")
-    router.replace("/dashboard/stations")
+    router.replace("/dashboard")
 
     return true
   }

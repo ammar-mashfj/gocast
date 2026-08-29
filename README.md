@@ -63,7 +63,7 @@ gocast/
 │   └── native/              # THE deployment kit — start at its README
 │       ├── setup-native.sh          # one-time host provisioning
 │       ├── deploy-native.sh         # steady-state deploy
-│       ├── docker-compose.native.yml# the two support containers
+│       ├── docker-compose.native.yml# the network + two support containers
 │       ├── nginx/ php/ systemd/ icecast/
 │       └── station-router/          # resolves station containers for nginx
 ├── docs/                    # Specs, plans, flow docs

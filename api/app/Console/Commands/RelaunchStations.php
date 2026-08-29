@@ -67,7 +67,7 @@ class RelaunchStations extends Command
 
         foreach ($stations as $station) {
             try {
-                // Ensure playlist.m3u exists before bringing the container up;
+                // Ensure jingles.m3u exists before bringing the container up;
                 // Liquidsoap warns and falls back to the bed source when the
                 // file is missing, but writing an empty m3u at boot keeps the
                 // logs quiet.

@@ -38,7 +38,7 @@ export default function HeroSection({ isAuthed = false }: HeroSectionProps) {
 
           <div className="flex items-center justify-center md:justify-start gap-4">
             <a
-              href={isAuthed ? "/dashboard/stations" : "/auth/register"}
+              href={isAuthed ? "/dashboard" : "/auth/register"}
               className="group bg-violet-full text-white px-6 md:px-8 py-3 md:py-3.5 rounded-lg text-sm md:text-base font-medium no-underline cursor-pointer shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:-translate-y-px hover:shadow-[0_8px_30px_rgba(139,92,246,0.4)] transition-all"
             >
               {isAuthed ? "Open dashboard" : "Start broadcasting free"}

@@ -201,6 +201,34 @@ it('starts the queue at the top when the current track is unknown', function () 
         ->assertJsonPath('data.up_next.0.title', 'Only');
 });
 
+it('keeps jingles out of the queue and the playlist count', function () {
+    // Jingles share the tracks table with the rotation but are a separate
+    // list, written to their own playlist and fired on a timer. Reading
+    // tracks() rather than musicTracks() showed a station whose rotation was
+    // empty a queue of its own station IDs while the container played silence.
+    $user = User::factory()->create();
+    $station = runningStation($user);
+
+    Track::factory()->for($station)->jingle()->create([
+        'title' => 'Station ID',
+        'artist' => 'Voiceover',
+        'position' => 1,
+    ]);
+
+    harborReturns([
+        'ready' => true,
+        'source' => 'autodj',
+        'title' => null,
+        'artist' => null,
+    ]);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.playlist_length', 0)
+        ->assertJsonPath('data.up_next', []);
+});
+
 it('reports an empty queue for a station with no tracks', function () {
     $user = User::factory()->create();
     $station = runningStation($user);

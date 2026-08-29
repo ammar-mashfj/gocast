@@ -17,7 +17,6 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property int $max_listeners
  * @property bool $autodj_enabled
  * @property bool $watermark_enabled
- * @property int|null $idle_stop_hours
  */
 class Plan extends Model
 {

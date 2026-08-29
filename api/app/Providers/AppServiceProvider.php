@@ -42,8 +42,8 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->ip());
         });
 
-        // Higher ceiling for internal server-to-server calls (MediaMTX
-        // lifecycle webhooks, Liquidsoap now-playing pushes).
+        // Higher ceiling for internal server-to-server calls from the station
+        // containers (harbor auth, lifecycle events, now-playing pushes).
         RateLimiter::for('internal', function (Request $request) {
             return Limit::perMinute(300)->by($request->ip());
         });

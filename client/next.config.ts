@@ -86,7 +86,11 @@ const nextConfig: NextConfig = {
     // CORS preflight (stock Icecast 2.x does not answer OPTIONS). In prod, nginx
     // fronts Icecast and NEXT_PUBLIC_ICECAST_URL points at that host directly.
     if (process.env.NODE_ENV !== "development") return []
-    const icecastOrigin = process.env.INTERNAL_ICECAST_URL ?? "http://127.0.0.1:8000"
+    // 8888, not 8000: in dev the API holds 8000 (php artisan serve) and
+    // Icecast is moved out of its way. A wrong default here does not fail
+    // loudly — it proxies the audio request to Laravel, which answers a
+    // perfectly valid 404 HTML page that looks like a missing stream.
+    const icecastOrigin = process.env.INTERNAL_ICECAST_URL ?? "http://127.0.0.1:8888"
     return [
       { source: "/stream-proxy/:path*", destination: `${icecastOrigin}/:path*` },
     ]

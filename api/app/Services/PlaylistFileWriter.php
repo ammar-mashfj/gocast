@@ -10,16 +10,22 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Writes the per-station m3u files consumed by Liquidsoap — `playlist.m3u`
- * (the AutoDJ rotation) and `jingles.m3u` (station IDs and liners).
+ * Builds the Liquidsoap `annotate:` URIs a station's tracks are played
+ * through, and writes the one m3u still left in the audio graph —
+ * `jingles.m3u` (station IDs and liners).
  *
- * Each track is written as a Liquidsoap `annotate:` URI carrying the
- * canonical title/artist from the DB — the m3u parser passes those
- * directly into the request's metadata, bypassing ID3 tag reads and
- * EXTINF parsing. That means the DB is the single source of truth for
- * now-playing metadata, regardless of whether the audio file has tags
- * or whether the title contains punctuation that LS's EXTINF parser
- * would mangle.
+ * The AutoDJ rotation is NOT a file. It is served one track at a time by
+ * NextTrackController, which calls annotateTrack() here for each answer — see
+ * the "AutoDJ rotation" note in config/liquidsoap.php for why a playlist file
+ * could not work. So this class has two jobs that used to be one: URI
+ * construction (used by both paths) and the jingle m3u (used by one).
+ *
+ * Each track is rendered as a Liquidsoap `annotate:` URI carrying the
+ * canonical title/artist from the DB — Liquidsoap passes those directly into
+ * the request's metadata, bypassing ID3 tag reads and (for the m3u) EXTINF
+ * parsing. That means the DB is the single source of truth for now-playing
+ * metadata, regardless of whether the audio file has tags or whether the
+ * title contains punctuation that LS's EXTINF parser would mangle.
  *
  * Jingle entries carry one extra annotation, `jingle="true"`. The .liq
  * script reads it in two places — the crossfade transition (a jingle is
@@ -28,24 +34,29 @@ use Throwable;
  * the audio file, so the flag has to travel WITH the request rather than
  * being inferred from which source produced it.
  *
- * Both files are always written, even when empty and even when jingles are
- * switched off: the container's script references `jingles.m3u` by path, and
- * a missing file is a decoding error on every read attempt, whereas an empty
- * one just makes the source fallible (which the fallback already handles).
+ * `jingles.m3u` is always written, even when empty and even when jingles are
+ * switched off: the container's script references it by path, and a missing
+ * file is a decoding error on every read attempt, whereas an empty one just
+ * makes the source fallible (which the fallback already handles).
  *
- * Triggered by `reload()` via telnet whenever a track list changes
+ * Triggered by `reload()` via telnet whenever the jingle list changes
  * (add/remove/reorder); we deliberately don't use `reload_mode="watch"`
  * because some LS 2.x versions reset the queue cursor on watch reload.
  */
 class PlaylistFileWriter
 {
-    public const FILENAME = 'playlist.m3u';
-
     public const JINGLES_FILENAME = 'jingles.m3u';
 
     /**
-     * The Liquidsoap source name for the playlist — derived from the m3u
-     * filename. Telnet commands use "{source}.reload", "{source}.skip" etc.
+     * The Liquidsoap source name of the AutoDJ rotation. Telnet commands use
+     * "{source}.skip"; LiquidsoapSupervisor renders the same constant as the
+     * `request.dynamic` id, so the command and the source cannot drift.
+     *
+     * The value still reads `playlist_m3u` from when the rotation was a
+     * playlist file. Kept rather than renamed because it is a wire name shared
+     * with every already-rendered .liq on the box: changing it would leave
+     * skip-track answering "unknown command" on every running station until it
+     * was relaunched.
      */
     public const LIQ_SOURCE = 'playlist_m3u';
 
@@ -70,40 +81,38 @@ class PlaylistFileWriter
     ) {}
 
     /**
-     * Rewrite both of the station's playlist files from its current Track
-     * rows. Idempotent — safe to call after any track-table mutation.
+     * Rewrite the station's jingle m3u from its current Track rows.
+     * Idempotent — safe to call after any track-table mutation.
      *
-     * If a list has zero tracks, an empty m3u is written. Liquidsoap
-     * tolerates this (the playlist source becomes fallible) and the
-     * fallback chain demotes past it — to the rotation for an empty jingle
-     * list, and on to silence for an empty rotation.
+     * It also ensures the station's playlist directory exists, which is where
+     * uploaded audio files live and what LiquidsoapSupervisor bind-mounts as
+     * /data/playlists. That has to happen before a container starts whether or
+     * not the station has any jingles.
+     *
+     * If the list has zero tracks, an empty m3u is written. Liquidsoap
+     * tolerates this (the source becomes fallible) and the fallback chain
+     * demotes past it to the rotation.
+     *
+     * The music rotation is deliberately not written anywhere: it is served
+     * per-track by NextTrackController. See the class docblock.
      */
     public function write(Station $station): void
     {
         $dir = $this->stationDir($station);
         File::ensureDirectoryExists($dir);
 
-        $columns = ['path', 'title', 'artist', 'duration_seconds'];
-
-        $this->writeM3u(
-            "{$dir}/".self::FILENAME,
-            $station->musicTracks()->get($columns),
-            isJingle: false,
-        );
-
-        $this->writeM3u(
+        $this->writeJingleM3u(
             "{$dir}/".self::JINGLES_FILENAME,
-            $station->jingles()->get($columns),
-            isJingle: true,
+            $station->jingles()->get(['path', 'title', 'artist', 'duration_seconds']),
         );
     }
 
     /**
-     * Render one m3u and swap it into place.
+     * Render the jingle m3u and swap it into place.
      *
      * @param  Collection<int, Track>  $tracks
      */
-    private function writeM3u(string $target, Collection $tracks, bool $isJingle): void
+    private function writeJingleM3u(string $target, Collection $tracks): void
     {
         // Lines are Liquidsoap `annotate:` URIs — key="value" metadata pairs
         // followed by the audio file path. This makes the DB the single
@@ -122,7 +131,7 @@ class PlaylistFileWriter
             // file inside its sandbox. basename() defends against accidental
             // absolute paths slipping into Track::$path — only the leaf name
             // is ever joined under the container playlist dir.
-            $lines[] = $this->annotateTrack($track, $isJingle);
+            $lines[] = $this->annotateTrack($track, isJingle: true);
         }
 
         // Write to a sibling .tmp and rename: rename(2) is atomic on the
@@ -171,10 +180,14 @@ class PlaylistFileWriter
     }
 
     /**
-     * Tell the running Liquidsoap container to re-read the m3u files and
-     * rebuild its queues. Call this only when a *list* changes (track added,
+     * Tell the running Liquidsoap container to re-read the jingle m3u and
+     * rebuild its queue. Call this only when the *list* changes (jingle added,
      * removed, reordered) — not when only title/artist tags change, since
      * that disrupts the currently playing track without a real benefit.
+     *
+     * There is nothing to reload for the music rotation: it is not a list
+     * Liquidsoap holds. The next track is simply asked for at the next
+     * boundary, and by then the tracks table already has the change.
      *
      * The jingle source only exists in the rendered script while the station
      * has jingles enabled, so its reload is conditional — sending it anyway
@@ -182,20 +195,10 @@ class PlaylistFileWriter
      * that has never turned jingles on.
      *
      * Failures are swallowed and logged: a Liquidsoap that's down or
-     * restarting will pick up the new files on its next start anyway.
+     * restarting will pick up the new file on its next start anyway.
      */
     public function reload(Station $station): void
     {
-        // Only in file mode. In dynamic mode the rotation is not a list
-        // Liquidsoap holds, so there is nothing to re-read — and sending the
-        // reload anyway would be worse than useless: `playlist.reload` resets
-        // the queue cursor to the top, which is the audible bug dynamic mode
-        // exists to remove. The next track is simply asked for at the next
-        // boundary, and by then the tracks table already has the change.
-        if (! (bool) config('liquidsoap.autodj_dynamic')) {
-            $this->reloadSource($station, self::LIQ_SOURCE);
-        }
-
         if ($station->jingles_enabled) {
             $this->reloadSource($station, self::JINGLES_LIQ_SOURCE);
         }

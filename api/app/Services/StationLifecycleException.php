@@ -39,7 +39,7 @@ class StationLifecycleException extends RuntimeException
 
     /**
      * Stopping mid-broadcast would drop every listener and end the session
-     * by crash rather than through the MediaMTX not-ready hook.
+     * by crash rather than through harbor's `live_disconnected` event.
      */
     public static function liveBroadcast(): self
     {

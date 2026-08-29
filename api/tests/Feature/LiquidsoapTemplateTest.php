@@ -28,6 +28,7 @@ function renderStationScript(Station $station, array $overrides = []): string
         'harborPort' => 8080,
         'harborInputPort' => 8090,
         'harborInputTimeout' => 10.0,
+        'rmsWindow' => 2.0,
         'blankMax' => 15.0,
         'blankThreshold' => -40.0,
         'crossfadeEnabled' => true,
@@ -37,7 +38,6 @@ function renderStationScript(Station $station, array $overrides = []): string
         'crossfadeMedium' => -32.0,
         'crossfadeMargin' => 4.0,
         'jinglesEnabled' => false,
-        'autodjDynamic' => true,
         'autodjRetryDelay' => 10.0,
         'nextTrackUrl' => 'http://api/api/internal/next-track?slug=night-shift',
         'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
@@ -89,9 +89,9 @@ it('renders a script for a station', function () {
         ->and($script)->toContain('output.file.hls');
 });
 
-it('names the playlist source so telnet commands keep working', function () {
-    // PlaylistFileWriter sends "<id>.reload" and the skip endpoint sends
-    // "<id>.skip"; if the id here drifts, both silently stop working.
+it('names the rotation source so telnet commands keep working', function () {
+    // StationPowerController sends "<id>.skip" built from this same constant;
+    // if the id here drifts, skip-track silently stops working.
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('id = "'.PlaylistFileWriter::LIQ_SOURCE.'"');
@@ -127,7 +127,7 @@ it('emits liquidsoap-valid floats for fractional blank settings', function () {
 it('omits the dead-air guard when it is disabled', function () {
     $script = renderStationScript($this->station, ['blankMax' => 0.0]);
 
-    expect($script)->not->toContain('blank.strip')
+    expect($script)->not->toContain('live = blank.strip(')
         ->and($script)->toContain('live = live_raw');
 });
 
@@ -187,8 +187,10 @@ it('reports broadcaster connect and disconnect so laravel can track sessions', f
     // Method form, not the deprecated constructor arguments — and asynchronous,
     // because notify() makes a 5s-timeout HTTP call and a synchronous callback
     // runs on the streaming thread, stalling audio for every listener.
-    expect($script)->toContain('live_in.on_connect(synchronous=false, fun (_) -> notify("live_connected"))')
-        ->and($script)->toContain('live_in.on_disconnect(synchronous=false, fun () -> notify("live_disconnected"))')
+    expect($script)->toContain('live_in.on_connect(synchronous=false, fun (_) -> begin')
+        ->and($script)->toContain('live_in.on_disconnect(synchronous=false, fun () -> begin')
+        ->and($script)->toContain('notify("live_connected")')
+        ->and($script)->toContain('notify("live_disconnected")')
         ->and($script)->not->toContain('on_connect=fun');
 });
 
@@ -212,8 +214,9 @@ it('keeps the fade operators off the live path', function () {
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('fallback(track_sensitive=false, [live, autodj_mix, bed])')
-        // The mix reaches the outputs unprocessed; switches are hard cuts.
-        ->and($script)->toContain('output_source = mixed')
+        // The mix reaches the outputs carrying only a meter — rms() reads the
+        // signal and alters nothing, so switches are still hard cuts.
+        ->and($script)->toContain('output_source = rms(duration=2.0, mixed)')
         ->and($script)->not->toContain('crossfade(duration=2., mixed)');
 });
 
@@ -298,7 +301,7 @@ it('never puts a cross-family operator on the live path', function () {
         // Never the mix, and never the live source.
         ->and($script)->not->toContain('cross(duration=2., mixed)')
         ->and($script)->not->toMatch('/^[^#\n]*\bcross(fade)?\([^)]*\b(mixed|live|output_source)\b/m')
-        ->and($script)->toContain('output_source = mixed');
+        ->and($script)->toContain('output_source = rms(duration=2.0, mixed)');
 });
 
 it('limits the whole broadcast, not just the autodj arm', function () {
@@ -641,7 +644,7 @@ it('watermarks what listeners hear without touching what the api reports', funct
     // a real track title.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('output_source = mixed')
+    expect($script)->toContain('output_source = rms(duration=2.0, mixed)')
         // Both outputs — Icecast and HLS — carry the mark.
         ->and(substr_count($script, "\n  broadcast_out\n"))->toBe(2)
         // ...and neither the status endpoint nor the metadata push does.
@@ -759,24 +762,6 @@ it('registers the skip command the power controller sends', function () {
 
     expect($script)->toContain('autodj.register_command(')
         ->toContain('"skip"');
-});
-
-it('falls back to the playlist file when dynamic mode is switched off', function () {
-    $script = renderStationScript($this->station, ['autodjDynamic' => false]);
-
-    expect($script)->toContain('autodj = playlist(')
-        ->toContain('/data/playlists/playlist.m3u')
-        ->not->toContain('request.dynamic(');
-});
-
-it('keeps one telnet namespace across both rotation modes', function () {
-    $dynamic = renderStationScript($this->station);
-    $legacy = renderStationScript($this->station, ['autodjDynamic' => false]);
-
-    // Laravel sends "{source}.skip" / ".reload" without knowing which mode the
-    // container was rendered in, so the ids must not diverge.
-    expect($dynamic)->toContain('id = "'.PlaylistFileWriter::LIQ_SOURCE.'"')
-        ->and($legacy)->toContain('id = "'.PlaylistFileWriter::LIQ_SOURCE.'"');
 });
 
 it('never asks the API on a tight loop when a station has no rotation', function () {

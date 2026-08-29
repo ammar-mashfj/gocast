@@ -77,8 +77,9 @@ class StationObserver
      * Importantly this excludes `listener_count` and the timestamps — those
      * change constantly during a broadcast, and restarting Liquidsoap on each
      * change would kick every listener off mid-stream. Live-ness is no longer
-     * a column at all (it is an open StreamSession), so the runOnReady /
-     * runOnNotReady webhooks no longer touch this row and cannot reach here.
+     * a column at all (it is an open StreamSession), so harbor's
+     * live_connected / live_disconnected events no longer touch this row and
+     * cannot reach here.
      */
     private const LIQ_RELEVANT_COLUMNS = [
         'name',

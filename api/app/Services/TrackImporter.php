@@ -18,13 +18,14 @@ use RuntimeException;
  *   - writes the file to disk under {playlist_dir}/{slug}/{id}.{ext}
  *   - reads ID3/M4A/Vorbis tags via getID3 (filename fallback)
  *   - creates the Track row at position max+1 *within its kind*
- *   - regenerates the station's m3u files
+ *   - regenerates the station's jingle m3u
  *
  * Music and jingles share this path entirely — same storage cap, same
- * directory, same tag read, same quota lock. `kind` only decides which m3u
- * the file lands in and which position sequence it joins, which is what
- * makes jingles nearly free to support: there is no second upload pipeline
- * to keep in step with this one.
+ * directory, same tag read, same quota lock. `kind` only decides which
+ * position sequence the file joins and how it reaches Liquidsoap (the
+ * rotation query, or `jingles.m3u`), which is what makes jingles nearly free
+ * to support: there is no second upload pipeline to keep in step with this
+ * one.
  *
  * Caller is responsible for authorization. Throws on quota exceeded and on
  * write failure; rolls back the on-disk file if the DB insert blows up.
