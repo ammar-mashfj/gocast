@@ -42,7 +42,7 @@ set -a; source "$DOMAINS"; set +a
 : "${APP_HOST:?}" "${API_HOST:?}" "${ICECAST_HOST:?}" "${STREAM_HOST:?}"
 : "${APP_ROOT:?}" "${RUN_USER:?}" "${PHP_VERSION:?}"
 : "${CLIENT_PORT:?}" "${ICECAST_PORT:?}" "${ROUTER_PORT:?}" "${INTERNAL_API_PORT:?}"
-: "${GOCAST_SUBNET:?}" "${DOCKER_HOST_ADDR:?}"
+: "${GOCAST_SUBNET:?}" "${GOCAST_IPAM_RANGE:?}" "${DOCKER_HOST_ADDR:?}"
 
 # Renders a template, substituting the __TOKEN__ placeholders. Kept as one
 # function so a new placeholder only has to be added in one place.
@@ -102,13 +102,33 @@ echo "==> Docker network"
 # `external`, but they keep `docker compose` from ever complaining that
 # "network gocast-network was found but has incorrect label
 # com.docker.compose.network".
+#
+# --ip-range is load-bearing, not tidiness. Station containers are started with
+# an explicit --ip derived from the station's container_index, counting up from
+# the bottom of the subnet. Docker's IPAM knows nothing about that and, left
+# alone, allocates from the bottom too — so the router would sit exactly where
+# a station is about to land, and some later station start would fail with
+# "address already in use". Confining IPAM to the last /24 keeps them apart:
+# everything auto-assigned lives at the top, every station at the bottom.
 if ! docker network inspect gocast-network >/dev/null 2>&1; then
   docker network create \
     --subnet "$GOCAST_SUBNET" \
+    --ip-range "$GOCAST_IPAM_RANGE" \
     --label com.docker.compose.project=gocast-native \
     --label com.docker.compose.network=default \
     gocast-network
-  echo "  ✓ created gocast-network ($GOCAST_SUBNET)"
+  echo "  ✓ created gocast-network ($GOCAST_SUBNET, IPAM confined to $GOCAST_IPAM_RANGE)"
+elif ! docker network inspect gocast-network \
+       --format '{{range .IPAM.Config}}{{.IPRange}}{{end}}' 2>/dev/null | grep -q .; then
+  # Predates --ip-range. Docker cannot change a network's IPAM in place, so say
+  # so rather than leave a collision to surface months later as one station
+  # that will not start.
+  echo "  ! gocast-network exists WITHOUT an --ip-range."
+  echo "    IPAM will allocate from the bottom of $GOCAST_SUBNET, where per-station"
+  echo "    addresses live. Recreate it with every station stopped:"
+  echo "      docker compose -f infra/native/docker-compose.native.yml down"
+  echo "      docker rm -f \$(docker ps -aq --filter name=gocast-liquidsoap-)"
+  echo "      docker network rm gocast-network && sudo bash $0"
 else
   echo "  · gocast-network exists"
 fi

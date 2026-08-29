@@ -181,10 +181,16 @@ class StationStatusService
      */
     private function pull(Station $station): array
     {
-        $host = $this->supervisor->containerHost($station);
         $port = (int) config('liquidsoap.harbor_port', 8080);
 
         try {
+            // Inside the try on purpose. containerHost() can throw — the
+            // address space can be exhausted, or the subnet can be
+            // misconfigured — and it used to sit outside, so the one case
+            // state() is written to handle gracefully (container gone, report
+            // offline, owner presses start) surfaced as a 500 instead.
+            $host = $this->supervisor->containerHost($station);
+
             $response = Http::withHeaders([
                 'X-Internal-Key' => (string) config('services.internal_api_key'),
             ])

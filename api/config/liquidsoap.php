@@ -133,12 +133,13 @@ return [
     | commands to a running station. How it addresses that container depends
     | on where Laravel itself runs:
     |
-    |   'ip'   — ask the daemon for the container's IP with `docker inspect`
-    |            and connect to that directly. This is the default and the only
-    |            supported production path: Laravel runs natively on the host,
-    |            where Docker's embedded DNS does not exist. Works on Linux
-    |            because the host routes to container bridge IPs. Costs one
-    |            extra docker call per telnet command and per status poll.
+    |   'ip'   — compute the container's address from the station's
+    |            container_index and the subnet below. This is the default and
+    |            the only supported production path: Laravel runs natively on
+    |            the host, where Docker's embedded DNS does not exist. Works on
+    |            Linux because the host routes to container bridge IPs. Costs
+    |            nothing — it is arithmetic, no daemon round trip, which is what
+    |            keeps the polled /status endpoint fast.
     |
     |   'name' — connect to the container name (gocast-liquidsoap-<slug>) and
     |            let Docker's embedded DNS resolve it. Only works for a process
@@ -151,6 +152,36 @@ return [
     */
 
     'telnet_resolve' => env('LIQUIDSOAP_TELNET_RESOLVE', 'ip'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Per-station container addresses
+    |--------------------------------------------------------------------------
+    |
+    | Every station container is given a FIXED address on gocast-network:
+    | this base, plus the station's `container_index`, plus 2 for the network
+    | address and the bridge gateway Docker reserves at the bottom.
+    |
+    | MUST equal GOCAST_SUBNET in infra/native/env/domains.env — that is the
+    | subnet the network is actually created with, and a mismatch puts every
+    | station outside its own network.
+    |
+    | The ceiling is the subnet size counted in stations ever created, since
+    | indexes are allocated monotonically and never recycled (the migration
+    | that adds the column explains why recycling is a trap). ~65k on a /16.
+    | containerIp() throws rather than wrapping when it arrives, and widening
+    | this value raises the ceiling without moving any existing station,
+    | because what is stored is an offset rather than an address.
+    |
+    | Docker's own IPAM knows nothing about this. Anything else that joins the
+    | network — the station router — has to be confined to a slice these
+    | addresses never reach, which is what `--ip-range` at network-create time
+    | does (setup-native.sh passes GOCAST_IPAM_RANGE). Without it IPAM
+    | allocates from the bottom of the subnet, exactly where stations live, and
+    | some later station start fails with "address already in use".
+    */
+
+    'container_subnet' => env('LIQUIDSOAP_CONTAINER_SUBNET', '172.28.0.0/16'),
 
     /*
     |--------------------------------------------------------------------------

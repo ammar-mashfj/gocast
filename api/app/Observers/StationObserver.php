@@ -45,6 +45,31 @@ class StationObserver
     ) {}
 
     /**
+     * Claim the station's slot in the container address space before it is
+     * written (see the add_container_index migration for why an index rather
+     * than an address, and why it is never recycled).
+     *
+     * `withTrashed()` is load-bearing. Without it a soft-deleted station's
+     * index is handed straight back out, which is precisely the recycling this
+     * design avoids — and the collision would only surface later, when the
+     * original is restored onto an address another station is broadcasting on.
+     *
+     * The unique constraint is the actual guarantee; this is the fast path.
+     * Two stations created in the same instant read the same MAX and one insert
+     * loses, which surfaces as a failed create the user can retry. Stations are
+     * created by a person pressing a button, so that race is theoretical — but
+     * the constraint means it can never become silent.
+     */
+    public function creating(Station $station): void
+    {
+        if ($station->container_index !== null) {
+            return;
+        }
+
+        $station->container_index = (int) Station::withTrashed()->max('container_index') + 1;
+    }
+
+    /**
      * Columns whose values are baked into the rendered .liq file. Changing
      * any of these requires a Liquidsoap container restart so the new value
      * lands in the Icecast metadata block / output mount / etc.

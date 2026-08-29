@@ -79,6 +79,20 @@ class LiquidsoapSupervisor
     private const DOCKER_TIMEOUT_SECONDS = 10;
 
     /**
+     * Tighter bound for the read-only queries (`inspect`, `logs`) that run
+     * through dockerQuiet(). These sit on the status path: when a station does
+     * not answer its /status, state() asks Docker whether the container is
+     * still there before deciding between "starting" and "offline".
+     *
+     * Under DOCKER_TIMEOUT_SECONDS that made the endpoint's real worst case
+     * ~11.5s against the 1.5s the harbor timeout intends — a stalled daemon
+     * hung the dashboard rather than degrading it. A read that has not come
+     * back in 3s is not going to arrive in time to be useful, and failing it
+     * lands on the same "unreachable" branch the caller already handles.
+     */
+    private const DOCKER_READ_TIMEOUT_SECONDS = 3;
+
+    /**
      * Liquidsoap's telnet control port inside each station container — set by
      * `settings.server.telnet.port` in resources/views/liquidsoap/station.blade.php.
      */
@@ -184,7 +198,7 @@ class LiquidsoapSupervisor
      */
     private function dockerQuiet(array $cmd): ProcessResult
     {
-        return Process::timeout(self::DOCKER_TIMEOUT_SECONDS)->run($cmd);
+        return Process::timeout(self::DOCKER_READ_TIMEOUT_SECONDS)->run($cmd);
     }
 
     private function image(): string
@@ -736,6 +750,66 @@ class LiquidsoapSupervisor
     }
 
     /**
+     * The fixed address this station's container is given on gocast-network.
+     *
+     * Pure arithmetic over the station's `container_index` — no daemon call,
+     * no cache, nothing to go stale. That is the point: /status is polled, and
+     * the previous implementation shelled out to `docker inspect` on every
+     * miss, which measured ~10ms against an idle daemon and was roughly 80% of
+     * the request.
+     *
+     * `+ 2` skips the two addresses Docker reserves at the bottom of a subnet:
+     * the network address and the bridge gateway.
+     *
+     * long2ip/ip2long rather than sprintf over octets, so this stays correct
+     * for any prefix length without carrying by hand — widen `container_subnet`
+     * and every existing station keeps the address it already had, because the
+     * offset is measured from the base.
+     *
+     * Throws rather than wrapping at the ceiling. A modulo would hand a new
+     * station a live one's address, and two Liquidsoaps answering on one IP is
+     * a fault nobody would diagnose from the symptom. A station that refuses to
+     * start, naming its own fix, is a far better failure.
+     */
+    public function containerIp(Station $station): string
+    {
+        $subnet = (string) config('liquidsoap.container_subnet');
+
+        [$base, $prefix] = array_pad(explode('/', $subnet), 2, '');
+
+        $baseLong = ip2long($base);
+
+        if ($baseLong === false || ! is_numeric($prefix) || (int) $prefix < 1 || (int) $prefix > 30) {
+            throw new \RuntimeException(
+                "liquidsoap.container_subnet is not a usable CIDR block: {$subnet}"
+            );
+        }
+
+        if ($station->container_index === null) {
+            throw new \RuntimeException(
+                "Station {$station->slug} has no container_index — it was created "
+                .'outside the model events that allocate one.'
+            );
+        }
+
+        $offset = (int) $station->container_index + 2;
+
+        // Highest usable host in the block, excluding the broadcast address.
+        $max = (1 << (32 - (int) $prefix)) - 2;
+
+        if ($offset > $max) {
+            throw new \RuntimeException(
+                "Station {$station->slug} (container_index {$station->container_index}) falls "
+                ."outside {$subnet} — the container address space is exhausted. Widen "
+                .'LIQUIDSOAP_CONTAINER_SUBNET and the network it matches; existing station '
+                .'addresses do not move.'
+            );
+        }
+
+        return long2ip($baseLong + $offset);
+    }
+
+    /**
      * Resolve the address of a station container, for telnet (control) and
      * harbor HTTP (status) alike.
      *
@@ -743,55 +817,21 @@ class LiquidsoapSupervisor
      * is why it's config rather than detection — see `telnet_resolve` in
      * config/liquidsoap.php:
      *
-     *  • 'name' (default, production): the container name, resolved by
-     *    Docker's embedded DNS. Only works when Laravel is a compose service
-     *    on gocast-network. Costs nothing.
+     *  • 'ip' (default): the address computed by containerIp() above. Docker's
+     *    embedded DNS is reachable only from inside a container, so a host
+     *    process cannot resolve the name at all — but Linux routes to the
+     *    bridge address directly.
      *
-     *  • 'ip' (Laravel running natively on the host): ask the daemon for the
-     *    container's bridge IP. Docker's DNS is only available to containers,
-     *    so a host process cannot resolve the name at all — but it can route
-     *    to the IP directly on Linux.
-     *
-     * The inspect result is deliberately not cached: container IPs change on
-     * every restart, and a stale one fails in a way that looks like a wedged
-     * Liquidsoap rather than a bad address.
+     *  • 'name': the container name, resolved by Docker's embedded DNS. Only
+     *    works for a process that is itself on gocast-network.
      */
     public function containerHost(Station $station): string
     {
-        $name = $this->containerName($station);
-
-        // Same reason as every other guard in this class: the 'ip' branch
-        // shells out to `docker inspect`, and a test that only wanted an
-        // address would otherwise talk to the host daemon. Tests fake the
-        // HTTP/telnet layer above this, so the name is all they need.
-        if (self::inTestMode()) {
-            return $name;
-        }
-
         if (config('liquidsoap.telnet_resolve') !== 'ip') {
-            return $name;
+            return $this->containerName($station);
         }
 
-        // `index` rather than the dotted form: {{.Networks.gocast-network}}
-        // silently evaluates to empty because Go templates read the hyphen as
-        // subtraction, so the failure looks like "container has no IP" instead
-        // of a bad selector. Ranging over all networks would also work today
-        // but concatenates addresses if a container is ever attached to two.
-        $result = $this->docker([
-            'docker', 'inspect', '-f',
-            '{{(index .NetworkSettings.Networks "'.self::NETWORK.'").IPAddress}}',
-            $name,
-        ]);
-
-        $ip = trim($result->output());
-
-        if ($ip === '') {
-            throw new \RuntimeException(
-                "Could not resolve an IP for {$name} — is the container running?"
-            );
-        }
-
-        return $ip;
+        return $this->containerIp($station);
     }
 
     /**
@@ -911,6 +951,13 @@ class LiquidsoapSupervisor
             'docker', 'run', '-d',
             '--name', $this->containerName($station),
             '--network', self::NETWORK,
+            // Fixed address, derived from the station's container_index. This
+            // is what lets Laravel reach /status and telnet without asking the
+            // daemon where the container went. Docker frees the address when a
+            // container is REMOVED rather than stopped, which is safe here
+            // because stop() always follows through to `rm -f` and start()
+            // wipes a stopped-but-present container before running.
+            '--ip', $this->containerIp($station),
             '--restart', 'unless-stopped',
             '--add-host', 'host.docker.internal:host-gateway',
             // Stop signal and grace period belong on the container, not only on
