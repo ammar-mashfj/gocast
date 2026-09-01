@@ -53,6 +53,32 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(20)->by($request->user()->id);
         });
 
+        // Opening a listening session. Per-IP, because there is no identity
+        // yet — the whole point of the call is to mint one. Roomy enough for a
+        // shared address (an office, a school, a household) where a dozen
+        // people might press play within a minute, tight enough that nobody
+        // can manufacture sessions fast enough to matter.
+        RateLimiter::for('listener-start', function (Request $request) {
+            return Limit::perMinute(30)->by($request->ip());
+        });
+
+        // Check-ins and goodbyes, keyed by SESSION TOKEN rather than IP.
+        //
+        // This distinction is load-bearing. Every listener behind one NAT
+        // address shares an IP, so an IP-keyed limit would throttle the
+        // audience of a station being listened to in an office and quietly
+        // under-report exactly the rooms we most want to count. A token is one
+        // listener by construction, so a per-token limit bounds abuse without
+        // ever punishing a crowd. The ceiling on how many tokens can exist is
+        // `listener-start` above.
+        //
+        // A well-behaved player beats four times a minute at the default
+        // interval; 20 leaves room for a retry storm after a network blip
+        // without leaving room for a flood.
+        RateLimiter::for('listener-beat', function (Request $request) {
+            return Limit::perMinute(20)->by((string) $request->route('token'));
+        });
+
         Relation::enforceMorphMap([
             'admin' => Admin::class,
             'user' => User::class,

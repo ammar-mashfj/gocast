@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Station;
+use App\Services\ListenerAnalytics;
 use App\Services\StationStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Redis;
@@ -18,14 +19,20 @@ use Illuminate\Support\Facades\Redis;
  */
 class ListenerCountController extends Controller
 {
-    public function show(string $slug, StationStatusService $statusService): JsonResponse
-    {
+    public function show(
+        string $slug,
+        StationStatusService $statusService,
+        ListenerAnalytics $analytics,
+    ): JsonResponse {
         $station = Station::where('slug', $slug)->firstOrFail();
 
-        // Written by the `stations:sync-listeners` scheduled command, which
-        // polls Icecast's admin API every minute. Absent key (TTL expired, or
-        // the scheduler is down) reads as 0.
-        $count = (int) Redis::get("listeners:{$station->id}") ?: 0;
+        // Both transports, added together. HLS listeners are the ones whose
+        // players have checked in within the live window — a real-time figure,
+        // recomputed on every read. Icecast listeners come from the Redis key
+        // `stations:sync-listeners` refreshes once a minute, so that half of
+        // the total still moves in minute-sized steps and always will: Icecast
+        // is polled, not pushed.
+        $count = $analytics->liveCount($station);
         $metadata = json_decode(Redis::get("metadata:{$station->id}") ?: '{}', true);
 
         // The container is the authority on all three of these. `state` folds

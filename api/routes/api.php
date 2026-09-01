@@ -7,6 +7,7 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\ListenerCountController;
+use App\Http\Controllers\ListenerSessionController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\NextTrackController;
 use App\Http\Controllers\NowPlayingController;
@@ -132,9 +133,48 @@ Route::middleware('throttle:public')->group(function () {
         ->middleware('throttle:5,60');
 });
 
-// Waitlist signup — public, tightly throttled to 5 requests per IP per hour.
-Route::middleware('throttle:5,60')->group(function () {
+// Listener analytics — the player telling us it exists, is still there, and
+// has gone. Public and unauthenticated because a listener is anonymous.
+//
+// Outside the `public` bucket on purpose: that limiter allows 60 requests a
+// minute per IP, and a household or office behind one NAT address can easily
+// hold a dozen listeners each checking in four times a minute. Sharing the
+// bucket would silently stop counting the busiest audiences we have. See the
+// `listener-beat` limiter for the shape that replaces it.
+Route::prefix('public')->group(function () {
+    Route::post('/stations/{slug}/listen', [ListenerSessionController::class, 'store'])
+        ->middleware('throttle:listener-start');
+
+    Route::post('/listen/{token}/beat', [ListenerSessionController::class, 'beat'])
+        ->middleware('throttle:listener-beat');
+
+    Route::post('/listen/{token}/end', [ListenerSessionController::class, 'end'])
+        ->middleware('throttle:listener-beat');
+});
+
+// Custom/enterprise enquiries — public, tightly throttled to 3 requests per
+// IP per hour. A genuine enquiry needs one submit, maybe two after a
+// validation error.
+//
+// Public because this audience genuinely has no account yet: someone sizing
+// up a white-label deal should not have to create a free station first. The
+// email is therefore unverified, and StoreWaitlistRequest whitelists `plan`
+// so a client cannot post `pro` here and skip the authenticated route below.
+Route::middleware('throttle:3,60')->group(function () {
     Route::post('/waitlist', [WaitlistController::class, 'store']);
+});
+
+// Pro access requests. Authenticated on purpose: Pro is granted by hand after
+// looking at the requester's station, so a request from someone with no
+// account is not something anyone can act on. Auth also takes the email out
+// of the request body, which is what stopped a stranger filing — or, via
+// updateOrCreate, overwriting — a request against somebody else's address.
+//
+// Deliberately outside the verified-email group: registration issues a code
+// the user may not have entered yet, and their account email is the one we'd
+// write down either way.
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/waitlist/pro', [WaitlistController::class, 'storePro']);
 });
 
 // Liquidsoap harbor auth callback and the now-playing push. Both are

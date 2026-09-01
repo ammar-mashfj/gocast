@@ -5,6 +5,7 @@ import Link from "next/link"
 import { IconCheck } from "@tabler/icons-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StationFormDialog } from "@/components/dashboard/StationFormDialog"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Station } from "@/interfaces/Station"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +27,13 @@ interface StationChecklistProps {
 export function StationChecklist({ station, trackCount, peakListeners }: StationChecklistProps) {
   const [showEdit, setShowEdit] = useState(false)
 
+  // "Fill the AutoDJ rotation" is dropped rather than reworded on a plan that
+  // does not include it. This list is the things left to DO, and an item that
+  // can only be cleared by paying is not a setup step — it is an ad wearing a
+  // checkbox, and it would sit here unticked forever. The rotation card and
+  // the library screen carry the upsell instead.
+  const locked = useAutoDjLocked()
+
   const items = [
     {
       key: "artwork",
@@ -41,13 +49,17 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
       hint: "Two lines telling listeners what you play.",
       onClick: () => setShowEdit(true),
     },
-    {
-      key: "tracks",
-      done: trackCount > 0,
-      title: "Fill the AutoDJ rotation",
-      hint: "Without tracks the station goes on air to silence.",
-      href: `/dashboard/stations/${station.slug}/library`,
-    },
+    ...(locked
+      ? []
+      : [
+          {
+            key: "tracks",
+            done: trackCount > 0,
+            title: "Fill the AutoDJ rotation",
+            hint: "Without tracks the station goes on air to silence.",
+            href: `/dashboard/stations/${station.slug}/library`,
+          },
+        ]),
     {
       key: "listener",
       done: peakListeners > 0,

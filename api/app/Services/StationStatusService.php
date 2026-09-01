@@ -32,7 +32,8 @@ class StationStatusService
     /**
      * Cache key prefix for a pulled status. Short TTL — this carries a
      * playback position — but non-zero, so rendering a discover page with
-     * fifty stations doesn't open fifty sockets per request.
+     * fifty stations doesn't open fifty sockets per request. A confirmed-down
+     * container is held far longer; see {@see self::ttlFor()}.
      */
     private const CACHE_PREFIX = 'station-status:';
 
@@ -95,11 +96,45 @@ class StationStatusService
      */
     private function payload(Station $station): array
     {
-        return Cache::remember(
-            self::CACHE_PREFIX.$station->id,
-            (int) config('liquidsoap.status_ttl_seconds', 2),
-            fn () => $this->pull($station),
-        );
+        $key = self::CACHE_PREFIX.$station->id;
+
+        $cached = Cache::get($key);
+
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = $this->pull($station);
+
+        Cache::put($key, $payload, $this->ttlFor($payload));
+
+        return $payload;
+    }
+
+    /**
+     * How long this answer stays true.
+     *
+     * A container that replied carries a playback position, so it goes stale
+     * within seconds. "The container is gone" does not: nothing short of an
+     * explicit start can change it, and every power transition already calls
+     * {@see self::forget()}. Re-deriving it on the normal TTL meant every
+     * viewer of a stopped station re-ran the whole probe twice a poll cycle
+     * to be told the same thing.
+     *
+     * Only a verdict Docker actually confirmed gets the long TTL. An
+     * unreachable harbor on a container Docker says is UP is a booting or
+     * wedged station — genuinely worth re-asking at the short interval.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function ttlFor(array $payload): int
+    {
+        $confirmedDown = ($payload['reachable'] ?? false) === false
+            && ($payload['container_up'] ?? true) === false;
+
+        return $confirmedDown
+            ? (int) config('liquidsoap.status_down_ttl_seconds', 15)
+            : (int) config('liquidsoap.status_ttl_seconds', 2);
     }
 
     /**
@@ -215,6 +250,28 @@ class StationStatusService
     {
         $port = (int) config('liquidsoap.harbor_port', 8080);
 
+        // Ask Docker BEFORE harbor. containerHost() is pure arithmetic — it
+        // derives an address from the station's container_index and never
+        // consults Docker — so once a container is gone we are dialling an IP
+        // that nothing holds. The bridge drops those packets silently instead
+        // of refusing them, so the connect does not fail fast: it burns the
+        // entire harbor timeout to discover what a local `docker inspect`
+        // answers in milliseconds. Measured on the dev box: 1.5s versus 23ms.
+        //
+        // This reorders cost, not meaning. Every case that reaches harbor with
+        // a dead container already ended up here via the catch below, with the
+        // same verdict; it just paid the timeout first. A container Docker
+        // reports as 'restarting' or 'absent' likewise resolved to the same
+        // answer the long way round.
+        //
+        // probeContainer() returns true when DOCKER is unreachable — a fault
+        // in our tooling is not evidence about the station — so a Docker
+        // outage falls through to harbor exactly as before rather than
+        // reporting every station offline.
+        if (! $this->probeContainer($station)) {
+            return ['reachable' => false, 'status' => null, 'container_up' => false];
+        }
+
         try {
             // Inside the try on purpose. containerHost() can throw — the
             // address space can be exhausted, or the subnet can be
@@ -255,9 +312,14 @@ class StationStatusService
     }
 
     /**
-     * Is the station's container actually up? Only consulted when harbor did
-     * not answer, so the cost lands on the failure path and never on a healthy
-     * station.
+     * Is the station's container actually up?
+     *
+     * Consulted BEFORE harbor, and again if harbor answers unsuccessfully.
+     * It used to run only on the failure path, to keep Docker off the healthy
+     * one — but that traded a cheap local call for the risk of a very
+     * expensive remote one, since harbor's address is computed rather than
+     * discovered and a stale address costs the full timeout. An inspect is
+     * local and sub-50ms; the harbor dial it can pre-empt is 1.5s.
      *
      * Deliberately reads `containerState()` rather than the supervisor's
      * `isRunning()`: `restarting` — a container crash-looping on a broken

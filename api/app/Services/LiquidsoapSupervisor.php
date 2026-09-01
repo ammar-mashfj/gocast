@@ -1141,6 +1141,10 @@ class LiquidsoapSupervisor
             // Harbor control surface — /status and /healthz, read by
             // StationStatusService over gocast-network.
             'harborPort' => (int) config('liquidsoap.harbor_port'),
+            // Encoder label for the HLS rendition, which is also the media
+            // playlist's filename — the same config StationResource builds the
+            // listener URL from, so the two can never drift apart.
+            'hlsVariant' => (string) config('liquidsoap.hls_variant'),
             // Harbor ingest — where broadcasters connect (webcast WebSocket
             // or the Icecast source protocol).
             'harborInputPort' => (int) config('liquidsoap.harbor_input_port'),

@@ -2,7 +2,6 @@
 
 use App\Console\Commands\SyncListenerCounts;
 use App\Models\Station;
-use App\Models\StreamSession;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Redis;
@@ -77,66 +76,6 @@ it('sets a TTL so counts expire when the scheduler stops running', function () {
     $ttl = Redis::ttl("listeners:{$station->id}");
     expect($ttl)->toBeGreaterThan(0)
         ->and($ttl)->toBeLessThanOrEqual(SyncListenerCounts::REDIS_TTL_SECONDS);
-});
-
-it('raises the open stream session peak when the current count exceeds it', function () {
-    $user = User::factory()->create();
-    $station = Station::factory()->for($user, 'user')->create(['slug' => 'jazz']);
-
-    $session = StreamSession::create([
-        'station_id' => $station->id,
-        'started_at' => now(),
-        'ended_at' => null,
-        'peak_listeners' => 4,
-    ]);
-
-    Http::fake([
-        'icecast:8000/admin/stats' => Http::response(icecastStats([$station->icecast_mount => 9])),
-    ]);
-
-    artisan('stations:sync-listeners')->assertSuccessful();
-
-    expect($session->fresh()->peak_listeners)->toBe(9);
-});
-
-it('leaves the peak alone when the current count is lower', function () {
-    $user = User::factory()->create();
-    $station = Station::factory()->for($user, 'user')->create(['slug' => 'jazz']);
-
-    $session = StreamSession::create([
-        'station_id' => $station->id,
-        'started_at' => now(),
-        'ended_at' => null,
-        'peak_listeners' => 12,
-    ]);
-
-    Http::fake([
-        'icecast:8000/admin/stats' => Http::response(icecastStats([$station->icecast_mount => 3])),
-    ]);
-
-    artisan('stations:sync-listeners')->assertSuccessful();
-
-    expect($session->fresh()->peak_listeners)->toBe(12);
-});
-
-it('does not touch peaks on sessions that already ended', function () {
-    $user = User::factory()->create();
-    $station = Station::factory()->for($user, 'user')->create(['slug' => 'jazz']);
-
-    $ended = StreamSession::create([
-        'station_id' => $station->id,
-        'started_at' => now()->subHour(),
-        'ended_at' => now()->subMinutes(30),
-        'peak_listeners' => 2,
-    ]);
-
-    Http::fake([
-        'icecast:8000/admin/stats' => Http::response(icecastStats([$station->icecast_mount => 8])),
-    ]);
-
-    artisan('stations:sync-listeners')->assertSuccessful();
-
-    expect($ended->fresh()->peak_listeners)->toBe(2);
 });
 
 it('fails without wiping cached counts when Icecast is unreachable', function () {

@@ -24,11 +24,4 @@ export interface StreamSession {
   ended_at: string | null
   peak_listeners: number
   source_type: StreamSessionSource
-  /**
-   * Declared by the schema and cast by the model — and written by nothing.
-   * Nothing in the API increments it, so it is always 0. Deliberately not
-   * rendered: a permanent zero labelled "listening hours" reads as a broken
-   * page rather than as an honest absence of data.
-   */
-  total_listener_minutes: number
 }

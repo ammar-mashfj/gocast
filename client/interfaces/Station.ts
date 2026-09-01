@@ -29,6 +29,19 @@ export interface Station {
   state: "offline" | "on_air" | "live"
   icecast_mount: string
   /**
+   * Full URL of the HLS media playlist, resolved by the API.
+   *
+   * Deliberately NOT built on the client: it points at the media playlist
+   * (`{variant}.m3u8`) rather than the `playlist.m3u8` master Liquidsoap
+   * writes beside it, and the variant's filename comes from the same server
+   * config that names the encoder. Composing it here would be a second place
+   * for that name to live, and it would silently 404 the day it changed.
+   *
+   * Null when no stream host is configured, which is a supported state — the
+   * player falls back to `icecast_mount`.
+   */
+  hls_url: string | null
+  /**
    * This stream carries the audible "powered by GoCast" ID, ducked over the
    * audio every few minutes. Read-only and derived from the owner's plan —
    * there is no way to switch it off except upgrading. Present only on the

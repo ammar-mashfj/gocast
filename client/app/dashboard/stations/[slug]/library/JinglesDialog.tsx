@@ -29,6 +29,7 @@ import {
 import { formatBytes, formatDuration } from "@/lib/format"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { AUDIO_ACCEPT, isAudioFile, uploadErrorMessage } from "./upload"
 
 /**
@@ -70,6 +71,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const locked = useAutoDjLocked()
 
   // Fetched on open rather than with the page: most visits to the library are
   // about the rotation, and this list is behind a button.
@@ -115,6 +117,14 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
 
   const upload = useCallback(
     async (files: FileList | File[]) => {
+      // Jingles ride the same gated endpoint as the rotation, so a free
+      // account gets the same 403 here. Same reasoning as LibraryView: say so
+      // before spending the upload rather than after.
+      if (locked) {
+        toast.error("AutoDJ isn't included in your plan yet.")
+        return
+      }
+
       const list = Array.from(files).filter(isAudioFile)
       if (list.length === 0) {
         toast.error("No audio files in selection.")
@@ -150,7 +160,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         setUploading(false)
       }
     },
-    [station.slug, onStorageChange],
+    [station.slug, onStorageChange, locked],
   )
 
   const handleDelete = useCallback(
@@ -324,7 +334,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         <div
           onDragOver={(e) => {
             e.preventDefault()
-            setDragOver(true)
+            if (!locked) setDragOver(true)
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
@@ -342,13 +352,19 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
             <IconUpload size={22} className="text-muted-foreground" />
           )}
           <div className="text-sm font-medium">
-            {uploading ? "Uploading…" : dragOver ? "Drop to upload" : "Drag jingles here"}
+            {locked
+              ? "Jingles need Pro"
+              : uploading
+                ? "Uploading…"
+                : dragOver
+                  ? "Drop to upload"
+                  : "Drag jingles here"}
           </div>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={uploading}
+            disabled={uploading || locked}
             onClick={() => fileInputRef.current?.click()}
           >
             Browse files

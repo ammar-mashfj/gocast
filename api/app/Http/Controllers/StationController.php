@@ -6,6 +6,7 @@ use App\Http\Requests\StoreStationRequest;
 use App\Http\Requests\UpdateStationRequest;
 use App\Http\Resources\StationResource;
 use App\Models\Station;
+use App\Services\StationLifecycleService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,10 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class StationController extends Controller
 {
     use AuthorizesRequests;
+
+    public function __construct(
+        private readonly StationLifecycleService $lifecycle,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -45,7 +50,19 @@ class StationController extends Controller
     {
         $this->authorize('update', $station);
 
-        $station->update($request->validated());
+        $data = $request->validated();
+
+        // Jingles are part of AutoDJ — they only ever play between rotation
+        // tracks, so switching them on without it stores a setting that can
+        // never fire. Gated on the same flag as uploading, and only in the
+        // "on" direction: a downgraded owner must still be able to turn the
+        // feature off, and the rest of this payload (name, artwork, socials)
+        // stays open on every plan.
+        if (($data['jingles_enabled'] ?? false) === true && ! $station->jingles_enabled) {
+            $this->lifecycle->assertAutoDjEnabled($request->user());
+        }
+
+        $station->update($data);
 
         return new StationResource($station);
     }

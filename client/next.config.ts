@@ -4,6 +4,16 @@ import bundleAnalyzer from "@next/bundle-analyzer";
 
 const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "true" });
 
+// The RFC1918 ranges, plus mDNS names. Note the matcher only treats a whole
+// dot-separated segment as a wildcard — "172.1*.*.*" matches nothing — so the
+// second octet of 172.16.0.0/12 has to be spelled out.
+const LAN_DEV_ORIGINS = [
+  "10.*.*.*",
+  "192.168.*.*",
+  ...Array.from({ length: 16 }, (_, i) => `172.${16 + i}.*.*`),
+  "*.local",
+];
+
 const nextConfig: NextConfig = {
   // Pin the workspace root to this directory.
   //
@@ -17,6 +27,23 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+
+  // Next 16 blocks cross-origin requests to dev-only resources (/_next/*,
+  // /__nextjs*, the HMR websocket) unless the requesting host is allowlisted;
+  // only `localhost` and the hostname the server was started with are allowed
+  // by default. Opening the dev server from a phone or tablet on the LAN
+  // (http://192.168.x.x:3000) therefore serves the SSR HTML fine but 403s
+  // every client chunk, so the page never hydrates and every button on it is
+  // dead — silently, unless you have the device's console open.
+  //
+  // Note `next dev --hostname 0.0.0.0` does NOT help: the hostname Next
+  // allowlists is the literal "0.0.0.0", never the interface address the
+  // device actually typed.
+  //
+  // These are the RFC1918 ranges plus mDNS names, so any device on the local
+  // network can reach it. Development-only — Next ignores this in a
+  // production build, and nothing here widens the deployed surface.
+  allowedDevOrigins: LAN_DEV_ORIGINS,
 
   /* Production optimizations */
   compress: true,

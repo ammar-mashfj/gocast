@@ -26,6 +26,44 @@ return [
     'hls_dir' => env('LIQUIDSOAP_HLS_DIR', '/var/gocast/hls'),
 
     /*
+    | Name of the single HLS rendition, and the ONE place it is defined.
+    |
+    | Liquidsoap names each stream's media playlist after its encoder label, so
+    | this value becomes both the encoder key in station.blade.php and the
+    | filename in the URL StationResource hands the player:
+    |
+    |     /var/gocast/hls/{slug}/{variant}.m3u8
+    |
+    | It has to be shared, because `playlist.m3u8` — the file Liquidsoap writes
+    | alongside it — is a MASTER playlist that merely points here:
+    |
+    |     #EXT-X-STREAM-INF:BANDWIDTH=140800,CODECS="mp4a.40.2"
+    |     aac.m3u8
+    |
+    | Players resolve that variant URI relative to the master and DROP any
+    | query string on the way, so a master URL can never carry a per-listener
+    | token to the requests that follow it. Anything that needs to identify a
+    | listener from their manifest requests must therefore address the media
+    | playlist directly — which means knowing this name, which means it cannot
+    | be spelled independently in two places and left to drift.
+    |
+    | Changing it renames the file. Players holding the old URL 404 until they
+    | reload, so treat it as a breaking change to a public URL.
+    */
+    'hls_variant' => env('LIQUIDSOAP_HLS_VARIANT', 'aac'),
+
+    /*
+    | Public base URL listeners fetch HLS from — the stream vhost, terminating
+    | TLS in front of the directory above. No trailing slash.
+    |
+    | Empty disables HLS playback: StationResource reports a null `hls_url` and
+    | the player falls back to the Icecast mount. That is the correct behaviour
+    | for a deployment that has not published the stream host yet, and it is
+    | why the frontend must treat the field as optional.
+    */
+    'hls_base_url' => rtrim((string) env('LIQUIDSOAP_HLS_BASE_URL', ''), '/'),
+
+    /*
     | Platform-owned audio, shared by every station and mounted read-only at
     | /data/system. Currently just the free-tier watermark clip. Unlike the
     | three above this is NOT per-station — one directory, one copy on disk.
@@ -203,11 +241,20 @@ return [
     | `status_ttl_seconds` is how long a pulled status is cached in Redis. Keep
     | it short — this is a live progress read — but non-zero so a busy discover
     | page doesn't hit every container once per station per request.
+    |
+    | `status_down_ttl_seconds` is the same cache for the one answer that does
+    | NOT go stale on its own: Docker confirmed the container is gone. Nothing
+    | but an explicit start changes that, and start already drops the key, so
+    | there is no point re-deriving it every couple of seconds for every viewer
+    | of a stopped station. Applies only to a verdict Docker confirmed — a
+    | silent harbor on a container that IS up stays on the short TTL, because
+    | that station is booting and about to change.
     */
 
     'harbor_port' => (int) env('LIQUIDSOAP_HARBOR_PORT', 8080),
     'harbor_timeout' => (float) env('LIQUIDSOAP_HARBOR_TIMEOUT', 1.5),
     'status_ttl_seconds' => (int) env('LIQUIDSOAP_STATUS_TTL', 2),
+    'status_down_ttl_seconds' => (int) env('LIQUIDSOAP_STATUS_DOWN_TTL', 15),
 
     /*
     |--------------------------------------------------------------------------
@@ -643,7 +690,7 @@ return [
     | Per-station AutoDJ storage cap. Total bytes of all tracks combined.
     | Uploads that would push the station over this cap are rejected.
     */
-    'station_storage_bytes' => (int) env('LIQUIDSOAP_STATION_STORAGE_BYTES', 100 * 1024 * 1024),
+    'station_storage_bytes' => (int) env('LIQUIDSOAP_STATION_STORAGE_BYTES', 2 * 1024 * 1024 * 1024),
 
     /*
     |--------------------------------------------------------------------------

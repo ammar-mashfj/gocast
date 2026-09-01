@@ -43,13 +43,9 @@ export default async function LibraryPage({
         Back to {station.name}
       </Link>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-medium mb-1">AutoDJ library</h1>
-        <p className="text-sm text-muted-foreground">
-          Tracks here play in order whenever you&apos;re not live. Liquidsoap loops back to the top after the last track.
-        </p>
-      </div>
-
+      {/* Heading and the count/runtime/storage line live inside LibraryView:
+          they change on every upload, delete and tag edit, so they have to be
+          rendered from the same client state as the list itself. */}
       <LibraryView station={station} initialTracks={initialTracks} initialMeta={meta} />
     </div>
   )

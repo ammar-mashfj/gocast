@@ -1,10 +1,25 @@
 <?php
 
+use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\patchJson;
+
+/**
+ * An owner who can actually use jingles. They are part of AutoDJ — they only
+ * play between rotation tracks — so turning them on is gated on the same plan
+ * flag as uploading, and a test that skipped this would be asserting against
+ * the free default.
+ */
+function proOwner(): User
+{
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    return User::factory()->create(['plan_id' => $plan->id]);
+}
 
 /**
  * Jingle settings ride on the normal station update endpoint rather than an
@@ -23,7 +38,7 @@ it('defaults new stations to jingles off at a half-hour spacing', function () {
 });
 
 it('lets the owner turn jingles on and set the interval', function () {
-    $owner = User::factory()->create();
+    $owner = proOwner();
     $station = Station::factory()->for($owner, 'user')->create();
 
     actingAs($owner, 'sanctum')
@@ -101,7 +116,7 @@ it('defaults to interval mode so existing stations are unaffected', function () 
 });
 
 it('lets the owner space jingles by track count instead of time', function () {
-    $owner = User::factory()->create();
+    $owner = proOwner();
     $station = Station::factory()->for($owner, 'user')->create();
 
     actingAs($owner, 'sanctum')
@@ -153,4 +168,54 @@ it('rejects a track count that would satisfy the counter permanently', function 
         ->patchJson("/api/stations/{$station->slug}", ['jingle_every_tracks' => 0])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('jingle_every_tracks');
+});
+
+it('refuses to turn jingles on without AutoDJ', function () {
+    // Jingles play BETWEEN rotation tracks. Without AutoDJ there is no
+    // rotation, so storing this would be a setting that can never fire — and
+    // a dashboard toggle that appears to work is worse than one that says why
+    // it does not.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $owner = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['jingles_enabled' => true])
+        ->assertForbidden()
+        ->assertJsonPath('code', 'autodj_not_available');
+
+    expect($station->refresh()->jingles_enabled)->toBeFalse();
+});
+
+it('still lets a downgraded owner turn jingles back off', function () {
+    // Same rule as the track library: a downgrade must never strand someone
+    // in a state they cannot leave.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $owner = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($owner, 'user')->create(['jingles_enabled' => true]);
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['jingles_enabled' => false])
+        ->assertOk();
+
+    expect($station->refresh()->jingles_enabled)->toBeFalse();
+});
+
+it('leaves the rest of the station editable without AutoDJ', function () {
+    // The gate is on one field, not the endpoint. Renaming a station is not a
+    // paid feature and must not start returning 403.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $owner = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['name' => 'Renamed'])
+        ->assertOk()
+        ->assertJsonPath('data.name', 'Renamed');
 });

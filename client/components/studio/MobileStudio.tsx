@@ -1,14 +1,12 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo, type MouseEvent } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import {
   IconMicrophone,
   IconPlayerPlayFilled,
   IconPlayerPauseFilled,
   IconPlayerSkipForwardFilled,
   IconPlayerSkipBackFilled,
-  IconRepeat,
-  IconRepeatOnce,
   IconPlus,
   IconMinus,
   IconX,
@@ -45,11 +43,15 @@ function formatTime(seconds: number): string {
 }
 
 
+/**
+ * Read-only position display. Not tappable: this bar is the width of the
+ * screen, and a stray thumb landing on it would move the playhead of the
+ * element feeding the live mixer — an audible gap and a click for every
+ * listener. See the desktop ProgressBar for the same reasoning.
+ */
 function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroadcast>["engine"]> }) {
   const barRef = useRef<HTMLDivElement>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
   const elapsedRef = useRef<HTMLSpanElement>(null)
-  const [dragging] = useState(false)
 
   useEffect(() => {
     let raf = 0
@@ -58,20 +60,12 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
       const elapsed = engine.getElapsed()
       const duration = track?.duration ?? 0
       const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
-      if (barRef.current && !dragging) barRef.current.style.width = `${pct}%`
+      if (barRef.current) barRef.current.style.width = `${pct}%`
       if (elapsedRef.current) elapsedRef.current.textContent = formatTime(elapsed)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [engine, dragging])
-
-  const handleSeek = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (!trackRef.current) return
-    const rect = trackRef.current.getBoundingClientRect()
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const track = engine.getCurrentTrack()
-    if (track) engine.seek(pct * track.duration)
   }, [engine])
 
   const track = engine.getCurrentTrack()
@@ -80,8 +74,8 @@ function ProgressBar({ engine }: { engine: NonNullable<ReturnType<typeof useBroa
   return (
     <div className="flex items-center gap-2 w-full">
       <span ref={elapsedRef} className="text-xs text-muted-foreground tabular-nums w-8 text-right shrink-0">0:00</span>
-      <div ref={trackRef} className="flex-1 h-5 flex items-center cursor-pointer group" onClick={handleSeek}>
-        <div className="w-full h-1 bg-muted rounded-full overflow-hidden group-hover:h-1.5 transition-all">
+      <div className="flex-1 h-5 flex items-center">
+        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
           <div ref={barRef} className="h-full rounded-full bg-primary" style={{ width: "0%" }} />
         </div>
       </div>
@@ -163,7 +157,6 @@ export function MobileStudio() {
   const track = engine?.getCurrentTrack() ?? null
   const playing = engine?.isPlaying() ?? false
   const micActive = engine?.isMicActive() ?? false
-  const repeatMode = engine?.getRepeatMode() ?? 'off'
   const hasQueue = (engine?.getQueue().length ?? 0) > 0
   const hasTrack = !!track
 
@@ -314,15 +307,6 @@ export function MobileStudio() {
             </Button>
             <Button variant="ghost" size="icon" className="flex-1" onClick={() => engine?.next()} disabled={!hasQueue}>
               <IconPlayerSkipForwardFilled size={14} />
-            </Button>
-            <Button
-              variant={repeatMode === 'off' ? "ghost" : "secondary"}
-              size="icon"
-              className="flex-1"
-              onClick={() => engine?.cycleRepeatMode()}
-              title={`Repeat: ${repeatMode}`}
-            >
-              {repeatMode === 'one' ? <IconRepeatOnce size={14} /> : <IconRepeat size={14} />}
             </Button>
           </div>
 

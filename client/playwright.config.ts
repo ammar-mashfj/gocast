@@ -22,7 +22,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "php8.4 artisan serve --host=127.0.0.1 --port=8000",
+      command: "php8.4 artisan serve --host=127.0.0.1 --port=8000 --no-reload",
       cwd: "../api",
       url: `${apiURL}/up`,
       reuseExistingServer: !process.env.CI,

@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { apiFetch } from "@/lib/api-server"
 import type { Station } from "@/interfaces/Station"
 
@@ -18,8 +19,14 @@ import type { Station } from "@/interfaces/Station"
  * gets the SAME station on every page. Picking whatever landed first in the
  * response would let the dashboard and the sidebar disagree about which
  * station is "theirs", which is far worse than showing the older one.
+ *
+ * Wrapped in React's `cache()` so the several callers that now exist within a
+ * single render — the layout, which needs the name for the chrome, and the
+ * page under it — share ONE `/stations` request instead of each making their
+ * own. The memo lives for exactly one server render, so nothing is carried
+ * between users or between requests; `apiFetch` stays `no-store` underneath.
  */
-export async function getMyStation(): Promise<Station | null> {
+export const getMyStation = cache(async function getMyStation(): Promise<Station | null> {
   const { data } = await apiFetch<{ data: Station[] }>("/stations")
 
   const [oldest] = [...data].sort(
@@ -27,4 +34,4 @@ export async function getMyStation(): Promise<Station | null> {
   )
 
   return oldest ?? null
-}
+})

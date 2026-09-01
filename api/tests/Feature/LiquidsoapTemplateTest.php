@@ -26,6 +26,8 @@ function renderStationScript(Station $station, array $overrides = []): string
         'icecastPort' => 8000,
         'apiUrl' => 'http://api',
         'harborPort' => 8080,
+        // Also the media playlist's filename — see config('liquidsoap.hls_variant').
+        'hlsVariant' => 'aac',
         'harborInputPort' => 8090,
         'harborInputTimeout' => 10.0,
         'rmsWindow' => 2.0,

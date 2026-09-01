@@ -1,7 +1,5 @@
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback } from './queueStore'
 
-export type RepeatMode = 'off' | 'all' | 'one'
-
 export interface QueueTrack {
   id: string
   file: File
@@ -34,6 +32,54 @@ const MP3_BITRATE = 192
  * predictably and surface usage in the UI.
  */
 export const QUEUE_BYTE_LIMIT = 2 * 1024 * 1024 * 1024
+
+/**
+ * Fail early, and legibly, when the page can't broadcast at all.
+ *
+ * `AudioWorklet` and `navigator.mediaDevices` are both gated on a secure
+ * context. Over plain http on a LAN address — a tablet pointed at a dev
+ * laptop, say — they are not merely blocked but *absent*, so the first thing
+ * that happens is `ctx.audioWorklet` reading as undefined and the whole
+ * broadcast dying with "Cannot read properties of undefined (reading
+ * 'addModule')", which says nothing about the real problem.
+ *
+ * localhost counts as secure, so this never fires for laptop development. The
+ * ways out are an https origin, a port forward that makes the device see
+ * localhost, or the browser's insecure-origin allowlist.
+ */
+export function assertBroadcastSupported(options?: { skipMic?: boolean }): void {
+  if (typeof window === "undefined") return
+
+  if (!window.isSecureContext) {
+    throw new Error(
+      `Broadcasting needs https:// or localhost — this page is on ${window.location.origin}`,
+    )
+  }
+
+  if (!options?.skipMic && !navigator.mediaDevices) {
+    throw new Error("This browser doesn't support microphone capture")
+  }
+}
+
+/**
+ * What happens when a track reaches its end on its own.
+ *
+ * There is no "off". Running off the end of the queue puts dead air on air,
+ * and a live station has no mode in which that is what the broadcaster
+ * wanted — so the queue always continues. The only real choice is whether it
+ * continues to the *next* track or repeats the current one, which is how a
+ * broadcaster holds a bed under a long talk break.
+ *
+ * Note this governs auto-advance only. An explicit `next()`/`prev()` always
+ * moves: a skip is a skip, never a re-cue.
+ */
+export type RepeatMode = 'all' | 'one'
+
+/**
+ * Default monitor level. Speakers-only, never the stream — the monitor bus
+ * hangs off `fileGain` and is deliberately not part of the encode path.
+ */
+const MONITOR_DEFAULT_VOLUME = 0.62
 
 export interface AddFilesResult {
   added: number
@@ -96,8 +142,21 @@ export class AudioEngine {
   private workletNode: AudioWorkletNode
   private encoderWorker: Worker
 
+  /**
+   * Speaker monitor. Tapped off `fileGain` — post-duck, so the broadcaster
+   * hears the music drop under their own voice — and never off `micGain`.
+   * Monitoring your own mic through the speakers is the one routing that
+   * builds a feedback loop, and hearing yourself ~40ms late is unpleasant
+   * even on headphones. Off by default.
+   */
+  private monitorGain: GainNode
+  private monitorEnabled = false
+  private monitorVolume = MONITOR_DEFAULT_VOLUME
+
   private micSource: MediaStreamAudioSourceNode | null = null
   private isTalking = false
+  private micLatched = false
+  private repeatMode: RepeatMode = 'all'
 
   // File playback — each track is streamed through an HTMLAudioElement so the
   // browser demuxes/decodes incrementally. This keeps memory flat regardless
@@ -109,7 +168,6 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
-  private repeatMode: RepeatMode = 'all'
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
   // Reactive state: listeners are notified on any engine state change.
@@ -151,6 +209,13 @@ export class AudioEngine {
       this.micSource = this.ctx.createMediaStreamSource(micStream)
       this.micSource.connect(this.micGain)
     }
+
+    // Speaker monitor tap. Parallel to the mixer, so nothing here reaches
+    // the encoder — what the broadcaster hears cannot change what goes out.
+    this.monitorGain = this.ctx.createGain()
+    this.monitorGain.gain.value = 0
+    this.fileGain.connect(this.monitorGain)
+    this.monitorGain.connect(this.ctx.destination)
 
     // Analyser for level metering
     this.analyser = this.ctx.createAnalyser()
@@ -256,8 +321,15 @@ export class AudioEngine {
     this.notify()
   }
 
-  /** Release push-to-talk: mute the mic and restore file playback to 100%. */
+  /**
+   * Release push-to-talk: mute the mic and restore file playback to 100%.
+   *
+   * A no-op while the mic is latched — that is the whole point of latching,
+   * and it keeps a stray keyup or a mouse leaving the button from cutting
+   * the broadcaster off mid-sentence.
+   */
   pttUp() {
+    if (this.micLatched) return
     if (!this.isTalking) return
     this.isTalking = false
     this.fileGain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.05)
@@ -273,13 +345,77 @@ export class AudioEngine {
     return this.analyser
   }
 
+  // ── Mic latch ──
+
+  isMicLatched(): boolean { return this.micLatched }
+
+  /**
+   * Hold the mic open hands-free. Latching on opens it immediately; latching
+   * off closes it, so the toggle never leaves the broadcaster live by accident
+   * after they think they have turned it off.
+   */
+  setMicLatched(latched: boolean) {
+    if (this.micLatched === latched) return
+    this.micLatched = latched
+    if (latched) {
+      this.pttDown()
+    } else {
+      // Clear the flag first — pttUp() short-circuits while latched.
+      this.pttUp()
+    }
+    this.notify()
+  }
+
+  // ── Monitor ──
+
+  isMonitorEnabled(): boolean { return this.monitorEnabled }
+  getMonitorVolume(): number { return this.monitorVolume }
+
+  /** Route the file bus to the speakers. Never affects the encoded stream. */
+  setMonitorEnabled(enabled: boolean) {
+    if (this.monitorEnabled === enabled) return
+    this.monitorEnabled = enabled
+    this.applyMonitorGain()
+    this.notify()
+  }
+
+  /** @param volume 0–1. Remembered while the monitor is off. */
+  setMonitorVolume(volume: number) {
+    const clamped = Math.min(1, Math.max(0, volume))
+    if (this.monitorVolume === clamped) return
+    this.monitorVolume = clamped
+    this.applyMonitorGain()
+    this.notify()
+  }
+
+  /** Ramped rather than stepped — a hard gain jump on a live bus clicks. */
+  private applyMonitorGain() {
+    const target = this.monitorEnabled ? this.monitorVolume : 0
+    this.monitorGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.03)
+  }
+
+  // ── Repeat ──
+
+  getRepeatMode(): RepeatMode { return this.repeatMode }
+
+  setRepeatMode(mode: RepeatMode) {
+    if (this.repeatMode === mode) return
+    this.repeatMode = mode
+    this.notify()
+  }
+
+  /** Cycle all → one → all. Bound to `R` in the studio. */
+  cycleRepeat(): RepeatMode {
+    this.setRepeatMode(this.repeatMode === 'all' ? 'one' : 'all')
+    return this.repeatMode
+  }
+
   // ── Queue management ──
 
   getQueue(): QueueTrack[] { return this.queue }
   getQueueBytes(): number { return this.queue.reduce((sum, t) => sum + t.file.size, 0) }
   getCurrentIndex(): number { return this.currentIndex }
   isPlaying(): boolean { return this.playing }
-  getRepeatMode(): RepeatMode { return this.repeatMode }
 
   // ── Reactive subscription ──
 
@@ -297,10 +433,6 @@ export class AudioEngine {
     this.listeners.forEach((fn) => {
       try { fn() } catch (err) { console.error('[AudioEngine] listener threw:', err) }
     })
-  }
-  cycleRepeatMode() {
-    this.repeatMode = this.repeatMode === 'off' ? 'all' : this.repeatMode === 'all' ? 'one' : 'off'
-    this.notify()
   }
 
   getCurrentTrack(): QueueTrack | null {
@@ -474,45 +606,29 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * Advance to the next track, wrapping at the end of the queue.
+   *
+   * The queue always wraps. This is a live station: running off the end of
+   * the queue puts dead air on air, and there is no mode in which that is
+   * what the broadcaster wanted.
+   */
   async next() {
+    if (this.queue.length === 0) return
     const nextIdx = this.currentIndex + 1
-    if (nextIdx < this.queue.length) {
-      await this.playIndex(nextIdx)
-    } else if (this.repeatMode === 'all' && this.queue.length > 0) {
-      await this.playIndex(0)
-    } else {
-      this.stopCurrent()
-      this.playing = false
-      this.currentIndex = -1
-      this.notify()
-    }
+    await this.playIndex(nextIdx < this.queue.length ? nextIdx : 0)
   }
 
+  /** Step back one track, wrapping to the end of the queue. */
   async prev() {
+    if (this.queue.length === 0) return
     const prevIdx = this.currentIndex - 1
-    if (prevIdx >= 0) {
-      await this.playIndex(prevIdx)
-    } else if (this.repeatMode === 'all' && this.queue.length > 0) {
-      await this.playIndex(this.queue.length - 1)
-    } else {
-      await this.playIndex(0)
-    }
+    await this.playIndex(prevIdx >= 0 ? prevIdx : this.queue.length - 1)
   }
 
   getElapsed(): number {
     if (this.currentIndex < 0 || !this.currentAudio) return 0
     return this.currentAudio.currentTime
-  }
-
-  async seek(seconds: number) {
-    if (this.currentIndex < 0 || !this.currentAudio) return
-    const track = this.queue[this.currentIndex]
-    if (!track) return
-    const duration = track.duration || this.currentAudio.duration || 0
-    const clamped = Math.max(0, Math.min(seconds, Math.max(0, duration - 0.1)))
-    this.currentAudio.currentTime = clamped
-    savePlayback({ currentIndex: this.currentIndex, offset: clamped })
-    this.notify()
   }
 
   private async playIndex(index: number) {
@@ -546,11 +662,15 @@ export class AudioEngine {
     audio.addEventListener('ended', () => {
       // Ignore ended events from a superseded element (track switch in flight).
       if (this.currentAudio !== audio) return
+      // Auto-advance is the only place repeat applies; an explicit skip always
+      // moves. Re-cueing the same index rebuilds the element from the same
+      // File, which is the identical path a 1-track queue already took when
+      // next() wrapped onto itself.
       if (this.repeatMode === 'one') {
         void this.playIndex(this.currentIndex)
-      } else {
-        void this.next()
+        return
       }
+      void this.next()
     })
 
     // Wait for metadata so the initial seek (resume offset) lands accurately.
@@ -616,6 +736,7 @@ export class AudioEngine {
     if (this.progressTimer) clearInterval(this.progressTimer)
     this.stopCurrent()
     this.micSource?.disconnect()
+    this.monitorGain.disconnect()
     this.analyser.disconnect()
     this.mixer.disconnect()
     this.fileGain.disconnect()

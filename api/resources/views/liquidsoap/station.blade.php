@@ -15,6 +15,9 @@
       $rtspPort        — int    /   config/liquidsoap.php for the native-host
                                     overrides.
       $harborPort      — int    (harbor HTTP control surface, /status + /healthz)
+      $hlsVariant      — string (encoder label AND the media-playlist filename;
+                                 config('liquidsoap.hls_variant') — see the HLS
+                                 block below for why it is shared with the URL)
       $blankMax        — float  (seconds of silence before the live source is
                                  marked unavailable; 0 disables dead-air strip)
       $blankThreshold  — float  (dBFS below which audio counts as silence)
@@ -1207,15 +1210,30 @@ icecast_out.on_error(synchronous=false, fun (~restart_in, _) -> begin
   notify("icecast_error")
 end)
 
-# HLS — listener URL: https://stream.gocast.fm/{{ $station->slug }}/playlist.m3u8
+# HLS — listener URL: https://stream.gocast.fm/{{ $station->slug }}/{{ $hlsVariant }}.m3u8
+#
+# THE MEDIA PLAYLIST, NOT playlist.m3u8. Liquidsoap writes both, and the
+# difference matters:
+#
+#   playlist.m3u8   master   #EXT-X-STREAM-INF... → {{ $hlsVariant }}.m3u8
+#   {{ $hlsVariant }}.m3u8        media    the actual segment list
+#
+# A player handed the master fetches it once, resolves the variant URI relative
+# to it, and DROPS any query string on the way — so a master URL can never
+# carry a per-listener token through to the requests that follow. Since we have
+# exactly one rendition, the master buys nothing and costs that, so the URL we
+# publish points straight at the media playlist. The encoder label below and
+# the filename in StationResource are the same config value for this reason;
+# don't hard-code either. Add a second rendition and the master becomes useful
+# again, at which point it must be generated with tokens already in its
+# variant URIs rather than handed out bare.
+#
 # nginx serves /var/gocast/hls/{slug}/ (mounted here at /data/hls) from the
 # stream vhost — see infra/native/nginx/gocast-stream.conf, which splits
 # manifests (no-cache) from segments (immutable) because they want opposite
 # caching. Its segment matcher already covers .aac.
 #
-# The web player streams from Icecast, not from here; HLS exists for clients
-# that can't hold a long-lived MP3 socket (iOS lock screen, native apps, CDN
-# pull). Single bitrate for v1; add a 64k variant later for cellular ABR.
+# Single bitrate for v1; add a 64k variant later for cellular ABR.
 #
 # `format="adts"` — raw AAC elementary segments, NOT mpegts. This is purely a
 # bandwidth decision, and the gap is much wider than it looks: the AAC payload
@@ -1260,6 +1278,6 @@ output.file.hls(
   segments_overhead = 5,
   persist_at = "/data/hls/state.json",
   playlist = "playlist.m3u8",
-  [("aac", %ffmpeg(format="adts", %audio(codec="aac", b="128k")))],
+  [("{{ $hlsVariant }}", %ffmpeg(format="adts", %audio(codec="aac", b="128k")))],
   broadcast_out
 )

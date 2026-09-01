@@ -15,6 +15,7 @@ import { AutoDjRotation } from "@/components/dashboard/AutoDjRotation"
 import { RecentBroadcasts } from "@/components/dashboard/RecentBroadcasts"
 import { StationChecklist } from "@/components/dashboard/StationChecklist"
 import { StationShare } from "@/components/dashboard/StationShare"
+import { LiveListeners } from "@/components/dashboard/LiveListeners"
 import { formatDate } from "@/lib/format"
 import { StationActions } from "./StationActions"
 
@@ -37,17 +38,34 @@ export default async function StationDetailPage({
   let station: Station
   let sessions: StreamSession[]
   let sessionTotal: number
+  let tracks: Track[]
+  let tracksUnavailable: boolean
 
+  // All three in one flight. The rotation used to be fetched AFTER this block
+  // resolved, purely because its failure is handled differently — which put a
+  // third round-trip in series in front of a page that already waits on two.
+  // The different handling belongs in the catch, not in the ordering: a
+  // failing track fetch degrades one card rather than taking the route down,
+  // so it settles to an empty rotation instead of rejecting, and the
+  // Promise.all only ever sees the two failures that are actually fatal.
   try {
-    const [stationRes, sessionsRes] = await Promise.all([
+    const [stationRes, sessionsRes, tracksRes] = await Promise.all([
       apiFetch<{ data: Station }>(`/stations/${slug}`),
       // Laravel's paginator, so `total` is what tells us whether the 14-day
       // window below is complete or merely the first page of a busy station.
       apiFetch<{ data: StreamSession[]; total?: number }>(`/stations/${slug}/sessions`),
+      apiFetch<{ data: Track[] }>(`/stations/${slug}/tracks`)
+        .then((res) => ({ tracks: res.data, unavailable: false }))
+        .catch((err) => {
+          console.error(`[station/${slug}] track fetch failed:`, err)
+          return { tracks: [] as Track[], unavailable: true }
+        }),
     ])
     station = stationRes.data
     sessions = sessionsRes.data
     sessionTotal = sessionsRes.total ?? sessionsRes.data.length
+    tracks = tracksRes.tracks
+    tracksUnavailable = tracksRes.unavailable
   } catch (err) {
     // Only render the 404 page when the backend actually said the station
     // is missing. Any other failure (timeout, 401 from a stale cookie, 5xx)
@@ -58,18 +76,6 @@ export default async function StationDetailPage({
     }
     console.error(`[station/${slug}] fetch failed:`, err)
     throw err
-  }
-
-  // The rotation is a nice-to-have on this page, not the point of it: a failing
-  // track fetch degrades one card rather than taking the whole route down.
-  let tracks: Track[] = []
-  let tracksUnavailable = false
-  try {
-    const res = await apiFetch<{ data: Track[] }>(`/stations/${slug}/tracks`)
-    tracks = res.data
-  } catch (err) {
-    console.error(`[station/${slug}] track fetch failed:`, err)
-    tracksUnavailable = true
   }
 
   const playerUrl = `${env.appUrl}/station/${station.slug}`
@@ -158,6 +164,15 @@ export default async function StationDetailPage({
         </div>
 
         <aside className="flex flex-col gap-6 min-w-0">
+          {/* Above the share card on purpose: the audience is the reason the
+              link exists, and seeing an empty room is what sends anyone to
+              the share card underneath it. */}
+          <LiveListeners
+            slug={station.slug}
+            isOnAir={station.state !== "offline"}
+            peakListeners={station.stats?.peak_listeners ?? 0}
+          />
+
           <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
 
           <StationChecklist

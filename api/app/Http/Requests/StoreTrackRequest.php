@@ -36,9 +36,12 @@ class StoreTrackRequest extends FormRequest
             'files.*' => [
                 'required',
                 'file',
-                // 50 MB per file. The per-station 100 MB cumulative cap is
-                // enforced separately in TrackImporter::ensureWithinQuota.
-                'max:51200',
+                // 300 MB per file. An hour-long DJ mix is ~86 MB at 192
+                // kbps and ~144 MB at 320, so the previous 50 MB ceiling
+                // rejected the single most important file type outright.
+                // The per-station cumulative cap is enforced separately in
+                // TrackImporter::ensureWithinQuota.
+                'max:307200',
                 'mimes:mp3,m4a,aac,flac,ogg,wav,mpga',
             ],
         ];

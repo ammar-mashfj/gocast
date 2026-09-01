@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
@@ -15,8 +15,8 @@ import { Badge } from "@/components/ui/badge"
 import api from "@/lib/axios"
 import { cn } from "@/lib/utils"
 import { Station } from "@/interfaces/Station"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
-import { useListenerCount } from "@/hooks/useListenerCount"
 import { GoLiveTrigger } from "@/components/dashboard/GoLiveTrigger"
 
 interface StationPowerProps {
@@ -63,8 +63,37 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   const isLive = state === "live"
   const isAutoDj = status?.source === "autodj"
 
-  // Only worth asking while there is a mount for anyone to be connected to.
-  const listeners = useListenerCount(station.slug, isRunning)
+  // Without AutoDJ there is no unattended arm: the station's AutoDJ source is
+  // a silence bed, so a station that is on air with nobody broadcasting emits
+  // nothing and `stations:sweep` takes it back off within the silence window.
+  // "Put on air" is therefore not a weaker version of "Go live" on this plan —
+  // it is a minute-long no-op, and offering it is offering a dead end.
+  //
+  // False when the plan is unknown, by design (see useAutoDjLocked), so a
+  // failed /user shows the full set of controls rather than hiding one from
+  // somebody who paid for it.
+  const autoDjLocked = useAutoDjLocked()
+
+  // Last title the container reported, held across the gaps between tracks.
+  //
+  // `now_playing` is legitimately null for the moment between one track ending
+  // and the next announcing itself: the container reports no metadata and the
+  // Redis push is cleared. Polling every ten seconds lands in that window often
+  // enough to matter, and on a rotation of very short tracks it lands there
+  // most of the time. Without this the headline flickers between the track and
+  // a fallback message, which reads as a station that keeps breaking.
+  //
+  // Cleared the moment the station goes off air, so a stopped station never
+  // shows what it used to be playing.
+  const lastNowPlaying = useRef<{ title: string | null; artist: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!isRunning) {
+      lastNowPlaying.current = null
+    } else if (status?.now_playing) {
+      lastNowPlaying.current = status.now_playing
+    }
+  }, [isRunning, status?.now_playing])
 
   async function act(
     action: "start" | "stop" | "skip",
@@ -112,12 +141,18 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     </Badge>
   )
 
+  // The card stacks on narrow widths and its buttons go full-width with it.
+  // The compact variant is an inline toolbar with no such container, so it
+  // keeps intrinsic widths — resolving `@xl/power:` with no `power` container
+  // in scope would leave those buttons permanently full-width.
+  const actionClass = compact ? "w-auto" : "w-full @xl/power:w-auto"
+
   const stopButton = (
     <Button
       variant="outline"
       onClick={() => act("stop", "Station is off air")}
       disabled={pending !== null}
-      className="w-full md:w-auto"
+      className={actionClass}
     >
       {pending === "stop" ? (
         <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
@@ -132,7 +167,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     <Button
       onClick={() => act("start", "Station is coming on air")}
       disabled={pending !== null}
-      className="w-full md:w-auto"
+      className={actionClass}
     >
       {pending === "start" ? (
         <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
@@ -147,7 +182,18 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     return (
       <div className="flex items-center gap-2">
         {badge}
-        {isRunning ? stopButton : startButton}
+        {isRunning ? (
+          stopButton
+        ) : autoDjLocked ? (
+          <GoLiveTrigger slug={station.slug} name={station.name}>
+            <Button className={actionClass}>
+              <IconBroadcast size={14} data-icon="inline-start" />
+              Go live
+            </Button>
+          </GoLiveTrigger>
+        ) : (
+          startButton
+        )}
       </div>
     )
   }
@@ -177,8 +223,9 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
           ? "text-primary"
           : "text-muted-foreground"
 
-  const nowPlaying = status?.now_playing
+  const nowPlaying = status?.now_playing ?? lastNowPlaying.current
   const upNext = status?.up_next?.[0]
+  const hasRotation = (status?.playlist_length ?? 0) > 0
 
   /** The big line: what a listener pressing play would hear this second. */
   let headlineDetail: string
@@ -190,8 +237,15 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     headlineDetail = "Checking…"
   } else if (nowPlaying) {
     headlineDetail = [nowPlaying.title, nowPlaying.artist].filter(Boolean).join(" — ")
+  } else if (status?.reachable && hasRotation) {
+    // Producing audio from a rotation that exists, but no title has been seen
+    // yet. Telling this owner to "add tracks" would be advice to fix something
+    // that is not broken — they have tracks, and the station is playing them.
+    headlineDetail = "On air — waiting for track info"
   } else if (status?.reachable) {
-    headlineDetail = "Silence — add tracks or go live"
+    headlineDetail = autoDjLocked
+      ? "Silence — go live to put sound on air"
+      : "Silence — add tracks or go live"
   } else {
     headlineDetail = "Waiting for the station to answer"
   }
@@ -205,17 +259,22 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   if (isRunning && upNext) {
     detailParts.push(`Up next: ${[upNext.title, upNext.artist].filter(Boolean).join(" — ")}`)
   }
-  if (isRunning && listeners !== null) {
-    detailParts.push(listeners === 1 ? "1 listener tuned in" : `${listeners} listeners tuned in`)
-  }
   if (!isRunning) {
-    detailParts.push("Put it on air and your AutoDJ rotation plays to anyone with the link")
+    detailParts.push(
+      autoDjLocked
+        ? "Go live and anyone with the link can tune in while you broadcast"
+        : "Put it on air and your AutoDJ rotation plays to anyone with the link",
+    )
   }
 
   return (
     <section
       className={cn(
-        "rounded-xl border p-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between",
+        // Container query, not a viewport one: this card lives in a grid
+        // column, so on a tablet it is ~500px wide while the viewport is
+        // 1280px. Keyed to `md:` it stayed a row there and squeezed the
+        // headline into ~275px, which the truncate below then ate.
+        "@container/power rounded-xl border p-5 flex flex-col gap-5 @xl/power:flex-row @xl/power:items-center @xl/power:justify-between",
         isRunning
           ? "border-primary/25 bg-gradient-to-br from-primary/10 via-card/40 to-card/40"
           : "border-border bg-card/40",
@@ -230,7 +289,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
         </div>
 
         <div className="flex items-center gap-1 min-w-0">
-          <span className="text-lg font-medium truncate">{headlineDetail}</span>
+          <span className="text-lg font-medium line-clamp-2">{headlineDetail}</span>
           {isAutoDj && (
             <Button
               variant="ghost"
@@ -251,7 +310,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
         </div>
 
         {detailParts.length > 0 && (
-          <div className="text-sm text-muted-foreground truncate">
+          <div className="text-sm text-muted-foreground line-clamp-2">
             {detailParts.join(" • ")}
           </div>
         )}
@@ -259,9 +318,9 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
 
       {/* Actions, most-wanted first. Off air, the thing you want is a mount;
           once there is one, the thing you want is the microphone. */}
-      <div className="flex flex-col gap-2 shrink-0 md:min-w-[190px]">
+      <div className="flex flex-col gap-2 shrink-0 @xl/power:min-w-[190px]">
         {isLive ? (
-          <Button asChild className="w-full md:w-auto">
+          <Button asChild className={actionClass}>
             <a href={`/dashboard/stations/${station.slug}/studio`}>
               <IconBroadcast size={14} data-icon="inline-start" />
               Open studio
@@ -269,9 +328,16 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
           </Button>
         ) : isRunning ? (
           <GoLiveTrigger slug={station.slug} name={station.name}>
-            <Button className="w-full md:w-auto">
+            <Button className={actionClass}>
               <IconBroadcast size={14} data-icon="inline-start" />
               Take over live
+            </Button>
+          </GoLiveTrigger>
+        ) : autoDjLocked ? (
+          <GoLiveTrigger slug={station.slug} name={station.name}>
+            <Button className={actionClass}>
+              <IconBroadcast size={14} data-icon="inline-start" />
+              Go live
             </Button>
           </GoLiveTrigger>
         ) : (
@@ -280,9 +346,9 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
 
         {isRunning ? (
           stopButton
-        ) : (
+        ) : autoDjLocked ? null : (
           <GoLiveTrigger slug={station.slug} name={station.name}>
-            <Button variant="outline" className="w-full md:w-auto">
+            <Button variant="outline" className={actionClass}>
               <IconBroadcast size={14} data-icon="inline-start" />
               Go live
             </Button>

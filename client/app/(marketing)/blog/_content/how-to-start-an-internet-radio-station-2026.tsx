@@ -28,7 +28,8 @@ export default function Body() {
         <li>
           <strong>Music station that plays when you&#39;re offline</strong> &mdash;
           You need AutoDJ &mdash; software that keeps tracks playing 24/7 without a human
-          at the controls. AzuraCast or Radio.co are the main options.
+          at the controls. AzuraCast, Radio.co and GoCast Pro all do this; the free tier
+          of most browser-based platforms does not.
         </li>
         <li>
           <strong>Multi-DJ station with scheduled shows</strong> &mdash;
@@ -61,6 +62,8 @@ export default function Body() {
         browser itself acts as the encoder &mdash; it captures your mic or file audio, encodes
         it, and sends it to the relay. That&#39;s why no software download is needed. With
         desktop setups like BUTT + Icecast, you manage the encoder and relay separately.
+        The two aren&#39;t exclusive &mdash; on a paid GoCast plan you can broadcast from
+        the browser one night and point BUTT at the same station the next.
       </p>
       <p>
         The key numbers: a single 128 kbps stream uses about 1 Mbps of upload bandwidth. Each
@@ -83,14 +86,25 @@ export default function Body() {
       </p>
       <p>
         <a href="https://gocast.fm"><strong>GoCast</strong></a> &mdash; Full disclosure:
-        this is our platform. The free tier includes one station, 25 concurrent listeners,
-        file queue playback, push-to-talk with auto-ducking, and a public player page. The
-        browser handles audio encoding, which keeps server costs low enough to offer a
-        real free tier.
+        this is our platform. The free tier is $0 with no card and no trial clock: one
+        station, 100 concurrent listeners, browser broadcasting with push-to-talk
+        auto-ducking, a drag-and-drop file queue, and a shareable player page with live
+        track metadata. The browser does the audio encoding, which keeps server costs low
+        enough to offer a real free tier rather than a two-week demo.
       </p>
       <p>
-        Strongest point: going from zero to live in under a minute. Weakest point: no
-        server-side AutoDJ yet (planned for June - July 2026), so your station goes quiet when you close the browser tab.
+        Pro is $15/month and covers what a station needs once it outgrows a browser tab:
+        24/7 AutoDJ from a 2&nbsp;GB library, ingest from BUTT, Mixxx or any
+        Icecast-compatible encoder, a public stream URL you can hand to TuneIn or play on
+        Sonos, 1,000 concurrent listeners, listener analytics, a custom domain, and
+        higher-bitrate audio. It&#39;s in beta &mdash; requested from your dashboard and
+        granted by hand rather than sold through a checkout page.
+      </p>
+      <p>
+        Strongest point: going from zero to live in under a minute. Weakest point: the
+        free tier is deliberately live-only. Close the tab and the station goes quiet, and
+        free streams carry a short &ldquo;powered by GoCast&rdquo; ID, so unattended
+        round-the-clock programming means Pro.
       </p>
 
       <h3>Self-Hosted Platforms (Most Control)</h3>
@@ -144,6 +158,12 @@ export default function Body() {
         configuring a streaming server separately, and troubleshooting three pieces of
         software when something breaks.
       </p>
+      <p>
+        Worth knowing: you don&#39;t have to run the server half yourself. AzuraCast,
+        Radio.co and GoCast Pro all accept an Icecast source connection, so BUTT or Mixxx
+        can be your encoder while someone else runs the relay, the player page and the
+        bandwidth. You keep the desktop mixing rig and drop the hardest part of the setup.
+      </p>
 
       <h2>Quick Comparison Table</h2>
       <table>
@@ -161,9 +181,9 @@ export default function Body() {
           <tr>
             <td><strong>GoCast</strong></td>
             <td>60 seconds</td>
-            <td>Free</td>
+            <td>Free, or $15/mo Pro</td>
             <td>Yes</td>
-            <td>Coming soon</td>
+            <td>Yes (Pro)</td>
             <td>Hobbyists, podcasters, churches</td>
           </tr>
           <tr>

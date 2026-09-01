@@ -107,7 +107,7 @@ sudo apt install -y redis-server icecast2 docker.io
 docker compose -f infra/native/docker-compose.native.yml up -d
 
 cd api    && composer install && cp .env.example .env && php artisan key:generate
-php artisan migrate --seed && php artisan serve
+php artisan migrate --seed && php artisan serve --no-reload
 
 cd client && npm install && npm run dev
 ```

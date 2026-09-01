@@ -389,7 +389,7 @@ Then run the app processes directly, and only the audio in Docker:
 
 ```bash
 docker compose -f infra/native/docker-compose.native.yml up -d   # network + proxy + router
-cd api    && php artisan serve                                   # :8000
+cd api    && php artisan serve --no-reload                       # :8000, 4 workers
 cd client && npm run dev                                         # :3000
 cd api    && php artisan queue:work
 ```

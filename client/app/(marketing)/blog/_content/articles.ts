@@ -11,6 +11,8 @@ export interface Article {
   title: string
   description: string
   date: string
+  /** Set when the body is revised; drives dateModified, not the visible byline. */
+  updated?: string
   readingTime: string
   image?: string
   Body: ComponentType
@@ -24,6 +26,7 @@ export const ARTICLES: Article[] = [
     description:
       "Everything you actually need to know: software compared, equipment that matters, music licensing explained honestly, and how to get your first listeners.",
     date: "2026-05-01",
+    updated: "2026-08-31",
     readingTime: "~10 minutes",
     image: "/blog/how-to-start-an-internet-radio-station-2026.webp",
     Body: HowToStartBody,
@@ -38,6 +41,11 @@ export const ARTICLES: Article[] = [
           "What's the difference between internet radio and a podcast?",
         answer:
           "A podcast is pre-recorded episodes published to a feed (Spotify, Apple Podcasts) that listeners consume on their own schedule. Internet radio is a live or scheduled audio stream that listeners tune into in real time. Some platforms let you do both.",
+      },
+      {
+        question: "How much does it cost to run an internet radio station?",
+        answer:
+          "You can run one for free. GoCast's free tier is $0 with no card and handles up to 100 concurrent listeners. Self-hosting AzuraCast costs $5-15/month for the VPS. Paid platforms run $15/month (GoCast Pro) to $29/month (Radio.co) and $59+/month (Live365, which bundles US music licensing). The costs that scale are bandwidth and, if you play commercial music, licensing.",
       },
       {
         question:

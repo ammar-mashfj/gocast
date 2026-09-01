@@ -24,8 +24,9 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { QUEUE_BYTE_LIMIT, type QueueTrack } from "@/lib/audioEngine"
+import { QUEUE_BYTE_LIMIT, type QueueTrack, type RepeatMode } from "@/lib/audioEngine"
 import { formatBytes } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -46,10 +47,12 @@ interface SortableRowProps {
   track: QueueTrack
   index: number
   isPlaying: boolean
+  /** Wall-clock time this track is projected to start, or null if unknowable. */
+  airsAt: Date | null
   onRemove: () => void
 }
 
-function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
+function SortableRow({ track, index, isPlaying, airsAt, onRemove }: SortableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id })
 
   const style = {
@@ -63,7 +66,7 @@ function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
       style={style}
       {...attributes}
       {...listeners}
-      className={`grid grid-cols-[24px_32px_1fr_40px_24px] items-center gap-2 px-2.5 py-2 rounded-md border transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
+      className={`grid grid-cols-[24px_32px_1fr_auto_40px_24px] items-center gap-2 px-2.5 py-2 rounded-md border transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
         isDragging ? "opacity-50 z-10 relative shadow-lg" : ""
       } ${
         isPlaying
@@ -85,6 +88,13 @@ function SortableRow({ track, index, isPlaying, onRemove }: SortableRowProps) {
           {track.title}
         </div>
         <div className="text-xs text-muted-foreground truncate">{track.artist}</div>
+      </div>
+      <div className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+        {isPlaying
+          ? "on air now"
+          : airsAt
+            ? `on air at ${airsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : ""}
       </div>
       <div className="text-xs text-muted-foreground text-right tabular-nums">
         {formatDuration(track.duration)}
@@ -160,6 +170,33 @@ export function FileQueue() {
     engine.moveTrack(from, to)
   }, [engine, queue])
 
+  /**
+   * Projected start time for every queued track, walking forward from where
+   * the current one actually is. Null while nothing is playing — a queue that
+   * hasn't started has no clock to hang these off, and inventing one would
+   * put confident wrong times in front of the broadcaster.
+   *
+   * These drift the moment anyone skips, pauses, or opens the mic. That is
+   * fine: they answer "roughly when do I need to be back", not "when exactly".
+   */
+  const airTimes = useMemo(() => {
+    const times = new Array<Date | null>(queue.length).fill(null)
+    if (!engine || currentIndex < 0 || !engine.isPlaying()) return times
+    const current = queue[currentIndex]
+    if (!current) return times
+    let cursor = Date.now() + Math.max(0, current.duration - engine.getElapsed()) * 1000
+    for (let i = currentIndex + 1; i < queue.length; i++) {
+      times[i] = new Date(cursor)
+      cursor += queue[i].duration * 1000
+    }
+    return times
+    // Recomputed on every engine change (version), which is when a skip,
+    // pause, or queue edit can have moved them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, queue, currentIndex, version])
+
+  const repeatMode: RepeatMode = engine?.getRepeatMode() ?? "all"
+
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
   const queueBytes = engine?.getQueueBytes() ?? 0
   const nearLimit = queueBytes / QUEUE_BYTE_LIMIT > 0.9
@@ -196,6 +233,28 @@ export function FileQueue() {
             )}
             {queue.length > 1 && " · hold to reorder"}
           </span>
+          {/* No "off": running off the end of a queue puts dead air on a live
+              station, so the queue always continues. The only real choice is
+              whether it continues to the next track or holds this one. */}
+          <div className="flex items-center gap-1">
+            {(["all", "one"] as const).map((mode) => (
+              <Button
+                key={mode}
+                variant={repeatMode === mode ? "secondary" : "ghost"}
+                size="sm"
+                className={cn("h-7 px-2.5 text-xs", repeatMode === mode && "text-foreground")}
+                onClick={() => engine?.setRepeatMode(mode)}
+                aria-pressed={repeatMode === mode}
+                title={
+                  mode === "all"
+                    ? "Play through the queue, then start it again"
+                    : "Hold the current track on repeat"
+                }
+              >
+                {mode === "all" ? "Repeat all" : "Repeat one"}
+              </Button>
+            ))}
+          </div>
           <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
             <IconPlus data-icon="inline-start" />
             Add files
@@ -226,6 +285,7 @@ export function FileQueue() {
                 track={track}
                 index={i}
                 isPlaying={i === currentIndex}
+                airsAt={airTimes[i]}
                 onRemove={() => engine?.removeTrack(track.id)}
               />
             ))}

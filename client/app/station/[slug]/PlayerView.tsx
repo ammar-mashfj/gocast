@@ -18,11 +18,12 @@ import {
   IconChevronDown,
 } from "@tabler/icons-react"
 import Image from "next/image"
-import IcecastMetadataPlayer, { type IcyMetadata } from "icecast-metadata-player"
+import Hls from "hls.js"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
+import { useListenerSession } from "@/hooks/useListenerSession"
 import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
 import { NotifyMeForm } from "./NotifyMeForm"
 import { Badge } from "@/components/ui/badge"
@@ -152,13 +153,17 @@ function ShareButtons({ station }: { station: Station }) {
   )
 }
 
-function VolumeControl({ playerRef }: { playerRef: React.RefObject<IcecastMetadataPlayer | null> }) {
+function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElement | null> }) {
   const [volume, setVolume] = useState(80)
   const [muted, setMuted] = useState(false)
   const prevVolume = useRef(80)
 
+  // The audio element is ours now rather than one a streaming library created
+  // and handed back, so volume is just a property on it — and it survives the
+  // stream being torn down and re-attached, which the old player's element did
+  // not.
   function getAudio() {
-    return playerRef.current?.audioElement ?? null
+    return audioRef.current
   }
 
   function handleVolumeChange(value: number[]) {
@@ -237,15 +242,37 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // Track the previous now-playing via ref so we can shift it into recents
   // without nesting setState calls inside an updater (React Compiler hates that).
   const prevNowPlayingRef = useRef<{ title: string | null; artist: string | null }>({ title: null, artist: null })
-  const playerRef = useRef<IcecastMetadataPlayer | null>(null)
+
+  // The audio element is ours, declared in the markup below. Both transports
+  // attach to the same one, so volume, mute and the media-session controls do
+  // not care which is in use.
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const hlsRef = useRef<Hls | null>(null)
+
+  // Which transport actually carried the audio — not which one we intended.
+  // A browser with no Media Source support and no native HLS falls back to the
+  // Icecast mount, and the listener count depends on knowing that happened:
+  // an Icecast listener is already inside the number the admin poll returns,
+  // so reporting them as HLS would count them twice.
+  const [transport, setTransport] = useState<"hls" | "icecast" | null>(null)
+
+  // Whether in-band ID3 has ever arrived on this connection. Until it does the
+  // poll below keeps driving "Now playing", so a stream whose metadata is
+  // missing shows the right track instead of nothing at all.
+  const hasInbandMetadataRef = useRef(false)
 
   // Poll listener count + live status + now-playing.
   //
-  // The in-stream ICY metadata is the source of truth while the user is
-  // playing (sub-second freshness), but it only exists once they hit play.
-  // Polling here keeps the "Now playing" card populated before play starts
-  // and during silent gaps. While the player is active we let onMetadata
-  // win — its updates are tied to the actual audio buffer position.
+  // In-band ID3 wins whenever it is available, and the reason is HLS-specific:
+  // a listener is buffered several seconds behind the live edge, so this poll
+  // describes the track the STATION is playing while ID3 describes the one
+  // this person is actually hearing. Preferring the poll would caption their
+  // audio with a track that has not reached them yet.
+  //
+  // The poll still matters. It populates the card before anyone presses play,
+  // it covers silent gaps, and it is the fallback for a stream carrying no
+  // ID3 at all — which is why it defers to `hasInbandMetadataRef` rather than
+  // to "is something playing".
   useEffect(() => {
     function fetchListeners() {
       fetch(`${env.apiUrl}/public/stations/${station.slug}/listeners`, {
@@ -260,7 +287,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
             is_on_air: res.data?.is_on_air ?? prev.is_on_air,
           }))
 
-          if (!playerRef.current) {
+          if (!hasInbandMetadataRef.current) {
             const np = res.data?.now_playing
             const next = {
               title: typeof np?.title === "string" && np.title.trim() !== "" ? np.title : null,
@@ -278,13 +305,74 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     return () => clearInterval(timer)
   }, [station.slug])
 
+  // Reports this browser as a listener for as long as audio is actually
+  // playing — which is the whole difference between this and counting
+  // requests: a paused tab is not an audience. Keyed off `playing` rather than
+  // `loading` so a stream that never connects is never counted.
+  //
+  // The transport is passed through because it decides whether this listener
+  // is ADDED to the station's live count or merely recorded: someone who fell
+  // back to the Icecast mount is already inside the number the admin poll
+  // returns, and counting them here as well would report them twice.
+  useListenerSession(station.slug, playing, transport)
+
+  /**
+   * Fold a new title/artist into state, shifting the outgoing track into the
+   * "Just played" list.
+   *
+   * Shared by both metadata sources so a track transition looks identical
+   * whether it arrived as in-band ID3 or from the poll.
+   */
+  const applyMetadata = useCallback((next: { title: string | null; artist: string | null }) => {
+    const prev = prevNowPlayingRef.current
+    if (prev.title && (prev.title !== next.title || prev.artist !== next.artist)) {
+      setRecentTracks((rec) => {
+        if (rec[0]?.title === prev.title && rec[0]?.artist === prev.artist) return rec
+        return [{ title: prev.title!, artist: prev.artist, at: Date.now() }, ...rec].slice(0, MAX_RECENT_TRACKS)
+      })
+    }
+    prevNowPlayingRef.current = next
+    setNowPlaying(next)
+  }, [])
+
+  /** Split the "Artist - Title" convention both ID3 and ICY use for one string. */
+  const applyStreamTitle = useCallback((raw: string) => {
+    const trimmed = raw.trim()
+    const dash = trimmed.indexOf(" - ")
+    applyMetadata(
+      dash >= 0
+        ? { artist: cleanMetadata(trimmed.slice(0, dash)), title: cleanMetadata(trimmed.slice(dash + 3)) }
+        : { title: cleanMetadata(trimmed), artist: null },
+    )
+  }, [applyMetadata])
+
+  const teardown = useCallback(() => {
+    hlsRef.current?.destroy()
+    hlsRef.current = null
+
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      // Both must go. Clearing only `src` leaves a native HLS load in flight,
+      // and removing only the attribute leaves the element holding the last
+      // buffer — either way the next play starts from stale state.
+      audio.removeAttribute("src")
+      audio.load()
+    }
+
+    hasInbandMetadataRef.current = false
+    setTransport(null)
+    setPlaying(false)
+    setLoading(false)
+    setNowPlaying({ title: null, artist: null })
+  }, [])
+
   const togglePlay = useCallback(() => {
-    if ((playing || loading) && playerRef.current) {
-      playerRef.current.stop()
-      playerRef.current = null
-      setPlaying(false)
-      setLoading(false)
-      setNowPlaying({ title: null, artist: null })
+    const audio = audioRef.current
+    if (!audio) return
+
+    if (playing || loading) {
+      teardown()
       return
     }
 
@@ -297,48 +385,148 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       artworkUrl: station.artwork_url,
       genre: station.genre,
     })
-    const player = new IcecastMetadataPlayer(`${env.icecastUrl}${station.icecast_mount}`, {
-      metadataTypes: ["icy"],
-      onPlay: () => {
-        setPlaying(true)
-        setLoading(false)
-      },
-      onStop: () => {
-        setPlaying(false)
-        setLoading(false)
-      },
-      onError: () => {
-        setPlaying(false)
-        setLoading(false)
-      },
-      onMetadata: (metadata: IcyMetadata) => {
-        const raw = (metadata.StreamTitle ?? "").trim()
-        const dash = raw.indexOf(" - ")
-        const next = dash >= 0
-          ? { artist: cleanMetadata(raw.slice(0, dash)), title: cleanMetadata(raw.slice(dash + 3)) }
-          : { title: cleanMetadata(raw), artist: null }
 
-        // Shift the previous track into the recents list ("what was that song?").
-        // De-dupe consecutive duplicates, cap list length.
-        const prev = prevNowPlayingRef.current
-        if (prev.title && (prev.title !== next.title || prev.artist !== next.artist)) {
-          setRecentTracks((rec) => {
-            if (rec[0]?.title === prev.title && rec[0]?.artist === prev.artist) return rec
-            return [{ title: prev.title!, artist: prev.artist, at: Date.now() }, ...rec].slice(0, MAX_RECENT_TRACKS)
-          })
+    const icecastUrl = `${env.icecastUrl}${station.icecast_mount}`
+
+    /**
+     * Last resort, and a real one: a browser with neither Media Source nor
+     * native HLS still has to hear the station. The transport is reported
+     * honestly so this listener is counted once, by the Icecast poll, rather
+     * than twice.
+     */
+    function playIcecast() {
+      hlsRef.current?.destroy()
+      hlsRef.current = null
+      setTransport("icecast")
+      audio!.src = icecastUrl
+      audio!.play().catch(() => setLoading(false))
+    }
+
+    const hlsUrl = station.hls_url
+
+    if (!hlsUrl) {
+      playIcecast()
+      return
+    }
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        // A live audio stream is never seeked backwards, so holding decoded
+        // audio behind the playhead only costs memory on long listens.
+        backBufferLength: 30,
+      })
+      hlsRef.current = hls
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setTransport("hls")
+        audio.play().catch(() => setLoading(false))
+      })
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return
+
+        // The standard recovery ladder. A live stream is a moving target, so
+        // a network error usually means the manifest moved on while we were
+        // reading it — retrying is far more likely to work than giving up.
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          hls.startLoad()
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError()
+        } else {
+          // Unrecoverable: fall back rather than leaving someone staring at a
+          // spinner. The station is still on the Icecast mount.
+          playIcecast()
         }
-        prevNowPlayingRef.current = next
-        setNowPlaying(next)
-      },
-    })
-    playerRef.current = player
-    player.play()
-  }, [station.icecast_mount, station.slug, station.name, station.artwork_url, station.genre, playing, loading])
+      })
+
+      hls.loadSource(hlsUrl)
+      hls.attachMedia(audio)
+      return
+    }
+
+    // Safari plays HLS natively and has no Media Source for hls.js to use, so
+    // this is the primary path there, not a fallback.
+    if (audio.canPlayType("application/vnd.apple.mpegurl")) {
+      setTransport("hls")
+      audio.src = hlsUrl
+      audio.play().catch(() => playIcecast())
+      return
+    }
+
+    playIcecast()
+  }, [
+    station.hls_url,
+    station.icecast_mount,
+    station.slug,
+    station.name,
+    station.artwork_url,
+    station.genre,
+    playing,
+    loading,
+    teardown,
+  ])
+
+  // In-band now-playing.
+  //
+  // Both transports surface ID3 the same way — as cues on a `metadata` text
+  // track that hls.js and Safari's native player each populate — so one
+  // listener covers both. The track does not exist until the first tag
+  // arrives, which is why this watches `addtrack` rather than reading
+  // textTracks once.
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    function readCues(track: TextTrack) {
+      const cues = track.activeCues
+      if (!cues || cues.length === 0) return
+
+      for (let i = 0; i < cues.length; i++) {
+        // `value` is hls.js's and WebKit's parsed ID3 frame. TIT2 carries the
+        // stream title, which Liquidsoap writes in the same "Artist - Title"
+        // form as the ICY metadata this replaced.
+        const value = (cues[i] as unknown as { value?: { key?: string; data?: unknown; info?: string } }).value
+        if (!value || typeof value.data !== "string") continue
+
+        if (value.key === "TIT2" || value.info === "StreamTitle") {
+          hasInbandMetadataRef.current = true
+          applyStreamTitle(value.data)
+        } else if (value.key === "TPE1" && value.data.trim() !== "") {
+          hasInbandMetadataRef.current = true
+          setNowPlaying((prev) => ({ ...prev, artist: cleanMetadata(value.data as string) }))
+        }
+      }
+    }
+
+    const listening = new Set<TextTrack>()
+
+    function watch(track: TextTrack) {
+      if (track.kind !== "metadata" || listening.has(track)) return
+      listening.add(track)
+      // "hidden" rather than "showing": cues must fire without the browser
+      // trying to render them over the (nonexistent) video surface.
+      track.mode = "hidden"
+      track.addEventListener("cuechange", () => readCues(track))
+    }
+
+    for (let i = 0; i < audio.textTracks.length; i++) watch(audio.textTracks[i])
+
+    const onAddTrack = (event: TrackEvent) => {
+      if (event.track) watch(event.track as TextTrack)
+    }
+    audio.textTracks.addEventListener("addtrack", onAddTrack)
+
+    return () => {
+      audio.textTracks.removeEventListener("addtrack", onAddTrack)
+      listening.clear()
+    }
+  }, [applyStreamTitle])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      playerRef.current?.stop()
+      hlsRef.current?.destroy()
+      hlsRef.current = null
     }
   }, [])
 
@@ -382,6 +570,37 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
   return (
     <div className="relative h-screen bg-background text-foreground flex flex-col md:grid md:grid-cols-2 overflow-hidden">
+      {/*
+        The stream itself. Declared here rather than created by a library so
+        both transports attach to one stable element — volume, mute and the
+        media-session controls keep working across a fallback from HLS to
+        Icecast, and `preload="none"` means nothing is fetched until someone
+        actually presses play.
+
+        Playback state is read off the element's own events instead of being
+        set alongside `play()`: that way a stall, a recovered media error, or
+        the OS pausing us for a phone call all move the UI, and the button can
+        never claim to be playing while the audio is stopped.
+      */}
+      <audio
+        ref={audioRef}
+        preload="none"
+        onPlaying={() => {
+          setPlaying(true)
+          setLoading(false)
+        }}
+        onWaiting={() => setLoading(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false)
+          setLoading(false)
+        }}
+        onError={() => {
+          setPlaying(false)
+          setLoading(false)
+        }}
+      />
+
       <div className="absolute -top-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_70%)] pointer-events-none" />
       <div className="absolute -bottom-[10%] -left-[10%] w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(236,72,153,0.1)_0%,transparent_70%)] pointer-events-none" />
       <div className="hidden md:block absolute top-0 left-1/2 w-px h-full bg-gradient-to-b from-transparent via-primary/15 to-transparent z-[1]" />
@@ -525,7 +744,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
                 }`}
                 aria-hidden={!playing}
               >
-                <VolumeControl playerRef={playerRef} />
+                <VolumeControl audioRef={audioRef} />
               </div>
             </>
           ) : (

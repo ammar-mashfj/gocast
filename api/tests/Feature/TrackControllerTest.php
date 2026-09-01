@@ -153,8 +153,10 @@ it('rejects an oversize file on upload', function () {
     $owner = User::factory()->create();
     $station = Station::factory()->for($owner, 'user')->create();
 
-    // 51 MB — exceeds the 50 MB (51_200 KB) per-file cap in StoreTrackRequest.
-    $oversize = UploadedFile::fake()->create('big.mp3', 51_500, 'audio/mpeg');
+    // 300+ MB — exceeds the 300 MB (307_200 KB) per-file cap in
+    // StoreTrackRequest. The cap is sized for hour-long DJ mixes (~144 MB at
+    // 320 kbps), so anything under that is a legitimate upload now.
+    $oversize = UploadedFile::fake()->create('big.mp3', 307_500, 'audio/mpeg');
 
     actingAs($owner, 'sanctum')
         ->postJson("/api/stations/{$station->slug}/tracks", ['files' => [$oversize]])

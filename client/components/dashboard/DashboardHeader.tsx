@@ -1,11 +1,10 @@
 "use client"
 
-import { Fragment, useEffect, useState } from "react"
+import { Fragment } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -14,7 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import api from "@/lib/axios"
+import { useStationBySlug } from "@/contexts/StationContext"
 
 // No entry for "stations": it is a path segment, not a destination. There is
 // one station per user and no list to go back to, so the crumb is dropped and
@@ -29,7 +28,6 @@ const SEGMENT_LABELS: Record<string, string> = {
 
 export function DashboardHeader() {
   const pathname = usePathname()
-  const [stationName, setStationName] = useState<string | null>(null)
 
   // Extract path segments after /dashboard
   const segments = pathname.replace(/^\/dashboard\/?/, "").split("/").filter(Boolean)
@@ -37,23 +35,17 @@ export function DashboardHeader() {
   // Detect station slug: segments = ["stations", slug, ...rest]
   const stationSlug = segments[0] === "stations" && segments[1] ? segments[1] : null
 
-  useEffect(() => {
-    if (!stationSlug) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStationName(null)
-      return
-    }
-    api.get(`/stations/${stationSlug}`).then((res) => {
-      setStationName(res.data.data.name)
-    }).catch(() => {
-      setStationName(stationSlug)
-    })
-  }, [stationSlug])
+  // Read, don't fetch. This used to `GET /stations/{slug}` from the browser on
+  // mount and render a Skeleton until it answered — so the one piece of text
+  // the user is looking for was the last thing to appear, on every fresh load
+  // and after every hard refresh, and it flashed again whenever the request
+  // was slow. The layout already resolves the station server-side, so the name
+  // is in the first HTML the browser receives and there is nothing to wait for.
+  const station = useStationBySlug(stationSlug)
 
-  // Build breadcrumb items from segments. Mark the station-name crumb as
-  // `pending` so the renderer can show a Skeleton instead of flashing the raw slug.
-  function buildCrumbs(): { label: string; href: string; pending?: boolean }[] {
-    const crumbs: { label: string; href: string; pending?: boolean }[] = []
+  // Build breadcrumb items from segments.
+  function buildCrumbs(): { label: string; href: string }[] {
+    const crumbs: { label: string; href: string }[] = []
     let href = "/dashboard"
 
     for (let i = 0; i < segments.length; i++) {
@@ -68,7 +60,12 @@ export function DashboardHeader() {
       }
 
       if (segments[0] === "stations" && i === 1) {
-        crumbs.push({ label: stationName ?? "", href, pending: !stationName })
+        // Falls back to the slug rather than to a placeholder. This only
+        // happens when the layout's lookup failed or the URL names a station
+        // that is not the one this account resolves to, and in both cases the
+        // slug is the truthful thing to show — it is what the user typed, and
+        // it is readable. An empty crumb would just look broken.
+        crumbs.push({ label: station?.name ?? seg, href })
         continue
       }
 
@@ -91,17 +88,14 @@ export function DashboardHeader() {
             <BreadcrumbList>
               {crumbs.map((crumb, i) => {
                 const isLast = i === crumbs.length - 1
-                const label = crumb.pending
-                  ? <Skeleton className="h-4 w-24 inline-block align-middle" />
-                  : crumb.label
                 return (
                   <Fragment key={crumb.href}>
                     <BreadcrumbItem>
                       {isLast ? (
-                        <BreadcrumbPage className="text-sm">{label}</BreadcrumbPage>
+                        <BreadcrumbPage className="text-sm">{crumb.label}</BreadcrumbPage>
                       ) : (
                         <BreadcrumbLink asChild>
-                          <Link href={crumb.href} className="text-sm">{label}</Link>
+                          <Link href={crumb.href} className="text-sm">{crumb.label}</Link>
                         </BreadcrumbLink>
                       )}
                     </BreadcrumbItem>

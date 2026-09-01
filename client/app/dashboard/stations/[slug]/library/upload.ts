@@ -39,3 +39,46 @@ export function uploadErrorMessage(err: unknown): string {
 
   return body?.message ?? "Upload failed"
 }
+
+/**
+ * One POST carries one multipart body, and PHP caps that at `post_max_size`
+ * (640M in php/uploads.ini) — a limit that has nothing to do with the
+ * per-station storage cap. Now that a single file may be 300 MB, a DJ
+ * dropping a folder of hour-long mixes exceeds it easily, and the failure is
+ * a bare 413 from nginx with no Laravel body to turn into a message.
+ *
+ * Splitting here rather than raising post_max_size to cover the whole cap:
+ * PHP buffers the request before Laravel sees it, so a 2 GB body would be a
+ * 2 GB commitment on one worker with no progress and no resume.
+ */
+const MAX_BATCH_BYTES = 500 * 1024 * 1024
+/** Matches `max_file_uploads` in php/uploads.ini and the `files` rule. */
+const MAX_BATCH_FILES = 30
+
+/**
+ * Group files into batches that fit one request. A single file over the
+ * batch ceiling still gets its own batch — the server's per-file rule is
+ * what should reject it, with a message, rather than nginx.
+ */
+export function batchFiles(files: File[]): File[][] {
+  const batches: File[][] = []
+  let current: File[] = []
+  let bytes = 0
+
+  for (const file of files) {
+    const wouldOverflow = bytes + file.size > MAX_BATCH_BYTES || current.length >= MAX_BATCH_FILES
+
+    if (current.length > 0 && wouldOverflow) {
+      batches.push(current)
+      current = []
+      bytes = 0
+    }
+
+    current.push(file)
+    bytes += file.size
+  }
+
+  if (current.length > 0) batches.push(current)
+
+  return batches
+}

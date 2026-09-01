@@ -32,6 +32,7 @@ export async function generateMetadata({
       siteName: "GoCast",
       locale: "en_US",
       publishedTime: article.date,
+      ...(article.updated && { modifiedTime: article.updated }),
       images: [{ url: article.image ?? "/og-image.jpg", width: 1200, height: 630, alt: article.title }],
     },
     twitter: {
@@ -56,7 +57,7 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
   const article = getArticle(slug)
   if (!article) notFound()
 
-  const { title, description, date, readingTime, image, faqs, Body } = article
+  const { title, description, date, updated, readingTime, image, faqs, Body } = article
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -64,6 +65,7 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
     headline: title,
     description,
     datePublished: date,
+    ...(updated && { dateModified: updated }),
     ...(image && { image: `https://gocast.fm${image}` }),
     author: { "@type": "Organization", name: "GoCast" },
     publisher: {
@@ -109,6 +111,13 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
         <header className="mb-10 md:mb-14">
           <p className="text-[11px] tracking-[0.18em] uppercase text-text-faint mb-5">
             <time dateTime={date}>{DATE_FMT.format(new Date(date))}</time>
+            {updated && (
+              <>
+                <span className="mx-2 text-white/20">·</span>
+                Updated{" "}
+                <time dateTime={updated}>{DATE_FMT.format(new Date(updated))}</time>
+              </>
+            )}
             <span className="mx-2 text-white/20">·</span>
             {readingTime}
           </p>

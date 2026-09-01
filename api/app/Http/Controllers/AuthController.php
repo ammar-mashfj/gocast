@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -109,8 +110,10 @@ class AuthController extends Controller
 
     public function user(Request $request): JsonResponse
     {
+        // Eager-loaded: UserResource reports the plan entitlements, and this
+        // route is hit on every dashboard render.
         return response()->json([
-            'data' => $request->user(),
+            'data' => new UserResource($request->user()->loadMissing('plan')),
         ]);
     }
 

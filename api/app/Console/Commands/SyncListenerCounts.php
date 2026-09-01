@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\Station;
-use App\Models\StreamSession;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -22,6 +21,13 @@ use Illuminate\Support\Facades\Redis;
  *
  * Values carry a TTL so a stalled scheduler degrades to "no data" instead of
  * pinning stale counts on the dashboard forever.
+ *
+ * This command's output is HALF the audience: Icecast's mount counts, and
+ * nothing about the HLS listeners who never touch Icecast. Anything that needs
+ * the whole number reads {@see ListenerAnalytics::liveCount()}, which adds the
+ * two together. `peak_listeners` used to be written from here and was wrong for
+ * exactly that reason; it is now sampled by `listeners:sweep`, which already
+ * holds the combined count.
  */
 class SyncListenerCounts extends Command
 {
@@ -84,7 +90,6 @@ class SyncListenerCounts extends Command
             $count = $countsByMount[$station->icecast_mount] ?? 0;
 
             Redis::setex("listeners:{$station->id}", self::REDIS_TTL_SECONDS, $count);
-            $this->recordPeak($station, $count);
 
             $synced++;
             $totalListeners += $count;
@@ -93,24 +98,6 @@ class SyncListenerCounts extends Command
         $this->info("Synced {$synced} stations, {$totalListeners} listeners total.");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Bump the open StreamSession's high-water mark. Scoped with a `<`
-     * comparison so this is a single conditional UPDATE — no read-then-write
-     * race between overlapping runs, and no write at all in the common case.
-     */
-    private function recordPeak(Station $station, int $count): void
-    {
-        if ($count <= 0) {
-            return;
-        }
-
-        StreamSession::query()
-            ->where('station_id', $station->id)
-            ->whereNull('ended_at')
-            ->where('peak_listeners', '<', $count)
-            ->update(['peak_listeners' => $count]);
     }
 
     /**

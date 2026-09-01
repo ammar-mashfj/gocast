@@ -54,6 +54,35 @@ Schedule::command('stations:sweep')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Listener analytics — closes sessions whose player stopped checking in, and
+// samples concurrent listeners into the hourly rollup.
+//
+// The one-minute interval is LOAD-BEARING, not a tuning choice. Because the
+// samples are exactly a minute apart, summing them over an hour yields
+// listener-minutes directly. Run this every two minutes and
+// `listener_stats_hourly.listener_minutes` silently starts meaning half of
+// what it says.
+Schedule::command('listeners:sweep')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Recomputes the session-derived half of the rollups over a trailing window.
+// Hourly rather than continuously because it is a whole-window recompute, and
+// at five past the hour so it never races the sweep on the minute boundary.
+// Safe to run at any time and safe to run twice — see RollupListenerStats.
+Schedule::command('listeners:rollup')
+    ->hourlyAt(5)
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Retention. Nightly, off-peak, and deliberately after the rollup has had a
+// full day of runs to summarise everything the pruned rows contained.
+Schedule::command('listeners:prune')
+    ->dailyAt('04:20')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Day-7 inactive-broadcaster nudge — runs once a day at 16:00 UTC (a typical
 // open-rate sweet spot) to email users who signed up a week ago and haven't
 // gone live yet. The command itself is idempotent (skips users already

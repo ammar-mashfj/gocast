@@ -7,6 +7,7 @@ import {
   IconShare,
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Button } from "@/components/ui/button"
 import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
@@ -21,7 +22,11 @@ interface MobileStreamBarProps {
 export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
   const router = useRouter()
   const { state, stop } = useBroadcast()
+  // Same rule as the desktop panel: without AutoDJ there is nothing to hand
+  // the station over to, so ending the broadcast ends the airtime as well.
+  const autoDjLocked = useAutoDjLocked()
   const [elapsed, setElapsed] = useState(0)
+  const [ending, setEnding] = useState(false)
   const [station, setStation] = useState<Station | null>(null)
   const startTimeRef = useRef<number>(0)
 
@@ -62,13 +67,21 @@ export function MobileStreamBar({ stationId }: MobileStreamBarProps) {
           variant="destructive"
           size="sm"
           className="h-7 text-xs px-2.5"
+          disabled={ending}
           onClick={async () => {
-            await stop()
-            router.push(`/dashboard/stations/${stationId}`)
+            if (ending) return
+            setEnding(true)
+            try {
+              await stop({ releaseStation: autoDjLocked })
+              router.push(`/dashboard/stations/${stationId}`)
+              router.refresh()
+            } finally {
+              setEnding(false)
+            }
           }}
         >
           <IconPlayerStopFilled size={14} />
-          End
+          {ending ? "Ending…" : "End"}
         </Button>
       </div>
     </div>

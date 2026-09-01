@@ -2,11 +2,64 @@
 
 import { createContext, useContext, useRef, useState, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { BroadcastManager, type BroadcastState, type BroadcastStepInfo } from '@/lib/broadcast'
+import { BroadcastManager, type BroadcastState, type BroadcastStepInfo, type TransportStats } from '@/lib/broadcast'
 import type { AudioEngine } from '@/lib/audioEngine'
 import { fireOnce } from '@/lib/milestones'
+import api from '@/lib/axios'
 
 const RECOVERY_KEY = 'broadcast:active'
+
+/**
+ * How long to keep asking the API to take a station off air after the socket
+ * has closed, in milliseconds between attempts.
+ *
+ * `POST /stations/{slug}/stop` is refused with 409 `station_is_live` while a
+ * StreamSession is still open, and that session is closed by harbor's
+ * `live_disconnected` callback — which reaches Laravel a moment AFTER the
+ * browser closes the socket. So the first attempt legitimately loses the race
+ * much of the time; these delays are waiting for that event to land, not
+ * retrying a failure.
+ */
+const RELEASE_RETRY_DELAYS_MS = [0, 400, 800, 1500, 2500]
+
+/**
+ * Take the station off air now that its broadcast has deliberately ended.
+ *
+ * ONLY for accounts without AutoDJ, and the caller owns that check. With a
+ * rotation, ending a broadcast means handing the station back to AutoDJ and
+ * the container has to stay up. Without one, the fallback arm is a silence
+ * bed: leaving the container running parks the station on "On air — silence"
+ * until `stations:sweep` reclaims it a minute or two later, which reads as a
+ * stop button that didn't work.
+ *
+ * Deliberately not moved server-side onto `live_disconnected`. That event
+ * cannot tell "I'm done" from "my wifi dropped", and tearing the container
+ * down on every hiccup would cost a full container rebuild plus every
+ * connected listener — the reconnect path (see BroadcastManager.reconnect)
+ * depends on the container outliving a dropped socket. Only an explicit press
+ * carries the intent, and only the client sees it.
+ *
+ * Best-effort: the sweep remains the backstop for every other way a broadcast
+ * can end, so a failure here costs freshness, never correctness.
+ */
+async function releaseStation(slug: string): Promise<void> {
+  for (const delay of RELEASE_RETRY_DELAYS_MS) {
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+
+    try {
+      await api.post(`/stations/${slug}/stop`)
+      return
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      // 409 is the one answer worth waiting out. Anything else — a station
+      // that isn't ours, a throttle, an API that is down — will not become
+      // true by being asked again, and the sweep covers it.
+      if (status !== 409) return
+    }
+  }
+}
 
 export interface BroadcastRecoveryRecord {
   stationSlug: string
@@ -51,8 +104,20 @@ interface BroadcastContextValue {
   micStream: MediaStream | null
   micDisabled: boolean
   engine: AudioEngine | null
+  /**
+   * Live send-path tally, or null before a broadcast exists. A function
+   * rather than state: it changes on every encoded frame, and re-rendering
+   * the whole dashboard at the encoder's frame rate would be absurd. Callers
+   * sample it on their own cadence.
+   */
+  getTransportStats: () => TransportStats | null
   start: (stationId: string, options?: { skipMic?: boolean }) => Promise<void>
-  stop: () => Promise<void>
+  /**
+   * End the broadcast. `releaseStation` additionally takes the station off
+   * air, and belongs to callers that know the account has no AutoDJ to hand
+   * over to — see {@link releaseStation}.
+   */
+  stop: (options?: { releaseStation?: boolean }) => Promise<void>
 }
 
 /**
@@ -136,7 +201,15 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const stop = useCallback(async () => {
+  const getTransportStats = useCallback(
+    () => managerRef.current?.getTransportStats() ?? null,
+    [],
+  )
+
+  const stop = useCallback(async (options?: { releaseStation?: boolean }) => {
+    // Captured before the teardown below clears it.
+    const slug = stationIdRef.current
+
     if (managerRef.current) {
       await managerRef.current.stop()
       managerRef.current = null
@@ -152,10 +225,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     setEngine(null)
     setSteps([])
     setError(null)
+
+    // Last, and after the socket is definitely closed: harbor only reports the
+    // disconnect once it sees it, and the stop is refused until it does.
+    if (options?.releaseStation && slug) {
+      await releaseStation(slug)
+    }
   }, [])
 
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, start, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, getTransportStats, start, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

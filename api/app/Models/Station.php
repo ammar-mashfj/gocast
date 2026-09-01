@@ -227,6 +227,22 @@ class Station extends Model
     }
 
     /**
+     * Permanent hourly listener rollups — the only honest source for anything
+     * about this station's AUDIENCE.
+     *
+     * Not {@see streamSessions()}, which describes broadcasts. Every audience
+     * figure ever sourced from that relation has been wrong in the same way:
+     * it can only see hours when a human held the microphone, so a station
+     * running AutoDJ to a real audience reports nothing. This relation covers
+     * every hour the station had listeners, live or not, and includes the
+     * Icecast listeners who never open a session row.
+     */
+    public function listenerStats(): HasMany
+    {
+        return $this->hasMany(ListenerStatHourly::class);
+    }
+
+    /**
      * Every uploaded audio file for this station — rotation AND jingles.
      * Ordered by manual position (drag-to-reorder UI); the `position` column
      * is gap-free per station AND kind, so this ordering is only meaningful

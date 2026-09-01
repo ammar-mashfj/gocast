@@ -1,4 +1,4 @@
-import { AudioEngine } from './audioEngine'
+import { AudioEngine, assertBroadcastSupported } from './audioEngine'
 import api from './axios'
 
 export type BroadcastStep = 'station' | 'mic' | 'engine' | 'stream'
@@ -10,6 +10,26 @@ export interface BroadcastStepInfo {
   label: string
   status: StepStatus
   errorMessage?: string
+}
+
+/** Snapshot of the send path — see {@link BroadcastManager.getTransportStats}. */
+export interface TransportStats {
+  bytesSent: number
+  chunksSent: number
+  chunksDropped: number
+  /**
+   * Wall-clock milliseconds the encoder spent with nowhere to send, measured
+   * only once the broadcast has actually been on air.
+   *
+   * Deliberately a duration, not a percentage. A percentage answers "what
+   * share of this show went missing", which dilutes a real 30-second dropout
+   * into a rounding error over a two-hour set. A broadcaster wants to know
+   * how much audio the audience lost, and that is a number of seconds.
+   */
+  droppedMs: number
+  /** Epoch ms of the most recent dropped frame, or 0 if none. */
+  lastDropAt: number
+  connected: boolean
 }
 
 interface BroadcastCallbacks {
@@ -105,6 +125,32 @@ export class BroadcastManager {
   private established = false
   private reconnecting = false
   /**
+   * Send-path tally. These count what actually left the socket, which is the
+   * only honest basis for an on-air health readout: the encoder keeps
+   * producing frames through a drop and they are discarded here, so anything
+   * metered upstream of this point would show a healthy broadcast while the
+   * audience hears nothing. See the `onChunk` callback in {@link start}.
+   */
+  private bytesSent = 0
+  private chunksSent = 0
+  private chunksDropped = 0
+  private droppedMs = 0
+  private lastDropAt = 0
+  /** Open drop run, as epoch ms. 0 when frames are flowing. */
+  private dropRunStart = 0
+  /**
+   * False until the first successful handshake.
+   *
+   * The engine is built and resumed in step 2 but the socket does not exist
+   * until step 3, so lamejs spends the whole of `restoreQueue()` and the
+   * handshake emitting frames of silence into a closed socket. Those are not
+   * lost audio — nothing was on air and no one could have been listening —
+   * and counting them made a healthy stream read as ~1% dropped on startup,
+   * decaying as the show ran. Frames only count once there is a broadcast to
+   * lose them from. Drops during a *reconnect* stay counted: those are real.
+   */
+  private countersArmed = false
+  /**
    * Resolver for the current backoff pause, so it can be cut short — by the
    * tab becoming visible again, or by the broadcaster pressing stop. Without
    * this, stop() during a 15s pause would appear to hang.
@@ -164,6 +210,11 @@ export class BroadcastManager {
     this.callbacks.onStepChange([...this.steps])
 
     try {
+      // Before anything with a side effect: if this page can't capture audio
+      // at all, say so now. Bringing the station on air first would leave a
+      // container running for a broadcast that was never possible.
+      assertBroadcastSupported({ skipMic: options?.skipMic })
+
       // Step 0: Make sure the station is on air and its Liquidsoap container
       // is actually ready to consume our stream.
       this.setActiveStep('station')
@@ -198,6 +249,20 @@ export class BroadcastManager {
       this.engine = await AudioEngine.create(this.micStream, (chunk) => {
         if (this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(chunk)
+          if (!this.countersArmed) return
+          this.bytesSent += chunk.byteLength
+          this.chunksSent++
+          // Close an open drop run and bank how long the audience lost.
+          if (this.dropRunStart !== 0) {
+            this.droppedMs += Date.now() - this.dropRunStart
+            this.dropRunStart = 0
+          }
+        } else {
+          if (!this.countersArmed) return
+          const now = Date.now()
+          if (this.dropRunStart === 0) this.dropRunStart = now
+          this.lastDropAt = now
+          this.chunksDropped++
         }
       })
       // The context starts suspended under the autoplay policy, and a
@@ -330,6 +395,9 @@ export class BroadcastManager {
     const ws = await this.openSocket(ingestUrl, token)
 
     this.established = true
+    // Arm on the first handshake only. A reconnect must not reset the tally —
+    // frames lost mid-show are exactly what it exists to report.
+    this.countersArmed = true
     this.watchForDrop(ws)
   }
 
@@ -446,9 +514,12 @@ export class BroadcastManager {
    * rather than replaying a backlog into a live show.
    *
    * The station itself is re-checked on every attempt, because a station with
-   * no AutoDJ rotation is taken off air about a minute after its broadcaster
-   * disconnects (see SilentStationPolicy on the API). A reconnect inside that
+   * no AutoDJ rotation is taken off air a minute or two after its broadcaster
+   * disconnects (see StationAudioPolicy on the API). A reconnect inside that
    * window keeps the container; one that lands after it starts it again.
+   *
+   * That window is only reached by a DROPPED socket. Pressing End releases
+   * such a station immediately — see releaseStation in BroadcastContext.
    */
   private async reconnect(): Promise<void> {
     if (this.reconnecting || this.stopping) return
@@ -553,6 +624,24 @@ export class BroadcastManager {
     this.lastMetadata = { title, artist }
     if (this.ws?.readyState !== WebSocket.OPEN) return
     this.ws.send(JSON.stringify({ type: 'metadata', data: { title, artist } }))
+  }
+
+  /**
+   * What has actually reached the server since this broadcast went on air.
+   * Everything before the first handshake is excluded — see `countersArmed`.
+   */
+  getTransportStats(): TransportStats {
+    // Include the run still open right now, so a live dropout is visible as it
+    // happens rather than only once frames start flowing again.
+    const openRun = this.dropRunStart === 0 ? 0 : Date.now() - this.dropRunStart
+    return {
+      bytesSent: this.bytesSent,
+      chunksSent: this.chunksSent,
+      chunksDropped: this.chunksDropped,
+      droppedMs: this.droppedMs + openRun,
+      lastDropAt: this.lastDropAt,
+      connected: this.ws?.readyState === WebSocket.OPEN,
+    }
   }
 
   getEngine(): AudioEngine | null {

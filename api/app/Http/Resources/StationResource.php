@@ -113,6 +113,21 @@ class StationResource extends JsonResource
             },
             'now_playing' => $this->nowPlaying($nowPlaying),
             'icecast_mount' => $this->icecast_mount,
+            // The player's stream URL, resolved server-side so the client
+            // never has to spell the filename.
+            //
+            // It points at the MEDIA playlist, not the `playlist.m3u8` master
+            // Liquidsoap writes beside it. Players resolve a master's variant
+            // URI relative to it and drop any query string on the way, so a
+            // master URL cannot carry a per-listener token through to the
+            // requests that follow — and with a single rendition it buys
+            // nothing in exchange. The filename comes from the same config
+            // value that names the encoder in station.blade.php, so the two
+            // cannot drift.
+            //
+            // Null when no stream host is configured, which is a supported
+            // state: the player falls back to the Icecast mount above.
+            'hls_url' => $this->hlsUrl(),
             // Owner-facing AutoDJ config. Cheap (plain columns) and the
             // library screen needs them to render its jingle dialog without
             // a second round trip.
@@ -143,6 +158,10 @@ class StationResource extends JsonResource
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
             'stats' => $this->whenLoaded('streamSessions', function () {
+                // Broadcast figures: these genuinely are about someone holding
+                // the microphone, so stream_sessions is the right source.
+                // Closed sessions only — an in-progress broadcast has no
+                // duration to add yet.
                 $sessions = $this->streamSessions->whereNotNull('ended_at');
 
                 $totalAirtimeSeconds = $sessions->sum(fn ($s) => $s->started_at->diffInSeconds($s->ended_at));
@@ -150,10 +169,38 @@ class StationResource extends JsonResource
                 return [
                     'sessions' => $sessions->count(),
                     'total_airtime_seconds' => $totalAirtimeSeconds,
-                    'peak_listeners' => $sessions->max('peak_listeners') ?? 0,
+
+                    // AUDIENCE figure, so it does not come from the broadcasts.
+                    // Read as `max(stream_sessions.peak_listeners)` this was
+                    // wrong twice over: a station that has only ever run AutoDJ
+                    // has no stream_sessions at all and reported 0 no matter how
+                    // many people listened, and `whereNotNull('ended_at')` hid
+                    // the broadcast in progress, so a station having its best
+                    // ever hour right now showed the previous best.
+                    //
+                    // The hourly rollup has neither problem: `listeners:sweep`
+                    // writes a row for every station with an audience, live or
+                    // AutoDJ, and the table is never pruned. One aggregate query
+                    // rather than an eager load, because a value that silently
+                    // reads 0 when someone forgets to load a relation is the
+                    // exact failure being fixed here. This resource renders
+                    // `stats` for a single station on a single endpoint.
+                    'peak_listeners' => (int) $this->listenerStats()->max('peak_listeners'),
                 ];
             }),
         ];
+    }
+
+    /** @see config/liquidsoap.php — `hls_base_url` and `hls_variant`. */
+    private function hlsUrl(): ?string
+    {
+        $base = (string) config('liquidsoap.hls_base_url');
+
+        if ($base === '') {
+            return null;
+        }
+
+        return "{$base}/{$this->slug}/".config('liquidsoap.hls_variant').'.m3u8';
     }
 
     /**

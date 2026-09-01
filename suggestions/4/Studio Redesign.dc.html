@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #08080a; }
+  a { color: #a78bfa; text-decoration: none; }
+  a:hover { color: #c4b5fd; }
+  @keyframes onair { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+</style>
+</helmet>
+
+<div style="display: flex; min-height: 100vh; background: #08080a; color: #e8e8ea; font-family: Outfit, system-ui, sans-serif; -webkit-font-smoothing: antialiased;">
+
+  <aside style="width: 236px; flex: 0 0 236px; border-right: 1px solid #1c1c20; padding: 22px 14px; display: flex; flex-direction: column; gap: 24px; position: sticky; top: 0; height: 100vh; box-sizing: border-box;">
+    <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.02em; padding: 0 10px;">Go<span style="color: #8b5cf6;">Cast</span><span style="color: #6b6b73;">.fm</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65; padding: 0 10px 8px;">Menu</div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 9px; background: #17171b; font-size: 14px; font-weight: 500;">
+        <span>Studio</span>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #fca5a5;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #ef4444; display: block; animation: onair 1.6s ease-in-out infinite;"></span>LIVE
+        </span>
+      </div>
+      <div style="padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Station</div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">
+        <span>AutoDJ</span>
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: #c4b5fd; background: #1c1730; border: 1px solid #2f2b3d; border-radius: 999px; padding: 2px 7px;">PRO</span>
+      </div>
+      <div style="padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Broadcasts</div>
+      <div style="padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Settings</div>
+    </div>
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 4px 6px;">
+      <span style="width: 30px; height: 30px; border-radius: 50%; background: #26262c; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #a1a1aa;">A</span>
+      <div style="min-width: 0;">
+        <div style="font-size: 13px; font-weight: 500;">Ammar</div>
+        <div style="font-size: 11px; color: #5c5c65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ammarmashfj@live.com</div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 760px; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 18px;">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #6b6b73;">
+        <a href="#" style="color: #8b8b96;">test</a><span style="color: #35353c;">/</span><span>Studio</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 9px; font-size: 12px; color: #6b6b73;">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: block;"></span>
+        Encoder healthy · 128 kbps · 0% dropped
+      </div>
+    </div>
+
+    <section style="border: 1px solid #3f1d24; border-radius: 16px; background: linear-gradient(118deg, #1c1013 0%, #0f0f13 58%); overflow: hidden;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 20px; background: #241216; border-bottom: 1px solid #3f1d24; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 9px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #fca5a5;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: block; animation: onair 1.6s ease-in-out infinite;"></span>
+          On air — listeners are hearing this
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; font-size: 12.5px; color: #9b8b8f;">
+          <span>Uptime <span style="font-family: 'JetBrains Mono', monospace; color: #e8e8ea;">00:00:09</span></span>
+          <span style="width: 1px; height: 13px; background: #3f1d24;"></span>
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #e8e8ea;">0</span> listening now</span>
+        </div>
+      </div>
+
+      <div style="padding: 20px 20px 18px; display: flex; gap: 22px; align-items: center; flex-wrap: wrap;">
+        <span style="width: 62px; height: 62px; border-radius: 12px; background: linear-gradient(145deg, #7c3aed, #2e1065); flex: 0 0 62px; display: block;"></span>
+
+        <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 9px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 20px; font-weight: 600; letter-spacing: -0.01em;">West Coast Talk Radio</span>
+            <span style="font-size: 13px; color: #6b6b73; font-style: italic;">Unknown artist</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a1a1aa; flex: 0 0 auto;">24:02</span>
+            <div style="flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: #2a1a1e; position: relative; overflow: hidden;">
+              <div style="{{ progressStyle }}"></div>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6b6b73; flex: 0 0 auto;">-69:35</span>
+          </div>
+          <div style="{{ nextLineStyle }}">{{ nextLine }}</div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;">
+          <button style="width: 40px; height: 40px; border-radius: 10px; background: transparent; border: 1px solid #3a2a2e; color: #d4d4d8; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="background: #241216; border-color: #5a3238;">◀◀</button>
+          <button onClick="{{ togglePlay }}" style="{{ playStyle }}">{{ playIcon }}</button>
+          <button style="width: 40px; height: 40px; border-radius: 10px; background: transparent; border: 1px solid #3a2a2e; color: #d4d4d8; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="background: #241216; border-color: #5a3238;">▶▶</button>
+        </div>
+      </div>
+
+      <div style="{{ micRowStyle }}">
+        <button onMouseDown="{{ micDown }}" onMouseUp="{{ micUp }}" onMouseLeave="{{ micUp }}" style="{{ micBtnStyle }}">
+          <span style="font-size: 17px;">🎙</span>
+          <span style="display: flex; flex-direction: column; align-items: flex-start; gap: 1px;">
+            <span style="font-size: 13.5px; font-weight: 600;">{{ micBtnLabel }}</span>
+            <span style="{{ micHintStyle }}">{{ micBtnHint }}</span>
+          </span>
+        </button>
+
+        <div style="flex: 1; min-width: 170px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; color: #71717a;">
+            <span>{{ micStatusText }}</span>
+            <span style="font-size: 11px; color: #5c5c65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">MacBook Pro Microphone</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 3px; height: 12px;">
+            <sc-for list="{{ meter }}" as="m" hint-placeholder-count="28">
+              <div style="{{ m }}"></div>
+            </sc-for>
+          </div>
+        </div>
+
+        <button onClick="{{ toggleLatch }}" style="{{ latchStyle }}">{{ latchLabel }}</button>
+      </div>
+
+      <div style="{{ warnStyle }}">{{ warnText }}</div>
+    </section>
+
+    <div style="display: flex; align-items: center; gap: 14px; border: 1px solid #1c1c20; border-radius: 12px; background: #0e0e11; padding: 11px 16px; flex-wrap: wrap;">
+      <button onClick="{{ toggleMonitor }}" style="{{ monitorStyle }}">{{ monitorLabel }}</button>
+      <div style="display: flex; align-items: center; gap: 9px; flex: 1; min-width: 180px;">
+        <span style="font-size: 12.5px; color: #71717a; flex: 0 0 auto;">Monitor volume</span>
+        <div style="flex: 1; min-width: 80px; height: 4px; border-radius: 2px; background: #26262c; position: relative;">
+          <div style="position: absolute; inset: 0 auto 0 0; width: 62%; background: #52525b; border-radius: 2px;"></div>
+          <span style="position: absolute; left: 62%; top: 50%; transform: translate(-50%,-50%); width: 11px; height: 11px; border-radius: 50%; background: #a1a1aa; display: block;"></span>
+        </div>
+      </div>
+      <span style="font-size: 12px; color: #52525b; flex: 0 0 auto;">Affects your speakers only — never the stream</span>
+    </div>
+
+    <section style="border: 1px solid #1c1c20; border-radius: 16px; background: #0e0e11; display: flex; flex-direction: column; flex: 1; min-height: 380px; overflow: hidden;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 20px 14px; border-bottom: 1px solid #17171b; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column; gap: 3px;">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Up next</h2>
+          <div style="font-size: 12.5px; color: #71717a;">2 tracks · 1h 35m of audio left · drag to reorder</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <sc-for list="{{ repeatBtns }}" as="r" hint-placeholder-count="3">
+            <button onClick="{{ r.onClick }}" style="{{ r.style }}">{{ r.label }}</button>
+          </sc-for>
+          <span style="width: 1px; height: 20px; background: #26262c;"></span>
+          <button style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 8px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;" style-hover="background: #17171b; border-color: #3a3a42;">Add files</button>
+        </div>
+      </div>
+
+      <sc-for list="{{ queue }}" as="q" hint-placeholder-count="2">
+        <div style="display: grid; grid-template-columns: 22px 34px minmax(140px,1fr) 96px 60px 30px; gap: 13px; align-items: center; padding: 11px 20px; border-bottom: 1px solid #17171b;" style-hover="background: #121216;">
+          <span style="color: #3a3a42; font-size: 14px; cursor: grab; letter-spacing: -2px;">⠿</span>
+          <span style="width: 34px; height: 34px; border-radius: 8px; background: #1c1730; display: block;"></span>
+          <span style="min-width: 0; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ q.title }}</span>
+            <span style="font-size: 11.5px; color: #5c5c65; font-style: italic;">Unknown artist</span>
+          </span>
+          <span style="font-size: 12px; color: #6b6b73;">on air at {{ q.at }}</span>
+          <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a1a1aa;">{{ q.dur }}</span>
+          <span style="text-align: right; color: #4a4a52; font-size: 14px; cursor: pointer;" style-hover="color: #fca5a5;">✕</span>
+        </div>
+      </sc-for>
+
+      <div onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDrop }}" style="{{ dropStyle }}">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center;">
+          <div style="font-size: 13.5px; color: #8b8b96;">Drop audio files here or <a href="#">browse</a></div>
+          <div style="font-size: 12px; color: #4a4a52;">Anything you add goes out live after the current queue</div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; border-top: 1px solid #17171b; font-size: 12px; color: #52525b; flex-wrap: wrap; gap: 8px;">
+        <span>217 MB of 2.0 GB used this broadcast</span>
+        <span style="color: #6b6b73; cursor: pointer;" style-hover="color: #fca5a5;">Clear queue</span>
+      </div>
+    </section>
+  </main>
+
+  <aside style="width: 296px; flex: 0 0 296px; border-left: 1px solid #1c1c20; padding: 22px 20px 20px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; height: 100vh; box-sizing: border-box; overflow: hidden;">
+
+    <div style="flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 22px;">
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">Listeners</div>
+      <div style="display: flex; align-items: baseline; gap: 9px;">
+        <span style="font-size: 32px; font-weight: 600; letter-spacing: -0.02em;">0</span>
+        <span style="font-size: 12.5px; color: #71717a;">tuned in right now</span>
+      </div>
+      <div style="display: flex; align-items: flex-end; gap: 3px; height: 34px;">
+        <sc-for list="{{ spark }}" as="s" hint-placeholder-count="24">
+          <div style="{{ s }}"></div>
+        </sc-for>
+      </div>
+      <div style="font-size: 12px; color: #52525b; line-height: 1.5;">Nobody has joined yet. Share your player link — a stream with no listeners still counts toward your uptime.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">Player link</div>
+      <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #26262c; border-radius: 10px; padding: 9px 10px 9px 12px; background: #121216;">
+        <span style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #c4b5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">gocast.fm/station/test</span>
+        <button onClick="{{ copyLink }}" style="background: #26262c; border: none; color: #e8e8ea; border-radius: 7px; padding: 5px 10px; font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; flex: 0 0 auto;" style-hover="background: #33333b;">{{ copyLabel }}</button>
+      </div>
+      <div style="display: flex; gap: 7px;">
+        <button style="flex: 1; background: transparent; border: 1px solid #2a2a30; color: #a1a1aa; border-radius: 8px; padding: 7px; font: inherit; font-size: 12px; cursor: pointer;" style-hover="background: #17171b; color: #e8e8ea;">Embed</button>
+        <button style="flex: 1; background: transparent; border: 1px solid #2a2a30; color: #a1a1aa; border-radius: 8px; padding: 7px; font: inherit; font-size: 12px; cursor: pointer;" style-hover="background: #17171b; color: #e8e8ea;">QR code</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">This broadcast</div>
+      <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #151519; font-size: 13px;">
+          <span style="color: #8b8b96;">{{ s.k }}</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #e8e8ea;">{{ s.v }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">Shortcuts</div>
+      <sc-for list="{{ keys }}" as="k" hint-placeholder-count="4">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: #8b8b96;">
+          <span>{{ k.label }}</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a1a1aa; border: 1px solid #26262c; background: #121216; border-radius: 5px; padding: 2px 7px; min-width: 13px; text-align: center;">{{ k.key }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    </div>
+
+    <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 9px;">
+      <sc-if value="{{ confirmEnd }}" hint-placeholder-val="{{ false }}">
+        <div style="border: 1px solid #3f1d24; background: #1c1013; border-radius: 11px; padding: 13px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-size: 12.5px; color: #fca5a5; line-height: 1.5;">Ending stops the stream for everyone tuned in. Your queue is kept.</div>
+          <div style="display: flex; gap: 7px;">
+            <button style="flex: 1; background: #dc2626; border: none; color: #fff; border-radius: 8px; padding: 9px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;" style-hover="background: #b91c1c;">Yes, end it</button>
+            <button onClick="{{ cancelEnd }}" style="flex: 1; background: transparent; border: 1px solid #3a2a2e; color: #a1a1aa; border-radius: 8px; padding: 9px; font: inherit; font-size: 12.5px; cursor: pointer;" style-hover="color: #e8e8ea;">Keep going</button>
+          </div>
+        </div>
+      </sc-if>
+      <button onClick="{{ askEnd }}" style="background: transparent; border: 1px solid #3f1d24; color: #fca5a5; border-radius: 10px; padding: 11px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;" style-hover="background: #1c1013; border-color: #5a3238;">End broadcast</button>
+    </div>
+  </aside>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { playing: true, monitor: false, copied: false, repeat: "off", dragging: false, confirmEnd: false, mic: false, latch: false, level: 0 };
+
+  componentDidMount() {
+    document.addEventListener("keydown", this.onKey = (e) => {
+      if (e.code === "Space" && !e.repeat) { e.preventDefault(); this.startMic(); }
+    });
+    document.addEventListener("keyup", this.onKeyUp = (e) => {
+      if (e.code === "Space") { e.preventDefault(); this.stopMic(); }
+    });
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener("keydown", this.onKey);
+    document.removeEventListener("keyup", this.onKeyUp);
+    clearInterval(this._lvl);
+  }
+
+  startMic() {
+    if (this.state.mic) return;
+    this.setState({ mic: true });
+    clearInterval(this._lvl);
+    this._lvl = setInterval(() => this.setState({ level: 0.25 + Math.random() * 0.7 }), 110);
+  }
+
+  stopMic() {
+    if (this.state.latch) return;
+    clearInterval(this._lvl);
+    this.setState({ mic: false, level: 0 });
+  }
+
+  renderVals() {
+    const playing = this.state.playing;
+    const mon = this.state.monitor;
+    const mic = this.state.mic;
+
+    const repeatBtn = (key, label) => ({
+      label,
+      onClick: () => this.setState({ repeat: key }),
+      style: {
+        background: this.state.repeat === key ? "#26262c" : "transparent",
+        border: "1px solid " + (this.state.repeat === key ? "#3a3a42" : "#26262c"),
+        color: this.state.repeat === key ? "#e8e8ea" : "#71717a",
+        borderRadius: "8px", padding: "6px 11px", font: "inherit", fontSize: "12px", cursor: "pointer"
+      }
+    });
+
+    return {
+      showNotes: this.props.showNotes ?? false,
+      togglePlay: () => this.setState({ playing: !playing }),
+      playIcon: playing ? "❙❙" : "▶",
+      playStyle: {
+        width: "48px", height: "48px", borderRadius: "12px", border: "none", cursor: "pointer",
+        background: playing ? "#8b5cf6" : "#dc2626", color: "#fff", fontSize: "15px",
+        display: "flex", alignItems: "center", justifyContent: "center"
+      },
+      progressStyle: {
+        position: "absolute", inset: "0 auto 0 0", width: "25.6%", borderRadius: "3px",
+        background: playing ? "linear-gradient(90deg, #7c3aed, #a78bfa)" : "#dc2626",
+        opacity: mic ? 0.35 : 1, transition: "opacity .15s"
+      },
+      warnStyle: {
+        padding: "10px 20px",
+        borderTop: "1px solid " + (playing ? "#2a1a1e" : "#5a2228"),
+        background: playing ? "transparent" : "#2b1114",
+        fontSize: "12.5px",
+        color: playing ? "#6b6b73" : "#fca5a5",
+        display: "flex", alignItems: "center", gap: "8px"
+      },
+      warnText: mic
+        ? "Your voice is going out live. Music is ducked to 20% underneath you."
+        : playing
+          ? "Pausing puts silence on air — listeners stay connected but hear nothing."
+          : "Dead air. Your stream is live and silent — listeners are hearing nothing right now.",
+
+      nextLine: mic
+        ? "Music ducked under your mic · queue ends in 1h 10m"
+        : "Then: mixkit-beautiful-dream-493 · queue ends in 1h 10m",
+      nextLineStyle: { fontSize: "12.5px", color: mic ? "#7dd3fc" : "#8b8b96" },
+
+      micRowStyle: {
+        display: "flex", alignItems: "center", gap: "18px", flexWrap: "wrap",
+        padding: "14px 20px",
+        borderTop: "1px solid " + (mic ? "#1e4a5f" : "#2a1a1e"),
+        background: mic ? "#0c1f28" : "#120e10",
+        transition: "background .15s, border-color .15s"
+      },
+      micDown: () => this.startMic(),
+      micUp: () => this.stopMic(),
+      micBtnStyle: {
+        display: "flex", alignItems: "center", gap: "11px", flex: "0 0 auto",
+        padding: "11px 18px", borderRadius: "11px", cursor: "pointer", font: "inherit",
+        userSelect: "none",
+        border: "1px solid " + (mic ? "#38bdf8" : "#3a2a2e"),
+        background: mic ? "#0ea5e9" : "transparent",
+        color: mic ? "#04222e" : "#d4d4d8",
+        transform: mic ? "scale(0.985)" : "none",
+        transition: "background .1s, border-color .1s, transform .1s"
+      },
+      micBtnLabel: mic ? "You're on mic" : "Hold to talk",
+      micBtnHint: mic ? "Release Space to stop" : "Hold Space · music ducks",
+      micHintStyle: { fontSize: "11px", opacity: 0.75, fontWeight: 400 },
+      micStatusText: mic ? "Mic open — mixed into the stream" : "Mic muted — nothing from you is going out",
+      meter: Array.from({ length: 28 }, (_, i) => {
+        const on = mic && i / 28 < this.state.level;
+        return {
+          flex: 1, height: on ? (6 + (i % 5) * 1.4) + "px" : "3px", borderRadius: "2px",
+          background: on ? (i > 23 ? "#f87171" : i > 19 ? "#fbbf24" : "#38bdf8") : "#20232a",
+          transition: "height .1s, background .1s"
+        };
+      }),
+      toggleLatch: () => {
+        const next = !this.state.latch;
+        this.setState({ latch: next });
+        if (!next) this.setState({ mic: false, level: 0 }, () => clearInterval(this._lvl));
+        else this.startMic();
+      },
+      latchLabel: this.state.latch ? "Latched on" : "Latch mic",
+      latchStyle: {
+        flex: "0 0 auto", font: "inherit", fontSize: "12px", cursor: "pointer",
+        borderRadius: "8px", padding: "7px 12px",
+        border: "1px solid " + (this.state.latch ? "#38bdf8" : "#2a2a30"),
+        background: this.state.latch ? "#0c2b38" : "transparent",
+        color: this.state.latch ? "#7dd3fc" : "#71717a"
+      },
+
+      toggleMonitor: () => this.setState({ monitor: !mon }),
+      monitorLabel: mon ? "Monitoring on" : "Monitor off",
+      monitorStyle: {
+        background: mon ? "#1c1730" : "transparent",
+        border: "1px solid " + (mon ? "#3f3a5a" : "#2a2a30"),
+        color: mon ? "#c4b5fd" : "#a1a1aa",
+        borderRadius: "9px", padding: "8px 14px", font: "inherit", fontSize: "13px",
+        fontWeight: 500, cursor: "pointer", flex: "0 0 auto"
+      },
+
+      repeatBtns: [repeatBtn("off", "Repeat off"), repeatBtn("all", "All"), repeatBtn("one", "One")],
+
+      queue: [
+        { title: "mixkit-beautiful-dream-493", at: "1:33 AM", dur: "1:37" },
+        { title: "West Coast Talk Radio", at: "1:35 AM", dur: "93:37" }
+      ],
+
+      onDragOver: (e) => { e.preventDefault(); if (!this.state.dragging) this.setState({ dragging: true }); },
+      onDragLeave: () => this.setState({ dragging: false }),
+      onDrop: (e) => { e.preventDefault(); this.setState({ dragging: false }); },
+      dropStyle: {
+        flex: 1, minHeight: "150px", margin: "14px 20px", borderRadius: "12px",
+        border: "1px dashed " + (this.state.dragging ? "#8b5cf6" : "#26262c"),
+        background: this.state.dragging ? "#14111f" : "transparent",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        transition: "border-color .15s, background .15s"
+      },
+
+      spark: Array.from({ length: 24 }, () => ({
+        flex: 1, height: "3px", borderRadius: "2px", background: "#1c1c20"
+      })),
+
+      copyLabel: this.state.copied ? "Copied" : "Copy",
+      copyLink: () => {
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 1400);
+      },
+
+      stats: [
+        { k: "Started", v: "1:32 AM" },
+        { k: "Bitrate", v: "128 kbps" },
+        { k: "Data sent", v: "0.4 MB" },
+        { k: "Peak listeners", v: "0" }
+      ],
+
+      keys: [
+        { label: "Push to talk", key: "Space" },
+        { label: "Play / pause", key: "K" },
+        { label: "Next track", key: "N" },
+        { label: "Previous track", key: "P" },
+        { label: "Cycle repeat", key: "R" },
+        { label: "Toggle monitor", key: "M" }
+      ],
+
+      confirmEnd: this.state.confirmEnd,
+      askEnd: () => this.setState({ confirmEnd: true }),
+      cancelEnd: () => this.setState({ confirmEnd: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

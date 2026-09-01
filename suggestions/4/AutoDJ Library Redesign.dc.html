@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #08080a; }
+  a { color: #a78bfa; text-decoration: none; }
+  a:hover { color: #c4b5fd; }
+  @keyframes eq { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+</style>
+</helmet>
+
+<div style="display: flex; min-height: 100vh; background: #08080a; color: #e8e8ea; font-family: Outfit, system-ui, sans-serif; -webkit-font-smoothing: antialiased;">
+
+  <aside style="width: 248px; flex: 0 0 248px; border-right: 1px solid #1c1c20; padding: 22px 14px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; box-sizing: border-box;">
+    <div style="font-size: 21px; font-weight: 600; letter-spacing: -0.02em; padding: 0 10px;">Go<span style="color: #8b5cf6;">Cast</span><span style="color: #6b6b73;">.fm</span></div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65; padding: 0 10px 8px;">Station</div>
+      <div style="display: flex; align-items: center; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Overview</div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 11px; padding: 9px 10px; border-radius: 9px; background: #17171b; font-size: 14px; font-weight: 500;">
+        <span style="display: flex; align-items: center; gap: 11px;">
+          <span style="width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(140deg, #8b5cf6, #4c1d95); display: block;"></span>
+          AutoDJ library
+        </span>
+        <span style="font-size: 12px; color: #8b8b96;">42</span>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px 9px 37px; border-radius: 9px; font-size: 13.5px; color: #8b8b96;" style-hover="background: #131316; color: #e8e8ea;">
+        <span>Jingles &amp; station IDs</span><span style="font-size: 12px; color: #5c5c65;">3</span>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">
+        <span>Broadcasts</span><span style="font-size: 12px; color: #5c5c65;">6</span>
+      </div>
+      <div style="display: flex; align-items: center; padding: 9px 10px; border-radius: 9px; font-size: 14px; color: #a1a1aa;" style-hover="background: #131316; color: #e8e8ea;">Settings</div>
+    </div>
+
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 14px;">
+      <div style="border: 1px solid #221f2e; border-radius: 11px; padding: 12px 13px; display: flex; flex-direction: column; gap: 8px;">
+        <sc-if value="{{ isPro }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #a78bfa;">
+            <span style="display: flex; align-items: flex-end; gap: 2px; height: 11px;">
+              <span style="width: 2px; height: 100%; background: #a78bfa; display: block; animation: eq .9s ease-in-out infinite;"></span>
+              <span style="width: 2px; height: 100%; background: #a78bfa; display: block; animation: eq .9s ease-in-out .3s infinite;"></span>
+              <span style="width: 2px; height: 100%; background: #a78bfa; display: block; animation: eq .9s ease-in-out .6s infinite;"></span>
+            </span>
+            AutoDJ on air
+          </div>
+          <div style="font-size: 12px; color: #71717a; line-height: 1.5;">Track 1 of 42 · loops back at the end.</div>
+        </sc-if>
+        <sc-if value="{{ isFree }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #a1a1aa;">
+            <span>Free plan</span>
+            <span style="font-size: 11px; color: #c4b5fd; border: 1px solid #2f2b3d; border-radius: 999px; padding: 2px 8px;">Upgrade</span>
+          </div>
+          <div style="font-size: 12px; color: #71717a; line-height: 1.5;">Your station goes silent when you stop broadcasting.</div>
+        </sc-if>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px;">
+        <span style="width: 30px; height: 30px; border-radius: 50%; background: #26262c; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #a1a1aa;">A</span>
+        <div style="min-width: 0;">
+          <div style="font-size: 13px; font-weight: 500;">Ammar Mashfj</div>
+          <div style="font-size: 11px; color: #5c5c65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ammarmashfj.ru@gmail.com</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 780px; padding: 26px 32px 64px; display: flex; flex-direction: column; gap: 20px; max-width: 1400px;">
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #6b6b73;">
+      <a href="#" style="color: #8b8b96;">jazz</a><span style="color: #35353c;">/</span><span>AutoDJ library</span>
+    </div>
+
+    <header style="display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 11px; flex-wrap: wrap;">
+          <h1 style="margin: 0; font-size: 27px; font-weight: 600; letter-spacing: -0.02em;">AutoDJ library</h1>
+          <sc-if value="{{ isFree }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #c4b5fd; background: #1c1730; border: 1px solid #2f2b3d; border-radius: 999px; padding: 4px 10px;">Pro feature</span>
+          </sc-if>
+        </div>
+        <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; color: #71717a; flex-wrap: wrap;">{{ subtitle }}</div>
+      </div>
+      <div style="display: flex; gap: 9px; flex: 0 0 auto;">
+        <button style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 9px; padding: 9px 15px; font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;" style-hover="background: #131316; border-color: #3a3a42;">Jingles</button>
+        <button onClick="{{ primaryAction }}" style="{{ primaryStyle }}">{{ primaryLabel }}</button>
+      </div>
+    </header>
+
+    <sc-if value="{{ isFree }}" hint-placeholder-val="{{ false }}">
+      <section style="border: 1px solid #2f2b3d; border-radius: 16px; background: linear-gradient(120deg, #17122b 0%, #0f0f13 62%); padding: 24px 26px; display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 12px;">
+          <h2 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em;">Keep jazz on air when you're not</h2>
+          <p style="margin: 0; font-size: 13.5px; color: #9b9baa; line-height: 1.6; max-width: 520px;">Right now your stream stops the moment you close your encoder — listeners get silence and drop off. AutoDJ fills that gap with your own uploads, loops them in order, and hands the stream back the second you go live.</p>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 2px;">
+            <sc-for list="{{ proPerks }}" as="p" hint-placeholder-count="4">
+              <div style="display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: #d4d4d8;">
+                <span style="width: 5px; height: 5px; border-radius: 50%; background: #8b5cf6; display: block; margin-top: 7px; flex: 0 0 5px;"></span>
+                <span>{{ p }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex: 0 0 250px; display: flex; flex-direction: column; gap: 11px; border-left: 1px solid #221f2e; padding-left: 24px;">
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 30px; font-weight: 600; letter-spacing: -0.02em;">$6</span>
+            <span style="font-size: 13px; color: #71717a;">/ month</span>
+          </div>
+          <div style="font-size: 12.5px; color: #71717a; line-height: 1.5;">Billed monthly, cancel any time. Your uploads stay if you downgrade.</div>
+          <button style="background: #8b5cf6; border: none; color: #fff; border-radius: 10px; padding: 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;" style-hover="background: #7c4ceb;">Upgrade to Pro</button>
+          <a href="#" style="font-size: 12.5px; text-align: center;">Compare plans</a>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ isFree }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #6b6b73;">
+        <span style="flex: 0 0 auto; letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; color: #5c5c65;">Preview of the rotation editor</span>
+        <span style="flex: 1; height: 1px; background: #1c1c20;"></span>
+      </div>
+    </sc-if>
+
+    <div onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDrop }}" style="{{ dropShellStyle }}">
+
+      <div style="display: flex; align-items: center; gap: 14px; padding: 13px 18px; border-bottom: 1px solid #17171b; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 9px; flex: 1; min-width: 240px; border: 1px solid #26262c; border-radius: 9px; background: #121216; padding: 8px 12px;">
+          <span style="width: 13px; height: 13px; border: 1.5px solid #5c5c65; border-radius: 50%; display: block; flex: 0 0 13px;"></span>
+          <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search title or artist" style="flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: #e8e8ea; font: inherit; font-size: 13.5px;" />
+          <span style="font-size: 12px; color: #52525b; font-family: 'JetBrains Mono', monospace;">{{ resultLabel }}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <sc-for list="{{ sorts }}" as="s" hint-placeholder-count="3">
+            <button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ isPro }}" hint-placeholder-val="{{ true }}">
+          <div style="width: 1px; height: 22px; background: #26262c;"></div>
+          <button onClick="{{ pickFiles }}" style="background: transparent; border: 1px dashed #3a3a42; color: #a1a1aa; border-radius: 9px; padding: 8px 13px; font: inherit; font-size: 13px; cursor: pointer;" style-hover="border-color: #8b5cf6; color: #c4b5fd;">Drop files or browse</button>
+        </sc-if>
+      </div>
+
+      <div style="height: 3px; background: #17171b; position: relative;">
+        <div style="position: absolute; inset: 0 auto 0 0; width: 0.2%; min-width: 3px; background: #8b5cf6;"></div>
+      </div>
+
+      <sc-if value="{{ needsTags }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; background: #14111f; border-bottom: 1px solid #221f2e; font-size: 13px; color: #c4b5fd; flex-wrap: wrap;">
+          <span style="flex: 1; min-width: 220px;">{{ tagWarning }}</span>
+          <button style="background: #8b5cf6; border: none; color: #fff; border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;" style-hover="background: #7c4ceb;">Fix tags</button>
+          <button onClick="{{ dismissTags }}" style="background: transparent; border: none; color: #71717a; font: inherit; font-size: 12.5px; cursor: pointer;" style-hover="color: #d4d4d8;">Dismiss</button>
+        </div>
+      </sc-if>
+
+      <div style="display: grid; grid-template-columns: 30px 34px minmax(160px,1fr) minmax(120px,.8fr) 72px 72px 100px 76px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid #17171b; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5c5c65;">
+        <span></span><span style="text-align: right;">#</span><span>Title</span><span>Artist</span>
+        <span style="text-align: right;">Length</span><span style="text-align: right;">Size</span><span>Added</span><span></span>
+      </div>
+
+      <sc-for list="{{ tracks }}" as="t" hint-placeholder-count="8">
+        <div style="{{ t.rowStyle }}" style-hover="background: #121216;">
+          <span style="color: #3a3a42; font-size: 15px; cursor: grab; letter-spacing: -2px;">⠿</span>
+          <span style="{{ t.indexStyle }}">{{ t.pos }}</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px;">{{ t.title }}</span>
+          <span style="{{ t.artistStyle }}">{{ t.artist }}</span>
+          <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a1a1aa;">{{ t.dur }}</span>
+          <span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #71717a;">{{ t.size }}</span>
+          <span style="font-size: 12.5px; color: #71717a;">{{ t.added }}</span>
+          <span style="display: flex; gap: 4px; justify-content: flex-end;">
+            <sc-if value="{{ isPro }}" hint-placeholder-val="{{ true }}">
+              <button style="background: transparent; border: 1px solid #26262c; color: #8b8b96; border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11.5px; cursor: pointer;" style-hover="border-color: #3a3a42; color: #e8e8ea;">Edit</button>
+              <button style="background: transparent; border: 1px solid #26262c; color: #8b8b96; border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11.5px; cursor: pointer;" style-hover="border-color: #7f1d1d; color: #fca5a5;">Del</button>
+            </sc-if>
+          </span>
+        </div>
+      </sc-for>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-top: 1px solid #17171b; font-size: 12.5px; color: #5c5c65; flex-wrap: wrap; gap: 10px;">
+        <span>{{ footerLabel }}</span>
+        <sc-if value="{{ canShowMore }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ showAll }}" style="background: transparent; border: 1px solid #2a2a30; color: #d4d4d8; border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 12.5px; cursor: pointer;" style-hover="background: #17171b;">Show all 42</button>
+        </sc-if>
+      </div>
+    </div>
+
+    <p style="margin: 0; font-size: 12.5px; color: #52525b; line-height: 1.6; max-width: 620px;">MP3, M4A, AAC, FLAC, OGG and WAV up to 50 MB per file. Station IDs and liners belong under <a href="#">Jingles</a> so they interleave between tracks instead of joining the rotation.</p>
+  </main>
+
+  <sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+    <aside style="width: 316px; flex: 0 0 316px; border-left: 1px solid #1c1c20; background: #0b0b0e; padding: 26px 22px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 0; height: 100vh; box-sizing: border-box; overflow: auto;">
+      <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5c5c65;">What changed &amp; why</div>
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="6">
+        <div style="display: flex; flex-direction: column; gap: 5px; border-bottom: 1px solid #17171b; padding-bottom: 16px;">
+          <div style="font-size: 13.5px; font-weight: 600; color: #c4b5fd;">{{ n.title }}</div>
+          <div style="font-size: 12.5px; color: #8b8b96; line-height: 1.55;">{{ n.body }}</div>
+        </div>
+      </sc-for>
+    </aside>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;plan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;free&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;free&quot;,&quot;tsType&quot;:&quot;\&quot;free\&quot; | \&quot;pro\&quot;&quot;},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { query: "", sort: "order", limit: 8, dragging: false, tagsOpen: true };
+
+  all() {
+    const names = ["Peace Piece","Alone Together","Django","Naima","So What","Blue in Green","My Funny Valentine","Waltz for Debby","Take Five","Autumn Leaves","Round Midnight","Body and Soul"];
+    const artists = ["Bill Evans Trio","Chet Baker","Modern Jazz Quartet","John Coltrane","Miles Davis","Miles Davis","Chet Baker","Bill Evans Trio","Dave Brubeck Quartet","Cannonball Adderley","Thelonious Monk","Coleman Hawkins"];
+    return Array.from({ length: 42 }, (_, i) => {
+      const secs = 190 + ((i * 47) % 260);
+      return {
+        pos: i + 1,
+        title: names[i % names.length],
+        artist: i % 5 === 3 ? "" : artists[i % artists.length],
+        secs,
+        dur: Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0"),
+        kb: 4 + ((i * 3) % 7),
+        added: i < 6 ? "Aug 17" : i < 20 ? "Aug 22" : "Aug 29"
+      };
+    });
+  }
+
+  pickFiles() {}
+
+  renderVals() {
+    const q = this.state.query.trim().toLowerCase();
+    let list = this.all();
+    if (q) list = list.filter(t => (t.title + " " + t.artist).toLowerCase().includes(q));
+    if (this.state.sort === "title") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    if (this.state.sort === "length") list = [...list].sort((a, b) => b.secs - a.secs);
+
+    const untagged = this.all().filter(t => !t.artist).length;
+    const total = list.length;
+    const shown = list.slice(0, this.state.limit);
+
+    const sortBtn = (key, label) => ({
+      label,
+      onClick: () => this.setState({ sort: key }),
+      style: {
+        background: this.state.sort === key ? "#26262c" : "transparent",
+        border: "1px solid " + (this.state.sort === key ? "#3a3a42" : "#26262c"),
+        color: this.state.sort === key ? "#e8e8ea" : "#8b8b96",
+        borderRadius: "8px", padding: "7px 12px", font: "inherit", fontSize: "12.5px", cursor: "pointer"
+      }
+    });
+
+    const free = (this.props.plan ?? "free") === "free";
+
+    return {
+      isFree: free,
+      isPro: !free,
+      subtitle: free
+        ? "42 tracks ready to upload · rotation plays only on Pro · 206 KB of 100 MB used"
+        : "42 tracks · 2h 51m of rotation · plays in order, then loops · 206 KB of 100 MB used",
+      primaryLabel: free ? "Upgrade to enable AutoDJ" : "Add tracks",
+      primaryAction: () => { if (!free) this.pickFiles(); },
+      primaryStyle: {
+        background: "#8b5cf6", border: "none", color: "#fff", borderRadius: "9px",
+        padding: "9px 16px", font: "inherit", fontSize: "13.5px", fontWeight: 600, cursor: "pointer"
+      },
+      proPerks: [
+        "Upload up to 100 MB of your own music — no shared or licensed pool",
+        "Tracks play in the order you set, then loop from the top",
+        "Jingles and station IDs interleave automatically between tracks",
+        "Going live interrupts the rotation instantly; it resumes when you stop"
+      ],
+      showNotes: this.props.showNotes ?? false,
+      query: this.state.query,
+      onQuery: (e) => this.setState({ query: e.target.value, limit: 8 }),
+      resultLabel: q ? total + " found" : "",
+      needsTags: this.state.tagsOpen && untagged > 0 && !free,
+      tagWarning: untagged + (untagged === 1 ? " track has" : " tracks have") + " no artist tag — listeners see “Unknown artist” in the player.",
+      dismissTags: () => this.setState({ tagsOpen: false }),
+      pickFiles: () => this.pickFiles(),
+      sorts: [sortBtn("order", "Play order"), sortBtn("title", "Title"), sortBtn("length", "Longest")],
+      onDragOver: (e) => { e.preventDefault(); if (!this.state.dragging) this.setState({ dragging: true }); },
+      onDragLeave: () => this.setState({ dragging: false }),
+      onDrop: (e) => { e.preventDefault(); this.setState({ dragging: false }); },
+      dropShellStyle: {
+        border: "1px solid " + (this.state.dragging && !free ? "#8b5cf6" : "#1c1c20"),
+        background: this.state.dragging && !free ? "#14111f" : "#0e0e11",
+        borderRadius: "16px", overflow: "hidden", transition: "border-color .15s, background .15s"
+      },
+      tracks: shown.map((t, i) => {
+        const live = !free && this.state.sort === "order" && !q && i === 0;
+        return {
+          pos: t.pos,
+          title: t.title,
+          artist: t.artist || "Unknown artist",
+          dur: t.dur,
+          size: t.kb + " KB",
+          added: t.added,
+          rowStyle: {
+            display: "grid",
+            gridTemplateColumns: "30px 34px minmax(160px,1fr) minmax(120px,.8fr) 72px 72px 100px 76px",
+            gap: "12px", alignItems: "center", padding: "10px 18px",
+            borderBottom: "1px solid #17171b",
+            background: live ? "#131022" : "transparent"
+          },
+          indexStyle: {
+            textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px",
+            color: live ? "#a78bfa" : "#52525b"
+          },
+          artistStyle: {
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontSize: "12.5px", color: t.artist ? "#a1a1aa" : "#5c5c65",
+            fontStyle: t.artist ? "normal" : "italic"
+          }
+        };
+      }),
+      hasMore: shown.length < total,
+      canShowMore: shown.length < total && !free,
+      showAll: () => this.setState({ limit: 42 }),
+      footerLabel: free
+        ? "Sample rotation shown — upgrade to upload and reorder your own tracks"
+        : q
+          ? "Showing " + shown.length + " of " + total + " matches"
+          : "Showing " + shown.length + " of 42 · 2h 51m total runtime",
+      notes: [
+        { title: "The void is gone", body: "A 260px empty dropzone owned the fold while the actual library sat below it. Now the whole table is the drop target — dragging files anywhere over it highlights the panel — and the upload affordance is one small button in the toolbar." },
+        { title: "The page answers “what's in rotation?”", body: "Track count, total runtime, loop behaviour and storage now sit in one subtitle line instead of a card-sized progress bar with nothing else in it." },
+        { title: "Rows carry metadata", body: "Length, file size and date added were hidden in a cramped right edge. They're real columns now, so you can tell a 7-second test upload from a real track." },
+        { title: "Search and sort", body: "42 tracks with no way to find one. Search plus play-order / title / longest sorting, and the row count updates live." },
+        { title: "“Unknown artist” is a problem, not a label", body: "Every row said it, so it read as normal. One banner names the count and offers a bulk tag fix." },
+        { title: "Now-playing anchored in the list", body: "Track 1 is tinted and its index is accent-coloured, so play order isn't an abstract claim in the description." },
+        { title: "Jingles pulled into the nav", body: "It was a floating button with no home. It's now a sub-item under the library, where its relationship to the rotation is visible." }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
