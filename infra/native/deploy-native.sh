@@ -118,6 +118,16 @@ as_app composer install --no-dev --no-interaction --prefer-dist \
   --optimize-autoloader --classmap-authoritative \
   --working-dir="$REPO_ROOT/api" || rollback
 
+echo "==> Building the admin assets"
+# api/ has its own Vite build (resources/css/admin.css + app.js) that emits
+# public/build/manifest.json. The Blade admin panel calls @vite(), which
+# throws "Vite manifest not found" without it -- so every route under /admin
+# 500s on a fresh checkout. Separate from the client build below: different
+# package.json, different bundler, different output tree.
+as_app env -C "$REPO_ROOT/api" NODE_ENV=production npm ci || rollback
+as_app env -C "$REPO_ROOT/api" NODE_ENV=production npm run build || rollback
+echo "  ✓ public/build"
+
 echo "==> Building the client"
 # ---------------------------------------------------------------------------
 # NEXT_PUBLIC_* are INLINED INTO THE BROWSER BUNDLE at build time. They are
@@ -162,6 +172,12 @@ echo "==> Storage symlink"
 artisan storage:link --relative || true
 
 echo "==> Caching config, routes, events"
+# view:clear matters as much as the caches below. Compiled Blade lives in
+# storage/framework/views keyed by source path, so a template that still
+# compiles is never re-compiled -- even when the classes it referenced are
+# gone. Removing Filament left a compiled welcome.blade.php calling
+# Livewire\Mechanisms\ExtendBlade, which 500'd the API root until cleared.
+artisan view:clear
 artisan config:clear
 artisan config:cache || rollback
 artisan route:cache  || rollback

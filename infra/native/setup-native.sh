@@ -156,6 +156,17 @@ echo "==> Icecast config"
 if [[ -f "$REPO_ROOT/api/.env" ]]; then
   # shellcheck disable=SC1091
   set -a; source "$REPO_ROOT/api/.env"; set +a
+
+  # api/.env sets DOCKER_HOST=tcp://127.0.0.1:2375 for the APP, which reaches
+  # the daemon through gocast-docker-proxy. Sourcing it here would export that
+  # into this script too — and the `docker compose up` below is what STARTS
+  # that proxy, so it would be asked to reach the proxy in order to create it:
+  #
+  #   Cannot connect to the Docker daemon at tcp://127.0.0.1:2375
+  #
+  # taking the firewall block after it down with it, on every run. This script
+  # is root on the host and should always talk to the unix socket directly.
+  unset DOCKER_HOST
 fi
 if [[ -z "${ICECAST_SOURCE_PASSWORD:-}" ]]; then
   echo "  ! ICECAST_SOURCE_PASSWORD is not set in api/.env — skipping"

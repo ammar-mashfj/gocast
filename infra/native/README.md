@@ -344,6 +344,29 @@ the queue and scheduler units, and explicitly across the `sudo` boundary in
 restriction in effect", widen the list in `php/gocast.pool.conf` rather than
 removing it.
 
+**Node must be on the host, at `/usr/bin/node`.** `gocast-client.service`
+hardcodes that path and sets `ProtectHome=true`, and it runs as `gocast`. A
+version manager's install under a user's home — `~/.nvm/versions/node/...` —
+is invisible to it twice over: the unit cannot see `/root` (mode 0700) and
+`ProtectHome` would mask it anyway. Ubuntu's `nodejs` package satisfies
+Next's `>=20.9.0`; a build that works interactively as root proves nothing
+about the unit.
+
+**Every deploy wipes the TLS config, because `deploy-native.sh` re-runs
+`setup-native.sh`.** Section 6 notes that re-running the provisioner
+overwrites certbot's edits. What is easy to miss is that the deploy calls the
+provisioner unconditionally, so the vhosts are re-rendered *without* their
+`:443` blocks and then nginx is reloaded a few steps later — with Cloudflare
+in Full mode in front, that is `521 Web Server Is Down` on every deploy until
+certbot runs again.
+
+Nothing here fixes it, because the fix is a design decision, not a patch:
+either teach `setup-native.sh` to leave a vhost alone when it already carries
+certbot's markers, or take vhost rendering out of the deploy path so it only
+happens when host config actually changed. Until one of those lands, treat
+`certbot --nginx --cert-name <name>` as the required final step of every
+deploy, and expect a short window where 443 is unserved.
+
 ---
 
 ## Known gap: the `/broadcast/{slug}` path
