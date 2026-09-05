@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -17,8 +16,11 @@ use Illuminate\Support\Facades\Schema;
  * and the relaunch command can converge the daemon on what the DB says should
  * be running, rather than on what merely exists.
  *
- * Existing rows are backfilled to 'running': they have live containers right
- * now, and a deploy must not take anyone off air.
+ * Existing rows are NOT backfilled; they take the default 'stopped'.
+ * The original backfill set every row to 'running' on the premise that a
+ * deploy must not take anyone off air. On this install nothing was on air
+ * when it ran, so that premise inverted the intent it meant to preserve.
+ * See the note in up().
  */
 return new class extends Migration
 {
@@ -39,7 +41,13 @@ return new class extends Migration
             $table->index('desired_state');
         });
 
-        DB::table('stations')->update(['desired_state' => 'running', 'started_at' => now()]);
+        // Deliberately no backfill. Every row takes the column default
+        // 'stopped': nothing was on air when this ran, and the only three
+        // stations still carrying is_live = 1 had been soft-deleted weeks
+        // earlier. A blanket 'running' would hand the reconciler ~29
+        // stations to launch, and it would launch them —
+        // RelaunchStations calls LiquidsoapSupervisor::up() directly and
+        // never reaches the max_running_stations check.
     }
 
     public function down(): void
