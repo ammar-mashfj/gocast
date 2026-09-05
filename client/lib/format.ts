@@ -83,7 +83,7 @@ export function formatAirtime(totalSeconds: number): string {
 
 /**
  * Human-readable byte size. Picks MB for anything under 1 GB and GB above,
- * one decimal on GB (so `1.6 GB / 2.0 GB` lines up visually with the cap).
+ * one decimal on GB (so `1.6 GB / 3.0 GB` lines up visually with the cap).
  */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`
@@ -120,4 +120,35 @@ export function formatDateTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   })
+}
+
+/**
+ * "GB" → "United Kingdom", falling back to the code itself.
+ *
+ * `Intl.DisplayNames` is built in and knows every ISO 3166-1 code, so there is
+ * no country table to keep in the bundle or keep current. It throws on a
+ * malformed code rather than returning undefined — the analytics tables only
+ * ever hold two-letter codes, but this is fed by data and must not be able to
+ * take a page down.
+ */
+export function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+/**
+ * "GB" → 🇬🇧. The flag emoji for a country is literally its two letters shifted
+ * into the Regional Indicator block, so no image or icon set is involved.
+ *
+ * Returns an empty string for anything that is not two ASCII letters, which
+ * keeps a stray code from rendering as two unrelated glyphs beside a name.
+ */
+export function countryFlag(code: string): string {
+  if (!/^[A-Za-z]{2}$/.test(code)) return ""
+  return String.fromCodePoint(
+    ...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+  )
 }

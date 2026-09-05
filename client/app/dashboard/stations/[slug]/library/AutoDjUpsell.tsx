@@ -57,7 +57,7 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your uploads stay if you downgrade."
-              : "Pro is in beta — we're onboarding a few stations at a time. Your uploads stay yours either way."}
+              : "Free while Pro is in beta — no card. We're onboarding a few stations at a time, and your uploads stay yours either way."}
           </p>
 
           {request.requested ? (

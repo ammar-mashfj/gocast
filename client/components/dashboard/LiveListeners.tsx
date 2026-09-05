@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { IconHeadphones } from "@tabler/icons-react"
+import Link from "next/link"
+import { IconHeadphones, IconArrowRight } from "@tabler/icons-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { useListenerCount } from "@/hooks/useListenerCount"
 import { cn } from "@/lib/utils"
@@ -172,6 +173,19 @@ export function LiveListeners({ slug, isOnAir, peakListeners = 0 }: LiveListener
                   ? `Nobody tuned in yet — your peak is ${peakListeners}.`
                   : "Nobody tuned in yet. Share your link to bring someone in."}
         </p>
+
+        {/* The way through to the history. This card answers "is anyone there
+            right now"; the next question is always "were they there
+            yesterday", and it has nowhere else to be asked from. Shown to
+            every plan — the destination is what explains and sells the
+            locked half. */}
+        <Link
+          href={`/dashboard/stations/${slug}/audience`}
+          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          View audience
+          <IconArrowRight size={13} />
+        </Link>
       </CardContent>
     </Card>
   )

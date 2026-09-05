@@ -53,7 +53,7 @@ class ProAccessGranted extends Notification implements ShouldQueue
             ->subject("You're on GoCast {$this->plan->name}")
             ->greeting("Hey {$notifiable->name},")
             ->line("Your request is approved — your account is on {$this->plan->name} as of now.")
-            ->line("Your station can now take up to {$this->plan->max_listeners} listeners at once.");
+            ->line('Your station can now take up to '.number_format($this->plan->max_listeners).' listeners at once.');
 
         // Conditional because the plan decides it. Stating it unconditionally
         // would promise AutoDJ to anyone granted a plan that does not carry it.

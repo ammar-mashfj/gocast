@@ -3,7 +3,6 @@ import Image from "next/image"
 import { IconBrandX, IconBrandFacebook, IconMail } from "@tabler/icons-react"
 
 const FOOTER_LINKS: { label: string; href: string }[] = [
-  { label: "Roadmap", href: "/roadmap" },
   { label: "Blog", href: "/blog" },
   { label: "Terms", href: "/terms" },
   { label: "Privacy", href: "/privacy" },

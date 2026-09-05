@@ -12,6 +12,15 @@ export interface Plan {
   name: string
   /** False on Free. Gates uploading to the AutoDJ library — nothing else. */
   autodj_enabled: boolean
+  /**
+   * Days of audience history this plan may SEE. 0 on Free, which still gets
+   * listeners-right-now and the all-time peak.
+   *
+   * Display only — collection has never been gated, so an upgrade reveals the
+   * station's existing history rather than starting a clock. The number is
+   * rendered ("Last 90 days"), so it lives here rather than being a boolean.
+   */
+  analytics_days: number
   max_listeners: number
   /** The audible "powered by GoCast" ID is mixed into this user's streams. */
   watermarked: boolean

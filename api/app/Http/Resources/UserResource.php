@@ -48,6 +48,11 @@ class UserResource extends JsonResource
                 // coalescing here has to agree with that or the UI would
                 // unlock a feature the API refuses.
                 'autodj_enabled' => (bool) ($this->plan?->autodj_enabled ?? false),
+                // Days of audience history this plan may see. 0 is the free
+                // tier: live listeners and the all-time peak, no window. The
+                // sidebar badges the Audience item from this; the payload of
+                // AudienceController is what actually enforces it.
+                'analytics_days' => (int) ($this->plan?->analytics_days ?? 0),
                 'max_listeners' => (int) ($this->plan?->max_listeners ?? 0),
                 'watermarked' => $this->watermarked(),
             ],

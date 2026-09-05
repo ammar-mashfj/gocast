@@ -690,7 +690,7 @@ return [
     | Per-station AutoDJ storage cap. Total bytes of all tracks combined.
     | Uploads that would push the station over this cap are rejected.
     */
-    'station_storage_bytes' => (int) env('LIQUIDSOAP_STATION_STORAGE_BYTES', 2 * 1024 * 1024 * 1024),
+    'station_storage_bytes' => (int) env('LIQUIDSOAP_STATION_STORAGE_BYTES', 3 * 1024 * 1024 * 1024),
 
     /*
     |--------------------------------------------------------------------------

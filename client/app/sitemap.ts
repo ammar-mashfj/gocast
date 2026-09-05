@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
+import { ARTICLES } from "./(marketing)/blog/_content/articles"
 
 export const revalidate = 3600
 
@@ -45,17 +46,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
-    { url: `${base}/roadmap`, lastModified: now, changeFrequency: "monthly", priority: 0.4 },
     { url: `${base}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
-    {
-      url: `${base}/blog/how-to-start-an-internet-radio-station-2026`,
-      lastModified: new Date("2026-05-01"),
-      changeFrequency: "monthly",
-      priority: 0.7,
-    },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ]
+
+  // Derived from the article registry so publishing a post is a one-file
+  // change — a hardcoded list here silently leaves new articles unindexed.
+  const articleRoutes: MetadataRoute.Sitemap = ARTICLES.map((a) => ({
+    url: `${base}/blog/${a.slug}`,
+    lastModified: new Date(a.updated ?? a.date),
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }))
 
   const stations = await getAllPublicStations()
   const stationRoutes: MetadataRoute.Sitemap = stations.map((s) => ({
@@ -65,5 +68,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }))
 
-  return [...staticRoutes, ...stationRoutes]
+  return [...staticRoutes, ...articleRoutes, ...stationRoutes]
 }

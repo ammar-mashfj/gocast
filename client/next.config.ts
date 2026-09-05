@@ -130,6 +130,10 @@ const nextConfig: NextConfig = {
       // for when we re-enable it. The `app/discover/*` files are left in
       // place so flipping this back on is a one-entry revert.
       { source: "/discover", destination: "/", permanent: false },
+      // Roadmap is hidden until it's rewritten against what actually shipped —
+      // it still listed AutoDJ as "coming soon". Same one-entry revert as
+      // discover; app/(marketing)/roadmap/page.tsx is the belt-and-braces stub.
+      { source: "/roadmap", destination: "/", permanent: false },
     ]
   },
   async headers() {

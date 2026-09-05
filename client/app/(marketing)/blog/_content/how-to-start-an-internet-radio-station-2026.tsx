@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 export default function Body() {
   return (
     <>
@@ -21,23 +23,23 @@ export default function Body() {
       </p>
       <ul>
         <li>
-          <strong>Talk shows, sermons, sports commentary, or live podcasting</strong> &mdash;
+          <strong>Talk shows, sermons, sports commentary, or live podcasting</strong>{" "} &mdash;
           You need a mic and a platform that lets you go live fast. No mixing board, no
           playlist automation. Browser-based tools handle this in about a minute.
         </li>
         <li>
-          <strong>Music station that plays when you&#39;re offline</strong> &mdash;
+          <strong>Music station that plays when you&#39;re offline</strong>{" "} &mdash;
           You need AutoDJ &mdash; software that keeps tracks playing 24/7 without a human
           at the controls. AzuraCast, Radio.co and GoCast Pro all do this; the free tier
           of most browser-based platforms does not.
         </li>
         <li>
-          <strong>Multi-DJ station with scheduled shows</strong> &mdash;
+          <strong>Multi-DJ station with scheduled shows</strong>{" "} &mdash;
           You need user accounts, a programming schedule, and listener analytics.
           Managed-platform territory: Radio.co, Live365, or a well-configured AzuraCast.
         </li>
         <li>
-          <strong>Just experimenting</strong> &mdash;
+          <strong>Just experimenting</strong>{" "} &mdash;
           Start free. Don&#39;t spend money on a hobby you might drop in three weeks.
         </li>
       </ul>
@@ -52,7 +54,7 @@ export default function Body() {
         Your audio source (microphone, music files, DJ software) feeds into
         an <strong>encoder</strong>&nbsp;that compresses the audio in real time &mdash; usually
         to MP3 or AAC at 128&ndash;320 kbps. The encoder sends that compressed stream to
-        a <strong>relay server</strong> (Icecast and Shoutcast are the two main ones).
+        a <strong>relay server</strong>{" "} (Icecast and Shoutcast are the two main ones).
         The relay server accepts incoming listener connections and fans the single stream
         out to everyone tuned in. Listeners hear it through a player page, a mobile app,
         or any media player that supports stream URLs.
@@ -70,7 +72,11 @@ export default function Body() {
         concurrent listener costs the relay server roughly 128 kbps of outbound bandwidth.
         A station with 100 listeners at 128 kbps needs about 12.8 Mbps of server bandwidth
         &mdash; which is why hosting costs scale with audience size, and why free tiers cap
-        listener counts.
+        listener counts. We put real monthly figures on all of this in{" "}
+        <Link href="/blog/how-much-does-it-cost-to-run-an-internet-radio-station">
+          what it actually costs to run a station
+        </Link>
+        .
       </p>
 
       <h2>Internet Radio Software Compared (2026)</h2>
@@ -85,7 +91,7 @@ export default function Body() {
         no audio routing to debug.
       </p>
       <p>
-        <a href="https://gocast.fm"><strong>GoCast</strong></a> &mdash; Full disclosure:
+        <a href="https://gocast.fm"><strong>GoCast</strong></a>{" "} &mdash; Full disclosure:
         this is our platform. The free tier is $0 with no card and no trial clock: one
         station, 100 concurrent listeners, browser broadcasting with push-to-talk
         auto-ducking, a drag-and-drop file queue, and a shareable player page with live
@@ -94,17 +100,21 @@ export default function Body() {
       </p>
       <p>
         Pro is $15/month and covers what a station needs once it outgrows a browser tab:
-        24/7 AutoDJ from a 2&nbsp;GB library, ingest from BUTT, Mixxx or any
+        24/7 AutoDJ from a 3&nbsp;GB library, ingest from BUTT, Mixxx or any
         Icecast-compatible encoder, a public stream URL you can hand to TuneIn or play on
-        Sonos, 1,000 concurrent listeners, listener analytics, a custom domain, and
-        higher-bitrate audio. It&#39;s in beta &mdash; requested from your dashboard and
-        granted by hand rather than sold through a checkout page.
+        Sonos, 1,000 concurrent listeners, listener analytics, and a custom domain
+        &mdash; we walk through all of it in{" "}
+        <Link href="/blog/keep-your-radio-station-on-air-24-7">
+          how to keep a station on air 24/7
+        </Link>{" "}
+        . It&#39;s in beta, and free while it is: you request it from your
+        dashboard and we invite stations in a few at a time, with no card and
+        nothing to pay until billing opens.
       </p>
       <p>
         Strongest point: going from zero to live in under a minute. Weakest point: the
-        free tier is deliberately live-only. Close the tab and the station goes quiet, and
-        free streams carry a short &ldquo;powered by GoCast&rdquo; ID, so unattended
-        round-the-clock programming means Pro.
+        free tier is deliberately live-only. Close the tab and the station goes quiet, so
+        unattended round-the-clock programming means Pro.
       </p>
 
       <h3>Self-Hosted Platforms (Most Control)</h3>
@@ -113,7 +123,7 @@ export default function Body() {
         fees beyond the $5&ndash;15/month server.
       </p>
       <p>
-        <a href="https://www.azuracast.com/"><strong>AzuraCast</strong></a> dominates this
+        <a href="https://www.azuracast.com/"><strong>AzuraCast</strong></a>{" "} dominates this
         category. It bundles a web-based DJ panel, AutoDJ with crossfading, scheduled shows,
         listener requests, podcast publishing, and analytics. The Docker-based install has
         gotten much smoother over the years.
@@ -130,26 +140,26 @@ export default function Body() {
         Somebody else runs the infrastructure. You pay monthly and focus on content.
       </p>
       <p>
-        <a href="https://radio.co/"><strong>Radio.co</strong></a> starts at $29/month.
+        <a href="https://radio.co/"><strong>Radio.co</strong></a>{" "} starts at $29/month.
         Polished interface, scheduled programming, analytics, embeddable players, and
         responsive support. The safe professional choice.
       </p>
       <p>
-        <a href="https://live365.com/"><strong>Live365</strong></a> starts around $59/month.
+        <a href="https://live365.com/"><strong>Live365</strong></a>{" "} starts around $59/month.
         The main draw is royalty-included streaming &mdash; they handle music licensing fees
         in the US and some other regions. If you want to play mainstream music legally
         without dealing with SoundExchange yourself, this is the simplest path.
       </p>
       <p>
-        <a href="https://www.radioking.com/"><strong>RadioKing</strong></a> is the European
+        <a href="https://www.radioking.com/"><strong>RadioKing</strong></a>{" "} is the European
         alternative with similar features and competitive pricing.
       </p>
 
       <h3>Desktop Software (Most Powerful, Most Setup)</h3>
       <p>
-        <strong>BUTT (Broadcast Using This Tool)</strong> is free, open-source, and does
+        <strong>BUTT (Broadcast Using This Tool)</strong>{" "} is free, open-source, and does
         exactly one thing: captures audio from your computer and sends it to an Icecast or
-        Shoutcast server. Pair it with <strong>Mixxx</strong> (free DJ software with
+        Shoutcast server. Pair it with <strong>Mixxx</strong>{" "} (free DJ software with
         crossfading, EQ, and beatmatching) and you get a legitimately powerful broadcasting
         rig.
       </p>
@@ -221,7 +231,7 @@ export default function Body() {
         </tbody>
       </table>
       <p>
-        <strong>Not sure where to start?</strong> If you&#39;re reading this article, GoCast
+        <strong>Not sure where to start?</strong>{" "} If you&#39;re reading this article, GoCast
         or AzuraCast are probably your two best starting points &mdash; free/cheap, capable,
         and you can migrate to a managed platform later if you outgrow them.
       </p>
@@ -274,7 +284,7 @@ export default function Body() {
         <a href="https://freemusicarchive.org/">Free Music Archive</a>,{" "}
         <a href="https://mixkit.co/free-stock-music/">Mixkit</a>,{" "}
         <a href="https://www.chosic.com/free-music/">Chosic</a>, and{" "}
-        <a href="https://dig.ccmixter.org/free">ccMixter</a> have large catalogs of
+        <a href="https://dig.ccmixter.org/free">ccMixter</a>{" "} have large catalogs of
         tracks you can broadcast freely. Many independent artists also release music
         under Creative Commons licenses that allow broadcasting with credit.
       </p>
@@ -282,7 +292,7 @@ export default function Body() {
         If you want to play mainstream/commercial music, that requires proper licensing
         (SoundExchange, ASCAP, BMI, etc. in the US &mdash; other countries have
         equivalents). Platforms like{" "}
-        <a href="https://live365.com/">Live365</a> bundle licensing into their monthly
+        <a href="https://live365.com/">Live365</a>{" "} bundle licensing into their monthly
         fee, which simplifies the process considerably. But for getting started, royalty-free
         music keeps things simple and lets you focus on building your station and audience
         first.
@@ -309,34 +319,34 @@ export default function Body() {
 
       <h3>What Actually Grows an Audience</h3>
       <p>
-        <strong>Consistency beats everything.</strong> A station that goes live at 7 PM
+        <strong>Consistency beats everything.</strong>{" "} A station that goes live at 7 PM
         every Thursday builds more audience than one that broadcasts randomly four times a
         month. Commit to a schedule for at least eight weeks before evaluating. Most people
         quit before their audience has time to form a habit.
       </p>
       <p>
-        <strong>Specificity attracts dedication.</strong> &ldquo;Indie jazz from the
+        <strong>Specificity attracts dedication.</strong>{" "} &ldquo;Indie jazz from the
         Pacific Northwest&rdquo; will attract more loyal listeners than &ldquo;music I
         like.&rdquo; The narrower the niche, the more likely someone searching for exactly
         that will find you and stay.
       </p>
       <p>
-        <strong>Make it dead simple to tune in.</strong> Put your station link in your
+        <strong>Make it dead simple to tune in.</strong>{" "} Put your station link in your
         social bios, email signature, and forum profiles. If someone has to search for
         your station, most won&#39;t bother.
       </p>
       <p>
-        <strong>Cross-promote with other small stations.</strong> DJs trade shoutouts.
+        <strong>Cross-promote with other small stations.</strong>{" "} DJs trade shoutouts.
         Stations share each other&#39;s links. A listener who enjoys one small station is
         likely to enjoy another &mdash; internet radio has always grown collaboratively.
       </p>
       <p>
-        <strong>Show up where your listeners already are.</strong> Genre-specific
+        <strong>Show up where your listeners already are.</strong>{" "} Genre-specific
         subreddits, Discord servers, Facebook groups. Contribute genuinely and mention your
         station when relevant &mdash; not as spam, but as part of the community.
       </p>
       <p>
-        <strong>Stream live events.</strong> A local concert, a church service, a sports
+        <strong>Stream live events.</strong>{" "} A local concert, a church service, a sports
         game &mdash; offering a live stream to people who can&#39;t attend is one of the
         fastest ways to convert first-time listeners into regulars.
       </p>
@@ -344,15 +354,15 @@ export default function Body() {
       <h3>What Doesn&#39;t Work as Well as People Claim</h3>
       <ul>
         <li>
-          <strong>Directory submissions</strong> (TuneIn, Radio Garden) &mdash; slow
+          <strong>Directory submissions</strong>{" "} (TuneIn, Radio Garden) &mdash; slow
           approval, low conversion. Worth doing eventually, not a growth strategy.
         </li>
         <li>
-          <strong>Paid ads</strong> &mdash; cost per acquired listener is brutal for a
+          <strong>Paid ads</strong>{" "} &mdash; cost per acquired listener is brutal for a
           hobby station.
         </li>
         <li>
-          <strong>&ldquo;Going viral&rdquo;</strong> &mdash; not a strategy. If it
+          <strong>&ldquo;Going viral&rdquo;</strong>{" "} &mdash; not a strategy. If it
           happens, great. Don&#39;t plan around it.
         </li>
       </ul>

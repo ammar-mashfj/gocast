@@ -11,6 +11,7 @@ import {
   IconSettings,
   IconLoader2,
   IconPlaylist,
+  IconChartBar,
   IconSparkles,
   IconCheck,
 } from "@tabler/icons-react"
@@ -35,7 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { usePlan, useAutoDjLocked } from "@/contexts/AccountContext"
+import { usePlan, useAutoDjLocked, useAudienceLocked } from "@/contexts/AccountContext"
 import { useCurrentStation } from "@/contexts/StationContext"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { User } from "@/interfaces/User"
@@ -51,12 +52,16 @@ interface NavItem {
       up on per-station library pages). Defaults to startsWith(href). */
   isActive?: (pathname: string) => boolean
   /**
-   * Marks an item the current plan does not include. The link stays live on
-   * purpose: the destination explains the feature and sells the upgrade, and
-   * a nav item that silently does nothing teaches people the app is broken.
-   * The badge is what stops the click from being a surprise.
+   * Which entitlement this item needs, when it needs one. The link stays live
+   * either way on purpose: the destination explains the feature and sells the
+   * upgrade, and a nav item that silently does nothing teaches people the app
+   * is broken. The badge is what stops the click from being a surprise.
+   *
+   * A named lock rather than a boolean per feature — the two are gated
+   * separately (a plan could include audience history without AutoDJ), and a
+   * second `requiresX` flag would have to be kept in sync with the first.
    */
-  requiresAutoDj?: boolean
+  lock?: "autodj" | "audience"
 }
 
 /**
@@ -87,9 +92,13 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     stationHref: (slug) => `/dashboard/stations/${slug}`,
     icon: IconRadio,
+    // Every sub-page URL is also a /dashboard/stations/{slug} URL, so a plain
+    // prefix match lights this up while the user is somewhere else. Each
+    // segment that has its own nav item has to be subtracted by name.
     isActive: (p) =>
       p === "/dashboard" ||
-      (/^\/dashboard\/stations\/[^/]+/.test(p) && !/^\/dashboard\/stations\/[^/]+\/library/.test(p)),
+      (/^\/dashboard\/stations\/[^/]+/.test(p) &&
+        !/^\/dashboard\/stations\/[^/]+\/(library|audience)/.test(p)),
   },
   {
     title: "AutoDJ",
@@ -97,7 +106,17 @@ const NAV_ITEMS: NavItem[] = [
     stationHref: (slug) => `/dashboard/stations/${slug}/library`,
     icon: IconPlaylist,
     isActive: (p) => p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/library/.test(p),
-    requiresAutoDj: true,
+    lock: "autodj",
+  },
+  {
+    title: "Audience",
+    // No slugless fallback: there is nothing to show without a station, and
+    // /dashboard is the onboarding page a user in that state belongs on.
+    href: "/dashboard",
+    stationHref: (slug) => `/dashboard/stations/${slug}/audience`,
+    icon: IconChartBar,
+    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/audience/.test(p),
+    lock: "audience",
   },
   { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconHistory },
   { title: "Settings", href: "/dashboard/settings", icon: IconSettings },
@@ -117,6 +136,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
   // this existed — see useAutoDjLocked. Painting an upgrade nudge at a paying
   // customer because one request timed out is the failure worth avoiding.
   const locked = useAutoDjLocked()
+  const audienceLocked = useAudienceLocked()
   const proRequest = useProRequest()
 
   return (
@@ -142,12 +162,16 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 const active = item.isActive ? item.isActive(pathname) : pathname.startsWith(item.href)
                 const href = station && item.stationHref ? item.stationHref(station.slug) : item.href
                 return (
-                  <SidebarMenuItem key={item.href}>
+                  // Keyed by title, not href: two items can share a slugless
+                  // fallback destination (Station and Audience both land on
+                  // /dashboard when there is no station yet).
+                  <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={active}>
                       <Link href={href} className="cursor-pointer">
                         <item.icon size={18} />
                         <span className="text-sm">{item.title}</span>
-                        {item.requiresAutoDj && locked && (
+                        {item.lock &&
+                          (item.lock === "autodj" ? locked : audienceLocked) && (
                           <Badge
                             variant="outline"
                             className="ml-auto border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"

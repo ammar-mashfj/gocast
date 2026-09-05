@@ -62,3 +62,16 @@ export function useAutoDjLocked(): boolean {
   const plan = usePlan()
   return plan !== null && !plan.autodj_enabled
 }
+
+/**
+ * Does this account NOT have audience history? Same negative phrasing and same
+ * reason as useAutoDjLocked: an unknown plan must render unlocked.
+ *
+ * Only ever drives a badge and an upsell. The audience payload itself decides
+ * what is actually returned, so a wrong answer here shows the wrong label —
+ * never the wrong data.
+ */
+export function useAudienceLocked(): boolean {
+  const plan = usePlan()
+  return plan !== null && plan.analytics_days <= 0
+}

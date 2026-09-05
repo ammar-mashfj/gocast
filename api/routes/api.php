@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AudienceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
@@ -108,6 +109,13 @@ Route::middleware('auth:sanctum')->group(function () {
         // pre-flight before publishing, so it gets a roomier limit.
         Route::get('/stations/{station:slug}/status', StationStatusController::class)
             ->middleware('throttle:120,1');
+
+        // The owner's audience report. Read-only and a handful of grouped
+        // scans over indexed windows, but not free either — throttled at a
+        // rate that comfortably covers switching between the 7/30/90 ranges
+        // without letting the page be held open as a query generator.
+        Route::get('/stations/{station:slug}/audience', AudienceController::class)
+            ->middleware('throttle:60,1');
 
         // AutoDJ tracks — list, upload, reorder, edit, delete. The reorder
         // endpoint is registered before the implicit-binding {track} update

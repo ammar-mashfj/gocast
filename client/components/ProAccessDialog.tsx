@@ -25,9 +25,9 @@ const LABEL_CLASS = "text-sm font-medium text-text-secondary"
 const PRO_COPY = {
   title: "Request Pro access",
   description:
-    "Pro is in beta and we're onboarding a few stations at a time. Tell us about yours.",
+    "Pro is in beta and free while it is — no card, nothing to pay. We're onboarding a few stations at a time. Tell us about yours.",
   confirmation:
-    "Thanks — your request is in. We're inviting stations in small batches, so it may be a while before you hear from us.",
+    "Thanks — your request is in. We're inviting stations in small batches, so it may be a while before you hear from us. There's nothing to pay while Pro is in beta, and we'll give you notice long before billing opens.",
   submitLabel: "Request access",
 }
 

@@ -59,7 +59,7 @@ describe('approving', function () {
         $plan = $entry->user->fresh()->plan;
 
         expect($plan->autodj_enabled)->toBeTrue()
-            ->and($plan->max_listeners)->toBe(500);
+            ->and($plan->max_listeners)->toBe(1000);
     });
 
     it('carries the plan through to the watermark flag', function () {
@@ -90,7 +90,7 @@ describe('approving', function () {
                 $mail = $notification->toMail($entry->user);
                 $body = collect([...$mail->introLines, ...$mail->outroLines])->implode(' ');
 
-                expect($body)->toContain('500 listeners')
+                expect($body)->toContain('1,000 listeners')
                     ->and($body)->toContain('AutoDJ')
                     ->and($body)->not->toContain('watermark')
                     ->and($body)->not->toContain('5 stations');

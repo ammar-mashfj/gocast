@@ -10,16 +10,17 @@ const FREE_FEATURES = [
   "Browser broadcasting + push-to-talk",
   "Drag-and-drop file queue",
   "Shareable player page with live metadata",
+  "Live listener count and all-time peak",
 ]
 
 // Condensed for the compact roadmap card — the full list lives in the docs.
 const PRO_FEATURES = [
-  "24/7 AutoDJ from your library (2 GB)",
+  "24/7 AutoDJ from your library (3 GB)",
   "Broadcast from BUTT, Mixxx or any Icecast encoder",
   "Public stream URL for TuneIn & Sonos",
   "1,000 concurrent listeners",
-  "Custom domain + listener analytics",
-  "Higher-bitrate audio, priority support",
+  "Custom domain + 90 days of listener analytics, by country",
+  "Priority support",
 ]
 
 export default function PricingSection() {
@@ -89,7 +90,9 @@ export default function PricingSection() {
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-lg font-semibold text-text-primary">Pro</span>
-                <span className="text-sm text-text-faint">${PRO_PRICE_USD}/mo</span>
+                <span className="text-sm text-text-faint">
+                  Free in beta, then ${PRO_PRICE_USD}/mo
+                </span>
               </div>
               <span className="inline-flex shrink-0 items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] tracking-[2px] uppercase font-medium px-2.5 py-1 rounded-full">
                 <span className="size-1.5 rounded-full bg-amber-400" />
@@ -118,7 +121,8 @@ export default function PricingSection() {
                 and the feature list still do their job unclicked. */}
             <p className="mt-1 pt-4 border-t border-white/[0.06] text-xs text-text-faint leading-relaxed">
               Requested from your dashboard once your station is set up — we
-              onboard a few at a time.
+              onboard a few at a time. Nothing to pay while it&apos;s in beta,
+              and we&apos;ll give notice before billing opens.
             </p>
           </div>
 
