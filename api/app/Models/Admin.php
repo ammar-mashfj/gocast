@@ -16,8 +16,9 @@ use Spatie\Activitylog\Support\LogOptions;
  * Operator of the admin panel. A separate identity from User by design —
  * see the create_admins_table migration.
  *
- * There is no registration, password reset, or email verification: accounts
- * come from `php artisan admin:create` and nothing else.
+ * There is no registration, self-service password reset, or email
+ * verification: accounts come from `php artisan admin:create` and passwords
+ * are recovered with `php artisan admin:reset-password`, nothing else.
  *
  * @property int $id
  * @property string $name

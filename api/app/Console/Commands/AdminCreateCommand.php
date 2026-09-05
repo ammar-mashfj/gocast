@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rules\Password;
 
 /**
- * The only way an admin account comes into existence — there is no signup,
- * no invite flow, and no password reset. Losing the password means running
- * this again against a fresh address, or resetting it in the database.
+ * The only way an admin account comes into existence — there is no signup
+ * and no invite flow. A lost password is recovered with
+ * `php artisan admin:reset-password`, not by creating a second account.
  */
 class AdminCreateCommand extends Command
 {
