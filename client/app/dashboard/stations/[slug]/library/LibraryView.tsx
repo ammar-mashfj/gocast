@@ -46,7 +46,9 @@ import type { Track, LibraryMeta } from "@/interfaces/Track"
 import { AutoDjUpsell } from "./AutoDjUpsell"
 import { JinglesDialog } from "./JinglesDialog"
 import { FixTagsDialog } from "./FixTagsDialog"
-import { AUDIO_ACCEPT, batchFiles, isAudioFile, uploadErrorMessage } from "./upload"
+import { AUDIO_ACCEPT } from "./upload"
+import { useTrackUpload } from "./useTrackUpload"
+import { UploadProgressBar } from "./UploadProgressBar"
 
 type SortKey = "order" | "title" | "length"
 
@@ -80,7 +82,6 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
   const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
-  const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [jinglesOpen, setJinglesOpen] = useState(false)
   const [fixTagsOpen, setFixTagsOpen] = useState(false)
@@ -123,68 +124,23 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const upload = useCallback(async (files: FileList | File[]) => {
-    // The server answers 403 here anyway; catching it before the request
-    // turns a failed upload into an explanation, and stops a drag-and-drop of
-    // 40 files from spending the user's bandwidth to learn the same thing.
-    if (locked) {
-      toast.error("AutoDJ isn't included in your plan yet.")
-      return
-    }
+  /**
+   * Applied per batch so a long drop fills the list as it goes instead of
+   * jumping at the end, and so the storage meter tracks it.
+   */
+  const handleUploaded = useCallback(
+    (added: Track[]) => {
+      setTracks((prev) => [...prev, ...added])
+      applyStorageDelta(added.reduce((sum, t) => sum + t.file_size_bytes, 0))
+    },
+    [applyStorageDelta],
+  )
 
-    const list = Array.from(files).filter(isAudioFile)
-    if (list.length === 0) {
-      toast.error("No audio files in selection.")
-      return
-    }
-
-    setUploading(true)
-    try {
-      // A drop too large for one multipart body goes up as several requests,
-      // each committed on its own — a batch that landed stays landed even if
-      // a later one trips the quota.
-      const batches = batchFiles(list)
-      let added = 0
-      let failure: string | null = null
-
-      for (const batch of batches) {
-        const form = new FormData()
-        for (const file of batch) form.append("files[]", file)
-
-        const { data } = await api.post<{
-          data: Track[]
-          errors: { index: number; message: string }[]
-        }>(`/stations/${slug}/tracks`, form, {
-          // FormData → axios sets the multipart boundary automatically; this
-          // override removes the json default the axios instance applies.
-          headers: { "Content-Type": "multipart/form-data" },
-        })
-
-        // Append uploaded tracks to the local list. Server-assigned positions
-        // are already correct (max+1, max+2, …). Applied per batch so a long
-        // drop fills the list as it goes instead of jumping at the end.
-        setTracks((prev) => [...prev, ...data.data])
-        applyStorageDelta(data.data.reduce((sum, t) => sum + t.file_size_bytes, 0))
-        added += data.data.length
-
-        if (data.errors.length > 0) {
-          // The quota tripped mid-batch; every later batch would trip it too.
-          failure = data.errors[0].message
-          break
-        }
-      }
-
-      if (failure !== null) {
-        toast.error(failure)
-      } else {
-        toast.success(`Added ${added} track${added === 1 ? "" : "s"}.`)
-      }
-    } catch (err: unknown) {
-      toast.error(uploadErrorMessage(err))
-    } finally {
-      setUploading(false)
-    }
-  }, [slug, applyStorageDelta, locked])
+  const { progress, uploading, upload } = useTrackUpload({
+    slug,
+    noun: "track",
+    onUploaded: handleUploaded,
+  })
 
   const handleReorder = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event
@@ -496,6 +452,16 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
             {locked ? "Uploading needs Pro" : "Drop files or browse"}
           </Button>
         </div>
+
+        {/* Progress sits between the toolbar and the storage meter: in the
+            panel the files are landing in, and above the bar that is about to
+            move because of them. */}
+        {progress && (
+          <UploadProgressBar
+            progress={progress}
+            className="border-b border-border bg-primary/5 px-4 py-2.5"
+          />
+        )}
 
         {/* Storage, reduced to the one pixel row it earns. It used to be a
             whole card rendering a bar at 0.2%. */}

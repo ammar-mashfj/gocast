@@ -30,7 +30,9 @@ import { formatBytes, formatDuration } from "@/lib/format"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
-import { AUDIO_ACCEPT, isAudioFile, uploadErrorMessage } from "./upload"
+import { AUDIO_ACCEPT } from "./upload"
+import { useTrackUpload } from "./useTrackUpload"
+import { UploadProgressBar } from "./UploadProgressBar"
 
 /**
  * Intervals we offer, in minutes. Deliberately a fixed list rather than a
@@ -67,7 +69,6 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   const [everyTracks, setEveryTracks] = useState(station.jingle_every_tracks)
   const [jingles, setJingles] = useState<Track[]>([])
   const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -115,53 +116,22 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     station.jingle_every_tracks,
   ])
 
-  const upload = useCallback(
-    async (files: FileList | File[]) => {
-      // Jingles ride the same gated endpoint as the rotation, so a free
-      // account gets the same 403 here. Same reasoning as LibraryView: say so
-      // before spending the upload rather than after.
-      if (locked) {
-        toast.error("AutoDJ isn't included in your plan yet.")
-        return
-      }
-
-      const list = Array.from(files).filter(isAudioFile)
-      if (list.length === 0) {
-        toast.error("No audio files in selection.")
-        return
-      }
-
-      setUploading(true)
-      try {
-        const form = new FormData()
-        // Same endpoint as the rotation — `kind` is the only difference, which
-        // is what keeps quota, tag reading and storage identical across both.
-        form.append("kind", "jingle")
-        for (const file of list) form.append("files[]", file)
-
-        const { data } = await api.post<{
-          data: Track[]
-          errors: { index: number; message: string }[]
-        }>(`/stations/${station.slug}/tracks`, form, {
-          headers: { "Content-Type": "multipart/form-data" },
-        })
-
-        setJingles((prev) => [...prev, ...data.data])
-        onStorageChange(data.data.reduce((sum, t) => sum + t.file_size_bytes, 0))
-
-        if (data.errors.length > 0) {
-          toast.error(data.errors[0].message)
-        } else {
-          toast.success(`Added ${data.data.length} jingle${data.data.length === 1 ? "" : "s"}.`)
-        }
-      } catch (err: unknown) {
-        toast.error(uploadErrorMessage(err))
-      } finally {
-        setUploading(false)
-      }
+  const handleUploaded = useCallback(
+    (added: Track[]) => {
+      setJingles((prev) => [...prev, ...added])
+      onStorageChange(added.reduce((sum, t) => sum + t.file_size_bytes, 0))
     },
-    [station.slug, onStorageChange, locked],
+    [onStorageChange],
   )
+
+  // Same endpoint as the rotation — `kind` is the only difference, which is
+  // what keeps quota, tag reading and storage identical across both.
+  const { progress, uploading, upload } = useTrackUpload({
+    slug: station.slug,
+    kind: "jingle",
+    noun: "jingle",
+    onUploaded: handleUploaded,
+  })
 
   const handleDelete = useCallback(
     async (track: Track) => {
@@ -346,20 +316,23 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
             dragOver ? "border-primary bg-primary/5" : "border-border"
           }`}
         >
-          {uploading ? (
-            <IconLoader2 size={22} className="animate-spin text-primary" />
+          {/* While files are moving the meter replaces the icon and the
+              headline outright — the spinner said nothing the bar doesn't say
+              better, and stacking both left the zone twice as tall. */}
+          {progress ? (
+            <UploadProgressBar progress={progress} className="w-full px-4 text-left" />
           ) : (
-            <IconUpload size={22} className="text-muted-foreground" />
+            <>
+              <IconUpload size={22} className="text-muted-foreground" />
+              <div className="text-sm font-medium">
+                {locked
+                  ? "Jingles need Pro"
+                  : dragOver
+                    ? "Drop to upload"
+                    : "Drag jingles here"}
+              </div>
+            </>
           )}
-          <div className="text-sm font-medium">
-            {locked
-              ? "Jingles need Pro"
-              : uploading
-                ? "Uploading…"
-                : dragOver
-                  ? "Drop to upload"
-                  : "Drag jingles here"}
-          </div>
           <Button
             type="button"
             variant="outline"
