@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccessRequestController;
+use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\AuthenticatedSessionController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\WatermarkClipController;
@@ -27,6 +28,12 @@ Route::middleware('auth:admin')->group(function () {
     Route::redirect('/', '/admin/stations')->name('home');
     Route::get('stations', [StationController::class, 'index'])->name('stations.index');
     Route::get('requests', [AccessRequestController::class, 'index'])->name('requests.index');
+
+    // Hand-provisioning. Creates an account and its first station outright,
+    // for deals agreed off-platform — the one path onto a paid plan that does
+    // not start with the person registering themselves.
+    Route::get('accounts/create', [AccountController::class, 'create'])->name('accounts.create');
+    Route::post('accounts', [AccountController::class, 'store'])->name('accounts.store');
 
     // POST rather than PATCH throughout: these are plain Blade forms, and a
     // spoofed method buys nothing here while costing a hidden field on every

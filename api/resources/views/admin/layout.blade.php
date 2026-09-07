@@ -61,6 +61,12 @@
                         </a>
                     </li>
                     <li>
+                        <a href="{{ route('admin.accounts.create') }}"
+                           @class(['menu-active' => request()->routeIs('admin.accounts.*')])>
+                            Create account
+                        </a>
+                    </li>
+                    <li>
                         <a href="{{ route('admin.watermark.index') }}"
                            @class(['menu-active' => request()->routeIs('admin.watermark.*')])>
                             Watermark clips
