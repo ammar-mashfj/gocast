@@ -1,6 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
-import { IconBrandX, IconBrandFacebook, IconMail } from "@tabler/icons-react"
+import { IconBrandX, IconBrandFacebook, IconBrandInstagram, IconMail } from "@tabler/icons-react"
 
 const FOOTER_LINKS: { label: string; href: string }[] = [
   { label: "Blog", href: "/blog" },
@@ -11,6 +11,7 @@ const FOOTER_LINKS: { label: string; href: string }[] = [
 const SOCIALS = [
   { icon: IconBrandX, href: "https://x.com/gocastfm", label: "X" },
   { icon: IconBrandFacebook, href: "https://www.facebook.com/gocast.fm/", label: "Facebook" },
+  { icon: IconBrandInstagram, href: "https://www.instagram.com/gocastfm/", label: "Instagram" },
   { icon: IconMail, href: "mailto:hello@gocast.fm", label: "Email" },
 ]
 

@@ -72,6 +72,7 @@ const ORG_JSON_LD = {
       sameAs: [
         "https://x.com/gocastfm",
         "https://www.facebook.com/gocast.fm/",
+        "https://www.instagram.com/gocastfm/",
       ],
       contactPoint: {
         "@type": "ContactPoint",

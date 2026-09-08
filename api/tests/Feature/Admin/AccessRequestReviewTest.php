@@ -82,16 +82,25 @@ describe('approving', function () {
         // one station per user, and the watermark is inert. Promising either
         // in the grant email is a promise the app will not keep.
         $entry = proRequest();
+        $station = Station::factory()->for($entry->user)->create();
 
         $this->post(route('admin.requests.approve', $entry));
 
         Notification::assertSentTo($entry->user, ProAccessGranted::class,
-            function (ProAccessGranted $notification) use ($entry) {
+            function (ProAccessGranted $notification) use ($entry, $station) {
                 $mail = $notification->toMail($entry->user);
                 $body = collect([...$mail->introLines, ...$mail->outroLines])->implode(' ');
+                $frontend = rtrim(config('services.frontend_url'), '/');
 
                 expect($body)->toContain('1,000 listeners')
                     ->and($body)->toContain('AutoDJ')
+                    ->and($body)->toContain('3 months')
+                    ->and($body)->toContain('refresh the page')
+                    // The two links they actually need: where to upload, and
+                    // what to hand to listeners.
+                    ->and($mail->actionUrl)->toBe("{$frontend}/dashboard/stations/{$station->slug}/library")
+                    ->and($body)->toContain("{$frontend}/station/{$station->slug}")
+                    ->and($body)->toContain('instagram.com/gocastfm')
                     ->and($body)->not->toContain('watermark')
                     ->and($body)->not->toContain('5 stations');
 

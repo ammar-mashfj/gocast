@@ -14,7 +14,7 @@ use Illuminate\Notifications\Notification;
  * Worth sending rather than letting them notice: nothing about a grant is
  * pushed to the dashboard. The UI only reflects the new plan on the next load
  * of /api/user, so without this email the upgrade is something they stumble
- * into days later.
+ * into days later — hence the "refresh the page" line.
  *
  * What it may claim is narrower than what the `plans` row holds. `max_stations`
  * reads 5 on Pro and is enforced by StoreStationRequest, but the product is one
@@ -27,6 +27,10 @@ use Illuminate\Notifications\Notification;
  * That leaves the two entitlements that are actually live and actually differ:
  * AutoDJ and the concurrent listener cap.
  *
+ * The "3 months" is a promise made by this email and nothing else: no code
+ * expires a plan, so ending the term is an admin revoking the request by
+ * hand from the review queue.
+ *
  * Queued because it is dispatched from the admin request that records the
  * grant, and a slow or unreachable mail host must not make approving somebody
  * look like it failed — the plan change is already committed by then.
@@ -34,6 +38,12 @@ use Illuminate\Notifications\Notification;
 class ProAccessGranted extends Notification implements ShouldQueue
 {
     use Queueable;
+
+    private const SOCIALS = [
+        'X' => 'https://x.com/gocastfm',
+        'Facebook' => 'https://www.facebook.com/gocast.fm/',
+        'Instagram' => 'https://www.instagram.com/gocastfm/',
+    ];
 
     public function __construct(private readonly Plan $plan) {}
 
@@ -47,25 +57,58 @@ class ProAccessGranted extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $frontendUrl = config('services.frontend_url');
+        $frontendUrl = rtrim((string) config('services.frontend_url'), '/');
+
+        // A user has one station (see the class comment), and by the time an
+        // admin approves them they have always created it — the request form
+        // lives inside the dashboard. The null branch is a guard against a
+        // crash, not a case the copy is written for.
+        $station = $notifiable->stations()->first();
 
         $message = (new MailMessage)
-            ->subject("You're on GoCast {$this->plan->name}")
+            ->subject("You're on GoCast {$this->plan->name} — 3 months on us")
             ->greeting("Hey {$notifiable->name},")
-            ->line("Your request is approved — your account is on {$this->plan->name} as of now.")
-            ->line('Your station can now take up to '.number_format($this->plan->max_listeners).' listeners at once.');
+            ->line("Your request is approved. Your station is now on {$this->plan->name} for 3 months, free of charge.")
+            ->line('If you already have the dashboard open, refresh the page to see the change.')
+            ->line('**What you get**')
+            ->line('- Up to '.number_format($this->plan->max_listeners).' listeners at once.');
 
         // Conditional because the plan decides it. Stating it unconditionally
         // would promise AutoDJ to anyone granted a plan that does not carry it.
         if ($this->plan->autodj_enabled) {
-            $message->line('AutoDJ is unlocked too: upload your library and your station keeps playing when you are not live.');
+            $message
+                ->line("- AutoDJ, so your station keeps playing when you're not live.")
+                ->line('**Set up AutoDJ in one minute**')
+                ->line('1. Open your library using the button below.')
+                ->line('2. Select your audio files and upload them.')
+                ->line("3. That's it. They start playing on your station right away.");
         }
 
-        // /dashboard, not /dashboard/stations: the latter is a legacy URL kept
-        // only as a redirect, and /dashboard is the one route that resolves
-        // which station is theirs.
+        if ($station) {
+            $message
+                // The library is owned per-station, so the link needs the slug;
+                // /dashboard/library would work too but adds a redirect hop.
+                ->action(
+                    $this->plan->autodj_enabled ? 'Open AutoDJ' : 'Open your dashboard',
+                    $this->plan->autodj_enabled
+                        ? "{$frontendUrl}/dashboard/stations/{$station->slug}/library"
+                        : "{$frontendUrl}/dashboard"
+                )
+                ->line('**Share your station**')
+                ->line('This is your public link. Anyone can open it and listen, no account needed:')
+                ->line("{$frontendUrl}/station/{$station->slug}")
+                ->line('Share it with your listeners and friends so they can tune in.');
+        } else {
+            $message->action('Open your dashboard', "{$frontendUrl}/dashboard");
+        }
+
+        $message->line('**Follow us for news and updates**');
+
+        foreach (self::SOCIALS as $name => $url) {
+            $message->line("- [{$name}]({$url})");
+        }
+
         return $message
-            ->action('Open your dashboard', "{$frontendUrl}/dashboard")
             ->line('Reply to this email if anything looks wrong — it comes straight to us.')
             ->salutation('— The GoCast team');
     }
