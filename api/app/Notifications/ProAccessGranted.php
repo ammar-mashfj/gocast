@@ -81,7 +81,8 @@ class ProAccessGranted extends Notification implements ShouldQueue
                 ->line('**Set up AutoDJ in one minute**')
                 ->line('1. Open your library using the button below.')
                 ->line('2. Select your audio files and upload them.')
-                ->line("3. That's it. They start playing on your station right away.");
+                ->line("3. That's it. They start playing on your station right away.")
+                ->line('4. Want station IDs or liners between songs? Open **Jingles** on the same page, upload them, and choose how often they play. They never cut into a track.');
         }
 
         if ($station) {
@@ -97,7 +98,7 @@ class ProAccessGranted extends Notification implements ShouldQueue
                 ->line('**Share your station**')
                 ->line('This is your public link. Anyone can open it and listen, no account needed:')
                 ->line("{$frontendUrl}/station/{$station->slug}")
-                ->line('Share it with your listeners and friends so they can tune in.');
+                ->line("Share it with your listeners and friends so they can tune in. Put it in your Instagram bio, on your Facebook page, wherever you want. It's yours.");
         } else {
             $message->action('Open your dashboard', "{$frontendUrl}/dashboard");
         }
