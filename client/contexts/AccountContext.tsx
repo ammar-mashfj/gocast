@@ -75,3 +75,16 @@ export function useAudienceLocked(): boolean {
   const plan = usePlan()
   return plan !== null && plan.analytics_days <= 0
 }
+
+/**
+ * Does this account NOT have the embeddable player? Same negative phrasing
+ * and same reason as the two above: an unknown plan must render unlocked.
+ *
+ * Drives the snippet UI only. `/embed/{slug}` reads the owner's plan
+ * server-side and 404s without it, so an unlocked button on an unknown plan
+ * produces a snippet that does not render — never one that should not.
+ */
+export function useEmbedLocked(): boolean {
+  const plan = usePlan()
+  return plan !== null && !plan.embed_enabled
+}

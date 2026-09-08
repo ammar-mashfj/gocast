@@ -22,6 +22,13 @@ export interface Plan {
    */
   analytics_days: number
   max_listeners: number
+  /**
+   * May this account's stations be embedded on other sites? False on Free.
+   * Decides whether the dashboard shows the snippet; the embed page itself
+   * 404s for a plan without it, so a wrong answer here hides a working
+   * feature or shows a broken one — never grants anything.
+   */
+  embed_enabled: boolean
   /** The audible "powered by GoCast" ID is mixed into this user's streams. */
   watermarked: boolean
 }

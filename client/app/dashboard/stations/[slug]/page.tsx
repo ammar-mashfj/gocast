@@ -148,8 +148,10 @@ export default async function StationDetailPage({
 
       <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="flex flex-col gap-6 min-w-0">
-          {/* Power, now playing, up next, listeners, and every action that
-              changes any of them. */}
+          {/* Two cards from one poll, side by side where the column is wide
+              enough: "is this station on air?" with every control that changes
+              the answer, and "what is on air?" with the source, the track and
+              the skip. Off air the second is absent and the first spans. */}
           <StationPower station={station} />
 
           <StationActivity

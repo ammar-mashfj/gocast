@@ -11,7 +11,9 @@ import {
   IconCode,
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
-import { usePlan, useAutoDjLocked } from "@/contexts/AccountContext"
+import { useAutoDjLocked, useEmbedLocked } from "@/contexts/AccountContext"
+import { useProRequest } from "@/contexts/ProRequestContext"
+import { EmbedDialog } from "@/components/dashboard/EmbedDialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -79,7 +81,6 @@ interface StreamPanelProps {
 export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
   const router = useRouter()
   const { stop, micDisabled } = useBroadcast()
-  const plan = usePlan()
   // No AutoDJ means there is nothing for the station to fall back to when the
   // broadcast ends — so ending it takes the station off air too, rather than
   // parking it on a silence bed until `stations:sweep` notices. On a plan with
@@ -91,6 +92,7 @@ export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
   const [copied, setCopied] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [ending, setEnding] = useState(false)
+  const [showEmbed, setShowEmbed] = useState(false)
 
   useEffect(() => {
     api.get(`/stations/${stationId}`).then((res) => setStation(res.data.data))
@@ -98,9 +100,11 @@ export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
 
   const playerUrl = station ? `${env.appUrl}/station/${station.slug}` : ""
 
-  // Null plan means "don't know" — never "free". Locking a paying customer out
-  // of their own feature because one request timed out is the worse failure.
-  const embedLocked = plan !== null && plan.slug === "free"
+  // Free gets the badge and the upgrade dialog, never the snippet. An unknown
+  // plan renders unlocked — see useEmbedLocked — and the embed page is what
+  // actually refuses.
+  const embedLocked = useEmbedLocked()
+  const proRequest = useProRequest()
 
   useEffect(() => {
     if (!copied) return
@@ -167,11 +171,7 @@ export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
                 variant="outline"
                 size="sm"
                 className="flex-1"
-                onClick={() =>
-                  toast.info("Embeddable player is coming to Pro", {
-                    description: "Share the player link in the meantime.",
-                  })
-                }
+                onClick={() => (embedLocked ? proRequest.open() : setShowEmbed(true))}
               >
                 <IconCode data-icon="inline-start" />
                 Embed
@@ -199,6 +199,14 @@ export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
                 </DialogContent>
               </Dialog>
             </div>
+            {station && (
+              <EmbedDialog
+                open={showEmbed}
+                onOpenChange={setShowEmbed}
+                slug={station.slug}
+                stationName={station.name}
+              />
+            )}
           </>
         ) : (
           <div className="flex flex-col gap-2">

@@ -84,16 +84,25 @@ export default function StationDetailLoading() {
 
       <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="flex flex-col gap-6 min-w-0">
-          {/* StationPower — a bordered section, not a Card. */}
-          <section className="@container/power rounded-xl border border-border bg-card/40 p-5 flex flex-col gap-5 @xl/power:flex-row @xl/power:items-center @xl/power:justify-between">
-            <div className="min-w-0 flex flex-col gap-1.5 flex-1">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-6 w-56 max-w-full" />
-              <Skeleton className="h-3 w-40" />
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Skeleton className="h-9 w-28" />
-              <Skeleton className="h-9 w-24" />
+          {/* StationPower's power card — a bordered section, not a Card. The
+              now-playing card beside it is not skeletoned: it only exists once
+              the station is on air, which this page cannot know yet.
+
+              `@container/power` declares the container and the row/column
+              switch sits on the child, because a container query never styles
+              the container element itself. Kept identical to the real card so
+              the swap isn't a jump. */}
+          <section className="@container/power rounded-xl border border-border bg-card/40 p-5">
+            <div className="flex flex-col gap-5 @lg/power:flex-row @lg/power:items-center @lg/power:justify-between">
+              <div className="min-w-0 flex flex-col gap-1.5 flex-1">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-6 w-56 max-w-full" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Skeleton className="h-9 w-28" />
+                <Skeleton className="h-9 w-24" />
+              </div>
             </div>
           </section>
 

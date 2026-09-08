@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { Station } from "@/interfaces/Station"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
+import { useBroadcast } from "@/contexts/BroadcastContext"
 import { GoLiveTrigger } from "@/components/dashboard/GoLiveTrigger"
 
 interface StationPowerProps {
@@ -25,11 +26,22 @@ interface StationPowerProps {
   compact?: boolean
 }
 
+/**
+ * The POWER axis, and only that: can a listener hear anything at all?
+ *
+ * `live` deliberately maps to "On air" rather than "Live". A live broadcast is
+ * not a bigger version of being on air — it is being on air with a person as
+ * the source. Listing the two as peer values here is what had owners reading
+ * "Go live" and "Put on air" as two ways to start the same thing, when in fact
+ * going live already starts the station (see ensureStationOnAir in
+ * lib/broadcast.ts). What is making the sound is a separate axis, rendered
+ * beside this one as SOURCE_LABEL below and never folded into it.
+ */
 const STATE_LABEL: Record<string, string> = {
   offline: "Off air",
   starting: "Starting…",
   on_air: "On air",
-  live: "Live",
+  live: "On air",
   // The station is running and producing audio, but Icecast isn't carrying it
   // — so nobody can hear it. Named for what the listener experiences rather
   // than for the component that failed.
@@ -50,6 +62,18 @@ const STATE_LABEL: Record<string, string> = {
  * no listeners, and no now-playing. Everything below the status line comes
  * from that container directly, so it stops rather than goes stale when the
  * station goes off air.
+ *
+ * RENDERS TWO CARDS, not one. The first answers "can anyone hear this
+ * station?" and owns every control that changes the answer; the second answers
+ * "what are they hearing?" and owns the source, the track and the skip. They
+ * were a single card, which is what let the two questions blur into one — a
+ * card headed "Live on air" reads as a station in a different mode rather than
+ * a station with a person as its source.
+ *
+ * They are siblings from ONE component rather than two independently mounted
+ * ones because both are views of a single `useStationStatus` poll. Splitting
+ * them into separate components would put two timers on the same endpoint and
+ * let the two cards disagree with each other mid-poll.
  */
 export function StationPower({ station, compact = false }: StationPowerProps) {
   const router = useRouter()
@@ -62,6 +86,40 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   const isRunning = state !== "offline"
   const isLive = state === "live"
   const isAutoDj = status?.source === "autodj"
+
+  // Is the broadcast coming from THIS tab? The broadcast context is per-tab,
+  // so a positive answer is certain while a negative one is not: another tab
+  // of this same browser, another machine, and an external encoder all look
+  // identical from here. Hence "another source" rather than "another device" —
+  // the only phrasing that is true in all three cases. Naming the actual
+  // device would need harbor's `live_connected` callback to carry the source's
+  // identity; today StationEventController opens every session with a
+  // hardcoded source_type of 'browser'.
+  const { state: broadcastState, stationSlug: broadcastSlug } = useBroadcast()
+  const liveFromThisBrowser =
+    broadcastSlug === station.slug &&
+    (broadcastState === "live" || broadcastState === "reconnecting")
+
+  /**
+   * The SOURCE axis: what is actually making the sound.
+   *
+   * Null whenever we cannot answer honestly — off air, or the container has
+   * not replied yet — so the UI omits the chip rather than guessing. "Live"
+   * on its own said only that a human was publishing, never from where, which
+   * is the one thing an owner staring at the badge wants to know.
+   */
+  const sourceLabel =
+    !isRunning || !status?.reachable
+      ? null
+      : isLive
+        ? liveFromThisBrowser
+          ? "Live from this browser"
+          : "Live from another source"
+        : status.source === "autodj"
+          ? "AutoDJ"
+          : status.source === "silence"
+            ? "Silence"
+            : null
 
   // Without AutoDJ there is no unattended arm: the station's AutoDJ source is
   // a silence bed, so a station that is on air with nobody broadcasting emits
@@ -132,12 +190,19 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
             : "bg-muted-foreground/40"
 
   const badge = (
-    <Badge
-      variant="secondary"
-      className={cn("gap-1 shrink-0", state === "live" && "text-emerald-400")}
-    >
+    <Badge variant="secondary" className="gap-1.5 shrink-0">
       <span className={cn("size-1.5 rounded-full", dotClass)} />
       <span className="text-xs">{STATE_LABEL[state] ?? state}</span>
+      {sourceLabel && (
+        <>
+          <span className="text-xs text-muted-foreground/50" aria-hidden="true">·</span>
+          <span
+            className={cn("text-xs", isLive ? "text-emerald-400" : "text-muted-foreground")}
+          >
+            {sourceLabel}
+          </span>
+        </>
+      )}
     </Badge>
   )
 
@@ -145,7 +210,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   // The compact variant is an inline toolbar with no such container, so it
   // keeps intrinsic widths — resolving `@xl/power:` with no `power` container
   // in scope would leave those buttons permanently full-width.
-  const actionClass = compact ? "w-auto" : "w-full @xl/power:w-auto"
+  const actionClass = compact ? "w-auto" : "w-full @lg/power:w-auto"
 
   const stopButton = (
     <Button
@@ -198,163 +263,243 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     )
   }
 
-  // Headline — the same question the page opens with, answered in the
-  // station's own terms rather than in ours. "On air" alone never said who
-  // was making the sound.
+  // Headline — the power axis only. It used to answer both questions in one
+  // phrase ("Live on air" / "AutoDJ on air"), which made the source look like
+  // a different KIND of on-air rather than an attribute of it. The source now
+  // sits next to it, so the first thing read is always the same question:
+  // can anyone hear this station?
   const headline =
-    state === "live"
-      ? "Live on air"
-      : state === "starting"
-        ? "Coming on air"
-        : state === "degraded"
-          ? "Not reaching listeners"
-          : state === "on_air"
-            ? isAutoDj
-              ? "AutoDJ on air"
-              : "On air"
-            : "Off air"
+    state === "starting"
+      ? "Coming on air"
+      : state === "degraded"
+        ? "Not reaching listeners"
+        : isRunning
+          ? "On air"
+          : "Off air"
 
   const headlineClass =
-    state === "live"
-      ? "text-emerald-400"
+    state === "degraded"
+      ? "text-destructive"
+      : state === "starting" || !isRunning
+        ? "text-muted-foreground"
+        : "text-primary"
+
+  /**
+   * The power card's big line: what this state MEANS for a listener. It used
+   * to be the track title, which is what made one card try to answer two
+   * questions — the track now has a card of its own and this one never
+   * mentions it.
+   */
+  const powerDetail = !isRunning
+    ? "Nobody can tune in right now"
+    : state === "starting"
+      ? "Building the audio chain…"
       : state === "degraded"
-        ? "text-destructive"
-        : state === "on_air"
-          ? "text-primary"
-          : "text-muted-foreground"
+        ? "The audio is fine — it just isn't reaching Icecast"
+        : loading && !status
+          ? "Checking…"
+          : !status?.reachable
+            ? "Waiting for the station to answer"
+            : "Anyone with your link can tune in"
+
+  /** Off air only: what the button underneath is actually going to do. */
+  const powerHint = isRunning
+    ? null
+    : autoDjLocked
+      ? "Go live and anyone with the link can tune in while you broadcast"
+      : "Put it on air and your AutoDJ rotation plays to anyone with the link"
 
   const nowPlaying = status?.now_playing ?? lastNowPlaying.current
   const upNext = status?.up_next?.[0]
   const hasRotation = (status?.playlist_length ?? 0) > 0
 
-  /** The big line: what a listener pressing play would hear this second. */
-  let headlineDetail: string
-  if (!isRunning) {
-    headlineDetail = "Nobody can tune in right now"
-  } else if (state === "starting") {
-    headlineDetail = "Building the audio chain…"
+  /** The now-playing card's big line: what is coming out of the mount. */
+  let nowPlayingLine: string
+  if (state === "starting") {
+    nowPlayingLine = "Waiting for audio…"
   } else if (loading && !status) {
-    headlineDetail = "Checking…"
+    nowPlayingLine = "Checking…"
   } else if (nowPlaying) {
-    headlineDetail = [nowPlaying.title, nowPlaying.artist].filter(Boolean).join(" — ")
-  } else if (status?.reachable && hasRotation) {
+    nowPlayingLine = [nowPlaying.title, nowPlaying.artist].filter(Boolean).join(" — ")
+  } else if (!status?.reachable) {
+    nowPlayingLine = "Waiting for the station to answer"
+  } else if (isLive) {
+    // A broadcaster only has a title if their software sends one. Saying
+    // "waiting for track info" would imply something is late; nothing is.
+    nowPlayingLine = "A live broadcast — no track info sent"
+  } else if (hasRotation) {
     // Producing audio from a rotation that exists, but no title has been seen
     // yet. Telling this owner to "add tracks" would be advice to fix something
     // that is not broken — they have tracks, and the station is playing them.
-    headlineDetail = "On air — waiting for track info"
-  } else if (status?.reachable) {
-    headlineDetail = autoDjLocked
+    nowPlayingLine = "On air — waiting for track info"
+  } else {
+    nowPlayingLine = autoDjLocked
       ? "Silence — go live to put sound on air"
       : "Silence — add tracks or go live"
-  } else {
-    headlineDetail = "Waiting for the station to answer"
-  }
-
-  // Second line. Both halves are optional, so it collapses to whichever is
-  // true rather than printing "Up next: —".
-  const detailParts: string[] = []
-  // Guarded on isRunning: the status endpoint still answers with the rotation
-  // it *would* play, and an off-air station promising an "up next" is a lie —
-  // there is no mount, so nothing is next until someone starts it.
-  if (isRunning && upNext) {
-    detailParts.push(`Up next: ${[upNext.title, upNext.artist].filter(Boolean).join(" — ")}`)
-  }
-  if (!isRunning) {
-    detailParts.push(
-      autoDjLocked
-        ? "Go live and anyone with the link can tune in while you broadcast"
-        : "Put it on air and your AutoDJ rotation plays to anyone with the link",
-    )
   }
 
   return (
-    <section
-      className={cn(
-        // Container query, not a viewport one: this card lives in a grid
-        // column, so on a tablet it is ~500px wide while the viewport is
-        // 1280px. Keyed to `md:` it stayed a row there and squeezed the
-        // headline into ~275px, which the truncate below then ate.
-        "@container/power rounded-xl border p-5 flex flex-col gap-5 @xl/power:flex-row @xl/power:items-center @xl/power:justify-between",
-        isRunning
-          ? "border-primary/25 bg-gradient-to-br from-primary/10 via-card/40 to-card/40"
-          : "border-border bg-card/40",
-      )}
-    >
-      <div className="min-w-0 flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <span className={cn("size-1.5 rounded-full shrink-0", dotClass)} />
-          <span className={cn("text-xs font-medium uppercase tracking-wider", headlineClass)}>
-            {headline}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1 min-w-0">
-          <span className="text-lg font-medium line-clamp-2">{headlineDetail}</span>
-          {isAutoDj && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => act("skip", "Skipped")}
-              disabled={pending !== null}
-              className="shrink-0 text-muted-foreground"
-              title="Skip to the next track"
-            >
-              {pending === "skip" ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                <IconPlayerTrackNextFilled size={14} />
-              )}
-              <span className="sr-only">Skip track</span>
-            </Button>
+    // Declares the container and NOTHING else. A container query styles the
+    // DESCENDANTS of a container, never the container element itself, so
+    // `@container/cards` and `@3xl/cards:` cannot sit on one div — the variant
+    // would look past this element for an ancestor named `cards`, find none,
+    // and silently never match.
+    <div className="@container/cards">
+      <div
+        className={cn(
+          // Queried rather than keyed to the viewport because this sits in a
+          // grid column that is ~600px wide on a 1024px viewport and ~880px on
+          // a 1280px one — a viewport breakpoint would put two cards side by
+          // side in a space that only fits one. 48rem is where each card still
+          // clears ~370px; below that they stack.
+          //
+          // Conditional on isRunning because the second card is absent off
+          // air, and a lone card in a two-column grid would sit in the left
+          // half with dead space beside it.
+          "grid gap-6",
+          isRunning && "@3xl/cards:grid-cols-2",
+        )}
+      >
+        {/* -------------------------------------------------------------
+            Card one: is this station on air? Power, and only power. */}
+        <section
+          className={cn(
+            // Declares the container; the row/column switch lives on the child
+            // below, for the reason given on the wrapper above. Both used to
+            // be on this one element, which is why this card stayed stacked at
+            // every width — `@xl/power:` never matched anything.
+            "@container/power rounded-xl border p-5",
+            isRunning
+              ? "border-primary/25 bg-gradient-to-br from-primary/10 via-card/40 to-card/40"
+              : "border-border bg-card/40",
           )}
-        </div>
+        >
+          {/* Queried, not keyed to the viewport: this card lives in a grid
+              column, so on a tablet it is ~500px wide while the viewport is
+              1280px. Keyed to `md:` it stayed a row there and squeezed the
+              headline into ~275px.
 
-        {detailParts.length > 0 && (
-          <div className="text-sm text-muted-foreground line-clamp-2">
-            {detailParts.join(" • ")}
+              `@lg` (32rem) and not `@xl`, because a container query measures
+              the container's CONTENT box: the section's `p-5` takes 40px off,
+              so a 582px card asks its query at 542px. At `@xl` that card —
+              which is exactly what a 1280px screen produces once these sit
+              two-up — fell a hair short and stacked, leaving a tall card of
+              full-width buttons next to a half-empty one. */}
+          <div className="flex flex-col gap-5 @lg/power:flex-row @lg/power:items-center @lg/power:justify-between">
+            <div className="min-w-0 flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className={cn("size-1.5 rounded-full shrink-0", dotClass)} />
+                <span
+                  className={cn("text-xs font-medium uppercase tracking-wider", headlineClass)}
+                >
+                  {headline}
+                </span>
+              </div>
+
+              <span className="text-lg font-medium line-clamp-2">{powerDetail}</span>
+
+              {powerHint && (
+                <div className="text-sm text-muted-foreground line-clamp-2">{powerHint}</div>
+              )}
+            </div>
+
+            {/* Actions, most-wanted first. Off air, the thing you want is a
+                mount; once there is one, the thing you want is the mic. */}
+            <div className="flex flex-col gap-2 shrink-0 @lg/power:min-w-[190px]">
+              {isLive ? (
+                <Button asChild className={actionClass}>
+                  <a href={`/dashboard/stations/${station.slug}/studio`}>
+                    <IconBroadcast size={14} data-icon="inline-start" />
+                    Open studio
+                  </a>
+                </Button>
+              ) : isRunning ? (
+                <GoLiveTrigger slug={station.slug} name={station.name}>
+                  <Button className={actionClass}>
+                    <IconBroadcast size={14} data-icon="inline-start" />
+                    Take over live
+                  </Button>
+                </GoLiveTrigger>
+              ) : autoDjLocked ? (
+                <GoLiveTrigger slug={station.slug} name={station.name}>
+                  <Button className={actionClass}>
+                    <IconBroadcast size={14} data-icon="inline-start" />
+                    Go live
+                  </Button>
+                </GoLiveTrigger>
+              ) : (
+                startButton
+              )}
+
+              {isRunning ? (
+                stopButton
+              ) : autoDjLocked ? null : (
+                <GoLiveTrigger slug={station.slug} name={station.name}>
+                  <Button variant="outline" className={actionClass}>
+                    <IconBroadcast size={14} data-icon="inline-start" />
+                    Go live
+                  </Button>
+                </GoLiveTrigger>
+              )}
+            </div>
           </div>
+        </section>
+
+        {/* -------------------------------------------------------------
+            Card two: what is on air. Rendered only while the station is up —
+            an off-air station has no mount, so a "Now playing" card there
+            would be a box permanently reading "nothing", and the card beside
+            it already says why. */}
+        {isRunning && (
+          <section className="rounded-xl border border-border bg-card/40 p-5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Now playing
+              </span>
+              {sourceLabel && (
+                <>
+                  <span className="text-xs text-muted-foreground/50" aria-hidden="true">·</span>
+                  <span
+                    className={cn(
+                      "text-xs font-medium uppercase tracking-wider",
+                      isLive ? "text-emerald-400" : "text-muted-foreground",
+                    )}
+                  >
+                    {sourceLabel}
+                  </span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-lg font-medium line-clamp-2">{nowPlayingLine}</span>
+              {isAutoDj && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => act("skip", "Skipped")}
+                  disabled={pending !== null}
+                  className="shrink-0 text-muted-foreground"
+                  title="Skip to the next track"
+                >
+                  {pending === "skip" ? (
+                    <IconLoader2 size={14} className="animate-spin" />
+                  ) : (
+                    <IconPlayerTrackNextFilled size={14} />
+                  )}
+                  <span className="sr-only">Skip track</span>
+                </Button>
+              )}
+            </div>
+
+            {upNext && (
+              <div className="text-sm text-muted-foreground line-clamp-2">
+                Up next: {[upNext.title, upNext.artist].filter(Boolean).join(" — ")}
+              </div>
+            )}
+          </section>
         )}
       </div>
-
-      {/* Actions, most-wanted first. Off air, the thing you want is a mount;
-          once there is one, the thing you want is the microphone. */}
-      <div className="flex flex-col gap-2 shrink-0 @xl/power:min-w-[190px]">
-        {isLive ? (
-          <Button asChild className={actionClass}>
-            <a href={`/dashboard/stations/${station.slug}/studio`}>
-              <IconBroadcast size={14} data-icon="inline-start" />
-              Open studio
-            </a>
-          </Button>
-        ) : isRunning ? (
-          <GoLiveTrigger slug={station.slug} name={station.name}>
-            <Button className={actionClass}>
-              <IconBroadcast size={14} data-icon="inline-start" />
-              Take over live
-            </Button>
-          </GoLiveTrigger>
-        ) : autoDjLocked ? (
-          <GoLiveTrigger slug={station.slug} name={station.name}>
-            <Button className={actionClass}>
-              <IconBroadcast size={14} data-icon="inline-start" />
-              Go live
-            </Button>
-          </GoLiveTrigger>
-        ) : (
-          startButton
-        )}
-
-        {isRunning ? (
-          stopButton
-        ) : autoDjLocked ? null : (
-          <GoLiveTrigger slug={station.slug} name={station.name}>
-            <Button variant="outline" className={actionClass}>
-              <IconBroadcast size={14} data-icon="inline-start" />
-              Go live
-            </Button>
-          </GoLiveTrigger>
-        )}
-      </div>
-    </section>
+    </div>
   )
 }

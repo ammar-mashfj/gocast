@@ -83,6 +83,16 @@ Schedule::command('listeners:prune')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Erases stations that have sat in the trash past the retention window,
+// reclaiming their uploaded audio and container artifacts. Nightly and
+// off-peak like the listener prune, at a different minute so the two are never
+// competing for the same disk. Ordered after 04:20 deliberately: both are
+// delete-heavy and there is no reason to overlap them.
+Schedule::command('stations:prune-deleted')
+    ->dailyAt('04:40')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Day-7 inactive-broadcaster nudge — runs once a day at 16:00 UTC (a typical
 // open-rate sweet spot) to email users who signed up a week ago and haven't
 // gone live yet. The command itself is idempotent (skips users already

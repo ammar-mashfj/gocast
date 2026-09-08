@@ -14,18 +14,44 @@ use Illuminate\Pagination\LengthAwarePaginator;
 class PublicStationController extends Controller
 {
     /**
-     * Returns featured live stations for the homepage.
-     * Only returns stations that are both live and marked as featured.
-     * Returns an empty collection when none are live — the frontend hides the section.
+     * The admin-curated rail on the homepage and the station page.
+     *
+     * Requires the station to be ON AIR, not LIVE. Those are different things
+     * here: `running()` is the owner having switched the station on, which is
+     * what makes the mount exist and a player that connects hear something;
+     * `live()` additionally demands an open StreamSession, i.e. a human at a
+     * microphone right now. Gating the rail on the latter meant a featured
+     * station rotating AutoDJ to a real audience was invisible, and since most
+     * stations are not being hand-broadcast at any given minute, the homepage
+     * spent most of its life rendering "claim this slot" placeholders instead
+     * of the stations someone had deliberately picked. StationResource still
+     * reports `is_live` per station, so the cards can badge the difference.
+     *
+     * Ordering is explicit and total, because the LIMIT truncates: more
+     * featured stations than slots and an unordered query is a different four
+     * stations per request. Live broadcasts bubble to the top of the rail,
+     * then the most recent pick.
+     *
+     * Returns an empty collection when nothing featured is on air — the
+     * frontend falls back to its own empty state.
      */
     public function featured(): AnonymousResourceCollection
     {
         return StationResource::collection(
             Station::query()
+                ->featured()
                 ->running()
-                ->live()
-                ->where('featured', true)
-                ->limit(4)
+                ->withExists([
+                    'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),
+                ])
+                ->orderByDesc('has_open_session')
+                // Rows featured before `featured_at` existed and never touched
+                // since carry a null, and MySQL sorts those first on a DESC.
+                // They belong at the back of the rail, not the front.
+                ->orderByRaw('featured_at is null')
+                ->orderByDesc('featured_at')
+                ->orderBy('name')
+                ->limit(Station::FEATURED_RAIL_SIZE)
                 ->get()
         );
     }

@@ -11,7 +11,7 @@ export default function TermsPage() {
     <main className="max-w-2xl mx-auto px-6 py-16">
       <h1 className="text-3xl font-semibold mb-2">Terms of Service</h1>
       <p className="text-sm text-text-muted mb-12">
-        Last updated: April 15, 2026
+        Last updated: September 8, 2026
       </p>
 
       <div className="flex flex-col gap-10 text-sm leading-relaxed text-text-muted">
@@ -27,9 +27,10 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-medium text-white mb-3">2. The Service</h2>
             <p>
-              GoCast is a live radio streaming platform that lets you broadcast audio from your browser.
-              We provide the relay infrastructure, player pages, and broadcaster tools. You provide
-              the content.
+              GoCast is a live radio streaming platform. Depending on your plan, you can go live
+              from your browser, connect an external encoder such as BUTT or Mixxx over Icecast, or
+              let AutoDJ play an unattended playlist from a library you upload. We provide the relay
+              infrastructure, player pages, and broadcaster tools. You provide the content.
             </p>
           </section>
 
@@ -51,8 +52,12 @@ export default function TermsPage() {
             <h2 className="text-lg font-medium text-white mb-3">4. Content Guidelines</h2>
             <p className="mb-3">
               You retain ownership of all content you broadcast or upload. By using GoCast, you grant
-              us a limited license to transmit, cache, and distribute your content solely for the
-              purpose of operating the service.
+              us a limited license to transmit, cache, and distribute your content for the purpose of
+              operating and promoting the service. That includes listing your station in our public
+              directory and featuring it on our homepage — every station on GoCast is public, and
+              there is no private or unlisted mode today. On free plans it also includes mixing a
+              short audible &ldquo;powered by GoCast&rdquo; identifier into your stream; paid plans
+              broadcast without it.
             </p>
             <p className="mb-3">You agree not to broadcast or upload content that:</p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
@@ -67,6 +72,11 @@ export default function TermsPage() {
               You are solely responsible for ensuring you have the rights to broadcast any music,
               audio, or other content through your station. This includes obtaining any necessary
               licenses from rights holders, performance rights organizations, or collecting societies.
+            </p>
+            <p className="mt-3">
+              Audio you upload to your station&apos;s library is stored so we can play it back on your
+              station, subject to the storage allowance for your plan. We do not use it for any other
+              purpose. Deleting a track removes its file from our storage.
             </p>
           </section>
 
@@ -83,15 +93,31 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-medium text-white mb-3">6. Free and Paid Plans</h2>
             <p>
-              GoCast offers both free and paid plans. Free plans are subject to limitations on the
-              number of stations, concurrent listeners, and audio quality. Paid plans offer higher
-              limits and additional features as described on the pricing page.
+              GoCast offers a free plan and a paid Pro plan. Free plans are subject to limits on the
+              number of stations and concurrent listeners, do not include the AutoDJ library or
+              external encoder input, and carry an audible GoCast identifier in the stream. Stream
+              audio quality is the same on every plan. Current limits and features are described on
+              the pricing page.
             </p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5 mt-3">
-              <li>Paid subscriptions are billed monthly and renew automatically.</li>
-              <li>You may cancel at any time — your plan remains active until the end of the billing period.</li>
-              <li>Refunds are not provided for partial billing periods.</li>
-              <li>We reserve the right to change pricing with 30 days&apos; notice.</li>
+              <li>
+                Pro is not self-serve yet. It is requested from your dashboard and granted manually,
+                and it is free while in beta.
+              </li>
+              <li>
+                Billing is not active. We will give notice before we begin charging, and you will
+                never be charged without agreeing to a price first.
+              </li>
+              <li>
+                Once billing opens, paid subscriptions will be billed monthly and renew automatically
+                until cancelled. You will be able to cancel at any time, and your plan will remain
+                active until the end of the billing period. Refunds will not be provided for partial
+                billing periods.
+              </li>
+              <li>
+                We reserve the right to change pricing, and will give notice before a change affects
+                an existing subscription.
+              </li>
             </ul>
           </section>
 
@@ -100,8 +126,15 @@ export default function TermsPage() {
             <p>
               We may suspend or terminate your account if you violate these terms, engage in abusive
               behavior, or if required by law. You may delete your account at any time from the
-              dashboard — this will permanently remove your stations, broadcast history, and
-              associated data.
+              dashboard — this takes your stations off air and removes them from the public
+              directory, revokes your sessions, and removes your personal details from our records.
+              Audio you uploaded and the stations themselves are kept for 30 days so a deletion
+              can be undone, then permanently erased. Broadcast history and backup copies may
+              persist a while longer. Write to us at{" "}
+              <a href="mailto:legal@gocast.fm" className="text-violet-full no-underline hover:underline">
+                legal@gocast.fm
+              </a>{" "}
+              if you need something removed sooner.
             </p>
           </section>
 
@@ -112,6 +145,12 @@ export default function TermsPage() {
               We may perform maintenance, updates, or experience outages. We are not liable for any
               loss or damage resulting from service interruptions, including dropped broadcasts or
               lost listener connections.
+            </p>
+            <p className="mt-3">
+              Stations are also stopped automatically. A station that is producing no audio, with
+              nothing attached to produce any, is taken off air after a short period so that idle
+              stations do not hold infrastructure. You can bring it back on air from your dashboard
+              at any time.
             </p>
           </section>
 
@@ -140,7 +179,7 @@ export default function TermsPage() {
             </ul>
             <p className="mt-3">
               Send takedown notices to{" "}
-              <a href="mailto:dmca@gocast.fm" className="text-violet-fullno-underline hover:underline">
+              <a href="mailto:dmca@gocast.fm" className="text-violet-full no-underline hover:underline">
                 dmca@gocast.fm
               </a>.
               We will respond promptly and may disable the station pending resolution.
@@ -151,7 +190,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-medium text-white mb-3">11. Privacy</h2>
             <p>
               Your use of GoCast is also governed by our{" "}
-              <Link href="/privacy" className="text-violet-fullno-underline hover:underline">
+              <Link href="/privacy" className="text-violet-full no-underline hover:underline">
                 Privacy Policy
               </Link>,
               which describes how we collect, use, and protect your data.
@@ -171,7 +210,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-medium text-white mb-3">13. Contact</h2>
             <p>
               For questions about these terms, contact us at{" "}
-              <a href="mailto:legal@gocast.fm" className="text-violet-fullno-underline hover:underline">
+              <a href="mailto:legal@gocast.fm" className="text-violet-full no-underline hover:underline">
                 legal@gocast.fm
               </a>.
             </p>

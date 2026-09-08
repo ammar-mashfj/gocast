@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react"
 import { QRCodeCanvas } from "qrcode.react"
-import { IconDownload, IconQrcode } from "@tabler/icons-react"
+import { IconCode, IconDownload, IconQrcode } from "@tabler/icons-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -13,6 +14,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CopyButton } from "@/components/dashboard/CopyButton"
+import { EmbedDialog } from "@/components/dashboard/EmbedDialog"
+import { useEmbedLocked } from "@/contexts/AccountContext"
+import { useProRequest } from "@/contexts/ProRequestContext"
 
 /**
  * Rendered size, and also the exported one. Big enough that the downloaded PNG
@@ -72,7 +76,13 @@ interface StationShareProps {
  */
 export function StationShare({ url, stationName, slug }: StationShareProps) {
   const [showQr, setShowQr] = useState(false)
+  const [showEmbed, setShowEmbed] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Free gets the badge and the upgrade dialog, never the snippet. An unknown
+  // plan renders unlocked; the embed page itself is what actually refuses.
+  const embedLocked = useEmbedLocked()
+  const proRequest = useProRequest()
 
   function download() {
     const canvas = canvasRef.current
@@ -98,16 +108,36 @@ export function StationShare({ url, stationName, slug }: StationShareProps) {
             <code className="text-xs text-muted-foreground truncate">{url}</code>
             <CopyButton text={url} title={stationName} />
           </div>
-          <Button
-            variant="outline"
-            className="w-full mt-3"
-            onClick={() => setShowQr(true)}
-          >
-            <IconQrcode data-icon="inline-start" />
-            Tune-in code
-          </Button>
+          <div className="flex gap-2 mt-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setShowQr(true)}
+            >
+              <IconQrcode data-icon="inline-start" />
+              Tune-in code
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => (embedLocked ? proRequest.open() : setShowEmbed(true))}
+            >
+              <IconCode data-icon="inline-start" />
+              Embed
+              {embedLocked && (
+                <Badge variant="secondary" className="ml-1 text-[9px]">PRO</Badge>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
+
+      <EmbedDialog
+        open={showEmbed}
+        onOpenChange={setShowEmbed}
+        slug={slug}
+        stationName={stationName}
+      />
 
       <Dialog open={showQr} onOpenChange={setShowQr}>
         <DialogContent className="sm:max-w-sm">

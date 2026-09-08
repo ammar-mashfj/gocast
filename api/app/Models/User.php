@@ -76,6 +76,20 @@ class User extends Authenticatable implements MustVerifyEmail
         return (bool) ($this->plan?->watermark_enabled ?? false);
     }
 
+    /**
+     * May this user's stations be embedded on third-party sites?
+     *
+     * Read by UserResource (so the dashboard knows whether to show the
+     * snippet) and by PublicEmbedController (which is the real gate: the
+     * embed page 404s when this is false). A user with no plan row is free,
+     * and free has no embed — the null coalescing agrees with the rest of
+     * this class and with StationLifecycleService::autoDjEnabled.
+     */
+    public function canEmbed(): bool
+    {
+        return (bool) ($this->plan?->embed_enabled ?? false);
+    }
+
     public function stations(): HasMany
     {
         return $this->hasMany(Station::class);

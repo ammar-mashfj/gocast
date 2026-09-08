@@ -15,9 +15,13 @@ const GRADIENTS = [
 ]
 
 /**
- * "More live now" — keeps a listener inside GoCast when their current
+ * "More on GoCast" — keeps a listener inside GoCast when their current
  * station ends or they get curious. Renders nothing if there's nothing
- * else to recommend. Designed to be inlined into the player's controls
+ * else to recommend.
+ *
+ * Sourced from the admin-curated rail, which no longer requires a human
+ * broadcaster, so rows are badged per station: a pulsing green dot is a live
+ * broadcast, a flat grey one is on air (usually AutoDJ). Designed to be inlined into the player's controls
  * column so it shares vertical space with the play button etc.
  */
 export function RelatedStations({ excludeSlug }: { excludeSlug: string }) {
@@ -69,7 +73,7 @@ export function RelatedStations({ excludeSlug }: { excludeSlug: string }) {
   return (
     <div className="mt-8 w-full max-w-sm md:w-auto md:min-w-[300px] md:max-w-md">
       <div className="text-[10px] tracking-[2px] uppercase text-muted-foreground mb-2">
-        More live now
+        More on GoCast
       </div>
       <div className="flex flex-col gap-1.5">
         {stations.map((s, i) => (
@@ -87,10 +91,19 @@ export function RelatedStations({ excludeSlug }: { excludeSlug: string }) {
             />
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium text-white truncate">{s.name}</div>
-              <div className="text-[10px] text-muted-foreground truncate">{s.genre || "Live"}</div>
+              <div className="text-[10px] text-muted-foreground truncate">{s.genre || "Radio"}</div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <span className="size-1.5 bg-emerald-400 rounded-full animate-pulse" />
+              <span
+                className={
+                  s.is_live
+                    ? "size-1.5 bg-emerald-400 rounded-full animate-pulse"
+                    // Violet, not a washed-out white: these stations are
+                    // audible, and the palette's faint greys read as disabled.
+                    : "size-1.5 bg-violet-muted rounded-full"
+                }
+                title={s.is_live ? "Live broadcast" : "On air"}
+              />
             </div>
           </Link>
         ))}

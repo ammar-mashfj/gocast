@@ -32,5 +32,9 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|.*\\.png$|.*\\.svg$).*)"],
+  // /embed is public by design and renders inside other people's pages; it
+  // never needs the auth cookie read, and keeping it out of the matcher means
+  // a future protected-route change cannot accidentally redirect an iframe
+  // to the login page.
+  matcher: ["/((?!api|embed|_next/static|_next/image|.*\\.png$|.*\\.svg$).*)"],
 }

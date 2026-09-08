@@ -6,6 +6,13 @@ export interface Station {
   description: string | null
   genre: string | null
   artwork_url: string | null
+  /**
+   * Picked by an admin for the homepage rail. Editorial, not operational: it
+   * says the station was chosen, NOT that it is on the homepage this minute —
+   * the rail also requires `is_on_air` and shows only the first four. Drives
+   * the "Featured" badge.
+   */
+  featured: boolean
   /** A human broadcaster is publishing right now (WHIP active). Drives the "LIVE" badge. */
   is_live: boolean
   /**

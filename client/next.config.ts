@@ -139,9 +139,29 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        // Everything except /embed. The negative lookahead is the only way
+        // to EXCLUDE a path here: a second entry for /embed can override a
+        // header's value but cannot remove it, and there is no valid
+        // X-Frame-Options value that means "anyone may frame this".
+        source: "/((?!embed/).*)",
         headers: [
           { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      {
+        // The embeddable player — the one route that exists to be framed by
+        // other people's sites. No X-Frame-Options and NO frame-ancestors
+        // either: `frame-ancestors *` looks like "anyone" but matches only
+        // network schemes, so a snippet opened from a local file:// page (the
+        // first thing every owner does to try it) is blocked with a confusing
+        // console error. Absence of both headers is the browser default and
+        // is what "frame me from anywhere" actually spells. A Pro owner
+        // pastes the snippet wherever they like; there is no per-customer
+        // domain list to enforce.
+        source: "/embed/:path*",
+        headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         ],

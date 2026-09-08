@@ -16,6 +16,7 @@ import {
   IconHeart,
   IconHeartFilled,
   IconChevronDown,
+  IconRosetteDiscountCheckFilled,
 } from "@tabler/icons-react"
 import Image from "next/image"
 import Hls from "hls.js"
@@ -631,14 +632,48 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       {/* Content */}
       <div className="relative w-full flex flex-col items-center md:items-start md:justify-center px-6 md:pr-12 md:pl-4 pb-4 md:py-12 z-2 shrink-0">
 
+        {/* Eyebrow row: the editorial badge sits with the genre rather than
+            above the name, so a featured station gains a line of context
+            without pushing the station's own name down the page. `featured`
+            is the admin's pick and is independent of whether the station is
+            audible right now — an off-air station keeps the badge, which is
+            the honest reading of "we chose this one". */}
         {station.genre && (
           <div className="text-xs mt-3 tracking-[3px] uppercase text-primary/80 font-medium mb-3 max-w-[340px] text-center md:text-left">
             {station.genre}
           </div>
         )}
 
+        {/* The featured mark rides with the station's NAME rather than the
+            eyebrow: it is a property of this station, the way a verified tick
+            is, not another label about its content. Icon only — the meaning
+            is carried by the tooltip for a mouse and by the sr-only text for
+            everyone else, so the name keeps the line to itself.
+
+            A rosette check rather than a star. This page already spends a
+            HEART on "save station", and a star is the other universal
+            save/favourite glyph — the two side by side read as two flavours
+            of something the listener did, when this one is something GoCast
+            decided. The rosette has no such second meaning.
+
+            Sized in step with the heading so it stays in proportion at both
+            breakpoints; the utility classes override the width/height
+            attributes the icon sets for itself. */}
         <h1 className="text-3xl md:text-5xl font-medium -tracking-wide leading-tight mb-3 text-center md:text-left">
           {station.name}
+          {station.featured && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="ml-2 inline-flex align-middle text-primary">
+                    <IconRosetteDiscountCheckFilled className="size-4 md:size-6" />
+                    <span className="sr-only">Featured station</span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Hand-picked by GoCast</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </h1>
 
         {station.description && (

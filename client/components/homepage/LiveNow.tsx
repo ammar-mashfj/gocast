@@ -23,7 +23,30 @@ function Equalizer() {
   )
 }
 
-function LiveBadge() {
+/**
+ * "Live" means a human is publishing right now; "On air" means the mount is up
+ * and you will hear something — usually an AutoDJ rotation.
+ *
+ * The distinction has to be drawn per station rather than for the whole rail:
+ * /public/featured no longer requires an open broadcast session, so a featured
+ * station running AutoDJ appears here too, and badging it "Live" would claim
+ * somebody is at the microphone when nobody is.
+ */
+function StateBadge({ isLive }: { isLive: boolean }) {
+  // Violet rather than grey. Grey is the palette's disabled colour and reads
+  // as "nothing happening", which is the opposite of true — this station is
+  // audible, there is simply nobody at the microphone. Violet is the brand
+  // accent already carrying the equalizer on the same card, so the badge says
+  // "playing" while staying visibly distinct from the green pulsing LIVE.
+  if (!isLive) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-violet-muted tracking-wide uppercase font-medium">
+        <div className="size-[5px] bg-violet-muted rounded-full" />
+        On air
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center gap-1.5 text-[10px] text-emerald-live tracking-wide uppercase font-medium">
       <div className={`size-[5px] bg-emerald-live rounded-full ${styles.liveDot}`} />
@@ -54,7 +77,7 @@ export default async function LiveNow() {
       <section className="px-4 md:px-10 py-12 md:py-24" id="live">
         <div className="text-center mb-10 md:mb-16">
           <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
-            Live now
+            Featured
           </div>
           <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
             Your station could be here.
@@ -88,13 +111,13 @@ export default async function LiveNow() {
     <section className="px-4 md:px-10 py-12 md:py-24" id="live">
       <div className="text-center mb-10 md:mb-16">
         <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
-          Live now
+          Featured
         </div>
         <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
           Discover what&apos;s on air.
         </h2>
         <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
-          Stations broadcasting right now, powered by GoCast.
+          Hand-picked stations, on air right now.
         </p>
       </div>
 
@@ -118,12 +141,12 @@ export default async function LiveNow() {
                 iconSize={18}
                 background={GRADIENTS[i % GRADIENTS.length]}
               />
-              <LiveBadge />
+              <StateBadge isLive={station.is_live} />
             </div>
             <div className="text-base font-medium text-text-secondary mb-1">
               {station.name}
             </div>
-            <div className="text-xs text-text-muted mb-3">{station.genre || "Live"}</div>
+            <div className="text-xs text-text-muted mb-3">{station.genre || "Radio"}</div>
             <div className="flex justify-between items-center">
               <span className="text-xs text-text-faint">Tune in</span>
               <Equalizer />

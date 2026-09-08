@@ -54,6 +54,10 @@ class UserResource extends JsonResource
                 // AudienceController is what actually enforces it.
                 'analytics_days' => (int) ($this->plan?->analytics_days ?? 0),
                 'max_listeners' => (int) ($this->plan?->max_listeners ?? 0),
+                // May this account's stations be embedded on other sites? The
+                // dashboard hides the snippet from a plan without it; the
+                // embed page (PublicEmbedController) is what actually refuses.
+                'embed_enabled' => $this->canEmbed(),
                 'watermarked' => $this->watermarked(),
             ],
         ];

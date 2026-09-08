@@ -693,6 +693,25 @@ return [
     'station_storage_bytes' => (int) env('LIQUIDSOAP_STATION_STORAGE_BYTES', 3 * 1024 * 1024 * 1024),
 
     /*
+    | How long a soft-deleted station is kept before `stations:prune-deleted`
+    | erases it for good — rows, uploaded audio, rendered script and HLS
+    | artifacts.
+    |
+    | Deleting a station only trashes the row: the container goes down and it
+    | leaves the directory, but the library stays on disk so a restore gets the
+    | station back intact. Nothing else ever collects it, so without this the
+    | audio of every station ever deleted is kept forever, and the account
+    | deletion path — which trashes the owner's stations and then scrambles the
+    | email, leaving nobody who could restore them — grows that pile fastest.
+    |
+    | The window is the grace period: long enough to undo a deletion somebody
+    | regrets, short enough that "we delete your audio when you delete your
+    | account" is a promise the terms can make. 0 disables pruning entirely and
+    | restores the old keep-forever behaviour.
+    */
+    'deleted_station_retention_days' => (int) env('LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS', 30),
+
+    /*
     |--------------------------------------------------------------------------
     | Per-station container resource caps
     |--------------------------------------------------------------------------

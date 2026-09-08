@@ -28,6 +28,8 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string|null $genre
  * @property string|null $artwork_url
  * @property bool $is_live
+ * @property bool $featured
+ * @property Carbon|null $featured_at
  * @property string $desired_state
  * @property Carbon|null $started_at
  * @property Carbon|null $silent_since
@@ -90,6 +92,14 @@ class Station extends Model
     public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
 
     /**
+     * How many featured stations the public rail shows. Featuring more than
+     * this is allowed — it is curation, not a queue — but the extras are not
+     * visible, which is why the admin panel counts against this number rather
+     * than refusing the write.
+     */
+    public const FEATURED_RAIL_SIZE = 4;
+
+    /**
      * Generate a unique slug from the station name on creation, then derive
      * the Icecast mount and a random source password. Slug is immutable
      * after creation — there is no update hook to regenerate it.
@@ -144,6 +154,7 @@ class Station extends Model
     {
         return [
             'featured' => 'boolean',
+            'featured_at' => 'datetime',
             'jingles_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
@@ -209,6 +220,38 @@ class Station extends Model
         }
 
         return $this->streamSessions()->whereNull('ended_at')->exists();
+    }
+
+    /**
+     * Admin-curated stations. Filter only — the public rail applies its own
+     * ordering, and it has to, because an unordered LIMIT over more featured
+     * stations than there are slots returns a different set of stations
+     * depending on how the storage engine feels that request.
+     *
+     * @param  Builder<Station>  $query
+     */
+    public function scopeFeatured($query): void
+    {
+        $query->where('featured', true);
+    }
+
+    /**
+     * Put this station in the featured rail, or take it out.
+     *
+     * The flag and its timestamp are written together, here, because they are
+     * one decision: a `featured` row with no `featured_at` sorts to the bottom
+     * of the rail forever, and a `featured_at` left behind on an unfeatured
+     * row makes "featured since" read as a lie the next time it is picked up.
+     *
+     * forceFill, matching WaitlistEntry::markReviewed(): these are admin-owned
+     * columns and must not be reachable through a request payload.
+     */
+    public function markFeatured(bool $featured): void
+    {
+        $this->forceFill([
+            'featured' => $featured,
+            'featured_at' => $featured ? now() : null,
+        ])->save();
     }
 
     public function getRouteKeyName(): string
@@ -285,6 +328,9 @@ class Station extends Model
     {
         return LogOptions::defaults()
             ->logOnly(['name', 'slug', 'description', 'genre', 'featured', 'desired_state'])
+            // `featured_at` is deliberately absent: it moves in lockstep with
+            // `featured`, and logging both would put the same decision in the
+            // audit trail twice.
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
     }

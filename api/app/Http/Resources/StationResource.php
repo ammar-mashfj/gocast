@@ -85,6 +85,19 @@ class StationResource extends JsonResource
             'description' => $this->description,
             'genre' => $this->genre,
             'artwork_url' => $this->artwork_url,
+            // Admin curation, and the one admin-owned column that is public.
+            //
+            // Unconditional, unlike `watermarked` below: being featured is an
+            // endorsement the station is meant to wear, so the badge has to
+            // render for a stranger who arrived on a shared link and not only
+            // for the owner. It leaks nothing a visitor cannot already infer
+            // by looking at the homepage rail.
+            //
+            // Says nothing about whether the station is on the homepage right
+            // now — the rail additionally requires the station to be on air
+            // and truncates to Station::FEATURED_RAIL_SIZE. This is the
+            // editorial fact; the rail is the display of it.
+            'featured' => (bool) $this->featured,
             'is_live' => $isLive,
             // is_on_air: the listener-facing "can I hear anything" flag — the
             // station's mount exists and a player that connects will stay

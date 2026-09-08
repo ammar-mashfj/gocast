@@ -38,6 +38,31 @@ class StationFactory extends Factory
     }
 
     /**
+     * A station in the admin-curated rail.
+     *
+     * Sets `featured_at` alongside the flag, the way Station::markFeatured()
+     * does — the public rail orders on it, so a factory that set only the
+     * boolean would build a station the ordering assertions cannot pin down.
+     */
+    public function featured(): static
+    {
+        return $this->state(fn () => [
+            'featured' => true,
+            'featured_at' => now(),
+        ]);
+    }
+
+    /**
+     * The owner has switched the station on: a container should exist and the
+     * mount should be up. Required by anything public — the rail included —
+     * because a stopped station is not audible.
+     */
+    public function running(): static
+    {
+        return $this->state(fn () => ['desired_state' => Station::STATE_RUNNING]);
+    }
+
+    /**
      * A station with a broadcaster publishing right now.
      *
      * There is no `is_live` column to set — live-ness is derived from an open

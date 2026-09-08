@@ -27,6 +27,12 @@ Route::middleware('guest:admin')->group(function () {
 Route::middleware('auth:admin')->group(function () {
     Route::redirect('/', '/admin/stations')->name('home');
     Route::get('stations', [StationController::class, 'index'])->name('stations.index');
+
+    // Homepage curation. POST rather than PATCH for the same reason as the
+    // request actions below, and a toggle rather than a pair of routes
+    // because the button's label already tells you which way it goes.
+    Route::post('stations/{station}/feature', [StationController::class, 'feature'])->name('stations.feature');
+
     Route::get('requests', [AccessRequestController::class, 'index'])->name('requests.index');
 
     // Hand-provisioning. Creates an account and its first station outright,

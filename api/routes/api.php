@@ -13,6 +13,7 @@ use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\NextTrackController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PublicEmbedController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationEventController;
@@ -136,6 +137,9 @@ Route::middleware('throttle:public')->group(function () {
     Route::get('/public/genres', [PublicStationController::class, 'genres']);
     Route::get('/public/stations/{slug}', [PublicStationController::class, 'show']);
     Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class, 'show']);
+    // The embeddable player's payload. Refuses (404) unless the owner's plan
+    // allows embedding — see PublicEmbedController for why it is its own route.
+    Route::get('/public/stations/{slug}/embed', [PublicEmbedController::class, 'show']);
     // Tighter throttle on the email-capture endpoint specifically — abuse vector is high.
     Route::post('/public/stations/{slug}/notify', [StationNotifyController::class, 'store'])
         ->middleware('throttle:5,60');
