@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AccessRequestController;
 use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\AuthenticatedSessionController;
+use App\Http\Controllers\Admin\InviteController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\WatermarkClipController;
 use Illuminate\Support\Facades\Route;
@@ -40,6 +41,12 @@ Route::middleware('auth:admin')->group(function () {
     // not start with the person registering themselves.
     Route::get('accounts/create', [AccountController::class, 'create'])->name('accounts.create');
     Route::post('accounts', [AccountController::class, 'store'])->name('accounts.store');
+
+    // Invite links. The self-serve path onto a paid plan: mint a link here,
+    // paste it into an email, and the recipient redeems it at sign-up.
+    Route::get('invites', [InviteController::class, 'index'])->name('invites.index');
+    Route::post('invites', [InviteController::class, 'store'])->name('invites.store');
+    Route::post('invites/{invite}/revoke', [InviteController::class, 'revoke'])->name('invites.revoke');
 
     // POST rather than PATCH throughout: these are plain Blade forms, and a
     // spoofed method buys nothing here while costing a hidden field on every

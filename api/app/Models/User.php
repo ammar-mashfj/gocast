@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -27,6 +28,8 @@ use Spatie\Activitylog\Support\LogOptions;
  * The google_id column links accounts authenticated through Google OAuth.
  *
  * @property int $plan_id
+ * @property int|null $invite_id
+ * @property Carbon|null $plan_expires_at
  */
 #[Fillable(['name', 'email', 'password', 'google_id', 'avatar_url', 'plan_id'])]
 #[Hidden(['password', 'remember_token'])]
@@ -47,6 +50,7 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'plan_expires_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
@@ -54,6 +58,16 @@ class User extends Authenticatable implements MustVerifyEmail
     public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    /**
+     * The invite link this account arrived through, if any. Set once by
+     * InviteRedemption and never cleared: it is attribution, and it is also
+     * what stops an account redeeming a second invite.
+     */
+    public function invite(): BelongsTo
+    {
+        return $this->belongsTo(Invite::class);
     }
 
     /**
@@ -118,7 +132,7 @@ class User extends Authenticatable implements MustVerifyEmail
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'email', 'email_verified_at', 'plan_id'])
+            ->logOnly(['name', 'email', 'email_verified_at', 'plan_id', 'plan_expires_at', 'invite_id'])
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
     }

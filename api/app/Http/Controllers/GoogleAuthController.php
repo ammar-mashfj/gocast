@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\InviteException;
+use App\Services\InviteRedemption;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,6 +20,18 @@ class GoogleAuthController extends Controller
 {
     private const STATE_COOKIE = 'gocast_oauth_state';
 
+    /**
+     * The invite code from the sign-up page, parked for the round trip through
+     * Google. The popup URL is the only thing the SPA controls, so the code
+     * rides in on the query string and waits in a cookie the same way the
+     * CSRF state does. Redeeming it here, inside the callback, is what lets a
+     * Google sign-up get exactly one welcome email: the Verified listener
+     * sees the invite already applied and sends the Pro welcome instead of
+     * the generic one, rather than the SPA redeeming afterwards and the
+     * account getting both.
+     */
+    private const INVITE_COOKIE = 'gocast_oauth_invite';
+
     private const AUTH_COOKIE = 'token';
 
     /**
@@ -30,19 +44,21 @@ class GoogleAuthController extends Controller
     {
         $state = Str::random(40);
 
-        return Socialite::driver('google')
+        $response = Socialite::driver('google')
             ->stateless()
             ->with(['state' => $state])
             ->redirect()
-            ->withCookie(cookie(
-                self::STATE_COOKIE,
-                hash('sha256', $state),
-                minutes: 10,
-                path: '/',
-                secure: $request->isSecure(),
-                httpOnly: true,
-                sameSite: 'lax',
-            ));
+            ->withCookie($this->flowCookie($request, self::STATE_COOKIE, hash('sha256', $state)));
+
+        $invite = $request->string('invite')->trim()->value();
+
+        // Same shape Invite::codeFor() produces; anything else is dropped
+        // rather than carried into a cookie.
+        if ($invite !== '' && preg_match('/^[A-Za-z0-9-]{1,40}$/', $invite)) {
+            $response->withCookie($this->flowCookie($request, self::INVITE_COOKIE, $invite));
+        }
+
+        return $response;
     }
 
     /**
@@ -58,7 +74,7 @@ class GoogleAuthController extends Controller
      * their account is linked to Google. Email is auto-verified since Google
      * already confirmed ownership.
      */
-    public function callback(Request $request): Response
+    public function callback(Request $request, InviteRedemption $invites): Response
     {
         $frontendOrigin = $this->frontendOrigin();
         $state = $request->string('state')->value();
@@ -101,6 +117,38 @@ class GoogleAuthController extends Controller
             }
         }
 
+        $payload = [
+            'type' => 'gocast-oauth',
+            'authenticated' => true,
+        ];
+
+        // Before the Verified event, so a brand-new account is still
+        // unverified while the invite is applied (InviteRedemption then sends
+        // nothing) and the listener below sends the single Pro welcome. An
+        // account that was verified already gets its email from the
+        // redemption itself, and no Verified event fires for it.
+        //
+        // Best effort: the person has authenticated with Google, so the
+        // account stands whether or not the link still works. What went
+        // wrong travels back in the payload for the SPA to show.
+        $inviteCode = $request->cookie(self::INVITE_COOKIE);
+
+        if (is_string($inviteCode) && $inviteCode !== '') {
+            try {
+                $invite = $invites->redeem($inviteCode, $user);
+                $payload['invite'] = [
+                    'applied' => true,
+                    'plan' => $invite->plan->name,
+                    'message' => "You're on {$invite->plan->name}.",
+                ];
+            } catch (InviteException $e) {
+                $payload['invite'] = [
+                    'applied' => false,
+                    'message' => $e->getMessage(),
+                ];
+            }
+        }
+
         if (! $user->hasVerifiedEmail()) {
             $user->markEmailAsVerified();
             event(new Verified($user));
@@ -108,10 +156,7 @@ class GoogleAuthController extends Controller
 
         $token = $user->createToken('auth')->plainTextToken;
 
-        return $this->callbackResponse([
-            'type' => 'gocast-oauth',
-            'authenticated' => true,
-        ], $frontendOrigin, $this->authCookie($request, $token));
+        return $this->callbackResponse($payload, $frontendOrigin, $this->authCookie($request, $token));
     }
 
     private function callbackResponse(array $payload, string $frontendOrigin, ?Cookie $authCookie = null): Response
@@ -121,13 +166,31 @@ class GoogleAuthController extends Controller
                 'payload' => $payload,
                 'frontendOrigin' => $frontendOrigin,
             ])
-            ->withCookie(cookie()->forget(self::STATE_COOKIE, path: '/'));
+            ->withCookie(cookie()->forget(self::STATE_COOKIE, path: '/'))
+            ->withCookie(cookie()->forget(self::INVITE_COOKIE, path: '/'));
 
         if ($authCookie) {
             $response->withCookie($authCookie);
         }
 
         return $response;
+    }
+
+    /**
+     * A short-lived, HttpOnly cookie that only has to survive the redirect to
+     * Google and back.
+     */
+    private function flowCookie(Request $request, string $name, string $value): Cookie
+    {
+        return cookie(
+            $name,
+            $value,
+            minutes: 10,
+            path: '/',
+            secure: $request->isSecure(),
+            httpOnly: true,
+            sameSite: 'lax',
+        );
     }
 
     private function authCookie(Request $request, string $token): Cookie

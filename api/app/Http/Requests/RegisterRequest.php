@@ -29,6 +29,11 @@ class RegisterRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+            // Validated for shape only. Whether the code is real, unused and
+            // in date is InviteRedemption's call, made inside the same
+            // transaction as the insert so the answer cannot change between
+            // here and there.
+            'invite_code' => ['nullable', 'string', 'max:40'],
         ];
     }
 }

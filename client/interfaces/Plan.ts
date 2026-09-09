@@ -31,6 +31,12 @@ export interface Plan {
   embed_enabled: boolean
   /** The audible "powered by GoCast" ID is mixed into this user's streams. */
   watermarked: boolean
+  /**
+   * ISO timestamp of when this plan ends and the account drops to Free, or
+   * null for an open-ended plan. Only a time-limited invite sets it. Display
+   * only — the API's `plans:expire` job is what enforces it.
+   */
+  expires_at: string | null
 }
 
 /**

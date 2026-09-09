@@ -6,9 +6,11 @@ use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\InviteRedemption;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -32,13 +34,27 @@ class AuthController extends Controller
 
     private const LOCKOUT_SECONDS = 900; // 15 minutes
 
-    public function register(RegisterRequest $request): JsonResponse
+    public function register(RegisterRequest $request, InviteRedemption $invites): JsonResponse
     {
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+        $code = $request->validated('invite_code');
+
+        // One transaction: an invite that turns out to be used must not leave
+        // a free account behind that the person then has to notice is free.
+        // InviteException propagates out of the closure, rolls the insert back
+        // and is rendered as a 422 on `invite_code` (see bootstrap/app.php).
+        $user = DB::transaction(function () use ($request, $invites, $code) {
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+            ]);
+
+            if ($code) {
+                $invites->redeem($code, $user);
+            }
+
+            return $user;
+        });
 
         $user->sendEmailVerificationNotification();
 

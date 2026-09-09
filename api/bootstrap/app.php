@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureEmailIsVerified;
 use App\Http\Middleware\UseAuthTokenCookie;
 use App\Http\Middleware\VerifyInternalKey;
+use App\Services\InviteException;
 use App\Services\StationLifecycleException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -99,6 +100,25 @@ return Application::configure(basePath: dirname(__DIR__))
             return response()->json([
                 'message' => $e->getMessage(),
                 'code' => $e->errorCode,
+            ], $e->status);
+        });
+
+        // Same contract for invites: a used or expired code is an expected
+        // outcome with a stable `code`, not a fault. `errors.invite_code` is
+        // there so the register page can treat it like any other field error.
+        $exceptions->reportable(function (InviteException $e) {
+            return $e->status >= 500;
+        });
+
+        // Always JSON, whatever the Accept header: the exception is only ever
+        // thrown from API routes, and falling through to the default handler
+        // would turn a 404/422 into a 500 page for a browser opening the
+        // invite URL directly.
+        $exceptions->render(function (InviteException $e, Request $request) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'code' => $e->errorCode,
+                'errors' => ['invite_code' => [$e->getMessage()]],
             ], $e->status);
         });
     })->create();

@@ -48,6 +48,28 @@ describe('approving', function () {
         expect($entry->user->fresh()->plan_id)->toBe($this->pro->id);
     });
 
+    /**
+     * An admin's grant is open-ended. An account that came in on a 30-day
+     * invite must not have that clock keep ticking underneath the approval,
+     * or plans:expire undoes the decision a month later.
+     */
+    it('makes the grant open-ended even on an invite trial', function () {
+        $user = User::factory()->create([
+            'plan_id' => $this->pro->id,
+            'plan_expires_at' => now()->addDays(10),
+        ]);
+        $entry = proRequest($user);
+
+        $this->post(route('admin.requests.approve', $entry));
+
+        expect($user->fresh()->plan_expires_at)->toBeNull();
+
+        $this->travel(11)->days();
+        $this->artisan('plans:expire');
+
+        expect($user->fresh()->plan_id)->toBe($this->pro->id);
+    });
+
     it('unlocks the entitlements the plan actually carries', function () {
         // AutoDJ and the listener cap are the two things that genuinely differ
         // between free and Pro today, and both are read from the plan at

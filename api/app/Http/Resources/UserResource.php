@@ -59,6 +59,10 @@ class UserResource extends JsonResource
                 // embed page (PublicEmbedController) is what actually refuses.
                 'embed_enabled' => $this->canEmbed(),
                 'watermarked' => $this->watermarked(),
+                // When this plan ends and the account drops to Free. Null for
+                // an open-ended plan, which is every plan not granted by a
+                // time-limited invite. Display only; plans:expire enforces it.
+                'expires_at' => $this->plan_expires_at,
             ],
         ];
     }

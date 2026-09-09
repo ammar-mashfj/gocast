@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Models\Admin;
+use App\Models\Invite;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
+use App\Notifications\InviteRedeemed;
 use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
 use App\Observers\UserObserver;
@@ -84,6 +86,7 @@ class AppServiceProvider extends ServiceProvider
             'user' => User::class,
             'station' => Station::class,
             'plan' => Plan::class,
+            'invite' => Invite::class,
         ]);
 
         // Drive per-station Liquidsoap containers from the Station model
@@ -98,10 +101,24 @@ class AppServiceProvider extends ServiceProvider
         // Send the welcome email the moment a user verifies. Anchored on
         // verification (not registration) so the email is reachable, and so
         // OAuth signups still get a welcome since their email is auto-verified.
+        //
+        // An account that arrived through an invite gets the Pro welcome
+        // instead of the generic one — same moment, same reason, and it says
+        // everything the generic one does plus what the plan gives them.
         Event::listen(Verified::class, function (Verified $event) {
-            if ($event->user instanceof User) {
-                $event->user->notify(new WelcomeNotification);
+            if (! $event->user instanceof User) {
+                return;
             }
+
+            $user = $event->user;
+
+            if ($user->invite_id !== null && $user->plan) {
+                $user->notify(new InviteRedeemed($user->plan, $user->plan_expires_at));
+
+                return;
+            }
+
+            $user->notify(new WelcomeNotification);
         });
     }
 }

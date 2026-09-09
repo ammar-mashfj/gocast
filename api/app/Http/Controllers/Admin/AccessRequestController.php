@@ -154,7 +154,10 @@ class AccessRequestController extends Controller
             return back()->with('status', 'That request was already settled — nothing changed.');
         }
 
-        $user->update(['plan_id' => $plan->id]);
+        // The end date is cleared as well: an admin's grant is open-ended,
+        // and leaving an invite trial's `plan_expires_at` in place would let
+        // plans:expire quietly undo this decision on the old date.
+        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => null])->save();
         $user->notify(new ProAccessGranted($plan));
 
         return back()->with('status', "{$user->email} is on {$plan->name} and has been emailed. Their dashboard catches up on their next page load.");
@@ -219,7 +222,7 @@ class AccessRequestController extends Controller
         // Same split as approve(), for the same reason: this is the telnet
         // fan-out that puts the watermark back, and on a Pro account it can be
         // five containers rather than one.
-        $reopened->user?->update(['plan_id' => $free->id]);
+        $reopened->user?->forceFill(['plan_id' => $free->id, 'plan_expires_at' => null])->save();
 
         return back()->with('status', "Moved {$reopened->email} back to {$free->name}. Their station keeps running.");
     }

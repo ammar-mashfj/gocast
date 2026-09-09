@@ -100,3 +100,13 @@ Schedule::command('stations:prune-deleted')
 Schedule::command('app:nudge-inactive-broadcasters')
     ->dailyAt('16:00')
     ->withoutOverlapping();
+
+// Ends time-limited plans. `plan_expires_at` is set by an invite with a
+// duration and read by nothing else, so this is the only thing that keeps the
+// promise the invite email made. Hourly rather than daily so an expiry lands
+// within the hour it names rather than up to a day late; the query is a range
+// scan on an indexed, mostly-null column, so it costs nothing on the empty
+// hours.
+Schedule::command('plans:expire')
+    ->hourly()
+    ->withoutOverlapping();

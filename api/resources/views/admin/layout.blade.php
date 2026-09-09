@@ -67,6 +67,12 @@
                         </a>
                     </li>
                     <li>
+                        <a href="{{ route('admin.invites.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.invites.*')])>
+                            Invites
+                        </a>
+                    </li>
+                    <li>
                         <a href="{{ route('admin.watermark.index') }}"
                            @class(['menu-active' => request()->routeIs('admin.watermark.*')])>
                             Watermark clips

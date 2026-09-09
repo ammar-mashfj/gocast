@@ -33,6 +33,15 @@ class Plan extends Model
     }
 
     /**
+     * The plan every account starts on and is moved back to. Matched by slug,
+     * the same way AccessRequestController and plans:expire find it.
+     */
+    public function isFree(): bool
+    {
+        return $this->slug === 'free';
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

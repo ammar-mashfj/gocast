@@ -1,11 +1,19 @@
 import { env } from "./env"
 
+/**
+ * What the callback says about an invite code that rode along. Present only
+ * when the popup was opened with one; the account exists either way.
+ */
+export type GoogleInviteOutcome =
+  | { applied: true; plan: string; message: string }
+  | { applied: false; message: string }
+
 type GoogleOAuthPayload =
-  | { type: "gocast-oauth"; authenticated: true }
+  | { type: "gocast-oauth"; authenticated: true; invite?: GoogleInviteOutcome }
   | { type: "gocast-oauth"; error: string }
 
 export type GoogleOAuthResult =
-  | { authenticated: true }
+  | { authenticated: true; invite?: GoogleInviteOutcome }
   | { error: string }
   | { dismissed: true }
 
@@ -27,10 +35,17 @@ const POPUP_HEIGHT = 600
  *
  * Resolves with `{dismissed: true}` if the user closes the popup without
  * completing sign-in, so callers can reset loading state cleanly.
+ *
+ * An invite code is handed to the API on the popup URL; it parks the code in
+ * a cookie for the trip through Google and redeems it inside the callback,
+ * so a new account gets its plan and its one welcome email in the same
+ * request. The outcome comes back on the result as `invite`.
  */
-export function signInWithGoogle(): Promise<GoogleOAuthResult> {
+export function signInWithGoogle(options: { invite?: string } = {}): Promise<GoogleOAuthResult> {
   return new Promise((resolve) => {
     const apiOrigin = new URL(env.apiUrl).origin
+    const url = new URL(`${env.apiUrl}/auth/google`)
+    if (options.invite) url.searchParams.set("invite", options.invite)
 
     const width = POPUP_WIDTH
     const height = POPUP_HEIGHT
@@ -38,7 +53,7 @@ export function signInWithGoogle(): Promise<GoogleOAuthResult> {
     const top = window.screenY + Math.max(0, (window.innerHeight - height) / 2)
 
     const opened = window.open(
-      `${env.apiUrl}/auth/google`,
+      url.toString(),
       "gocast-google-oauth",
       `width=${width},height=${height},left=${left},top=${top},noopener=no,noreferrer=no`,
     )
@@ -70,7 +85,7 @@ export function signInWithGoogle(): Promise<GoogleOAuthResult> {
       if (!data || data.type !== "gocast-oauth") return
 
       if ("authenticated" in data) {
-        settle({ authenticated: true })
+        settle(data.invite ? { authenticated: true, invite: data.invite } : { authenticated: true })
       } else {
         settle({ error: data.error || "google_auth_failed" })
       }

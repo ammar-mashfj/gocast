@@ -80,7 +80,12 @@
                         @forelse ($stations as $station)
                             <tr class="hover:bg-base-200">
                                 <td>
-                                    <div class="font-medium">{{ $station->name }}</div>
+                                    <a href="{{ rtrim((string) config('services.frontend_url'), '/') }}/station/{{ $station->slug }}"
+                                       target="_blank" rel="noopener noreferrer"
+                                       class="link link-hover font-medium"
+                                       title="Open the station page in a new tab">
+                                        {{ $station->name }}
+                                    </a>
                                     <div class="text-xs opacity-60">{{ $station->slug }}</div>
                                 </td>
                                 <td class="text-sm">{{ $station->user?->email ?? '—' }}</td>

@@ -7,6 +7,7 @@ use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
+use App\Http\Controllers\InviteController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
 use App\Http\Controllers\MetricsController;
@@ -45,12 +46,29 @@ Route::middleware('throttle:auth')->prefix('auth')->group(function () {
         ->name('password.reset');
 });
 
+// Invite lookup, called by the sign-up page on load so a dead link is
+// reported before the form is filled in. Public by necessity (nobody is signed
+// in yet) and on the auth limiter because a guessable endpoint that answers
+// "valid / not valid" is what the limiter exists for — even though the code
+// itself is far too long to enumerate.
+Route::get('/invites/{code}', [InviteController::class, 'show'])
+    ->middleware('throttle:auth')
+    ->name('invites.show');
+
 // Authenticated routes — protected by Sanctum token; no extra throttle (Laravel's global limiter applies).
 Route::middleware('auth:sanctum')->group(function () {
     // Always accessible while authenticated — needed to resolve identity, sign out,
     // complete verification, or manage the account even when the email isn't verified yet.
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+
+    // Apply an invite to this account. Outside `verified` on purpose: a
+    // Google sign-up is verified already, and an email sign-up that redeems
+    // here (rather than at registration) is still waiting on its code — the
+    // plan should not wait with it. Throttled because every miss is a guess.
+    Route::post('/invites/redeem', [InviteController::class, 'redeem'])
+        ->middleware('throttle:10,1')
+        ->name('invites.redeem');
 
     // 6-digit code flow. /resend issues a fresh code (throttled against spam);
     // /verify validates a submitted code and marks the email verified.
