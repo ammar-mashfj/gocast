@@ -309,7 +309,15 @@ fi
 # css/ and js/.
 if changed api/package-lock.json api/package.json; then
   echo "==> Admin asset dependencies"
-  as_app env -C "$REPO_ROOT/api" NODE_ENV=production npm ci || rollback
+  # NOT NODE_ENV=production here. npm reads it and omits devDependencies --
+  # and api/package.json lists vite, tailwind and the laravel plugin as dev
+  # deps, which is correct (they are build tools, not runtime deps). Setting
+  # it wipes node_modules and installs nothing usable, and the build below
+  # then dies on "sh: 1: vite: not found". --include=dev also overrides a
+  # global `npm config set production true` on the host. The build itself
+  # still runs with NODE_ENV=production, which is what Tailwind and Vite
+  # actually read for minification.
+  as_app env -C "$REPO_ROOT/api" npm ci --include=dev || rollback
 fi
 if changed api/resources api/vite.config.js api/package-lock.json api/package.json; then
   echo "==> Building the admin assets"
