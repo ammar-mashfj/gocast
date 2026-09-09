@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 /**
@@ -63,6 +66,110 @@ class StationController extends Controller
             'featuredOnAir' => Station::featured()->running()->count(),
             'railSize' => Station::FEATURED_RAIL_SIZE,
         ]);
+    }
+
+    /**
+     * One station's timeline.
+     *
+     * The list page answers "what exists"; this answers "what happened", which
+     * is the question every support conversation actually opens with — a
+     * station that was on air last night and is not now, and nobody able to
+     * say which of the half-dozen paths to `stopped` it took.
+     *
+     * Reads only station_events. The station's `activity_log` rows are
+     * deliberately NOT merged in: those record edits to settings (a rename, a
+     * featuring) and belong to the audit trail, and interleaving two tables
+     * with different retention windows would produce a timeline that silently
+     * grows holes in one half but not the other.
+     */
+    public function show(Request $request, Station $station): View
+    {
+        $type = (string) $request->query('type', '');
+        $source = (string) $request->query('source', '');
+
+        $events = $station->events()
+            ->when($type !== '', fn ($query) => $query->ofType($type))
+            ->when($source !== '', fn ($query) => $query->fromSource($source))
+            ->paginate(50)
+            ->withQueryString();
+
+        // Eager-loaded rather than resolved from the blade: the header prints
+        // the owner's email and plan name, which is two queries per page view
+        // hidden behind a `?->`.
+        $station->load('user.plan')->loadCount('tracks');
+
+        return view('admin.station', [
+            'station' => $station,
+            'events' => $events,
+            'entries' => $this->collapse($events->getCollection()),
+            'type' => $type,
+            'source' => $source,
+            'types' => StationEvent::TYPES,
+            'sources' => StationEvent::SOURCES,
+            'isLive' => $station->isLive(),
+            // Counted over the window rather than over the page, because the
+            // useful version of "is this station flapping?" is a number per
+            // day, not a number per fifty rows.
+            // reorder() strips the relation's `latest('created_at')`: an ORDER
+            // BY on a column that is neither grouped nor aggregated is
+            // rejected outright under only_full_group_by, and the ordering
+            // here is meaningless anyway — these are counts, not a timeline.
+            'lastDay' => $station->events()
+                ->reorder()
+                ->where('created_at', '>=', now()->subDay())
+                ->selectRaw('type, count(*) as total')
+                ->groupBy('type')
+                ->pluck('total', 'type'),
+        ]);
+    }
+
+    /**
+     * Fold runs of the same event into one row carrying a count.
+     *
+     * A flapping station reports the same pair a hundred times an hour, and an
+     * uncollapsed page of that is fifty identical lines that hide every other
+     * event on either side of them. The run is still visible — it is what the
+     * count says — but it costs one row instead of the whole screen.
+     *
+     * Collapsing happens WITHIN A PAGE, so a run spanning a page boundary
+     * shows as two rows. Fixing that would mean collapsing in SQL over the
+     * whole table to paginate the result, which is a great deal of machinery
+     * for a seam nobody reading a timeline is misled by.
+     *
+     * @param  Collection<int, StationEvent>  $events
+     * @return Collection<int, array{event: StationEvent, count: int, until: Carbon|null}>
+     */
+    private function collapse(Collection $events): Collection
+    {
+        // A plain array, not a Collection accumulator: `$collection[$i]['count']++`
+        // is an indirect modification of an ArrayAccess offset, which PHP
+        // refuses.
+        $entries = [];
+
+        foreach ($events as $event) {
+            $last = array_key_last($entries);
+
+            // Properties are part of the identity: two uploads are two events
+            // even though both are `track_uploaded`, because the interesting
+            // half of each is the track name.
+            $same = $last !== null
+                && $entries[$last]['event']->type === $event->type
+                && $entries[$last]['event']->source === $event->source
+                && $entries[$last]['event']->properties === $event->properties;
+
+            if ($same) {
+                $entries[$last]['count']++;
+                // Newest first, so the row already holds the LATEST occurrence
+                // and each subsequent match pushes the "since" end earlier.
+                $entries[$last]['until'] = $event->created_at;
+
+                continue;
+            }
+
+            $entries[] = ['event' => $event, 'count' => 1, 'until' => null];
+        }
+
+        return new Collection($entries);
     }
 
     /**

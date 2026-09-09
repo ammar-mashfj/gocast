@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -94,6 +95,15 @@ class StationLifecycleService
                 'reason' => $reason,
             ]);
 
+            // Recorded here rather than in the controller so the implicit
+            // start on publish is logged too — the studio starting a station
+            // on the broadcaster's behalf is the single most confusing entry
+            // to be missing from a timeline, because from the owner's side
+            // nobody pressed anything.
+            StationEvent::record($station, StationEvent::TYPE_STARTED, properties: [
+                'reason' => $reason,
+            ]);
+
             return $station;
         });
     }
@@ -104,12 +114,17 @@ class StationLifecycleService
      * @param  bool  $force  Skip the on-air guard. Reserved for admin tooling
      *                       and the idle reaper; the owner-facing endpoint
      *                       never sets it.
+     * @param  string  $reason  Audit breadcrumb, mirroring start()'s: 'owner'
+     *                          for the power button, 'silent' for the sweep's
+     *                          auto-stop. It is the only thing that tells
+     *                          those two apart afterwards — both leave an
+     *                          identical `stopped` station behind.
      *
      * @throws StationLifecycleException When the station is mid-broadcast.
      */
-    public function stop(Station $station, bool $force = false): Station
+    public function stop(Station $station, bool $force = false, string $reason = 'owner'): Station
     {
-        return $this->withLock($station, function () use ($station, $force) {
+        return $this->withLock($station, function () use ($station, $force, $reason) {
             $station->refresh();
 
             if (! $force && $station->isLive()) {
@@ -125,6 +140,12 @@ class StationLifecycleService
 
             Log::info('Station stopped', [
                 'station' => $station->slug,
+                'forced' => $force,
+                'reason' => $reason,
+            ]);
+
+            StationEvent::record($station, StationEvent::TYPE_STOPPED, properties: [
+                'reason' => $reason,
                 'forced' => $force,
             ]);
 

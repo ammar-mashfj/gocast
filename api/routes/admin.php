@@ -29,6 +29,15 @@ Route::middleware('auth:admin')->group(function () {
     Route::redirect('/', '/admin/stations')->name('home');
     Route::get('stations', [StationController::class, 'index'])->name('stations.index');
 
+    // One station's timeline. withTrashed() because a station in the trash is
+    // precisely the one somebody needs the history of — "it disappeared" is a
+    // support ticket, and the events leading up to the deletion are the
+    // answer to it. The rows survive until PruneDeletedStations force-deletes
+    // the station, at which point the cascade takes them with it.
+    Route::get('stations/{station}', [StationController::class, 'show'])
+        ->withTrashed()
+        ->name('stations.show');
+
     // Homepage curation. POST rather than PATCH for the same reason as the
     // request actions below, and a toggle rather than a pair of routes
     // because the button's label already tells you which way it goes.

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\AnalyzeTrack;
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\Track;
 use getID3;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -139,6 +140,18 @@ class TrackImporter
             AnalyzeTrack::dispatch($track->getKey());
         }
 
+        // After the commit, so a rolled-back upload leaves no trace of having
+        // happened. The title is copied onto the event rather than referenced
+        // by id, because the point of a log entry is that it still reads
+        // correctly once the track it describes has been deleted.
+        StationEvent::record($station, StationEvent::TYPE_TRACK_UPLOADED, properties: [
+            'track_id' => $track->getKey(),
+            'kind' => $kind,
+            'title' => $track->title,
+            'artist' => $track->artist,
+            'bytes' => $size,
+        ]);
+
         return $track;
     }
 
@@ -160,6 +173,17 @@ class TrackImporter
 
         $deletedPosition = $track->position;
         $deletedKind = $track->kind;
+
+        // Read off the model before it is deleted — afterwards these are the
+        // only surviving record of what the file was.
+        $deletedDetails = [
+            'track_id' => $track->getKey(),
+            'kind' => $deletedKind,
+            'title' => $track->title,
+            'artist' => $track->artist,
+            'bytes' => $track->file_size_bytes,
+        ];
+
         $track->delete();
 
         // Compact: every later track shifts down by one. Keeps positions
@@ -173,6 +197,8 @@ class TrackImporter
 
         $this->playlistWriter->write($station);
         $this->playlistWriter->reload($station);
+
+        StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $deletedDetails);
     }
 
     /**

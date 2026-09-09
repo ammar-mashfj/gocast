@@ -80,13 +80,23 @@
                         @forelse ($stations as $station)
                             <tr class="hover:bg-base-200">
                                 <td>
-                                    <a href="{{ rtrim((string) config('services.frontend_url'), '/') }}/station/{{ $station->slug }}"
-                                       target="_blank" rel="noopener noreferrer"
+                                    {{-- The name now goes to the timeline rather than the
+                                         public page: from here the question is almost always
+                                         "what happened to this one", and the public page is
+                                         one click further on. --}}
+                                    <a href="{{ route('admin.stations.show', $station) }}"
                                        class="link link-hover font-medium"
-                                       title="Open the station page in a new tab">
+                                       title="Timeline and history">
                                         {{ $station->name }}
                                     </a>
-                                    <div class="text-xs opacity-60">{{ $station->slug }}</div>
+                                    <div class="text-xs opacity-60">
+                                        <a href="{{ rtrim((string) config('services.frontend_url'), '/') }}/station/{{ $station->slug }}"
+                                           target="_blank" rel="noopener noreferrer"
+                                           class="link link-hover"
+                                           title="Open the public station page in a new tab">
+                                            {{ $station->slug }}
+                                        </a>
+                                    </div>
                                 </td>
                                 <td class="text-sm">{{ $station->user?->email ?? '—' }}</td>
                                 <td>

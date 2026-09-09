@@ -287,9 +287,15 @@ it('stops the station when the job runs and the verdict still holds', function (
     $station = silentFor(sweptStation(), 90);
 
     $lifecycle = Mockery::mock(StationLifecycleService::class);
-    $lifecycle->shouldReceive('stop')->once()->with(Mockery::on(
-        fn (Station $s) => $s->id === $station->id
-    ));
+    // reason: 'silent' is asserted, not incidental. It is the only thing that
+    // distinguishes this auto-stop from the owner pressing the power button
+    // once both have left an identical stopped station behind — see the
+    // station's timeline in the admin panel.
+    $lifecycle->shouldReceive('stop')->once()->with(
+        Mockery::on(fn (Station $s) => $s->id === $station->id),
+        false,
+        'silent',
+    );
 
     (new StopStation($station->id))->handle(
         app(StationAudioPolicy::class), app(StationStatusService::class), $lifecycle,

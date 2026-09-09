@@ -270,6 +270,20 @@ class Station extends Model
     }
 
     /**
+     * This station's timeline — boots, Icecast connects, broadcasters coming
+     * and going, uploads, power-button presses — newest first.
+     *
+     * Distinct from {@see streamSessions()}, which records only the windows a
+     * human was on air, and from the station's `activity_log` rows, which
+     * record only edits a person made to its settings. See {@see StationEvent}
+     * for why the three are separate tables.
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(StationEvent::class)->latest('created_at');
+    }
+
+    /**
      * Permanent hourly listener rollups — the only honest source for anything
      * about this station's AUDIENCE.
      *

@@ -87,7 +87,11 @@ class StopStation implements ShouldQueue
             // and this call, and stop() refuses a live station for exactly
             // that reason. Losing the race means the station stays up, which
             // is the outcome we want when someone is on air.
-            $lifecycle->stop($station);
+            // reason: 'silent' — this is the sweep's auto-stop, and the
+            // station's timeline must not read as though the owner switched
+            // it off. That distinction is the first question asked when
+            // somebody finds their station unexpectedly off air.
+            $lifecycle->stop($station, reason: 'silent');
 
             $station->forceFill(['silent_since' => null])->save();
 

@@ -110,3 +110,12 @@ Schedule::command('app:nudge-inactive-broadcasters')
 Schedule::command('plans:expire')
     ->hourly()
     ->withoutOverlapping();
+
+// Station timeline retention. Nightly and off-peak like the other two prunes,
+// at its own minute so the three never compete for the same disk. Nothing
+// summarises these rows before they age out — see PruneStationEvents for why
+// there is deliberately no rollup to wait for.
+Schedule::command('stations:prune-events')
+    ->dailyAt('04:50')
+    ->withoutOverlapping()
+    ->runInBackground();

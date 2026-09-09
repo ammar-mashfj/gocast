@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
+use App\Models\StationEvent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -38,22 +39,16 @@ class StationEventController extends Controller
      * Events a station may report. Anything else is dropped — the endpoint is
      * reachable by every station container, so the payload is not trusted to
      * name its own cache keys.
+     *
+     * The list lives on {@see StationEvent} because both this endpoint and the
+     * admin timeline filter need it, and two copies of a container's
+     * vocabulary would drift the first time one is extended. Two of them carry
+     * state beyond a cache entry: `live_connected` and `live_disconnected` are
+     * harbor's on_connect/on_disconnect, and they open and close the
+     * StreamSession that makes a station read as live. They replaced MediaMTX's
+     * runOnReady/runOnNotReady webhooks.
      */
-    private const EVENTS = [
-        'boot',
-        'shutdown',
-        'icecast_connected',
-        'icecast_disconnected',
-        'icecast_error',
-        'live_silent',
-        'live_audio',
-        // Harbor's on_connect/on_disconnect. These are the only two that carry
-        // state beyond a cache entry: they open and close the StreamSession
-        // that makes a station read as live. They replaced MediaMTX's
-        // runOnReady/runOnNotReady webhooks.
-        'live_connected',
-        'live_disconnected',
-    ];
+    private const EVENTS = StationEvent::CONTAINER_TYPES;
 
     /** Cache key prefix holding the most recent event for a station. */
     public const CACHE_PREFIX = 'station-event:';
@@ -86,6 +81,18 @@ class StationEventController extends Controller
             self::CACHE_PREFIX.$station->id,
             ['event' => $validated['event'], 'at' => now()->toIso8601String()],
             self::TTL_SECONDS,
+        );
+
+        // The cache entry above answers "what is this station doing right
+        // now?" and forgets within the hour. This answers "what did it do last
+        // night?", which is the question every support conversation actually
+        // opens with. Same fast path, same non-load-bearing contract: the
+        // recorder swallows its own failures, so a full disk costs a gap in a
+        // timeline and never a dropped lifecycle event.
+        StationEvent::record(
+            $station,
+            $validated['event'],
+            StationEvent::SOURCE_CONTAINER,
         );
 
         // icecast_connected is the moment listeners can hear this station —
