@@ -45,10 +45,10 @@ Schedule::command('stations:reconcile')
 // attached that could produce any. Listener count decides nothing: an AutoDJ
 // rotation playing to an empty room is a paid feature working correctly.
 //
-// Every minute, and the interval is load-bearing — it is what turns the
-// `silent_stop_seconds` window into wall-clock patience. A station needs one
-// pass to start its clock and another to be stopped by it, so the effective
-// time from "nothing to play" to "off air" is one to two windows.
+// Every minute, and the interval is load-bearing — it is the granularity at
+// which the `silent_stop_seconds` window is measured. A station needs one pass
+// to start its clock and another to be stopped by it, so the effective time
+// from "nothing to play" to "off air" is the window plus up to two passes.
 Schedule::command('stations:sweep')
     ->everyMinute()
     ->withoutOverlapping()

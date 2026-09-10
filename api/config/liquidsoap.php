@@ -668,11 +668,14 @@ return [
     | (and again on every reconnect) — nobody has to press the power button
     | first, so an on-air station with nothing attached is genuinely waste.
     |
-    | Effective time to stop is one to two windows: the sweep needs one pass to
-    | start the clock and another to act on it.
+    | Effective time to stop is the window plus up to two sweep passes: one to
+    | notice the silence and start the clock, another to act on it. At the
+    | default that is roughly 10-12 minutes. (When this was 60s the two were
+    | the same size, so the old figure of "one to two windows" only held
+    | because the window happened to equal the sweep interval.)
     */
 
-    'silent_stop_seconds' => (int) env('LIQUIDSOAP_SILENT_STOP_SECONDS', 60),
+    'silent_stop_seconds' => (int) env('LIQUIDSOAP_SILENT_STOP_SECONDS', 600),
 
     /*
     | Output level (0.0–1.0, from the rms() meter on the station's output) at or
