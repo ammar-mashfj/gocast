@@ -240,6 +240,33 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   const [recentTracks, setRecentTracks] = useState<{ title: string; artist: string | null; at: number }[]>([])
   const [justPlayedOpen, setJustPlayedOpen] = useState(false)
   const justPlayedPanelId = useId()
+  const [descOpen, setDescOpen] = useState(false)
+  const [descClamped, setDescClamped] = useState(false)
+  const descRef = useRef<HTMLParagraphElement | null>(null)
+  const descId = useId()
+  // The "more" toggle only earns its place when the text is genuinely being
+  // cut off, so measure rather than guess: a two-line bio gets no control at
+  // all. Skipped while expanded -- the element is then its full height, which
+  // would measure as "not clamped" and make the toggle disappear under the
+  // user's cursor. Re-measured on resize and once webfonts land, since both
+  // change how many lines the same string takes.
+  useEffect(() => {
+    const el = descRef.current
+    if (!el || descOpen) return
+    let cancelled = false
+    const measure = () => {
+      if (!cancelled) setDescClamped(el.scrollHeight > el.clientHeight + 1)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    document.fonts?.ready.then(measure).catch(() => {})
+    return () => {
+      cancelled = true
+      ro.disconnect()
+    }
+  }, [descOpen, station.description])
+
   // Track the previous now-playing via ref so we can shift it into recents
   // without nesting setState calls inside an updater (React Compiler hates that).
   const prevNowPlayingRef = useRef<{ title: string | null; artist: string | null }>({ title: null, artist: null })
@@ -570,7 +597,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   }, [playing, station, nowPlaying, togglePlay])
 
   return (
-    <div className="relative h-screen bg-background text-foreground flex flex-col md:grid md:grid-cols-2 overflow-hidden">
+    <div className="relative min-h-dvh md:h-dvh bg-background text-foreground flex flex-col md:grid md:grid-cols-2 overflow-x-hidden md:overflow-hidden">
       {/*
         The stream itself. Declared here rather than created by a library so
         both transports attach to one stable element — volume, mute and the
@@ -622,7 +649,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       )}
 
       {/* Mobile: vinyl + content centered together as one unit; desktop: two grid columns */}
-      <div className="flex flex-1 flex-col items-center justify-center min-h-0 md:contents">
+      <div className="flex flex-1 flex-col items-center justify-center md:min-h-0 md:contents">
 
       {/* Vinyl — smaller on mobile */}
       <div className="relative w-full flex items-center justify-center pb-14 md:p-12 z-2 shrink-0 md:min-h-0">
@@ -676,10 +703,35 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           )}
         </h1>
 
+        {/* Description -- clamped to three lines behind a "more" toggle. A bio
+            has no length limit, and on mobile this column also carries the
+            play button: an unbounded paragraph used to push the button past
+            the bottom of a fixed-height, clipped page, where it could not be
+            reached or scrolled to at all. */}
         {station.description && (
-          <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-[340px] text-center md:text-left">
-            {station.description}
-          </p>
+          <div className="mb-6 w-full max-w-[340px]">
+            <p
+              ref={descRef}
+              id={descId}
+              className={`text-base text-muted-foreground leading-relaxed text-center md:text-left ${descOpen ? "" : "line-clamp-3"}`}
+            >
+              {station.description}
+            </p>
+            {descClamped && (
+              <button
+                type="button"
+                aria-expanded={descOpen}
+                aria-controls={descId}
+                onClick={() => setDescOpen((o) => !o)}
+                className="mt-1.5 flex w-fit mx-auto md:mx-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-[inherit] text-xs tracking-[2px] uppercase text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {descOpen ? "Less" : "More"}
+                <span className={styles.descChevron} data-open={descOpen ? "true" : "false"} aria-hidden>
+                  <IconChevronDown size={14} stroke={1.75} />
+                </span>
+              </button>
+            )}
+          </div>
         )}
 
         {/* Now Playing — show whenever there's *something* to play. is_on_air

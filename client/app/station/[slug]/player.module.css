@@ -72,9 +72,22 @@
   transform: rotate(180deg);
 }
 
+/* Description "more" toggle. The paragraph itself snaps between clamped and
+   full -- line-clamp is not an animatable property -- so only the chevron
+   carries the transition. */
+.descChevron {
+  display: inline-flex;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.descChevron[data-open="true"] {
+  transform: rotate(180deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .recentsPanel,
-  .recentsChevron {
+  .recentsChevron,
+  .descChevron {
     transition: none;
   }
 }
