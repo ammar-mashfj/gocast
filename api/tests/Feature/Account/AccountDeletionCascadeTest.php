@@ -39,7 +39,7 @@ it('takes a running station off air when its owner deletes their account', funct
     $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
 
     actingAs($user, 'sanctum')
-        ->deleteJson('/api/account', ['current_password' => 'old-pass'])
+        ->deleteJson('/api/account', ['confirmation' => $user->email])
         ->assertSuccessful();
 
     expect(Station::withTrashed()->findOrFail($station->id)->trashed())->toBeTrue();
@@ -56,7 +56,7 @@ it('removes a deleted account\'s stations from the public directory', function (
         ->assertJsonPath('data.0.slug', $station->slug);
 
     actingAs($user, 'sanctum')
-        ->deleteJson('/api/account', ['current_password' => 'old-pass'])
+        ->deleteJson('/api/account', ['confirmation' => $user->email])
         ->assertSuccessful();
 
     getJson('/api/public/stations')
@@ -73,7 +73,7 @@ it('leaves another account\'s stations alone', function () {
     ]);
 
     actingAs($user, 'sanctum')
-        ->deleteJson('/api/account', ['current_password' => 'old-pass'])
+        ->deleteJson('/api/account', ['confirmation' => $user->email])
         ->assertSuccessful();
 
     expect($bystander->fresh()->trashed())->toBeFalse();
@@ -93,7 +93,7 @@ it('deletes stations one at a time so each container is actually torn down', fun
     $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
 
     actingAs($user, 'sanctum')
-        ->deleteJson('/api/account', ['current_password' => 'old-pass'])
+        ->deleteJson('/api/account', ['confirmation' => $user->email])
         ->assertSuccessful();
 
     expect(Station::whereIn('id', $stations->pluck('id'))->count())->toBe(0);

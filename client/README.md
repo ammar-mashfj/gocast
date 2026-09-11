@@ -46,4 +46,16 @@ Sentry is wired via `@sentry/nextjs` (`instrumentation.ts`, `sentry.*.config.ts`
 
 ## Deployment
 
-See the `deploy.sh` script and `ecosystem.config.js` (PM2) alongside `next.config.ts`.
+Deployed by `infra/native/deploy-native.sh`, which rebuilds this tree only when
+something under `client/` changed. See `infra/native/README.md`.
+
+Two things about this client specifically:
+
+- `next.config.ts` sets `output: "standalone"`. Next does **not** copy `public/`
+  or `.next/static` into `.next/standalone`, so the deploy script does it after
+  every build. Without that copy the site serves HTML with no CSS or images.
+  The systemd unit (`infra/native/systemd/gocast-client.service`) runs
+  `node server.js` from `.next/standalone` — not `next start`.
+- `NEXT_PUBLIC_*` are inlined into the browser bundle at **build** time, from
+  `infra/native/env/domains.env`. Setting them in the service file does
+  nothing; a wrong API URL can only be fixed by rebuilding.

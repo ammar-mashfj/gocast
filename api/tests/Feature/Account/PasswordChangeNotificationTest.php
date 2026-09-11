@@ -57,7 +57,7 @@ it('releases unique identifiers when deleting an account so the email can regist
     ]);
 
     actingAs($user, 'sanctum')
-        ->deleteJson('/api/account', ['current_password' => 'old-pass'])
+        ->deleteJson('/api/account', ['confirmation' => 'reuse@test.test'])
         ->assertSuccessful();
 
     $deleted = User::withTrashed()->findOrFail($user->id);

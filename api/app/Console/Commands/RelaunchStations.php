@@ -21,7 +21,10 @@ use Throwable;
  *
  * Three reasons to run this:
  *   1. Deploy — backfills any stations that pre-date the per-station
- *      Liquidsoap rollout. Wired into deploy.sh.
+ *      Liquidsoap rollout. NOT run by deploy-native.sh: it would blip every
+ *      station on the box (~3s each, live DJs disconnect). The deploy prints
+ *      it as a manual step when the .liq template, the supervisor or the
+ *      Liquidsoap image changed; `stations:reconcile` is the automatic one.
  *   2. Recovery — Docker daemon restart, host reboot without restart-policy
  *      doing its job, manual stop, OOM kill. Bring everything back up.
  *   3. Mass config change — bumped Liquidsoap version, edited the .liq Blade

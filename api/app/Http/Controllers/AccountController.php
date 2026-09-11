@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Account self-service: update profile, change password, delete account.
@@ -79,11 +80,22 @@ class AccountController extends Controller
 
     public function destroy(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        // Deliberately no password check. Google sign-in accounts have no
+        // password at all, so requiring one locked exactly those users out of
+        // deleting their own account. The realistic risk here is a misclick,
+        // not a session hijack, so the guard is a typed confirmation of the
+        // account's own email — identical for every account, password or not.
         $request->validate([
-            'current_password' => ['required', 'string', 'current_password'],
+            'confirmation' => ['required', 'string'],
         ]);
 
-        $user = $request->user();
+        if ($request->string('confirmation')->trim()->lower()->value() !== Str::lower($user->email)) {
+            throw ValidationException::withMessages([
+                'confirmation' => 'Type your account email exactly as shown to confirm.',
+            ]);
+        }
 
         // Soft-delete (User uses SoftDeletes). Tokens revoked so the current
         // session can't continue acting on a "deleted" account. Release unique

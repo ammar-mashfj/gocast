@@ -40,7 +40,7 @@ export default function SettingsPage() {
   const [passwordLoading, setPasswordLoading] = useState(false)
 
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deletePassword, setDeletePassword] = useState("")
+  const [deleteConfirm, setDeleteConfirm] = useState("")
   const [deleteLoading, setDeleteLoading] = useState(false)
 
   const [verifyOpen, setVerifyOpen] = useState(false)
@@ -149,12 +149,14 @@ export default function SettingsPage() {
     e.preventDefault()
     setDeleteLoading(true)
     try {
-      await api.delete("/account", { data: { current_password: deletePassword } })
+      await api.delete("/account", { data: { confirmation: deleteConfirm } })
       clearAuth()
       toast.success("Account deleted — sorry to see you go.")
       router.push("/")
     } catch (err) {
-      const msg = err instanceof AxiosError ? err.response?.data?.message ?? "Delete failed" : "Delete failed"
+      const msg = err instanceof AxiosError
+        ? err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message ?? "Delete failed"
+        : "Delete failed"
       toast.error(msg)
     } finally {
       setDeleteLoading(false)
@@ -202,6 +204,9 @@ export default function SettingsPage() {
   }
 
   const hasPassword = user.has_password !== false
+  // Same comparison the server does, so the button never enables on a value
+  // the API would reject.
+  const confirmMatches = deleteConfirm.trim().toLowerCase() === user.email.toLowerCase()
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
@@ -313,22 +318,51 @@ export default function SettingsPage() {
         onCancel={() => setVerifyOpen(false)}
       />
 
-      <Dialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); if (!o) setDeletePassword("") }}>
+      <Dialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); if (!o) setDeleteConfirm("") }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete your account?</DialogTitle>
             <DialogDescription>
-              All your stations, broadcast sessions, and account data will be permanently removed. Confirm with your password to proceed.
+              This is permanent and cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleDelete} className="flex flex-col gap-3">
+            {/* Spell out the consequences rather than saying "your data" — the
+                dead embed links and the unrecoverable stations are the parts
+                people don't think of until after. Deliberately says "lose
+                access to" rather than "erase": deletion soft-deletes these
+                rows, so claiming erasure here would be a promise the API
+                doesn't keep. */}
+            <div className="rounded-md border border-destructive/30 bg-destructive/[0.04] px-3 py-2.5 text-sm">
+              <p className="font-medium text-destructive">This will immediately:</p>
+              <ul className="mt-1.5 list-disc pl-4 text-muted-foreground space-y-0.5">
+                <li>Take every station you own off air, for good — you won&apos;t be able to bring them back</li>
+                <li>Break every stream URL and embed you&apos;ve shared</li>
+                <li>End your access to your broadcast history and listener stats</li>
+              </ul>
+            </div>
+            {/* Typed confirmation instead of a password: Google accounts have
+                no password to type, and the server accepts this same value for
+                every account. */}
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="delete-password">Current password</Label>
-              <Input id="delete-password" type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} required autoComplete="current-password" />
+              <Label htmlFor="delete-confirm">
+                Type <span className="font-mono font-semibold text-foreground break-all">{user.email}</span> to confirm
+              </Label>
+              <Input
+                id="delete-confirm"
+                type="text"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+              />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
-              <Button type="submit" variant="destructive" disabled={deleteLoading || !deletePassword}>
+              <Button type="submit" variant="destructive" disabled={deleteLoading || !confirmMatches}>
                 {deleteLoading ? "Deleting…" : "Delete forever"}
               </Button>
             </DialogFooter>
