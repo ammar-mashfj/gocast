@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Station;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -34,6 +35,10 @@ class UpdateStationRequest extends FormRequest
             'name' => ['sometimes', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
+            // IANA identifier, validated against the system tz database
+            // so "GMT+2" and other offset spellings are rejected: an
+            // offset is only right until the next DST change.
+            'timezone' => ['nullable', 'timezone:all'],
             'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],
             'social_links' => ['nullable', 'array'],
             'theme_config' => ['nullable', 'array'],
@@ -49,5 +54,34 @@ class UpdateStationRequest extends FormRequest
             // meaningful — at 0 it would be permanently satisfied.
             'jingle_every_tracks' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
+    }
+
+    /**
+     * Clearing the zone would orphan every show time already published under
+     * it: `next_occurrence` goes null, the player's "Next live" line vanishes
+     * with no explanation, and the weekly list becomes wall clocks nobody can
+     * anchor. The rows have to go first, which is a decision for the owner to
+     * make deliberately rather than a side effect of emptying one field.
+     *
+     * An after-hook rather than a rule on the field: `nullable` tells the
+     * validator to stop at the first null, so a closure rule alongside it
+     * never runs for the one value this needs to catch.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if (! $this->has('timezone') || $this->input('timezone') !== null) {
+                return;
+            }
+
+            $station = $this->route('station');
+
+            if ($station instanceof Station && $station->schedules()->exists()) {
+                $validator->errors()->add(
+                    'timezone',
+                    "Remove the station's show times before clearing its timezone.",
+                );
+            }
+        });
     }
 }

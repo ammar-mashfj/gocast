@@ -1,3 +1,20 @@
+/** One advertised show time. A start, never a window — see the API model. */
+export interface StationSchedule {
+  id: string
+  /** The show's name. Null on single-show stations, where the time says it all. */
+  label: string | null
+  /** Weekdays the show STARTS, 0 = Sunday. A late show belongs to the day it begins. */
+  days: number[]
+  /** "HH:MM" in the station's timezone, not the viewer's. */
+  start_time: string
+  /**
+   * UTC instant of the next start, computed server-side because the client
+   * carries no date library and this is the arithmetic DST breaks. Null when
+   * the station has no timezone.
+   */
+  next_occurrence: string | null
+}
+
 export interface Station {
   id: string
   user_id: string
@@ -22,6 +39,18 @@ export interface Station {
    * missing metadata means "nothing to name", not "nothing to hear".
    */
   is_on_air: boolean
+  /**
+   * IANA zone the `schedules` wall clocks are written in, e.g.
+   * "Europe/Madrid". Null until the owner picks one, which is also the state
+   * in which the API refuses to store show times.
+   */
+  timezone: string | null
+  /**
+   * Advertised show times — the owner's claim about when a human is on, not
+   * anything the station acts on. Present only on the single-station
+   * endpoints; the directory listing omits the key entirely.
+   */
+  schedules?: StationSchedule[]
   /** Track metadata pushed by Liquidsoap; null when nothing identifiable is playing. */
   now_playing: { title: string | null; artist: string | null } | null
   /** What the owner asked for. A station only holds a container while running. */

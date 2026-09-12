@@ -63,6 +63,13 @@
 }
 
 :root {
+  /* Native widgets — select popups, scrollbars, the time picker panel — are
+     painted by the browser, not by this stylesheet, and they follow
+     `color-scheme` rather than any of the tokens below. Without this pair
+     Chrome draws a white listbox over a dark page. The meta tag in layout.tsx
+     is not enough on its own: it declares what the page supports, while this
+     is what the element computes. */
+  color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -98,6 +105,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

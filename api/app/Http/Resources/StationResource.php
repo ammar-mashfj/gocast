@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Station;
+use App\Models\StationSchedule;
 use App\Models\StreamSession;
 use App\Services\StationStatusService;
 use Illuminate\Http\Request;
@@ -84,6 +85,10 @@ class StationResource extends JsonResource
             'slug' => $this->slug,
             'description' => $this->description,
             'genre' => $this->genre,
+            // The clock `schedules` below are written in. Public: a
+            // listener in another country needs it to convert the show
+            // times into their own, which is the entire point of them.
+            'timezone' => $this->timezone,
             'artwork_url' => $this->artwork_url,
             // Admin curation, and the one admin-owned column that is public.
             //
@@ -170,6 +175,21 @@ class StationResource extends JsonResource
             'theme_config' => $this->theme_config,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            // Advertised show times. whenLoaded is load-bearing: /discover
+            // renders 24 stations a page and this resource is deliberately
+            // N+1-free, so the relation is eager-loaded only on the two show
+            // endpoints that actually render a schedule.
+            'schedules' => $this->whenLoaded('schedules', function () {
+                // Hand each row the station it already belongs to. Without
+                // this, next_occurrence's timezone lookup would lazy-load the
+                // inverse relation once per row — the N+1 this resource spends
+                // a preload map avoiding everywhere else.
+                $schedules = $this->resource->schedules->each(
+                    fn (StationSchedule $schedule) => $schedule->setRelation('station', $this->resource),
+                );
+
+                return StationScheduleResource::collection($schedules);
+            }),
             'stats' => $this->whenLoaded('streamSessions', function () {
                 // Broadcast figures: these genuinely are about someone holding
                 // the microphone, so stream_sessions is the right source.

@@ -6,14 +6,23 @@ import { toast } from "sonner"
  *
  * Always toasts on copy success/failure; native share is silent (the share sheet
  * is its own feedback). Callers may add their own contextual UI on top.
+ *
+ * `text` is the sentence that travels with the link — what a per-network share
+ * button would have pre-filled into the composer. Without it every target gets
+ * a bare URL and has to speak for itself, which is a real downgrade from an
+ * intent link; `title` does not cover this, as most targets either ignore it
+ * or use it only to name the thing rather than to say anything about it.
  */
 export async function shareOrCopy(
   url: string,
   title?: string,
+  text?: string,
 ): Promise<"shared" | "copied" | "failed"> {
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
-      await navigator.share({ url, title })
+      // Built conditionally rather than passed with undefined values: some
+      // targets treat a present-but-empty field as an empty message.
+      await navigator.share({ url, ...(title ? { title } : {}), ...(text ? { text } : {}) })
       return "shared"
     } catch (e) {
       // User cancelled the share sheet — silently fall through to copy

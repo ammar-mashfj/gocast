@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StationArtwork } from "@/components/StationArtwork"
 import { StationActions } from "../StationActions"
 import { DeleteStation } from "../DeleteStation"
+import { ScheduleEditor } from "../ScheduleEditor"
 
 /**
  * Hardcoded in the Liquidsoap template (`%mp3(bitrate=128, samplerate=44100)`)
@@ -98,6 +99,18 @@ export default async function StationSettingsPage({
               )}
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Schedule — a claim, not a control. Nothing here starts a station or
+          changes what plays; it is the only way the product can tell a
+          listener when to come back. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-medium">Schedule</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScheduleEditor station={station} />
         </CardContent>
       </Card>
 

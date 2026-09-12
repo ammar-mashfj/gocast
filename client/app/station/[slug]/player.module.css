@@ -1,4 +1,3 @@
-@keyframes vinyl-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes vinyl-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes wave-move { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 @keyframes live-btn-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,59,48,0.6); } 70% { box-shadow: 0 0 0 10px rgba(255,59,48,0); } }
@@ -9,7 +8,6 @@
 @keyframes bar-4 { 0%, 100% { height: 32px; } 50% { height: 14px; } }
 @keyframes bar-5 { 0%, 100% { height: 8px; } 50% { height: 36px; } }
 
-.vinylSpin { animation: vinyl-spin 8s linear infinite; }
 .vinylFloat { animation: vinyl-float 6s ease-in-out infinite; }
 .wave { animation: wave-move 8s linear infinite; }
 .liveBadge { animation: live-btn-pulse 1.5s ease-in-out infinite; }
@@ -27,13 +25,6 @@
 .bar11 { animation: bar-1 0.85s ease-in-out infinite; }
 .bar12 { animation: bar-3 1.15s ease-in-out infinite 0.1s; }
 
-@keyframes mini-bar-a { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
-@keyframes mini-bar-b { 0%, 100% { transform: scaleY(0.8); } 50% { transform: scaleY(0.3); } }
-@keyframes mini-bar-c { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(0.95); } }
-.miniBarA { animation: mini-bar-a 1.0s ease-in-out infinite; transform-origin: bottom; }
-.miniBarB { animation: mini-bar-b 0.85s ease-in-out infinite; transform-origin: bottom; }
-.miniBarC { animation: mini-bar-c 1.15s ease-in-out infinite; transform-origin: bottom; }
-
 @keyframes play-pulse {
   0%   { box-shadow: 0 0 0 0   rgba(139, 92, 246, 0.45), 0 0 0 0 rgba(139, 92, 246, 0.25); }
   70%  { box-shadow: 0 0 0 14px rgba(139, 92, 246, 0),    0 0 0 24px rgba(139, 92, 246, 0); }
@@ -47,47 +38,86 @@
 }
 .trackSlideIn { animation: track-slide-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 
-/* "Just played" — grid row height animates both open and close (native <details> skips close). */
-.recentsPanel {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1);
+/* ── Dock layout ──────────────────────────────────────────────────────────
+   The transport bar sticks rather than being `fixed`. Sticky keeps the dock in
+   normal flow, so it reserves its own height at the end of the page and the
+   content above needs no bottom padding to clear it — the magic number that
+   would otherwise have to be re-guessed every time the dock grows a line.
+   It still pins to the bottom of the viewport for the whole scroll.
+
+   The inset guard is the iOS home indicator: a bar pinned to the bottom edge
+   of a phone screen sits under it otherwise, which puts the play button
+   somewhere a thumb cannot reliably land. */
+.dock {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
-.recentsRoot[data-open="true"] .recentsPanel {
-  grid-template-rows: 1fr;
+/* Stacked layout: centre the column in the space it has.
+   `main` grows to fill whatever the dock and header leave behind, so packing
+   the rows to the top dumps every spare pixel into one gap above the dock —
+   which on a phone, where the content is well short of the screen, reads as a
+   hole rather than as breathing room.
+
+   `safe` is the load-bearing half. Plain `center` overflows equally in both
+   directions once the content is taller than the space, pushing the artwork
+   off the top edge where it cannot be scrolled back to; `safe` falls back to
+   packing from the start in exactly that case. So a short page is centred and
+   a long one behaves as it did before.
+
+   Only below 900px — the two-column layout above that centres its items within
+   a stretched row already, and has no spare height to distribute. */
+@container player (max-width: 900px) {
+  .mainStack {
+    align-content: safe center;
+  }
 }
 
-.recentsPanelInner {
-  min-height: 0;
-  overflow: hidden;
+/* Bottom-sheet gutter.
+   The column inside the sheet is width-capped, which on a wide window supplies
+   its own margins and hides the fact that the panel has none. A phone is
+   narrower than that cap, so there the column runs edge to edge and the panel
+   itself has to provide the gutter.
+
+   All three edges honour the inset, not just the bottom: a phone held sideways
+   puts its notch on the left or the right, and a schedule whose first column
+   disappears under it is no more readable than one under the home indicator. */
+.sheetBody {
+  padding-top: 1.25rem;
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
 }
 
-.recentsChevron {
-  display: inline-flex;
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+@keyframes live-ring {
+  0%, 100% { transform: scale(1);   opacity: 0.9; }
+  50%      { transform: scale(1.6); opacity: 0.3; }
 }
 
-.recentsRoot[data-open="true"] .recentsChevron {
-  transform: rotate(180deg);
+.liveRing { animation: live-ring 1.6s ease-in-out infinite; }
+
+/* Dock equaliser. Bars rest at a third height and only animate while audio is
+   actually playing, so the dock never mimes a stream that is paused. */
+@keyframes dock-eq {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
 }
 
-/* Description "more" toggle. The paragraph itself snaps between clamped and
-   full -- line-clamp is not an animatable property -- so only the chevron
-   carries the transition. */
-.descChevron {
-  display: inline-flex;
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+.dockBar {
+  transform-origin: bottom;
+  transform: scaleY(0.3);
 }
 
-.descChevron[data-open="true"] {
-  transform: rotate(180deg);
-}
+.dockBarOn { animation: dock-eq 1s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .recentsPanel,
-  .recentsChevron,
-  .descChevron {
-    transition: none;
+  /* Everything decorative that loops. A drifting disc and a pulsing ring are
+     exactly the sustained motion this query exists to switch off; the dock
+     bars keep their resting scale so the dock still reads as an equaliser. */
+  .vinylFloat,
+  .wave,
+  .playPulse,
+  .liveRing,
+  .dockBarOn {
+    animation: none;
   }
 }

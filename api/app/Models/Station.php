@@ -26,6 +26,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string $slug
  * @property string|null $description
  * @property string|null $genre
+ * @property string|null $timezone IANA name the advertised show times are written in
  * @property string|null $artwork_url
  * @property bool $is_live
  * @property bool $featured
@@ -336,6 +337,18 @@ class Station extends Model
     public function notifySubscriptions(): HasMany
     {
         return $this->hasMany(StationNotifySubscription::class);
+    }
+
+    /**
+     * Advertised show times — the owner's claim about when a human is on.
+     *
+     * Display only: nothing here reaches the container, the scheduler or
+     * `desired_state`. Ordered by the owner's own arrangement rather than by
+     * clock, because the flagship show is not always the earliest one.
+     */
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(StationSchedule::class)->orderBy('position');
     }
 
     public function getActivitylogOptions(): LogOptions

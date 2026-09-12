@@ -41,7 +41,7 @@ class StationController extends Controller
     {
         $this->authorize('view', $station);
 
-        $station->load('streamSessions');
+        $station->load(['streamSessions', 'schedules']);
 
         return new StationResource($station);
     }

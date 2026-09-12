@@ -59,7 +59,9 @@ class PublicStationController extends Controller
     public function show(string $slug): StationResource
     {
         return new StationResource(
-            Station::where('slug', $slug)->firstOrFail()
+            // `schedules` only here and on the owner's show endpoint — the
+            // directory must not pay for 24 stations' worth of show times.
+            Station::where('slug', $slug)->with('schedules')->firstOrFail()
         );
     }
 

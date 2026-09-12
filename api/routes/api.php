@@ -20,6 +20,7 @@ use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
 use App\Http\Controllers\StationPowerController;
+use App\Http\Controllers\StationScheduleController;
 use App\Http\Controllers\StationStatusController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\TrackController;
@@ -135,6 +136,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // without letting the page be held open as a query generator.
         Route::get('/stations/{station:slug}/audience', AudienceController::class)
             ->middleware('throttle:60,1');
+
+        // Advertised show times. A full-list PUT rather than row CRUD: the
+        // owner edits a short ordered list, and position is the array index.
+        Route::put('/stations/{station:slug}/schedules', [StationScheduleController::class, 'replace']);
 
         // AutoDJ tracks — list, upload, reorder, edit, delete. The reorder
         // endpoint is registered before the implicit-binding {track} update

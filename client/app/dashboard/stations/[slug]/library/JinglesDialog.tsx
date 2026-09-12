@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Select } from "@/components/ui/select"
 import {
   Field,
   FieldGroup,
@@ -238,19 +239,17 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
                   className="accent-primary"
                 />
                 <span>Every</span>
-                <select
+                <Select
                   aria-label="Minutes between jingles"
                   value={intervalMinutes}
-                  onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+                  onChange={setIntervalMinutes}
                   disabled={!enabled || mode !== "interval"}
-                  className="h-8 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {INTERVALS.map((minutes) => (
-                    <option key={minutes} value={minutes}>
-                      {intervalLabel(minutes)}
-                    </option>
-                  ))}
-                </select>
+                  className="w-36"
+                  options={INTERVALS.map((minutes) => ({
+                    value: minutes,
+                    label: intervalLabel(minutes),
+                  }))}
+                />
               </label>
 
               <label
@@ -266,19 +265,17 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
                   className="accent-primary"
                 />
                 <span>Every</span>
-                <select
+                <Select
                   aria-label="Tracks between jingles"
                   value={everyTracks}
-                  onChange={(e) => setEveryTracks(Number(e.target.value))}
+                  onChange={setEveryTracks}
                   disabled={!enabled || mode !== "tracks"}
-                  className="h-8 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {TRACK_COUNTS.map((count) => (
-                    <option key={count} value={count}>
-                      {count} tracks
-                    </option>
-                  ))}
-                </select>
+                  className="w-36"
+                  options={TRACK_COUNTS.map((count) => ({
+                    value: count,
+                    label: `${count} tracks`,
+                  }))}
+                />
               </label>
             </div>
 
