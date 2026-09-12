@@ -109,6 +109,26 @@
 
 .dockBarOn { animation: dock-eq 1s ease-in-out infinite; }
 
+/* Vinyl ripple. The two deck rings the composition already has, breathing
+   outward — no third ring is introduced, because the still arrangement is the
+   thing being animated rather than the backdrop for something new.
+
+   The outer ring is delayed behind the inner one, which is the whole trick:
+   two rings moving in step read as a single object throbbing, while the same
+   two offset read as one wave travelling out through them.
+
+   1.045 is small on purpose, and the ceiling is geometric rather than a taste
+   call. Measured against the disc, the inner ring sits at 1.14 and the outer
+   at 1.28, so the inner has 1.12 of room before it touches the outer — past
+   that the two rings cross and the composition reads as a mistake. */
+@keyframes vinyl-ripple {
+  0%, 100% { transform: scale(1);     opacity: 1; }
+  50%      { transform: scale(1.045); opacity: 0.45; }
+}
+
+.vinylRipple { animation: vinyl-ripple 3.2s ease-in-out infinite; }
+.vinylRippleOuter { animation-delay: 0.55s; }
+
 @media (prefers-reduced-motion: reduce) {
   /* Everything decorative that loops. A drifting disc and a pulsing ring are
      exactly the sustained motion this query exists to switch off; the dock
@@ -117,6 +137,7 @@
   .wave,
   .playPulse,
   .liveRing,
+  .vinylRipple,
   .dockBarOn {
     animation: none;
   }

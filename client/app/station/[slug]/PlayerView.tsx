@@ -78,12 +78,23 @@ function cleanMetadata(value: string | null | undefined): string | null {
  *
  * The float stays. It moves the disc without turning it, so the artwork stays
  * legible the whole way through — motion that costs nothing to read.
+ *
+ * `rippling` is playback, not liveness. The two deck rings only breathe while
+ * audio is actually coming out, on the same rule as the dock equaliser:
+ * nothing here mimes a stream that is stopped. Paused, they simply hold the
+ * still composition they always were.
  */
-function Vinyl({ artworkUrl }: { artworkUrl?: string | null }) {
+function Vinyl({ artworkUrl, rippling }: { artworkUrl?: string | null; rippling?: boolean }) {
   return (
     <div className={`relative w-full aspect-square ${styles.vinylFloat}`}>
-      <div className="absolute -inset-[14%] rounded-full border border-[#2a2344]" aria-hidden />
-      <div className="absolute -inset-[7%] rounded-full border border-[#3b2f6b]/60" aria-hidden />
+      <div
+        className={`absolute -inset-[14%] rounded-full border border-[#2a2344] ${rippling ? `${styles.vinylRipple} ${styles.vinylRippleOuter}` : ""}`}
+        aria-hidden
+      />
+      <div
+        className={`absolute -inset-[7%] rounded-full border border-[#3b2f6b]/60 ${rippling ? styles.vinylRipple : ""}`}
+        aria-hidden
+      />
       <div className="size-full rounded-full bg-[conic-gradient(from_0deg,#1a1a2e,#16162a,#1a1a2e,#0f0f1f,#1a1a2e,#16162a,#1a1a2e)] flex items-center justify-center relative border border-white/5 shadow-[0_40px_100px_rgba(139,92,246,0.25)]">
         <div className="absolute w-[87.5%] h-[87.5%] rounded-full border border-white/[0.04]" />
         <div className="absolute w-[75%] h-[75%] rounded-full border border-white/[0.03]" />
@@ -859,7 +870,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
             the disc back when there is no height to spare, rather than
             pushing the play button off the bottom. */}
         <div className="w-full max-w-[340px] justify-self-end @max-[900px]/player:max-w-[240px] @max-[900px]/player:justify-self-center @max-[520px]/player:max-w-[min(240px,30dvh)]">
-          <Vinyl artworkUrl={station.artwork_url} />
+          <Vinyl artworkUrl={station.artwork_url} rippling={playing} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-5 @max-[900px]/player:items-center @max-[520px]/player:gap-3.5">
