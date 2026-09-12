@@ -9,6 +9,7 @@ import {
   IconLogout,
   IconChevronUp,
   IconSettings,
+  IconUserCircle,
   IconLoader2,
   IconPlaylist,
   IconChartBar,
@@ -65,8 +66,12 @@ interface NavItem {
 }
 
 /**
- * Both station-scoped items have two destinations, and which one is used
- * depends on whether the slug is known.
+ * Every item here is station-scoped — that is why the account page is not
+ * among them but in the footer menu, and why the top item is "Overview"
+ * rather than "Station", which distinguished it from nothing.
+ *
+ * Most of them have two destinations, and which one is used depends on
+ * whether the slug is known.
  *
  * `href` is the slugless route — /dashboard and /dashboard/library — which
  * resolves the user's one station server-side and forwards. That used to be
@@ -74,7 +79,7 @@ interface NavItem {
  * without a fetch of its own. It can now: the layout resolves the station once
  * for the whole dashboard, so `stationHref` skips the hop entirely.
  *
- * The hop was not free. Every click on "Station" or "AutoDJ" meant two full
+ * The hop was not free. Every click on "Overview" or "AutoDJ" meant two full
  * page renders instead of one, and the throwaway first render paid for its own
  * `/user` and `/stations` before it could do anything but redirect.
  *
@@ -84,21 +89,22 @@ interface NavItem {
  *
  * Their matchers are written out because prefix-on-href cannot separate them:
  * every library URL is also a /dashboard/stations/{slug} URL, so a plain
- * startsWith would light up "Station" while the user is in AutoDJ.
+ * startsWith would light up "Overview" while the user is in AutoDJ.
  */
 const NAV_ITEMS: NavItem[] = [
   {
-    title: "Station",
+    title: "Overview",
     href: "/dashboard",
     stationHref: (slug) => `/dashboard/stations/${slug}`,
     icon: IconRadio,
     // Every sub-page URL is also a /dashboard/stations/{slug} URL, so a plain
     // prefix match lights this up while the user is somewhere else. Each
-    // segment that has its own nav item has to be subtracted by name.
+    // segment that has its own nav item has to be subtracted by name — /live
+    // and /studio are deliberately absent, they belong to this item.
     isActive: (p) =>
       p === "/dashboard" ||
       (/^\/dashboard\/stations\/[^/]+/.test(p) &&
-        !/^\/dashboard\/stations\/[^/]+\/(library|audience)/.test(p)),
+        !/^\/dashboard\/stations\/[^/]+\/(library|audience|settings)/.test(p)),
   },
   {
     title: "AutoDJ",
@@ -119,7 +125,18 @@ const NAV_ITEMS: NavItem[] = [
     lock: "audience",
   },
   { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconHistory },
-  { title: "Settings", href: "/dashboard/settings", icon: IconSettings },
+  {
+    title: "Settings",
+    // Station settings, NOT account settings — those live in the footer menu
+    // under the avatar, labelled "Account" so the two never read as the same
+    // destination. /dashboard/settings is the account page; pointing this
+    // there would be wrong, so it has no slugless route of its own and falls
+    // back to onboarding the way Audience does.
+    href: "/dashboard",
+    stationHref: (slug) => `/dashboard/stations/${slug}/settings`,
+    icon: IconSettings,
+    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/settings/.test(p),
+  },
 ]
 
 interface AppSidebarProps {
@@ -162,9 +179,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 const active = item.isActive ? item.isActive(pathname) : pathname.startsWith(item.href)
                 const href = station && item.stationHref ? item.stationHref(station.slug) : item.href
                 return (
-                  // Keyed by title, not href: two items can share a slugless
-                  // fallback destination (Station and Audience both land on
-                  // /dashboard when there is no station yet).
+                  // Keyed by title, not href: several items share a slugless
+                  // fallback destination (Overview, Audience and Settings all
+                  // land on /dashboard when there is no station yet).
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={active}>
                       <Link href={href} className="cursor-pointer">
@@ -244,10 +261,14 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 align="end"
                 sideOffset={4}
               >
+                {/* "Account", not "Settings": the sidebar now has a Settings
+                    item of its own pointing at the station's settings, and two
+                    entries sharing a word and a gear icon for two different
+                    destinations is the confusion this menu used to cause. */}
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard/settings">
-                    <IconSettings />
-                    Settings
+                    <IconUserCircle />
+                    Account
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={signingOut} onClick={() => signOut()}>
