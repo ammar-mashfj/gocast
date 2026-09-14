@@ -17,12 +17,17 @@ interface StationChecklistProps {
 }
 
 /**
- * The two or three concrete things left to do, and nothing else.
+ * The concrete things left to do on this station, and nothing else.
  *
  * Deliberately disappears once every item is done: a permanent checklist of
  * ticks is decoration, and this is a rail slot that a returning broadcaster
  * would rather have back. Items that have somewhere to go are clickable —
  * a checklist that only names the gap makes you go find the form yourself.
+ *
+ * Ordered as the work actually runs: make the station look right, give it
+ * something to play, make it findable, then the payoff. "Get your first
+ * listener" stays last because it is the only item the owner cannot simply
+ * go and do.
  */
 export function StationChecklist({ station, trackCount, peakListeners }: StationChecklistProps) {
   const [showEdit, setShowEdit] = useState(false)
@@ -60,6 +65,25 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
             href: `/dashboard/stations/${station.slug}/library`,
           },
         ]),
+    // Both of these live on the settings page, which is the one screen a
+    // broadcaster has no daily reason to open — so they are invisible unless
+    // something says them out loud. They deep-link to their own card rather
+    // than the top of the page: landing on "Station settings" and being left
+    // to find the right box is the failure this item exists to prevent.
+    {
+      key: "schedule",
+      done: (station.schedules?.length ?? 0) > 0,
+      title: "Set your schedule",
+      hint: "Tell listeners when you're on air so they know when to come back.",
+      href: `/dashboard/stations/${station.slug}/settings#schedule`,
+    },
+    {
+      key: "links",
+      done: (station.social_links?.length ?? 0) > 0,
+      title: "Add your social links",
+      hint: "Put your socials and homepage on the player page.",
+      href: `/dashboard/stations/${station.slug}/settings#links`,
+    },
     {
       key: "listener",
       done: peakListeners > 0,

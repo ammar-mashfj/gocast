@@ -104,14 +104,14 @@ class GoogleAuthController extends Controller
             if ($user) {
                 $user->update([
                     'google_id' => $googleUser->getId(),
-                    'avatar_url' => $user->avatar_url ?? $googleUser->getAvatar(),
+                    'avatar_url' => $user->avatar_url ?? $this->avatarUrl($googleUser->getAvatar()),
                 ]);
             } else {
                 $user = User::create([
                     'name' => $googleUser->getName(),
                     'email' => $googleUser->getEmail(),
                     'google_id' => $googleUser->getId(),
-                    'avatar_url' => $googleUser->getAvatar(),
+                    'avatar_url' => $this->avatarUrl($googleUser->getAvatar()),
                     'password' => null,
                 ]);
             }
@@ -157,6 +157,31 @@ class GoogleAuthController extends Controller
         $token = $user->createToken('auth')->plainTextToken;
 
         return $this->callbackResponse($payload, $frontendOrigin, $this->authCookie($request, $token));
+    }
+
+    /**
+     * The Google profile photo URL, or null if we cannot store it.
+     *
+     * Google hands back lh3.googleusercontent.com/a-/ALV-Uj… URLs that run
+     * past a kilobyte, and users.avatar_url is VARCHAR(2048). Both call
+     * sites in callback() sit outside the only try/catch there, so an
+     * oversized value used to surface as an uncaught 1406 that killed the
+     * whole callback: no auth cookie, no postMessage, and no way for the
+     * person to sign up.
+     *
+     * Dropped rather than truncated. A clipped URL is still a URL-shaped
+     * string, so it would be stored happily and then render as a broken
+     * image on every page showing that user, with nothing in the logs.
+     * Null is the state every password-registered account is already in, so
+     * the UI falls back to initials and nobody loses an account over a
+     * picture.
+     *
+     * strlen() counts bytes where the column counts characters, which errs
+     * on the safe side.
+     */
+    private function avatarUrl(?string $url): ?string
+    {
+        return $url !== null && $url !== '' && strlen($url) <= 2048 ? $url : null;
     }
 
     private function callbackResponse(array $payload, string $frontendOrigin, ?Cookie $authCookie = null): Response

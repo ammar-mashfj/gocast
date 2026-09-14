@@ -15,6 +15,18 @@ export interface StationSchedule {
   next_occurrence: string | null
 }
 
+/**
+ * One link on a station's page — an Instagram, a Bandcamp, a homepage.
+ *
+ * `label` is optional because the common case needs no typing: a recognised
+ * host renders as its own glyph and names itself. It earns its keep on the
+ * hosts nothing recognises, where it is the only thing a listener has to go on.
+ */
+export interface SocialLink {
+  label: string | null
+  url: string
+}
+
 export interface Station {
   id: string
   user_id: string
@@ -110,7 +122,12 @@ export interface Station {
   jingle_interval_seconds: number
   /** Rotation tracks between two jingles, in "tracks" mode. Same boundary rule. */
   jingle_every_tracks: number
-  social_links: Record<string, string> | null
+  /**
+   * Owner-supplied links, in the order they are shown. An array rather than a
+   * platform-keyed map because the list is freeform: two Discord servers are a
+   * legitimate pair of rows, and a map would silently collapse them.
+   */
+  social_links: SocialLink[] | null
   theme_config: Record<string, string> | null
   created_at: string
   updated_at: string

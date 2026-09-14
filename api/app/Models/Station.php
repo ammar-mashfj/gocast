@@ -80,6 +80,15 @@ class Station extends Model
     public const DEFAULT_JINGLE_EVERY_TRACKS = 5;
 
     /**
+     * How many links a station may advertise on its player page.
+     *
+     * A layout bound rather than a plan one — links are free on every plan.
+     * Past roughly this many the icon row stops reading as a set of places to
+     * find the station and starts reading as a site footer.
+     */
+    public const MAX_SOCIAL_LINKS = 8;
+
+    /**
      * Space jingles by wall-clock time. Predictable for legal IDs and sponsor
      * reads, and unaffected by how long the station's tracks are.
      */

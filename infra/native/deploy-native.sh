@@ -140,6 +140,13 @@ build_client() {
                 "$REPO_ROOT/client/.next/standalone/.next/static"
   as_app cp -r "$REPO_ROOT/client/public"       "$REPO_ROOT/client/.next/standalone/public" || return 1
   as_app cp -r "$REPO_ROOT/client/.next/static" "$REPO_ROOT/client/.next/standalone/.next/static" || return 1
+
+  # Next's image optimizer writes optimized AVIF/WebP variants here. The unit
+  # runs under ProtectSystem=strict and opens exactly this path in
+  # ReadWritePaths, so it has to exist -- and `npm run build` recreates
+  # standalone/ from scratch, so it has to be recreated on every deploy.
+  # Without it the optimizer re-encodes every image on every request forever.
+  as_app mkdir -p "$REPO_ROOT/client/.next/standalone/.next/cache" || return 1
 }
 
 rollback() {

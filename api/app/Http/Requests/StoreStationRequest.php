@@ -28,7 +28,10 @@ class StoreStationRequest extends FormRequest
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
-            'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],
+            // url:http,https, not a bare url — see UpdateStationRequest. The
+            // default protocol list passes file:// and data://, and this is
+            // rendered as an <img src> on a public page.
+            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048'],
         ];
     }
 }

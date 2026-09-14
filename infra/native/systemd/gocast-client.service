@@ -32,11 +32,23 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gocast-client
 
-# Read-only everywhere. Unlike the PHP units this one genuinely writes
-# nothing: no uploads, no cache on disk, no logs outside the journal.
+# Read-only except for one path. This unit was originally commented as
+# writing nothing at all, which was wrong: Next's image optimizer writes
+# optimized AVIF/WebP variants to .next/cache/images whenever it optimizes a
+# remote image. Under ProtectSystem=strict that write fails, the optimization
+# is redone on every single request, and Node reports the EROFS as a
+# misleading ENOENT on the parent directory -- which sends you looking for a
+# missing directory instead of a read-only one.
+#
+# The `-` prefix makes systemd tolerate the path not existing rather than
+# refusing to start: deploy-native.sh creates it in build_client(), but
+# setup-native.sh can legitimately run on a fresh host before any deploy has.
+# A missing directory then degrades to the old behaviour (no cache) instead
+# of taking the site down to protect a cache.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
+ReadWritePaths=-__APP_ROOT__/client/.next/standalone/.next/cache
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

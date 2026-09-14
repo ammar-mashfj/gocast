@@ -39,8 +39,23 @@ class UpdateStationRequest extends FormRequest
             // so "GMT+2" and other offset spellings are rejected: an
             // offset is only right until the next DST change.
             'timezone' => ['nullable', 'timezone:all'],
-            'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],
-            'social_links' => ['nullable', 'array'],
+            // url:http,https rather than a bare url: the default protocol
+            // list is the whole IANA registry, so file://, data:// and
+            // view-source:// all pass it — and this value is rendered as an
+            // <img src> on a public page.
+            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048'],
+            // Freeform station links. The cap is a layout bound, not a plan
+            // one: past about eight the row on the player stops reading as a
+            // set of icons and starts reading as a footer.
+            'social_links' => ['nullable', 'array', 'max:'.Station::MAX_SOCIAL_LINKS],
+            // array:label,url rejects extra keys outright. Without it any
+            // shape at all survives into the JSON column and has to be
+            // defended against at every read site forever.
+            'social_links.*' => ['array:label,url'],
+            // Same protocol allowlist, and for a stronger reason: these become
+            // anchors the owner controls on a page listeners trust.
+            'social_links.*.url' => ['required', 'string', 'url:http,https', 'max:2048'],
+            'social_links.*.label' => ['nullable', 'string', 'max:30'],
             'theme_config' => ['nullable', 'array'],
             // Sequential or shuffle. Switching costs nothing and disturbs
             // nothing: it is read per track by AutoDjScheduler, never rendered

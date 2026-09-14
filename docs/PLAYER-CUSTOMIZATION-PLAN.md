@@ -120,3 +120,72 @@ maintenance fan-out.
   links.
 - **Embed must inherit the theme**, or a Pro user's themed page and their embed
   won't match. Convenient that embed is already Pro-only.
+
+---
+
+# Ads on the free player page — assessment
+
+**Date:** 2026-09-15
+**Verdict:** Not worth it at current scale. A better ad slot already exists,
+built and empty.
+
+## There is already an ad slot, and it is inert
+
+`api/app/Notifications/ProAccessGranted.php:25-26` states it directly:
+
+> The watermark is likewise not a real difference today: no clips are
+> installed, so it is inert on every plan.
+
+The mechanism is fully wired — `api/app/Jobs/ReloadWatermarkClips.php`, a
+`watermark` Liquidsoap source (`LIQ_SOURCE = 'watermark'`), and
+`api/app/Observers/UserObserver.php:95-105` pushing plan changes to running
+stations so the spot stops the instant someone upgrades. It is an audio spot on
+every free stream, with no clip in it.
+
+Strictly better than display ads: no consent banner, no network approval, no
+layout cost, and it reaches *listeners* — people already listening to internet
+radio, the best possible audience for "start your own station."
+
+## Why display ads lose at this scale
+
+- **The revenue isn't there.** Display RPMs on a niche audio page run roughly
+  $0.50–$2. Even at the top of that, clearing the price of **one $15 Pro
+  subscriber** needs tens of thousands of monthly pageviews. Invite-seeding is
+  nowhere near. Realistically single-digit dollars a month.
+- **Approval is unlikely anyway.** A player page is thin content for AdSense
+  review, and the networks worth having (Mediavine, Raptive) gate at 50k–100k
+  monthly sessions.
+- **It fights the customization investment.** The point of theming and links is
+  that broadcasters make the page theirs and share it. Ads make it less theirs
+  and less shareable. The two roadmap items cancel.
+- **Real technical cost on a latency-sensitive page.**
+  `client/app/station/[slug]/PlayerSkeleton.tsx` exists *because* the hls.js
+  dynamic import causes layout pop — that is how tight the budget already is.
+  Ad slots add CLS and a third-party script racing stream setup.
+- **Third-party cookies mean a consent banner**, on the one page whose entire
+  job is "press play." Country-level analytics means EU traffic is real.
+- **It is a churn signal to broadcasters.** "My host puts ads on my station
+  page" is a reason to leave. Losing one Pro-intent broadcaster costs more than
+  a year of the ad revenue.
+
+## Do instead
+
+1. **Fill the watermark slot.** Built and empty. Per the same comment, Pro's
+   real differentiation today is only AutoDJ + the listener cap — thin. A
+   free-tier audio ID both markets GoCast *and* makes Pro worth paying for.
+   Same effort as ads, better on both axes.
+2. **House promo on free station pages** — "Broadcast your own, free." No
+   consent banner, no approval, pure acquisition.
+3. **Let broadcasters monetize instead of taxing them** — the offer-links
+   block. Aligns GoCast with them rather than against.
+
+## When ads would make sense
+
+When a single station reliably pulls tens of thousands of monthly listens. At
+that point the thing worth selling is not display but **audio spots inserted
+into the stream** — which Liquidsoap can already do, being the same mechanism
+as the watermark and jingles — and which are worth many times a banner. It
+should be revenue-share with the broadcaster, not a unilateral tax.
+
+That is a 2027 conversation. Today it would cost page weight, consent friction,
+and goodwill to earn less than one subscription.

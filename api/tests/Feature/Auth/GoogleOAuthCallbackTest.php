@@ -14,13 +14,13 @@ beforeEach(function () {
     config()->set('services.frontend_url', 'https://gocast.test');
 });
 
-function fakeGoogleUser(string $id = 'g-123', string $email = 'g@test.test', string $name = 'Google User'): SocialiteUser
+function fakeGoogleUser(string $id = 'g-123', string $email = 'g@test.test', string $name = 'Google User', string $avatar = 'https://example.com/avatar.png'): SocialiteUser
 {
     $u = new SocialiteUser;
     $u->id = $id;
     $u->email = $email;
     $u->name = $name;
-    $u->avatar = 'https://example.com/avatar.png';
+    $u->avatar = $avatar;
 
     return $u;
 }
@@ -122,6 +122,79 @@ it('creates new Google users without an unknowable local password', function () 
     expect($user->password)->toBeNull();
     expect($user->has_password)->toBeFalse();
     Notification::assertSentTo($user, WelcomeNotification::class);
+});
+
+describe('Google avatars too long for the column', function () {
+    // Real lh3.googleusercontent.com/a-/ALV-Uj… URLs run past a kilobyte.
+    // users.avatar_url was VARCHAR(255) until 2026_09_15_110000, and with
+    // strict mode on MySQL rejects the value outright rather than truncating
+    // it — an uncaught 1406 that killed the callback before it could set the
+    // auth cookie, so the account was never created and the popup died on a
+    // 500. These pin the guard: a picture must never cost someone an account.
+    function googleAvatar(int $length): string
+    {
+        $prefix = 'https://lh3.googleusercontent.com/a-/';
+
+        return $prefix.str_repeat('A', $length - strlen($prefix));
+    }
+
+    function mockGoogleUser(SocialiteUser $google): void
+    {
+        $provider = Mockery::mock(Provider::class);
+        $provider->shouldReceive('stateless')->andReturnSelf();
+        $provider->shouldReceive('user')->andReturn($google);
+        Socialite::shouldReceive('driver')->with('google')->andReturn($provider);
+    }
+
+    it('stores a kilobyte-long avatar that still fits the column', function () {
+        Notification::fake();
+        [$state, $cookie] = oauthStateCookie();
+        $avatar = googleAvatar(1200);
+        mockGoogleUser(fakeGoogleUser(id: 'g-long', email: 'long@test.test', avatar: $avatar));
+
+        $this->withUnencryptedCookie('gocast_oauth_state', $cookie)
+            ->get('/api/auth/google/callback?state='.$state)
+            ->assertSuccessful()
+            ->assertCookie('token');
+
+        expect(User::where('email', 'long@test.test')->firstOrFail()->avatar_url)->toBe($avatar);
+    });
+
+    it('creates the account anyway when the avatar overflows the column', function () {
+        Notification::fake();
+        [$state, $cookie] = oauthStateCookie();
+        mockGoogleUser(fakeGoogleUser(id: 'g-huge', email: 'huge@test.test', avatar: googleAvatar(3000)));
+
+        $this->withUnencryptedCookie('gocast_oauth_state', $cookie)
+            ->get('/api/auth/google/callback?state='.$state)
+            ->assertSuccessful()
+            ->assertViewHas('payload', fn ($p) => $p['authenticated'] === true)
+            ->assertCookie('token');
+
+        // Null, not truncated: a clipped URL would be stored happily and then
+        // render as a broken image forever.
+        expect(User::where('email', 'huge@test.test')->firstOrFail()->avatar_url)->toBeNull();
+    });
+
+    it('links an existing password account without choking on the avatar', function () {
+        Notification::fake();
+        $existing = User::factory()->unverified()->create([
+            'email' => 'link-huge@test.test',
+            'avatar_url' => null,
+        ]);
+        [$state, $cookie] = oauthStateCookie();
+        mockGoogleUser(fakeGoogleUser(id: 'g-link-huge', email: 'link-huge@test.test', avatar: googleAvatar(3000)));
+
+        $this->withUnencryptedCookie('gocast_oauth_state', $cookie)
+            ->get('/api/auth/google/callback?state='.$state)
+            ->assertSuccessful()
+            ->assertCookie('token');
+
+        $fresh = $existing->fresh();
+
+        expect($fresh->google_id)->toBe('g-link-huge')
+            ->and($fresh->avatar_url)->toBeNull();
+    });
 });
 
 it('does not send another welcome notification for an already verified Google user', function () {

@@ -10,6 +10,7 @@ import { StationArtwork } from "@/components/StationArtwork"
 import { StationActions } from "../StationActions"
 import { DeleteStation } from "../DeleteStation"
 import { ScheduleEditor } from "../ScheduleEditor"
+import { LinksEditor } from "../LinksEditor"
 
 /**
  * Hardcoded in the Liquidsoap template (`%mp3(bitrate=128, samplerate=44100)`)
@@ -104,13 +105,28 @@ export default async function StationSettingsPage({
 
       {/* Schedule — a claim, not a control. Nothing here starts a station or
           changes what plays; it is the only way the product can tell a
-          listener when to come back. */}
-      <Card>
+          listener when to come back.
+
+          The id is a deep-link target for the setup checklist on the station
+          page; scroll-mt keeps the heading off the top edge on arrival. */}
+      <Card id="schedule" className="scroll-mt-6">
         <CardHeader>
           <CardTitle className="text-base font-medium">Schedule</CardTitle>
         </CardHeader>
         <CardContent>
           <ScheduleEditor station={station} />
+        </CardContent>
+      </Card>
+
+      {/* Links — like the schedule, a claim rather than a control. Nothing
+          here touches the audio path; it is the only way a listener gets from
+          the player to anywhere else the station exists. */}
+      <Card id="links" className="scroll-mt-6">
+        <CardHeader>
+          <CardTitle className="text-base font-medium">Links</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LinksEditor station={station} />
         </CardContent>
       </Card>
 

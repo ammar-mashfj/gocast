@@ -23,6 +23,7 @@ import Hls from "hls.js"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { shareOrCopy } from "@/lib/share"
+import { resolveSocialLink } from "@/lib/socialLinks"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useListenerSession } from "@/hooks/useListenerSession"
@@ -244,6 +245,52 @@ function ShareButtons({ station }: { station: Station }) {
         <IconShare3 size={16} />
         Share
       </button>
+    </div>
+  )
+}
+
+/**
+ * Where else the station exists.
+ *
+ * Two shapes on purpose. A recognised platform is a glyph on its own — nobody
+ * needs the word "Instagram" under the Instagram mark, and a row of bare marks
+ * is what this pattern looks like everywhere else on the web. Anything we do
+ * not recognise gets the globe AND its name, because a lone globe is a link to
+ * nowhere in particular as far as a listener can tell.
+ *
+ * rel carries nofollow/ugc: these are owner-supplied links on a public page,
+ * which is the exact shape of an SEO farm if the domain vouches for them.
+ */
+function StationLinks({ station }: { station: Station }) {
+  const links = (station.social_links ?? [])
+    .map(resolveSocialLink)
+    .filter((link) => link !== null)
+
+  if (links.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 @max-[900px]/player:justify-center">
+      {links.map((link, index) => (
+        <a
+          key={`${link.href}-${index}`}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer nofollow ugc"
+          title={link.name}
+          aria-label={link.name}
+          className={
+            "inline-flex items-center gap-2 h-9 rounded-full border border-[#2a2344] text-muted-foreground " +
+            "no-underline transition-colors hover:border-primary hover:text-white " +
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
+            (link.known ? "w-9 justify-center" : "px-3.5")
+          }
+        >
+          <link.icon size={18} />
+          {!link.known && <span className="max-w-[16ch] truncate text-[13px]">{link.name}</span>}
+        </a>
+      ))}
     </div>
   )
 }
@@ -939,6 +986,8 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           )}
 
           <ShareButtons station={station} />
+
+          <StationLinks station={station} />
 
           {/* Recently played — button disclosure so open *and* close can animate (unlike native <details>). */}
           {recentTracks.length > 0 && (
