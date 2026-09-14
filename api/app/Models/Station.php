@@ -37,6 +37,8 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $last_ready_at
  * @property string $icecast_mount
  * @property string $icecast_password
+ * @property string $autodj_order one of AUTODJ_ORDER_SEQUENTIAL | AUTODJ_ORDER_SHUFFLE
+ * @property list<string>|null $autodj_deck unplayed remainder of the current shuffle
  * @property bool $jingles_enabled
  * @property string $jingle_mode one of JINGLE_MODE_INTERVAL | JINGLE_MODE_TRACKS
  * @property int $jingle_interval_seconds
@@ -93,6 +95,23 @@ class Station extends Model
     public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
 
     /**
+     * Walk the rotation in `position` order, wrapping at the end. The order
+     * the owner set with the drag handles in the library, played as written.
+     */
+    public const AUTODJ_ORDER_SEQUENTIAL = 'sequential';
+
+    /**
+     * Play a random permutation of the rotation, dealing a fresh one each time
+     * the last is exhausted. Deliberately not called "random": a random pick
+     * per track can repeat a song immediately, which is never what anyone
+     * means. Every track airs exactly once before any track airs twice.
+     */
+    public const AUTODJ_ORDER_SHUFFLE = 'shuffle';
+
+    /** @var list<string> */
+    public const AUTODJ_ORDERS = [self::AUTODJ_ORDER_SEQUENTIAL, self::AUTODJ_ORDER_SHUFFLE];
+
+    /**
      * How many featured stations the public rail shows. Featuring more than
      * this is allowed — it is curation, not a queue — but the extras are not
      * visible, which is why the admin panel counts against this number rather
@@ -121,6 +140,8 @@ class Station extends Model
             // Same reasoning. LiquidsoapSupervisor renders the .liq straight
             // off the in-memory model, so a null interval here would reach
             // delay() as 0 — a jingle between every single track.
+            $station->autodj_order ??= self::AUTODJ_ORDER_SEQUENTIAL;
+
             $station->jingles_enabled ??= false;
             $station->jingle_mode ??= self::JINGLE_MODE_INTERVAL;
             $station->jingle_interval_seconds ??= self::DEFAULT_JINGLE_INTERVAL_SECONDS;
@@ -156,6 +177,7 @@ class Station extends Model
         return [
             'featured' => 'boolean',
             'featured_at' => 'datetime',
+            'autodj_deck' => 'array',
             'jingles_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',

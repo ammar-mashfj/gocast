@@ -167,6 +167,7 @@ class StationResource extends JsonResource
                 $request->user()?->id === $this->user_id,
                 fn () => $request->user()->watermarked(),
             ),
+            'autodj_order' => $this->autodj_order,
             'jingles_enabled' => (bool) $this->jingles_enabled,
             'jingle_mode' => $this->jingle_mode,
             'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,

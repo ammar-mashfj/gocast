@@ -84,6 +84,14 @@ export interface Station {
    * owner's own stations, so it is absent from public/discover payloads.
    */
   watermarked?: boolean
+  /**
+   * How the AutoDJ walks the rotation. "sequential" plays it in the order the
+   * drag handles set, looping at the end; "shuffle" plays a random permutation
+   * of the whole rotation, dealing a fresh one each time it is exhausted — so
+   * every track airs once before any airs twice, and the manual order is
+   * ignored.
+   */
+  autodj_order: "sequential" | "shuffle"
   /** Play station IDs between AutoDJ tracks. Off means the jingle list is stored but silent. */
   jingles_enabled: boolean
   /**

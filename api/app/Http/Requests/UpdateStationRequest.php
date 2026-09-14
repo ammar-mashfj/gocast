@@ -42,6 +42,10 @@ class UpdateStationRequest extends FormRequest
             'artwork_url' => ['nullable', 'string', 'url', 'max:2048'],
             'social_links' => ['nullable', 'array'],
             'theme_config' => ['nullable', 'array'],
+            // Sequential or shuffle. Switching costs nothing and disturbs
+            // nothing: it is read per track by AutoDjScheduler, never rendered
+            // into the .liq, so it does not restart the container.
+            'autodj_order' => ['sometimes', Rule::in(Station::AUTODJ_ORDERS)],
             'jingles_enabled' => ['sometimes', 'boolean'],
             'jingle_mode' => ['sometimes', Rule::in(Station::JINGLE_MODES)],
             // 1 minute floor: below that the delay operator stops being a

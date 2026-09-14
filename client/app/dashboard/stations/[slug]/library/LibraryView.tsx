@@ -14,6 +14,7 @@ import {
   IconSearch,
   IconPlus,
   IconSparkles,
+  IconArrowsShuffle,
 } from "@tabler/icons-react"
 import {
   DndContext,
@@ -84,6 +85,8 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
   const [dragOver, setDragOver] = useState(false)
   const [jinglesOpen, setJinglesOpen] = useState(false)
+  const [order, setOrder] = useState(station.autodj_order)
+  const [savingOrder, setSavingOrder] = useState(false)
   const [fixTagsOpen, setFixTagsOpen] = useState(false)
   const [tagBannerDismissed, setTagBannerDismissed] = useState(false)
   const [query, setQuery] = useState("")
@@ -141,6 +144,43 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
     noun: "track",
     onUploaded: handleUploaded,
   })
+
+  /**
+   * Flip the rotation between sequential and shuffle.
+   *
+   * Optimistic, and safe to be: the setting is read per track by the
+   * scheduler and never rendered into the .liq, so nothing restarts and no
+   * listener hears the switch. The worst a failed PATCH costs is the toggle
+   * snapping back.
+   *
+   * The change lands on the NEXT track boundary, not this one — the container
+   * has already been handed the song it is about to play. Saying so is the
+   * difference between "nothing happened" and "it worked".
+   */
+  const toggleShuffle = useCallback(async () => {
+    if (locked || savingOrder) return
+
+    const next = order === "shuffle" ? "sequential" : "shuffle"
+    const previous = order
+
+    setOrder(next)
+    setSavingOrder(true)
+
+    try {
+      await api.patch(`/stations/${slug}`, { autodj_order: next })
+      toast.success(
+        next === "shuffle"
+          ? "Shuffling. Every track plays once before any repeats."
+          : "Back to play order, top to bottom.",
+        { description: "Takes effect after the track that's on air now." },
+      )
+    } catch {
+      setOrder(previous)
+      toast.error("Couldn't change the play order.")
+    } finally {
+      setSavingOrder(false)
+    }
+  }, [locked, savingOrder, order, slug])
 
   const handleReorder = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event
@@ -261,8 +301,19 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
    * or title-sorted view would either write a wrong order or silently drop the
    * rows that aren't on screen. The handles disappear instead of pretending,
    * and the toolbar says why.
+   *
+   * Shuffle is the same argument from the other end: the order would save
+   * correctly and then never be played, which is a worse lie than a missing
+   * handle. The deck holds track IDs, so dragging genuinely changes nothing.
    */
-  const canReorder = sort === "order" && q === "" && shown.length === tracks.length
+  const canReorder =
+    sort === "order" && q === "" && shown.length === tracks.length && order === "sequential"
+
+  /** Why the handles are gone. Two different reasons, and they need different words. */
+  const reorderHint =
+    order === "shuffle"
+      ? "· shuffle ignores manual order — switch it off to reorder"
+      : "· switch to Play order with search cleared to reorder"
 
   const usagePct = Math.min(100, (meta.storage_used_bytes / meta.storage_cap_bytes) * 100)
 
@@ -276,7 +327,11 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
     totalSeconds > 0 ? `${formatDuration(Math.round(totalSeconds))} of rotation` : null,
     // The middle clause describes what the rotation DOES, which is a promise
     // a free account's rotation does not keep — it never airs.
-    locked ? "rotation plays only on Pro" : "plays in order, then loops",
+    locked
+      ? "rotation plays only on Pro"
+      : order === "shuffle"
+        ? "shuffled, every track once per pass"
+        : "plays in order, then loops",
     `${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`,
   ].filter(Boolean) as string[]
 
@@ -305,6 +360,41 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
+          {/* Sits with Jingles rather than in the list toolbar on purpose. The
+              toolbar's sort already has an option called "Play order", and it
+              controls what THIS SCREEN shows — putting a setting that changes
+              what the STATION airs next to it would make the two impossible to
+              tell apart. Up here with the other things that change the
+              broadcast, the distinction is the layout. */}
+          <Button
+            variant="outline"
+            onClick={toggleShuffle}
+            disabled={locked || savingOrder}
+            title={
+              locked
+                ? "Shuffle is part of AutoDJ, which isn't in your plan."
+                : order === "shuffle"
+                  ? "Playing a random pass of the rotation. Click for play order."
+                  : "Playing top to bottom. Click to shuffle."
+            }
+          >
+            <IconArrowsShuffle size={16} data-icon="inline-start" />
+            Shuffle
+            {locked ? (
+              <Badge
+                variant="outline"
+                className="ml-1 border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"
+              >
+                Pro
+              </Badge>
+            ) : (
+              order === "shuffle" && (
+                <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  on
+                </span>
+              )
+            )}
+          </Button>
           {/* Jingles are AutoDJ: they only ever play between rotation
               tracks, so on a plan without it there is nothing behind this
               dialog that could work — uploads are refused and the settings
@@ -559,9 +649,7 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
                   ? `Showing ${shown.length} of ${visible.length} matches`
                   : `Showing ${shown.length} of ${tracks.length}`}
                 {!canReorder && tracks.length > 1 && (
-                  <span className="ml-2 text-muted-foreground/70">
-                    · switch to Play order with search cleared to reorder
-                  </span>
+                  <span className="ml-2 text-muted-foreground/70">{reorderHint}</span>
                 )}
               </span>
               {shown.length < visible.length && (

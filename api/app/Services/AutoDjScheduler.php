@@ -39,7 +39,9 @@ class AutoDjScheduler
      */
     public function next(Station $station): ?string
     {
-        $track = $this->advance($station);
+        $track = $station->autodj_order === Station::AUTODJ_ORDER_SHUFFLE
+            ? $this->advanceShuffled($station)
+            : $this->advanceSequential($station);
 
         return $track === null ? null : $this->writer->annotateTrack($track);
     }
@@ -51,7 +53,7 @@ class AutoDjScheduler
      * semantics `mode = "normal"` gave us, preserved deliberately because the
      * owner controls that order with the drag handles in the library.
      */
-    private function advance(Station $station): ?Track
+    private function advanceSequential(Station $station): ?Track
     {
         $cursor = $station->autodj_cursor_position;
 
@@ -81,5 +83,127 @@ class AutoDjScheduler
         $station->syncOriginalAttribute('autodj_cursor_position');
 
         return $next;
+    }
+
+    /**
+     * Take the next card off the station's deck, dealing a new one when the
+     * current deck runs out.
+     *
+     * The deck is a stored random permutation of the whole rotation — see the
+     * migration for why it holds IDs. Popping from it is what makes "no
+     * repeats" a structural property rather than a rule: a track cannot play
+     * twice in a cycle because it is no longer in the list. The alternative
+     * (pick at random each time, reject anything played in the last N) needs
+     * an N, needs a history to check it against, and still has to decide what
+     * to do when the library is smaller than N.
+     */
+    private function advanceShuffled(Station $station): ?Track
+    {
+        $deck = $station->autodj_deck ?? [];
+        $track = null;
+
+        // Pop until we land on a track that still exists. A track deleted
+        // since the deal leaves a dead ID behind, and skipping it lazily here
+        // is cheaper and less fragile than rewriting every station's deck from
+        // the delete path. Normally this loop runs exactly once.
+        while ($deck !== [] && $track === null) {
+            $track = $this->find($station, array_shift($deck));
+        }
+
+        // Cold start (no deck yet, or the owner just switched to shuffle), or
+        // a deck emptied entirely by deletions.
+        if ($track === null) {
+            $deck = $this->deal($station);
+
+            if ($deck === []) {
+                return null;
+            }
+
+            $track = $this->find($station, array_shift($deck));
+
+            // Every ID came from the rotation a statement ago, so only a
+            // delete landing in between can get us here. Bail rather than
+            // loop: the next request deals again, and one silent retry_delay
+            // is a better failure than a query storm on the audio path.
+            if ($track === null) {
+                return null;
+            }
+        }
+
+        // Refill EAGERLY, the moment the deck runs dry, rather than lazily on
+        // the next request. This is the only place the seam is cheap to fix:
+        // the track that ends this deck is right here in hand, so the new deck
+        // can be dealt away from it without persisting "last played" anywhere.
+        if ($deck === []) {
+            $deck = $this->deal($station, avoidHead: $track->getKey());
+        }
+
+        $this->persistDeck($station, $deck);
+
+        return $track;
+    }
+
+    /**
+     * A fresh shuffle of the station's whole rotation.
+     *
+     * `$avoidHead` is the track that just played. Without it the one repeat a
+     * deck cannot prevent on its own is the seam between two decks: the last
+     * card of the old one coming up first in the new one, which is a 1-in-N
+     * chance every cycle and the only back-to-back repeat a listener can ever
+     * hear in this mode.
+     *
+     * @return list<string>
+     */
+    private function deal(Station $station, ?string $avoidHead = null): array
+    {
+        $deck = $station->musicTracks()->pluck('id')->all();
+
+        shuffle($deck);
+
+        // Swapping the head with any later slot keeps the result a
+        // permutation, so the once-per-cycle guarantee survives the fix. A
+        // one-track rotation cannot be fixed and must not be broken trying —
+        // it repeats, unavoidably, and the count guard is what lets it.
+        if ($avoidHead !== null && count($deck) > 1 && $deck[0] === $avoidHead) {
+            $swap = random_int(1, count($deck) - 1);
+            [$deck[0], $deck[$swap]] = [$deck[$swap], $deck[0]];
+        }
+
+        return $deck;
+    }
+
+    /**
+     * One rotation track by ID, or null if it is no longer in the rotation.
+     *
+     * Scoped through musicTracks() rather than Track::find() so a deck can
+     * never hand back another station's track, or a jingle that was recategorised
+     * out of the rotation after the deal.
+     */
+    private function find(Station $station, string $id): ?Track
+    {
+        return $station->musicTracks()->whereKey($id)->first();
+    }
+
+    /**
+     * Write the remaining deck back.
+     *
+     * Straight to the query builder for exactly the reason advanceSequential()
+     * does it — see the comment there. StationObserver must not fire at a track
+     * boundary, or every listener is dropped mid-song.
+     *
+     * The encode is ours to do: DB::table bypasses the model's casts, so
+     * handing it the array would stringify to "Array" and quietly corrupt the
+     * column.
+     *
+     * @param  list<string>  $deck
+     */
+    private function persistDeck(Station $station, array $deck): void
+    {
+        DB::table('stations')
+            ->where('id', $station->getKey())
+            ->update(['autodj_deck' => json_encode($deck)]);
+
+        $station->autodj_deck = $deck;
+        $station->syncOriginalAttribute('autodj_deck');
     }
 }
