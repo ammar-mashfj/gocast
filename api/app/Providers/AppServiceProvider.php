@@ -81,6 +81,18 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(20)->by((string) $request->route('token'));
         });
 
+        // The dashboard bell's badge poll. Keyed by USER, not IP: this is an
+        // authenticated endpoint, and the two people sharing a station's
+        // office wifi should not be able to throttle each other's bell.
+        //
+        // Sized for the client's 60-second interval with a wide margin, so a
+        // tab that wakes from sleep and catches up, a second dashboard tab, and
+        // the refetch-on-focus all fit without anyone hitting a 429 for
+        // looking at the page.
+        RateLimiter::for('notification-poll', function (Request $request) {
+            return Limit::perMinute(30)->by($request->user()->id);
+        });
+
         Relation::enforceMorphMap([
             'admin' => Admin::class,
             'user' => User::class,

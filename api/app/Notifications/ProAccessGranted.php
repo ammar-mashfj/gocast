@@ -3,10 +3,11 @@
 namespace App\Notifications;
 
 use App\Models\Plan;
+use App\Notifications\Bell\BellNotification;
+use App\Notifications\Bell\BellPayload;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
 
 /**
  * Tells someone their access request was granted.
@@ -35,7 +36,7 @@ use Illuminate\Notifications\Notification;
  * grant, and a slow or unreachable mail host must not make approving somebody
  * look like it failed — the plan change is already committed by then.
  */
-class ProAccessGranted extends Notification implements ShouldQueue
+class ProAccessGranted extends BellNotification implements ShouldQueue
 {
     use Queueable;
 
@@ -50,9 +51,79 @@ class ProAccessGranted extends Notification implements ShouldQueue
     /**
      * @return list<string>
      */
-    public function via(object $notifiable): array
+    protected function alsoVia(object $notifiable): array
     {
         return ['mail'];
+    }
+
+    /**
+     * The bell answers the complaint in the class docblock directly: nothing
+     * about a grant was ever pushed to the dashboard, so the email had to ask
+     * people to refresh the page. Now the dashboard says it too.
+     *
+     * Short where the email is long. The email is the onboarding document —
+     * AutoDJ steps, the share link, the socials — and reproducing it in a
+     * 400px dropdown would just be a worse copy of it. This says what changed
+     * and points at the place to use it.
+     */
+    protected function toBell(object $notifiable): BellPayload
+    {
+        $station = $notifiable->stations()->first();
+        $autoDj = $this->plan->autodj_enabled && $station !== null;
+
+        // The AutoDJ clause is worded off the STATION, not just the plan, and
+        // the button below is gated the same way. An account approved before
+        // it has built anything does get AutoDJ, so the sentence still names
+        // it — but "keeps your station playing" is a promise about a station
+        // that does not exist yet, and the button would have nowhere to go.
+        $body = 'Your request was approved — up to '
+            .number_format($this->plan->max_listeners).' listeners at once';
+
+        if ($this->plan->autodj_enabled) {
+            $body .= $station !== null
+                ? ', and AutoDJ keeps your station playing when you are not live.'
+                : ', and AutoDJ to keep your station playing once you create one.';
+        } else {
+            $body .= '.';
+        }
+
+        // The points deliberately do NOT restate the body. The body is the row
+        // and says what changed; these are the part of the email that has
+        // never had anywhere to live in the dashboard — the term, and how to
+        // actually start using AutoDJ. If they only repeated the sentence
+        // above, opening the dialog would cost a click and tell you nothing,
+        // which is the failure mode worth avoiding here.
+        $points = ['Three months free — no card, nothing to pay.'];
+
+        if ($autoDj) {
+            $points[] = 'Upload audio to your library and AutoDJ starts playing it straight away.';
+            $points[] = 'Jingles live on the same page — station IDs between tracks, never cutting into one.';
+        } elseif ($this->plan->autodj_enabled) {
+            // Plan carries AutoDJ but there is no station to point at yet, so
+            // this says what is waiting rather than how to use it.
+            $points[] = 'AutoDJ is ready as soon as you create your station.';
+        }
+
+        $points[] = 'Reply to the email we sent if anything looks wrong — it comes straight to us.';
+
+        return new BellPayload(
+            title: "You're on GoCast {$this->plan->name}",
+            body: $body,
+            icon: 'plan-upgraded',
+            level: BellPayload::LEVEL_SUCCESS,
+            category: BellPayload::CATEGORY_PLAN,
+            actionLabel: $autoDj ? 'Open AutoDJ' : 'Open your dashboard',
+            actionUrl: $autoDj
+                ? BellPayload::appUrl("/dashboard/stations/{$station->slug}/library")
+                : BellPayload::appUrl('/dashboard'),
+            // Expands rather than linking: this is the one notification whose
+            // email is an onboarding document, and the row has only ever been
+            // able to carry its first sentence.
+            actionMode: BellPayload::MODE_EXPAND,
+            detailHeading: 'What you get',
+            detailPoints: $points,
+            meta: ['plan' => $this->plan->slug],
+        );
     }
 
     public function toMail(object $notifiable): MailMessage

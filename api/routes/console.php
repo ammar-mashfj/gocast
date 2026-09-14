@@ -119,3 +119,13 @@ Schedule::command('stations:prune-events')
     ->dailyAt('04:50')
     ->withoutOverlapping()
     ->runInBackground();
+
+// In-app notification retention. Last of the nightly prunes, at its own minute
+// so none of the four compete for the same disk. Lower-volume than the others
+// by a wide margin — these rows arrive when something happens to an account,
+// not when a container misbehaves — but nothing else deletes from the table,
+// so it still needs a floor sweeper. See PruneNotifications.
+Schedule::command('notifications:prune')
+    ->dailyAt('05:00')
+    ->withoutOverlapping()
+    ->runInBackground();

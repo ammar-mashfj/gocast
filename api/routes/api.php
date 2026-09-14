@@ -12,6 +12,7 @@ use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\NextTrackController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PublicEmbedController;
@@ -80,6 +81,25 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/email/verify', [EmailVerificationController::class, 'verify'])
         ->middleware('throttle:10,1')
         ->name('verification.verify');
+
+    // The dashboard bell. Inside auth but deliberately OUTSIDE `verified`,
+    // alongside the account routes below rather than with the productive ones:
+    // reading messages addressed to you is not a productive action, and the
+    // first notification an account can receive is one about not having
+    // verified yet. The feed is scoped to the caller inside the controller —
+    // see NotificationController for why none of these bind a model.
+    //
+    // `unread-count` carries its own limiter because it is the only one of
+    // these that is polled on a timer; the rest are fired by a click. Keep it
+    // above any future GET `/notifications/{notification}` so the literal is
+    // not matched as a uuid — today nothing parameterised answers GET, so the
+    // order is habit rather than load-bearing.
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])
+        ->middleware('throttle:notification-poll');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
 
     // Account self-service — kept outside `verified` so a user who mistyped their
     // email on signup can correct it (UpdateProfileRequest clears verification on

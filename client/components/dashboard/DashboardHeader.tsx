@@ -14,6 +14,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { useStationBySlug } from "@/contexts/StationContext"
+import { NotificationBell } from "@/components/dashboard/NotificationBell"
 
 // No entry for "stations": it is a path segment, not a destination. There is
 // one station per user and no list to go back to, so the crumb is dropped and
@@ -107,6 +108,13 @@ export function DashboardHeader() {
           </Breadcrumb>
         </>
       )}
+
+      {/* The header's first right-aligned element, so the `ml-auto` lives here
+          rather than on a wrapper: the breadcrumb is allowed to take the width
+          it needs and this is pushed to the far end of whatever is left. */}
+      <div className="ml-auto flex items-center gap-1">
+        <NotificationBell />
+      </div>
     </header>
   )
 }

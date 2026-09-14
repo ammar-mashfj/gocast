@@ -7,6 +7,7 @@ use App\Models\StationEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 /**
  * Owns every transition of a station's `desired_state`.
@@ -137,6 +138,29 @@ class StationLifecycleService
             ])->save();
 
             $this->supervisor->down($station);
+
+            // Drop the now-playing payload as part of stopping, rather than
+            // leaving it to whoever notices first.
+            //
+            // Every OTHER path that clears this key needs the container to
+            // report in: Liquidsoap pushing an empty payload when a track
+            // ends, or StationEventController::closeSessions reacting to a
+            // `shutdown` event. A container being torn down has no reliable
+            // chance to do either — SIGTERM racing the HTTP post at best, and
+            // nothing at all if it was killed outright or had already crashed.
+            //
+            // So the key would survive its own station by up to the six-hour
+            // TTL, and the damage is not cosmetic: the public listeners
+            // endpoint falls back to this copy whenever the container is
+            // unreachable, so a stopped station keeps reporting a track. The
+            // player page reads that as "audible" and hides the entire off-air
+            // block — the Off air badge and the notify-me opt-in with it — so
+            // the one moment a listener would want to be told about the next
+            // broadcast is the moment the UI for it disappears.
+            //
+            // Intent is authoritative here. The owner said stop; nothing is
+            // playing, whatever the container did or didn't manage to say.
+            Redis::del("metadata:{$station->id}");
 
             Log::info('Station stopped', [
                 'station' => $station->slug,
