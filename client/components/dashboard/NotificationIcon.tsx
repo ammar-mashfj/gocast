@@ -6,6 +6,7 @@ import {
   IconMicrophone,
   IconRadio,
   IconSparkles,
+  IconSpeakerphone,
   type IconProps,
 } from "@tabler/icons-react"
 import type { ForwardRefExoticComponent, RefAttributes } from "react"
@@ -30,6 +31,9 @@ const NOTIFICATION_ICONS: Record<string, TablerIcon> = {
   invite: IconGift,
   "plan-upgraded": IconSparkles,
   "plan-expired": IconArrowDown,
+  // Announcements — anything GoCast says to everybody at once. See
+  // App\Notifications\ProductUpdate, which defaults to this key.
+  megaphone: IconSpeakerphone,
   warning: IconAlertTriangle,
 }
 

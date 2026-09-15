@@ -26,11 +26,18 @@ return [
      * somebody who has been away for a month should still find out their plan
      * expired while they were gone.
      *
-     * One caller depends on this window beyond display: NudgeInactiveBroadcasters
-     * treats "a row of this type exists" as "already nudged", so the retention
-     * has to comfortably exceed the 7-day window that command looks at, or a
-     * long-dormant account could be nudged twice. 90 days clears that by an
-     * order of magnitude.
+     * Two callers depend on this window beyond display, both by treating "a row
+     * of this type exists" as "already told":
+     *
+     *   • NudgeInactiveBroadcasters, so the retention has to comfortably exceed
+     *     the 7-day window that command looks at, or a long-dormant account
+     *     could be nudged twice. 90 days clears that by an order of magnitude.
+     *   • AnnouncementSender, whose duplicate guard reads these rows back to
+     *     find out who already has an announcement. There is no window to clear
+     *     here — an announcement key simply stops being spent once its rows are
+     *     pruned, so reusing one older than this sends it to everybody again.
+     *     That is unavoidable without a table of its own, and the admin page
+     *     says so next to the key field.
      *
      * Set to 0 to disable pruning entirely.
      */

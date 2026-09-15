@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AccessRequestController;
 use App\Http\Controllers\Admin\AccountController;
+use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\AuthenticatedSessionController;
 use App\Http\Controllers\Admin\InviteController;
 use App\Http\Controllers\Admin\StationController;
@@ -64,6 +65,14 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('requests/{entry}/dismiss', [AccessRequestController::class, 'dismiss'])->name('requests.dismiss');
     Route::post('requests/{entry}/revoke', [AccessRequestController::class, 'revoke'])->name('requests.revoke');
     Route::post('requests/{entry}/reopen', [AccessRequestController::class, 'reopen'])->name('requests.reopen');
+
+    // Announcements — the in-app bell of every account at once, and the only
+    // thing in this panel with no undo. Hence two POSTs rather than one: the
+    // form posts to `preview`, and only the page that comes back can post to
+    // `store`. Nothing is written until the second one.
+    Route::get('announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
+    Route::post('announcements/preview', [AnnouncementController::class, 'preview'])->name('announcements.preview');
+    Route::post('announcements', [AnnouncementController::class, 'store'])->name('announcements.store');
 
     Route::get('watermark', [WatermarkClipController::class, 'index'])->name('watermark.index');
     Route::post('watermark', [WatermarkClipController::class, 'store'])->name('watermark.store');

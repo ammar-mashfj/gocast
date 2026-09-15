@@ -1,0 +1,15 @@
+{
+    "key": "2026-09-example",
+    "headline": "Something new on GoCast",
+    "summary": "One or two sentences. The bell clamps this to two lines, so whatever matters goes first.",
+    "detail_heading": "What's new",
+    "points": [
+        "One plain sentence per point — no markdown, the dashboard formats these itself.",
+        "Leave this list out entirely and the notification is a plain link with no dialog.",
+        "Three or four is the useful range; this is a dropdown, not a changelog."
+    ],
+    "url": "/dashboard/station/settings",
+    "link_label": "Take a look",
+    "icon": "megaphone",
+    "level": "info"
+}

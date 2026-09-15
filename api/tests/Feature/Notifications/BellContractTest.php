@@ -9,6 +9,7 @@ use App\Notifications\InactiveBroadcasterNudge;
 use App\Notifications\InviteRedeemed;
 use App\Notifications\PlanExpired;
 use App\Notifications\ProAccessGranted;
+use App\Notifications\ProductUpdate;
 use App\Notifications\WelcomeNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Carbon;
@@ -43,6 +44,23 @@ function notificationClasses(): array
     }
 
     return $classes;
+}
+
+/**
+ * An announcement with the fields a caller would fill in.
+ *
+ * A helper rather than a literal at each site because ProductUpdate is the one
+ * notification whose content comes from outside the class, so every assertion
+ * about it needs some invented copy — and copy invented twice drifts.
+ */
+function announcementFixture(): ProductUpdate
+{
+    return new ProductUpdate(
+        key: '2026-09-contract',
+        headline: 'Something new on GoCast',
+        summary: 'A sentence about it.',
+        points: ['The thing you can now do.'],
+    );
 }
 
 it('routes every database-channel notification through the bell base class', function () {
@@ -166,6 +184,11 @@ it('produces a renderable payload for every converted notification', function ()
         'InviteRedeemed' => (new InviteRedeemed($plan, Carbon::parse('2026-12-01')))->toDatabase($user),
         'InactiveBroadcasterNudge' => (new InactiveBroadcasterNudge('night-shift'))->toDatabase($user),
         'WelcomeNotification' => (new WelcomeNotification)->toDatabase($user),
+        // The one whose copy is an argument rather than a model — see its
+        // docblock. It belongs in this list for exactly that reason: nothing
+        // about its payload is derived, so nothing about it is checked
+        // anywhere else by accident.
+        'ProductUpdate' => announcementFixture()->toDatabase($user),
     ];
 
     foreach ($payloads as $name => $payload) {
@@ -192,6 +215,7 @@ it('gives every expanding notification something to expand into', function () {
         'InviteRedeemed' => (new InviteRedeemed($plan, Carbon::parse('2026-12-01')))->toDatabase($user),
         'PlanExpired' => (new PlanExpired($plan, $free))->toDatabase($user),
         'WelcomeNotification' => (new WelcomeNotification)->toDatabase($user),
+        'ProductUpdate' => announcementFixture()->toDatabase($user),
     ];
 
     foreach ($expanding as $name => $payload) {
