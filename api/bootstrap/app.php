@@ -61,6 +61,16 @@ return Application::configure(basePath: dirname(__DIR__))
             UseAuthTokenCookie::class,
         ]);
 
+        // One-click unsubscribe (RFC 8058). Gmail and Apple Mail POST to the
+        // List-Unsubscribe-Post URL from their own infrastructure: no session,
+        // no cookie, no CSRF token, and no way to obtain one. The route is
+        // signed instead, which is a stronger guarantee than the token it
+        // replaces — the URL cannot be forged at all, whereas CSRF only
+        // protects a request the browser makes on somebody's behalf.
+        $middleware->validateCsrfTokens(except: [
+            'unsubscribe',
+        ]);
+
         // The API has no login page, so Laravel's default `route('login')`
         // target does not exist and would throw. Only the admin panel has a
         // browser login, so only admin paths get a redirect; everything else

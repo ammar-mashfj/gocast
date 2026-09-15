@@ -10,10 +10,16 @@
         <div class="card mb-6 border border-success bg-base-100 shadow-sm">
             <div class="card-body gap-3">
                 <div>
-                    <h2 class="card-title text-base">Invite link ready</h2>
+                    <h2 class="card-title text-base">
+                        {{ $minted['email'] ? 'Invite sent' : 'Invite link ready' }}
+                    </h2>
                     <p class="text-sm opacity-70">
                         <strong>{{ $minted['plan'] }}</strong>{{ $minted['label'] ? ' for '.$minted['label'] : '' }}.
-                        Paste this into the email. It applies the plan when they sign up.
+                        @if ($minted['email'])
+                            Emailed to <strong>{{ $minted['email'] }}</strong>. Here is the same link if you want to send it yourself as well.
+                        @else
+                            Paste this into the email. It applies the plan when they sign up.
+                        @endif
                     </p>
                 </div>
                 <div class="join w-full">
@@ -62,6 +68,43 @@
                                class="input w-full @error('label') input-error @enderror">
                         <p class="label">Only you see this. It's how you tell later which email converted.</p>
                         @error('label')
+                            <p class="label text-error">{{ $message }}</p>
+                        @enderror
+                    </fieldset>
+
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Send to</legend>
+                        <input type="email" name="email" value="{{ old('email') }}"
+                               maxlength="255" placeholder="them@example.com"
+                               class="input w-full @error('email') input-error @enderror">
+                        <p class="label">Fill this in and we email the link the moment you create it. Leave it blank to just get the link and send it yourself.</p>
+                        @error('email')
+                            <p class="label text-error">{{ $message }}</p>
+                        @enderror
+                    </fieldset>
+
+                    {{-- The two fields that only matter when we are the ones
+                         sending. Kept under the address rather than beside the
+                         label, which they read like and are not: the label is
+                         yours, these are in the email. --}}
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Their name</legend>
+                        <input type="text" name="recipient_name" value="{{ old('recipient_name') }}"
+                               maxlength="255" placeholder="Rae"
+                               class="input w-full @error('recipient_name') input-error @enderror">
+                        <p class="label">Goes in the greeting: <em>Hi Rae,</em>. Blank says <em>Hi there,</em> — better than the wrong name.</p>
+                        @error('recipient_name')
+                            <p class="label text-error">{{ $message }}</p>
+                        @enderror
+                    </fieldset>
+
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Personal note</legend>
+                        <textarea name="personal_note" rows="3" maxlength="500"
+                                  placeholder="Heard your Boiler Room set last week — the b2b at the end is still stuck in my head."
+                                  class="textarea w-full @error('personal_note') textarea-error @enderror">{{ old('personal_note') }}</textarea>
+                        <p class="label">One paragraph, right under the greeting. This is the whole difference between an invite and a circular — say where you found them.</p>
+                        @error('personal_note')
                             <p class="label text-error">{{ $message }}</p>
                         @enderror
                     </fieldset>
@@ -143,6 +186,7 @@
                             <thead>
                                 <tr>
                                     <th>Label</th>
+                                    <th>Sent to</th>
                                     <th>Link</th>
                                     <th>Grants</th>
                                     <th>Used</th>
@@ -156,6 +200,45 @@
                                     <tr class="hover:bg-base-200 align-top">
                                         <td class="text-sm font-medium">
                                             {{ $invite->label ?: '—' }}
+                                        </td>
+                                        <td class="text-sm">
+                                            @if ($invite->email)
+                                                <a href="mailto:{{ $invite->email }}" class="link link-hover">{{ $invite->email }}</a>
+                                                @if ($invite->recipient_name)
+                                                    <div class="text-xs opacity-60">{{ $invite->recipient_name }}</div>
+                                                @endif
+                                                @if (in_array(mb_strtolower($invite->email), $suppressed, true))
+                                                    <div class="mt-1">
+                                                        <span class="badge badge-outline badge-sm">unsubscribed</span>
+                                                    </div>
+                                                @endif
+                                                <div class="text-xs opacity-60">
+                                                    @if ($invite->sent_at)
+                                                        <span title="{{ $invite->sent_at->toDayDateTimeString() }}">emailed {{ $invite->sent_at->diffForHumans() }}</span>
+                                                    @else
+                                                        not emailed
+                                                    @endif
+                                                </div>
+                                            @else
+                                                <span class="opacity-40">—</span>
+                                            @endif
+
+                                            {{-- Only for a link that still redeems: emailing a closed one
+                                                 reaches somebody who cannot act on it, and the controller
+                                                 refuses it anyway. --}}
+                                            @if ($invite->isRedeemable())
+                                                <form method="POST" action="{{ route('admin.invites.send', $invite) }}"
+                                                      class="join mt-2">
+                                                    @csrf
+                                                    <input type="email" name="email" required maxlength="255"
+                                                           value="{{ $invite->email }}"
+                                                           placeholder="them@example.com"
+                                                           class="input input-xs join-item w-44">
+                                                    <button type="submit" class="btn btn-xs join-item">
+                                                        {{ $invite->wasSent() ? 'Resend' : 'Send' }}
+                                                    </button>
+                                                </form>
+                                            @endif
                                         </td>
                                         <td>
                                             <div class="flex items-center gap-1">
@@ -226,7 +309,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="py-10 text-center opacity-60">No invites yet. Make one on the left.</td>
+                                        <td colspan="8" class="py-10 text-center opacity-60">No invites yet. Make one on the left.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

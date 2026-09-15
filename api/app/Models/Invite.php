@@ -16,10 +16,11 @@ use Spatie\Activitylog\Support\LogOptions;
 /**
  * An invitation code that puts whoever redeems it onto a plan.
  *
- * Minted from the admin panel, sent by hand inside an email or a post, and
- * redeemed either at registration (the code rides along in the sign-up
- * request) or from an existing account (POST /api/invites/redeem). Both paths
- * go through InviteRedemption, which is the only writer of `uses`.
+ * Minted from the admin panel, sent either by us (InviteOffer, addressed to
+ * `email`) or by hand inside a post, and redeemed either at registration (the
+ * code rides along in the sign-up request) or from an existing account
+ * (POST /api/invites/redeem). Both paths go through InviteRedemption, which is
+ * the only writer of `uses`.
  *
  * See the create_invites_table migration for why the columns are shaped the
  * way they are.
@@ -29,9 +30,13 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property int $plan_id
  * @property int|null $duration_days
  * @property string|null $label
+ * @property string|null $email
+ * @property string|null $recipient_name
+ * @property string|null $personal_note
  * @property int $max_uses
  * @property int $uses
  * @property Carbon|null $expires_at
+ * @property Carbon|null $sent_at
  * @property int|null $created_by
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -62,6 +67,9 @@ class Invite extends Model
         'plan_id',
         'duration_days',
         'label',
+        'email',
+        'recipient_name',
+        'personal_note',
         'max_uses',
         'expires_at',
         'created_by',
@@ -77,6 +85,7 @@ class Invite extends Model
             'max_uses' => 'integer',
             'uses' => 'integer',
             'expires_at' => 'datetime',
+            'sent_at' => 'datetime',
         ];
     }
 
@@ -168,6 +177,16 @@ class Invite extends Model
     }
 
     /**
+     * Whether we have mailed this link ourselves. False for a link the admin
+     * copied and pasted into their own mail client, which is still the right
+     * way to send one that needs a sentence of context around it.
+     */
+    public function wasSent(): bool
+    {
+        return $this->sent_at !== null;
+    }
+
+    /**
      * The link that goes in the email. Lands on the sign-up page with the
      * code in the query string; the page validates it on load and sends it
      * back with the registration.
@@ -182,7 +201,7 @@ class Invite extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['code', 'plan_id', 'duration_days', 'label', 'max_uses', 'uses', 'expires_at'])
+            ->logOnly(['code', 'plan_id', 'duration_days', 'label', 'email', 'recipient_name', 'max_uses', 'uses', 'expires_at', 'sent_at'])
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
     }

@@ -1,9 +1,12 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Session;
+use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
 /*
@@ -65,7 +68,28 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Every email actually rendered and handed to the transport in this test.
+ *
+ * `MAIL_MAILER=array` (see phpunit.xml) keeps them in memory instead of
+ * sending, so this is the whole message: headers, HTML part and text part.
+ * Notification::fake() cannot answer any of that — it records that a class
+ * was dispatched and never renders a template — so anything asserting on what
+ * an email SAYS has to come through here.
+ *
+ * @return Collection<int, Email>
+ */
+function sentMessages(): Collection
 {
-    // ..
+    return Mail::mailer()->getSymfonyTransport()->messages()
+        ->map(fn ($sent) => $sent->getOriginalMessage());
+}
+
+function sentMessage(int $index = 0): Email
+{
+    $message = sentMessages()->get($index);
+
+    expect($message)->not->toBeNull('No email was sent.');
+
+    return $message;
 }

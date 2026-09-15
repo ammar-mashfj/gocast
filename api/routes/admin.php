@@ -53,9 +53,12 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('accounts', [AccountController::class, 'store'])->name('accounts.store');
 
     // Invite links. The self-serve path onto a paid plan: mint a link here,
-    // paste it into an email, and the recipient redeems it at sign-up.
+    // email it from the same form, and the recipient redeems it at sign-up.
     Route::get('invites', [InviteController::class, 'index'])->name('invites.index');
     Route::post('invites', [InviteController::class, 'store'])->name('invites.store');
+    // Sending an existing link again — a corrected address, or a nudge. The
+    // mint form covers the first send, so this is only ever the second.
+    Route::post('invites/{invite}/send', [InviteController::class, 'send'])->name('invites.send');
     Route::post('invites/{invite}/revoke', [InviteController::class, 'revoke'])->name('invites.revoke');
 
     // POST rather than PATCH throughout: these are plain Blade forms, and a
