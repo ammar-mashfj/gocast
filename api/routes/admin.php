@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\AuthenticatedSessionController;
 use App\Http\Controllers\Admin\InviteController;
+use App\Http\Controllers\Admin\RawEmailController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\WatermarkClipController;
 use Illuminate\Support\Facades\Route;
@@ -76,6 +77,14 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('announcements/preview', [AnnouncementController::class, 'preview'])->name('announcements.preview');
     Route::post('announcements', [AnnouncementController::class, 'store'])->name('announcements.store');
+
+    // One-off email. Same two-POST shape as announcements and for a harder
+    // version of the same reason: mail does not come back at all, and what the
+    // admin typed is rendered by other code before anybody reads it. Nothing
+    // leaves until the page that comes back from `preview` posts to `store`.
+    Route::get('emails', [RawEmailController::class, 'index'])->name('emails.index');
+    Route::post('emails/preview', [RawEmailController::class, 'preview'])->name('emails.preview');
+    Route::post('emails', [RawEmailController::class, 'store'])->name('emails.store');
 
     Route::get('watermark', [WatermarkClipController::class, 'index'])->name('watermark.index');
     Route::post('watermark', [WatermarkClipController::class, 'store'])->name('watermark.store');

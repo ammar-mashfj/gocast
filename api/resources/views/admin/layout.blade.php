@@ -79,6 +79,12 @@
                         </a>
                     </li>
                     <li>
+                        <a href="{{ route('admin.emails.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.emails.*')])>
+                            Send email
+                        </a>
+                    </li>
+                    <li>
                         <a href="{{ route('admin.watermark.index') }}"
                            @class(['menu-active' => request()->routeIs('admin.watermark.*')])>
                             Watermark clips
