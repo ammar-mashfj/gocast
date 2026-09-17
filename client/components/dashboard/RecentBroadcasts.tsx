@@ -64,8 +64,18 @@ export function RecentBroadcasts({ sessions }: RecentBroadcastsProps) {
               className="grid grid-cols-[minmax(0,1fr)_4.5rem_3rem] md:grid-cols-[minmax(0,1fr)_6rem_6rem_3.5rem] gap-3 items-center px-3 py-2.5 border-t border-border text-sm"
             >
               <span className="truncate">{formatDateTime(s.started_at)}</span>
+              {/* The software goes in the tooltip rather than the cell: the
+                  column is six characters wide and "Encoder" is the answer to
+                  the question being asked here. `client` is null for every
+                  studio session and for any container that has not been
+                  relaunched since the template started reporting it, so the
+                  badge has to read correctly without it. */}
               <span className="hidden md:block">
-                <Badge variant="secondary" className="text-xs font-normal">
+                <Badge
+                  variant="secondary"
+                  className="text-xs font-normal"
+                  title={s.client ?? undefined}
+                >
                   {SOURCE_LABEL[s.source_type] ?? s.source_type}
                 </Badge>
               </span>

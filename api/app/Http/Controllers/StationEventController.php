@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Validation\Rule;
 
 /**
  * Lifecycle events pushed by a station's Liquidsoap container.
@@ -65,7 +66,28 @@ class StationEventController extends Controller
         $validated = $request->validate([
             'slug' => ['required', 'string', 'max:64'],
             'event' => ['required', 'string', 'max:32'],
+            // Sent only with `live_connected`, and only by a container
+            // rendered from the current template. Both are OPTIONAL and both
+            // default to the browser studio, which is what every container
+            // that has not been relaunched yet is implicitly reporting — see
+            // openSession().
+            //
+            // `client` is the broadcaster's user-agent, allowlisted inside the
+            // .liq. Everything else harbor saw, including the Authorization
+            // header carrying the station's stream key, is dropped there and
+            // never reaches this request.
+            'client' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'via' => ['sometimes', 'nullable', Rule::in(['browser', 'external'])],
         ]);
+
+        // A client that sends no User-Agent arrives here as "", not as a
+        // missing key: `live_header` in the .liq resolves an absent header to
+        // default="", and `nullable` accepts the empty string it produces. Left
+        // alone, "" survives every `?? null` downstream and reaches the copy
+        // that names the broadcaster — "Disconnect  to take it off air."
+        // Collapse it to null once, here, so that null is the only way the rest
+        // of the app can be told "we don't know what this is".
+        $validated['client'] = trim($validated['client'] ?? '') ?: null;
 
         if (! in_array($validated['event'], self::EVENTS, true)) {
             return response()->json(['ok' => false, 'error' => 'unknown event'], 422);
@@ -93,6 +115,13 @@ class StationEventController extends Controller
             $station,
             $validated['event'],
             StationEvent::SOURCE_CONTAINER,
+            // Only `live_connected` carries these, and only from a relaunched
+            // container. array_filter drops the nulls so an event from an
+            // older container records exactly what it always did.
+            array_filter([
+                'via' => $validated['via'] ?? null,
+                'client' => $validated['client'] ?? null,
+            ]),
         );
 
         // icecast_connected is the moment listeners can hear this station —
@@ -103,7 +132,11 @@ class StationEventController extends Controller
         }
 
         if ($validated['event'] === 'live_connected') {
-            $this->openSession($station);
+            $this->openSession(
+                $station,
+                $validated['via'] ?? 'browser',
+                $validated['client'] ?? null,
+            );
         }
 
         if ($validated['event'] === 'live_disconnected') {
@@ -125,17 +158,40 @@ class StationEventController extends Controller
      * reconnects inside the same second, a retried notification), and a second
      * open session would double-count airtime. Reuse whatever is already open.
      */
-    private function openSession(Station $station): void
+    private function openSession(Station $station, string $via, ?string $client): void
     {
         $existing = $station->streamSessions()->whereNull('ended_at')->exists();
 
         if ($existing) {
+            // A row is already open, so leave it alone — reopening would
+            // double-count airtime for a broadcaster who reconnected.
+            //
+            // NOT the web studio arriving ahead of harbor: it never calls
+            // StreamSessionController::store at all (see getSessionId() in
+            // client/lib/broadcast.ts — "Laravel opens the StreamSession from
+            // harbor's connect callback"). This event IS how a browser
+            // broadcast gets its row, which is why `via` below has to be
+            // right rather than merely a fallback. What reaches here is the
+            // desktop client, which does POST its own session, and a harbor
+            // reconnect inside the same second.
             return;
         }
 
+        // This is the only path into a session row for an encoder AND for the
+        // web studio — neither makes an API call that opens one. So `via` is
+        // not a refinement on top of something else that knows: it is the
+        // whole of what distinguishes them. While this hardcoded 'browser', as
+        // it did until external ingest shipped, every encoder broadcast was
+        // labelled "Studio" on the station overview, which is precisely where
+        // someone looks to check whether their encoder worked.
+        //
+        // The default is still 'browser', for containers rendered before the
+        // template started reporting `via`. Those keep their old behaviour
+        // until `stations:relaunch` recreates them.
         $session = $station->streamSessions()->create([
             'started_at' => now(),
-            'source_type' => 'browser',
+            'source_type' => $via,
+            'client' => $client,
         ]);
 
         SendStationLiveNotifications::dispatch($station->id, $session->id)

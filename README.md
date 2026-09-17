@@ -28,10 +28,12 @@ The runbook is [`infra/native/README.md`](infra/native/README.md).
 ## Audio Pipeline
 
 ```
-Browser studio ──── wss://stream.../broadcast/{slug} ───┐
-BUTT / Mixxx ────── Icecast source protocol ────────────┤
+Browser studio ──── wss://stream.../broadcast/{slug} ───┐  (nginx, http)
+BUTT / Mixxx ────── Icecast source protocol, TCP :8010 ─┤  (station-router,
+                                                        │   stream + njs)
                                                         ▼
                                             Liquidsoap input.harbor
+                                        auth: studio token | stream key
                                                         │
                      AutoDJ (tracks served one at a     │
                      time by Laravel over the internal ─┤
@@ -50,6 +52,15 @@ BUTT / Mixxx ────── Icecast source protocol ────────
 Audio never stops while a station is on: each station's Liquidsoap falls back
 from the live broadcaster to the station's AutoDJ rotation to generated
 silence, so the mount is held and listeners are not dropped mid-reconnect.
+
+The two ingest paths are routed differently and have to be. The studio's
+WebSocket is ordinary HTTP and goes through nginx like anything else. An
+Icecast source client opens with `SOURCE /mount HTTP/1.0` — a non-HTTP verb
+with no Content-Length — which nginx's http module cannot frame, so it would
+forward a request with no body and the broadcaster would stream silence to a
+connection that reported success. Those connections are routed at the TCP
+layer instead, by njs in the station router's `stream` block. See
+[`infra/native/station-router/ingest.js`](infra/native/station-router/ingest.js).
 
 ## Project Structure
 

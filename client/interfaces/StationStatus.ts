@@ -35,6 +35,19 @@ export interface StationStatus {
   last_ready_at: string | null
   /** Which source won the fallback. */
   source: "live" | "autodj" | "silence" | null
+  /**
+   * How the person on air connected, from the open broadcast session. Null
+   * when nobody is broadcasting.
+   *
+   * `source` above says a human is publishing; this says how. `client` is the
+   * broadcaster's software as harbor saw it and is frequently null — the
+   * studio's own session row carries none — so treat it as a bonus, never as
+   * the answer.
+   */
+  live_source: {
+    type: "browser" | "electron" | "external"
+    client: string | null
+  } | null
   now_playing: { title: string | null; artist: string | null } | null
   /**
    * Seconds into the current track; null when unknown.

@@ -132,7 +132,7 @@ export const ARTICLES: Article[] = [
       {
         question: "Can I broadcast to GoCast from BUTT or Mixxx?",
         answer:
-          "Broadcasting from desktop apps is part of Pro. Your station accepts the same connection any standard radio encoder uses, and the details come with your Pro onboarding.",
+          "Yes, on Pro. Your station speaks the Icecast 2 source protocol, so BUTT, Mixxx, RadioDJ, Audio Hijack and anything else that does will connect to it. The server address, port, mount and stream key are on your station's settings page — set the server type to Icecast 2, not Shoutcast. (OBS is the one exception: it sends RTMP, which is video streaming, and cannot publish to a radio station.)",
       },
     ],
   },

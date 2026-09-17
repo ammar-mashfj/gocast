@@ -10,6 +10,7 @@ use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -48,11 +49,21 @@ class StationPowerController extends Controller
             ->setStatusCode(202);
     }
 
-    public function stop(Station $station): JsonResponse
+    /**
+     * Take a station off air.
+     *
+     * `force` is the owner saying "cut it off anyway" about an EXTERNAL
+     * broadcast — a leaked stream key, or a DJ's machine that died with the
+     * session still open. It is deliberately not a general override: the
+     * service honours it only when the live source really is an encoder, so a
+     * browser broadcast still gets the ordinary refusal and the owner is sent
+     * to the studio tab that can end it cleanly.
+     */
+    public function stop(Request $request, Station $station): JsonResponse
     {
         $this->authorize('update', $station);
 
-        $this->lifecycle->stop($station);
+        $this->lifecycle->stop($station, cutExternal: $request->boolean('force'));
         $this->status->forget($station);
 
         return (new StationResource($station->refresh()))

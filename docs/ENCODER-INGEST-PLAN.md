@@ -4,11 +4,61 @@ Lets a Pro station be broadcast to from BUTT, Mixxx, RadioDJ, ffmpeg, or any
 other client speaking the **Icecast 2 source protocol**, alongside the existing
 browser studio.
 
-Status: **not started.** Nothing in this document has been built.
+Status: **built, 2026-09-15.** Every phase below is implemented and verified
+against a real libshout client. Uncommitted.
 
 This supersedes the "What to build" section of
 [`USER-FLOW-UPGRADES.md` §3](./USER-FLOW-UPGRADES.md), whose claim that the work
 needs "no new infrastructure" is wrong — see Phase 3.
+
+---
+
+## What the spike found that this plan got wrong
+
+The plan below is left as written, because the reasoning still holds and the
+shape was right. Four things about real clients were not, and each one was the
+difference between "works" and "appears to work":
+
+1. **libshout opens with `OPTIONS * HTTP/1.1`, and a reset is fatal.** The plan
+   assumed the OPTIONS probe was something harbor simply never answers, so
+   nothing happens. In fact libshout sends it on its own connection before
+   anything else, and closing that connection kills the entire connect —
+   `shout_open() failed: err=Socket error`. It never sends `SOURCE` at all. The
+   router now answers the probe itself, from a loopback server in its own http
+   block, with an `Allow:` header that deliberately omits PUT.
+
+2. **Metadata is POSTed with a form body, and harbor cannot read it.** Phase 3
+   listed this as a risk to check. It is worse than the plan allowed for: not
+   only is the mount in the body rather than the query, harbor parses its
+   arguments from the query string ONLY and answers libshout's own metadata
+   request `unrecognised command`. Routing it correctly is not enough — the
+   router rewrites the POST into the GET harbor parses. Without that, encoder
+   audio works and now-playing is frozen for the whole show.
+
+3. **Harbor does not lowercase the connect headers.** Liquidsoap's own
+   documentation for `on_connect` says "All labels are lowercase". Against the
+   2.4.5 image they arrive exactly as the client spelled them —
+   `Authorization`, `User-Agent`, `Content-Type` — so `list.assoc("user-agent",
+   ...)` matches nothing and every encoder session reports an empty client. The
+   template normalises before looking anything up.
+
+4. **`s.send()` does not work in an njs preread handler** (`cannot send buffer
+   in this handler`, njs 0.9.6). The plan's `refuse()` cannot explain itself,
+   and the Phase 6 plan to answer a powered-off station with
+   `403 station is off` is not possible on that path. It matters less than it
+   looks: after (1) and (2), nothing a DJ does wrong reaches that code — a bad
+   password gets a real 401 from harbor, and a switched-off station fails at
+   DNS.
+
+Two smaller corrections: the ingest port cannot be 8000 (`ICECAST_PORT` has it,
+and `php artisan serve` has it in local development), so it is configurable and
+defaults to 8010; and the cold-start hole Phase 6 worried about is bounded by
+`silent_stop_seconds`, which is ten minutes, not the sixty seconds the policy's
+fallback default suggests.
+
+`infra/native/verify-ingest.sh` is the regression suite for all of this — it
+replays the four wire shapes in the order libshout sends them and names which
+one broke.
 
 ---
 

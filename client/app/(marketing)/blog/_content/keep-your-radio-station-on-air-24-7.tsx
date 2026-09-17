@@ -341,9 +341,12 @@ export default function Body() {
 
       <h3>Can I use BUTT or Mixxx instead of the browser?</h3>
       <p>
-        Broadcasting from desktop apps is part of Pro. Your station accepts the
-        same connection any standard radio encoder uses, and the details come
-        with your Pro onboarding.
+        Yes, on Pro. Your station speaks the Icecast 2 source protocol, so BUTT,
+        Mixxx, RadioDJ, Audio Hijack and anything else that does will connect
+        to it. The server address, port, mount and stream key are on your
+        station&#39;s settings page — set the server type to Icecast 2, not
+        Shoutcast. OBS is the one exception: it sends RTMP, which is video
+        streaming, and cannot publish to a radio station.
       </p>
     </>
   )

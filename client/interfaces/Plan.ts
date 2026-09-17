@@ -29,6 +29,13 @@ export interface Plan {
    * feature or shows a broken one — never grants anything.
    */
   embed_enabled: boolean
+  /**
+   * May this account broadcast from BUTT, Mixxx or any other Icecast source
+   * client? False on Free, which still has the browser studio. Decides whether
+   * the settings card shows the connection details or the upsell; harbor's auth
+   * callback is what actually refuses a connection.
+   */
+  encoder_enabled: boolean
   /** The audible "powered by GoCast" ID is mixed into this user's streams. */
   watermarked: boolean
   /**

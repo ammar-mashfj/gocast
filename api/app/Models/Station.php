@@ -37,6 +37,8 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $last_ready_at
  * @property string $icecast_mount
  * @property string $icecast_password
+ * @property string|null $stream_key long-lived credential an external encoder authenticates with
+ * @property Carbon|null $stream_key_rotated_at
  * @property string $autodj_order one of AUTODJ_ORDER_SEQUENTIAL | AUTODJ_ORDER_SHUFFLE
  * @property list<string>|null $autodj_deck unplayed remainder of the current shuffle
  * @property bool $jingles_enabled
@@ -141,6 +143,12 @@ class Station extends Model
             }
             $station->icecast_mount ??= '/stream/'.$station->slug;
             $station->icecast_password ??= Str::random(32);
+            // The encoder's password, minted here rather than on first use so
+            // the settings card always has something to show. A station with a
+            // key but a free owner is not a leak: HarborAuthController checks
+            // the plan on every connection attempt, and the API never renders
+            // the value to an account that may not use it.
+            $station->stream_key ??= static::generateStreamKey();
             // Set here as well as in the column default so the in-memory
             // model is never a null state: isRunning() and the API resource
             // both read this immediately after create(), before any refresh.
@@ -181,10 +189,61 @@ class Station extends Model
         return $slug;
     }
 
+    /**
+     * A fresh encoder password.
+     *
+     * [A-Za-z0-9] only. This value is typed into someone else's software and
+     * then travels two ways we do not control: base64'd into
+     * `Authorization: Basic`, and — on libshout's separate metadata
+     * connection — url-encoded into a query string. Encoder UIs disagree about
+     * escaping punctuation, and every disagreement surfaces as an auth refusal
+     * with no clue attached. 32 characters of that alphabet is ~190 bits,
+     * which is plenty without spending any of it on symbols.
+     *
+     * Str::password() draws every character with random_int(), so the bytes
+     * come from the same CSPRNG that backs `icecast_password` — a different
+     * helper, not a weaker one. Worth stating explicitly because the obvious
+     * way to get this alphabet is a filtered Str::random(), and that is NOT
+     * what runs here; anyone auditing the credential should be reading
+     * random_int's guarantees, not base64's.
+     */
+    public static function generateStreamKey(): string
+    {
+        return Str::password(32, letters: true, numbers: true, symbols: false, spaces: false);
+    }
+
+    /**
+     * Mint a new encoder password, timestamped.
+     *
+     * forceFill, matching markFeatured(): this is not a column a request
+     * payload may reach — UpdateStationRequest ignores it, and rotation is its
+     * own endpoint precisely so a user cannot choose their own credential.
+     *
+     * Does NOT disconnect whoever is broadcasting right now. Harbor
+     * authenticates once, at connect time, so a live show survives its own
+     * key being rotated and the new value takes effect at the next
+     * connection. The settings card says so rather than implying otherwise.
+     */
+    public function rotateStreamKey(): string
+    {
+        $key = static::generateStreamKey();
+
+        $this->forceFill([
+            'stream_key' => $key,
+            'stream_key_rotated_at' => now(),
+        ])->save();
+
+        return $key;
+    }
+
     protected function casts(): array
     {
         return [
             'featured' => 'boolean',
+            // Encrypted rather than hashed: the settings card has to redisplay
+            // it. See the migration that added the column for the trade.
+            'stream_key' => 'encrypted',
+            'stream_key_rotated_at' => 'datetime',
             'featured_at' => 'datetime',
             'autodj_deck' => 'array',
             'jingles_enabled' => 'boolean',

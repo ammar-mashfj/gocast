@@ -34,6 +34,12 @@ class StationFactory extends Factory
             'jingle_mode' => Station::JINGLE_MODE_INTERVAL,
             'jingle_interval_seconds' => Station::DEFAULT_JINGLE_INTERVAL_SECONDS,
             'jingle_every_tracks' => Station::DEFAULT_JINGLE_EVERY_TRACKS,
+            // Station::booted() mints one on create() too. Setting it here as
+            // well means a `make()`d station — and every test that asserts on
+            // the encoder block of StationResource — sees the same shape a
+            // real station has, instead of a null the resource would render as
+            // an empty password.
+            'stream_key' => Station::generateStreamKey(),
         ];
     }
 

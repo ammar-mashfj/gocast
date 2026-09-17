@@ -81,12 +81,36 @@ services:
   # Resolves gocast-liquidsoap-{slug} for host nginx. See
   # station-router/nginx.conf for the full rationale.
   station-router:
-    image: nginx:1.29-alpine
+    # Built rather than pulled: the njs module the ingest routing needs is not
+    # in the stock image. The config files are still mounted, so only a module
+    # bump is a rebuild.
+    build:
+      context: ./station-router
+    image: gocast/station-router:1.29.8
     container_name: gocast-station-router
     volumes:
       - ./station-router/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./station-router/ingest.js:/etc/nginx/ingest.js:ro
     ports:
+      # Host nginx forwards /broadcast/{slug} here for the browser studio.
+      # Loopback only — it is reached through the TLS vhost, never directly.
       - "127.0.0.1:8091:8091"
+      # External encoder ingest. ALL INTERFACES, deliberately and unlike every
+      # other port in this file: a DJ's copy of BUTT is out on the internet and
+      # has to open a plain TCP connection to it. Harbor authenticates every
+      # connection (HarborAuthController); nothing else does.
+      #
+      # The host port is configurable because 8000 — the conventional Icecast
+      # source port, and what every encoder defaults to — is already taken on
+      # this box by ICECAST_PORT, and by `php artisan serve` in local
+      # development. The CONTAINER side is always 8000, so ingest.js and
+      # nginx.conf never have to know.
+      #
+      # DOCKER PUBLISHES THIS IN FRONT OF ufw. Its rules land in the DOCKER
+      # chain, which the INPUT chain ufw manages never sees, so this port is
+      # reachable whether or not `ufw status` suggests otherwise. Closing it
+      # means not publishing it.
+      - "${INGEST_PORT:-8010}:8000"
     networks:
       - default
     restart: unless-stopped
@@ -99,7 +123,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
+          # Raised from 64M: splicing TCP is nearly free, but njs brings a
+          # JavaScript VM per worker along with it.
+          memory: 128M
 
 networks:
   # Must be the SAME network the per-station containers join —

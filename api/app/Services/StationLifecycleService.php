@@ -112,30 +112,116 @@ class StationLifecycleService
     /**
      * Take a station off air and release its container.
      *
-     * @param  bool  $force  Skip the on-air guard. Reserved for admin tooling
-     *                       and the idle reaper; the owner-facing endpoint
-     *                       never sets it.
+     * @param  bool  $force  Skip the on-air guard entirely. Reserved for admin
+     *                       tooling and the idle reaper; the owner-facing
+     *                       endpoint never sets it — see $cutExternal.
      * @param  string  $reason  Audit breadcrumb, mirroring start()'s: 'owner'
      *                          for the power button, 'silent' for the sweep's
      *                          auto-stop. It is the only thing that tells
      *                          those two apart afterwards — both leave an
      *                          identical `stopped` station behind.
+     * @param  bool  $cutExternal  The owner explicitly asked to cut off an
+     *                             EXTERNAL broadcast. Unlike $force this is
+     *                             conditional: it is honoured only if the open
+     *                             session really is external, re-read below
+     *                             under the lock. A browser broadcast still
+     *                             gets the refusal, because the owner has the
+     *                             studio tab and a control that ends it
+     *                             cleanly; an encoder broadcast may be coming
+     *                             from a machine they cannot reach — a dead
+     *                             laptop, or a stranger holding a leaked
+     *                             stream key — and taking the station off air
+     *                             is the only remedy this app can offer.
      *
      * @throws StationLifecycleException When the station is mid-broadcast.
      */
-    public function stop(Station $station, bool $force = false, string $reason = 'owner'): Station
-    {
-        return $this->withLock($station, function () use ($station, $force, $reason) {
+    public function stop(
+        Station $station,
+        bool $force = false,
+        string $reason = 'owner',
+        bool $cutExternal = false,
+    ): Station {
+        return $this->withLock($station, function () use ($station, $force, $reason, $cutExternal) {
             $station->refresh();
 
             if (! $force && $station->isLive()) {
-                throw StationLifecycleException::liveBroadcast();
+                // Name the source in the refusal. An owner whose broadcast is
+                // coming from BUTT has no control in this app that can end it,
+                // so "end the broadcast" on its own is an instruction with
+                // nowhere to carry it out — see the exception.
+                $open = $station->streamSessions()
+                    ->whereNull('ended_at')
+                    ->latest('started_at')
+                    ->first(['source_type', 'client']);
+
+                $external = $open?->source_type === 'external';
+
+                // Deciding this HERE, rather than in the controller, is the
+                // point of the parameter: between an outside check and this
+                // lock the encoder can drop and the studio can take over, and
+                // a force computed up there would then kill a browser
+                // broadcast the owner never asked to end.
+                if (! ($cutExternal && $external)) {
+                    throw StationLifecycleException::liveBroadcast(
+                        external: $external,
+                        client: $open?->client,
+                    );
+                }
+
+                $reason = 'owner_cutoff';
             }
 
             $station->forceFill([
                 'desired_state' => Station::STATE_STOPPED,
                 'started_at' => null,
             ])->save();
+
+            // CLOSE ANY OPEN BROADCAST, for the same reason as the Redis
+            // delete below and with the same authority: the owner said stop,
+            // the row above already says stopped, and a stopped station cannot
+            // have someone on air whatever its other rows claim.
+            //
+            // BEFORE supervisor->down(), not after, and that ordering is the
+            // whole point rather than a style choice. down() can throw — its
+            // graceful `docker stop` is wrapped, but the `docker rm -f` behind
+            // it is not, so an unreachable daemon raises out of here. Running
+            // after it meant the one path that throws was also the one path
+            // that skipped this, leaving exactly the stuck state below: the
+            // desired_state save has already committed, so the station is
+            // stopped with a session still open and no backstop that sweeps it.
+            //
+            // Ordering it first is enough on its own; a finally would also have
+            // to decide what to do about the Redis delete below, and there is
+            // no state in which closing the session is the wrong call once
+            // desired_state says stopped.
+            //
+            // Every other way a broadcast ends closes its row from the
+            // container's `live_disconnected`. A station being torn down
+            // cannot send that — SIGTERM racing an HTTP post at best — and the
+            // backstop does not cover it either: ReconcileStations scans
+            // `running()->live()`, so a row left open by a station that has
+            // just stopped running is never swept.
+            //
+            // It therefore survives indefinitely. It keeps counting in
+            // `gocast_live_stations`, it sits on Recent Broadcasts as a
+            // broadcast that never ended, and `isLive()` stays true — so the
+            // next time the owner starts the station and presses Take off air
+            // they are refused, and sent into the cut-off dialog for a
+            // broadcast that finished days ago.
+            //
+            // Unconditional rather than only on the cut-off path. The ordinary
+            // stop refuses while live so it has nothing to close, and the
+            // remaining callers — admin tooling, the idle sweep — reach here
+            // with $force and leak exactly the same row. A stopped station
+            // with an open session is never a state worth preserving.
+            //
+            // now(), not the moment the broadcaster actually vanished, which
+            // nothing knows. Airtime is an over-estimate for a source that
+            // died silently — the same over-estimate every lost
+            // `live_disconnected` already produces.
+            $station->streamSessions()
+                ->whereNull('ended_at')
+                ->update(['ended_at' => now()]);
 
             $this->supervisor->down($station);
 

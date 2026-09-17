@@ -163,6 +163,30 @@ return [
     'ingest_url' => env('LIQUIDSOAP_INGEST_URL'),
 
     /*
+    | Host and port a DJ types into BUTT, Mixxx or RadioDJ.
+    |
+    | Not a URL, because an Icecast source client has no URL field: it has a
+    | server box, a port box, a mount box and a login. This is the first two;
+    | the mount is `/{slug}` and the login is `source` plus the station's
+    | stream key, both of which StationResource composes.
+    |
+    | THE PORT IS THE INGEST ROUTER'S, not harbor's. Encoders cannot reach
+    | harbor through the HTTPS path the studio uses: libshout sends
+    | `SOURCE /mount HTTP/1.0` with no Content-Length, which nginx's http
+    | module cannot frame, so it forwards a request with no body and the
+    | connection succeeds while carrying silence. The station-router container
+    | routes these at the TCP layer instead — see
+    | infra/native/station-router/ingest.js.
+    |
+    | UNSET MEANS NOT DEPLOYED HERE, and that is a supported state: the API
+    | omits the whole `encoder` block and the settings card says the feature is
+    | unavailable rather than printing a hostname that does not resolve. Local
+    | development can point it at the machine's LAN address.
+    */
+    'encoder_host' => env('LIQUIDSOAP_ENCODER_HOST'),
+    'encoder_port' => (int) env('LIQUIDSOAP_ENCODER_PORT', 8010),
+
+    /*
     |--------------------------------------------------------------------------
     | How Laravel reaches a station container's telnet control port
     |--------------------------------------------------------------------------

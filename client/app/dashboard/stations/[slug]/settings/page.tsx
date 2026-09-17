@@ -11,6 +11,7 @@ import { StationActions } from "../StationActions"
 import { DeleteStation } from "../DeleteStation"
 import { ScheduleEditor } from "../ScheduleEditor"
 import { LinksEditor } from "../LinksEditor"
+import { EncoderSection } from "./EncoderSection"
 
 /**
  * Hardcoded in the Liquidsoap template (`%mp3(bitrate=128, samplerate=44100)`)
@@ -161,6 +162,10 @@ export default async function StationSettingsPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Sits after Stream, because it is the other half of the same subject:
+          Stream is where listeners come OUT, this is how audio gets IN. */}
+      <EncoderSection station={station} />
 
       <DeleteStation slug={station.slug} />
     </div>

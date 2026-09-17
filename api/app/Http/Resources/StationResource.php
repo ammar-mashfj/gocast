@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -51,6 +52,49 @@ class StationResource extends JsonResource
      * FrankenPHP/Octane where statics survive across requests.
      */
     private const PRELOAD_ATTR = 'station_resource_preloaded';
+
+    /**
+     * Compose the `encoder` block on this response?
+     *
+     * OFF BY DEFAULT, and that default is the point. The block carries the
+     * station's stream key in plaintext — a long-lived credential — and this
+     * resource is rendered by ten call sites: the owner's station list, the
+     * public directory, /discover, the embed payload, every power toggle, the
+     * schedule editor. Two of them opt in.
+     *
+     * Note that opting in is not the same as rendering a card: show() is the
+     * fetch behind the station overview and the go-live page as well as
+     * settings, so three owner-facing screens receive the block. That is
+     * intended — the go-live dialog offers the encoder as a way to broadcast,
+     * and the overview's power card is what opens it — and it is why the gate
+     * that matters is ownership and plan below rather than this flag.
+     *
+     * Ownership and plan are still checked in toArray() regardless; this is
+     * the narrower question of whether a given RESPONSE has any use for the
+     * credential. Gating on opt-in rather than on the route keeps the answer
+     * next to the controller that needs it instead of in a string match that
+     * silently changes meaning when a route is renamed.
+     *
+     * Opting in from a collection endpoint would be a mistake rather than a
+     * choice, so there is no way to — the static collection() override below
+     * never calls withEncoder().
+     */
+    protected bool $withEncoder = false;
+
+    /**
+     * Include the encoder connection details in this response.
+     *
+     * For the two places a DJ is actually looking at the card: the station
+     * fetch behind the settings page (StationController::show) and the
+     * rotation that mints a new key (StreamKeyController::rotate), which has
+     * to hand the new value straight back or the field shows the dead one.
+     */
+    public function withEncoder(): static
+    {
+        $this->withEncoder = true;
+
+        return $this;
+    }
 
     /**
      * @param  Collection<int, Station>|iterable<Station>  $resource
@@ -166,6 +210,56 @@ class StationResource extends JsonResource
             'watermarked' => $this->when(
                 $request->user()?->id === $this->user_id,
                 fn () => $request->user()->watermarked(),
+            ),
+            // Everything a DJ types into BUTT, Mixxx or RadioDJ, composed
+            // server-side so the client never guesses a port or a mount.
+            //
+            // Four gates, all of which have to hold:
+            //
+            //   • ASKED FOR. This resource renders the owner's station list,
+            //     the public directory and every power toggle as well as the
+            //     settings page, and only the last of those has anywhere to
+            //     put a credential. See $withEncoder.
+            //   • OWNER ONLY. `password` is a live credential. It follows the
+            //     same N+1 discipline as `watermarked` above — the plan is
+            //     read off the AUTHENTICATED user, never off each row's owner
+            //     — so a page of stations still costs one plan query.
+            //   • PLAN. HarborAuthController is what actually refuses a
+            //     downgraded account's key; this stops the dashboard from
+            //     handing out settings that will not work.
+            //   • DEPLOYED. No `encoder_host` configured means the ingest
+            //     router is not running here, and the card should say so
+            //     rather than print a hostname that resolves to nothing.
+            //
+            // `stream_key` itself is absent from UpdateStationRequest, for the
+            // same reason `watermarked` is: rotation is its own endpoint so
+            // nobody can choose their own credential.
+            'encoder' => $this->when(
+                $this->withEncoder
+                    && $request->user()?->id === $this->user_id
+                    && $request->user()->canUseEncoder()
+                    && filled(config('liquidsoap.encoder_host')),
+                fn () => [
+                    'host' => config('liquidsoap.encoder_host'),
+                    'port' => (int) config('liquidsoap.encoder_port'),
+                    // Harbor registers its mount at the bare slug; the leading
+                    // slash is what every encoder UI expects to be typed.
+                    'mount' => '/'.$this->slug,
+                    // Not a real account. Harbor hands whatever libshout put
+                    // in Authorization: Basic to the auth callback, which only
+                    // reads the password — but the field is mandatory in every
+                    // encoder, and `source` is the Icecast convention.
+                    'username' => 'source',
+                    // Read through the `encrypted` cast, which THROWS on a
+                    // key it cannot decrypt — after an APP_KEY rotation, say.
+                    // Unguarded that takes down the whole station payload, and
+                    // with it the settings page hosting the rotate button, so
+                    // the one documented recovery path would be unreachable
+                    // exactly when it is needed. Degrade to a null password
+                    // instead and let the card tell the owner to rotate.
+                    'password' => $this->readableStreamKey(),
+                    'rotated_at' => $this->stream_key_rotated_at,
+                ],
             ),
             'autodj_order' => $this->autodj_order,
             'jingles_enabled' => (bool) $this->jingles_enabled,
@@ -323,5 +417,25 @@ class StationResource extends JsonResource
             'title' => $metadata['title'] ?? null,
             'artist' => $metadata['artist'] ?? null,
         ];
+    }
+
+    /**
+     * The station's stream key, or null when it cannot be decrypted.
+     *
+     * Mirrors the guard in HarborAuthController::streamKeyMatches(): an
+     * unreadable key is a recoverable state (rotate it), not a 500.
+     */
+    private function readableStreamKey(): ?string
+    {
+        try {
+            return $this->stream_key;
+        } catch (\Throwable $e) {
+            Log::warning('Could not read a station stream key for the encoder card', [
+                'station' => $this->slug,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 }

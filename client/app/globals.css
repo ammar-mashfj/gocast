@@ -60,6 +60,25 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* An INDETERMINATE progress sweep, for a wait whose length is genuinely
+     unknowable — currently one thing: the encoder panel waiting for a DJ to
+     press Connect in BUTT, which might be two seconds or two minutes away.
+     A determinate bar would have to invent a duration, and a bar that fills
+     up and stops says "this failed" when nothing has failed. */
+  --animate-indeterminate: indeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%) scaleX(0.4);
+  }
+  50% {
+    transform: translateX(50%) scaleX(0.7);
+  }
+  100% {
+    transform: translateX(260%) scaleX(0.4);
+  }
 }
 
 :root {

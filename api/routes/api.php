@@ -23,6 +23,7 @@ use App\Http\Controllers\StationNotifyController;
 use App\Http\Controllers\StationPowerController;
 use App\Http\Controllers\StationScheduleController;
 use App\Http\Controllers\StationStatusController;
+use App\Http\Controllers\StreamKeyController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\TrackController;
 use App\Http\Controllers\UploadController;
@@ -156,6 +157,17 @@ Route::middleware('auth:sanctum')->group(function () {
         // without letting the page be held open as a query generator.
         Route::get('/stations/{station:slug}/audience', AudienceController::class)
             ->middleware('throttle:60,1');
+
+        // Mint a new encoder password. No body — the server picks the value,
+        // so there is nothing for the client to send. Throttled hard: this is
+        // a credential churn, and six an hour is far more than anyone
+        // legitimately needs while setting BUTT up.
+        //
+        // `6,60` is six per SIXTY MINUTES. The second number is decay minutes,
+        // not a window count — this read `6,1` and meant six per minute, which
+        // is 360 an hour and not a throttle in any sense the comment claimed.
+        Route::post('/stations/{station:slug}/stream-key', [StreamKeyController::class, 'rotate'])
+            ->middleware('throttle:6,60');
 
         // Advertised show times. A full-list PUT rather than row CRUD: the
         // owner edits a short ordered list, and position is the array index.

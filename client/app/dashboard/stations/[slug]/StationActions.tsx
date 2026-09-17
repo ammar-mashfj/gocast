@@ -42,7 +42,7 @@ export function StationActions({ station, mode }: StationActionsProps) {
   }
 
   return (
-    <GoLiveTrigger slug={station.slug} name={station.name}>
+    <GoLiveTrigger station={station}>
       <Button className="w-full md:w-auto">
         <IconPlayerPlayFilled data-icon="inline-start" /> Go live
       </Button>

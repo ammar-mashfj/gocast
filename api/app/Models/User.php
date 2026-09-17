@@ -104,6 +104,28 @@ class User extends Authenticatable implements MustVerifyEmail
         return (bool) ($this->plan?->embed_enabled ?? false);
     }
 
+    /**
+     * May this user broadcast into their stations from an external encoder —
+     * BUTT, Mixxx, RadioDJ, ffmpeg, anything speaking the Icecast source
+     * protocol?
+     *
+     * What this actually gates is the STREAM KEY. HarborAuthController is the
+     * real enforcement point: it checks this on every connection attempt, so a
+     * downgraded account's encoder stops working the next time it reconnects,
+     * the same way canEmbed() takes an already-pasted embed dark.
+     *
+     * It does NOT gate the browser studio, which authenticates with a
+     * short-lived token and is on every plan. A free account can still go live;
+     * it just has to do it from the studio page.
+     *
+     * Same null-coalescing convention as the two above: no plan row is free,
+     * and free has no encoder.
+     */
+    public function canUseEncoder(): bool
+    {
+        return (bool) ($this->plan?->encoder_enabled ?? false);
+    }
+
     public function stations(): HasMany
     {
         return $this->hasMany(Station::class);

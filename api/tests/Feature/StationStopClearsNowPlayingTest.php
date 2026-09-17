@@ -2,6 +2,7 @@
 
 use App\Models\Station;
 use App\Models\User;
+use App\Services\LiquidsoapSupervisor;
 use App\Services\StationLifecycleService;
 use Illuminate\Support\Facades\Redis;
 
@@ -64,4 +65,40 @@ it('leaves another station now-playing alone', function () {
 
     expect(Redis::get("metadata:{$stopped->id}"))->toBeNull()
         ->and(Redis::get("metadata:{$running->id}"))->not->toBeNull();
+});
+
+/**
+ * A teardown that throws must still close the broadcast session.
+ *
+ * `stop()` commits `desired_state = stopped` first, then tears the container
+ * down, then tidies up. That ordering makes the teardown call the one place an
+ * exception can strand the rest: LiquidsoapSupervisor wraps its graceful
+ * `docker stop`, but the `docker rm -f` behind it is unguarded, so an
+ * unreachable daemon raises straight out of `down()`.
+ *
+ * The session close has to survive that, because nothing else will do it. The
+ * reconciler's stranded-session sweep scans `running()->live()`, and this
+ * station is no longer running — so a row left open here stays open forever:
+ * `isLive()` keeps returning true and every future "Take off air" is refused
+ * for a broadcast that ended when the daemon did.
+ */
+it('closes the broadcast session even when the teardown throws', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $session = $station->streamSessions()->create([
+        'started_at' => now()->subMinutes(5),
+        'source_type' => 'external',
+    ]);
+
+    test()->mock(LiquidsoapSupervisor::class, function ($mock) {
+        $mock->shouldReceive('down')->andThrow(new RuntimeException('docker daemon unreachable'));
+    });
+
+    expect(fn () => app(StationLifecycleService::class)->stop($station, force: true))
+        ->toThrow(RuntimeException::class);
+
+    expect($session->refresh()->ended_at)->not->toBeNull()
+        ->and($station->refresh()->isLive())->toBeFalse();
 });

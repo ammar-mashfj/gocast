@@ -189,11 +189,45 @@ it('reports broadcaster connect and disconnect so laravel can track sessions', f
     // Method form, not the deprecated constructor arguments — and asynchronous,
     // because notify() makes a 5s-timeout HTTP call and a synchronous callback
     // runs on the streaming thread, stalling audio for every listener.
-    expect($script)->toContain('live_in.on_connect(synchronous=false, fun (_) -> begin')
+    //
+    // on_connect binds its argument (rather than discarding it with `_`)
+    // because the connect headers are the only thing that can tell an encoder
+    // from the studio — see the attribution test below.
+    expect($script)->toContain('live_in.on_connect(synchronous=false, fun (headers) -> begin')
         ->and($script)->toContain('live_in.on_disconnect(synchronous=false, fun () -> begin')
-        ->and($script)->toContain('notify("live_connected")')
+        ->and($script)->toContain('notify_live_connected(')
         ->and($script)->toContain('notify("live_disconnected")')
         ->and($script)->not->toContain('on_connect=fun');
+});
+
+it('tells laravel which kind of client connected, and nothing else from the headers', function () {
+    $script = renderStationScript($this->station);
+
+    // The split that makes an encoder session say "Encoder" instead of
+    // "Studio" on the station overview.
+    expect($script)->toContain('def live_via(headers) =')
+        ->and($script)->toContain('"browser"')
+        ->and($script)->toContain('"external"')
+        // Read by label, one at a time.
+        ->and($script)->toContain('live_header(headers, "upgrade")')
+        ->and($script)->toContain('live_header(headers, "user-agent")')
+        // And the payload must be built field by field rather than from the
+        // list, which is the only way the assertion below stays true.
+        ->and($script)->not->toContain('json.stringify(headers)');
+
+    // THE POINT OF THE ALLOWLIST. That header list also carries
+    // `authorization: Basic <base64 of source:streamkey>`; forwarding it
+    // wholesale would write a live credential into Laravel's request log and
+    // ship it to Sentry on the next validation error.
+    //
+    // Comments are stripped before asserting, because the template documents
+    // the danger in as many words and should keep doing so — it is the
+    // executable lines that must never touch it.
+    $code = collect(explode("\n", $script))
+        ->reject(fn (string $line) => str_starts_with(ltrim($line), '#'))
+        ->implode("\n");
+
+    expect(strtolower($code))->not->toContain('authorization');
 });
 
 it('no longer pulls the live input from an external media server', function () {

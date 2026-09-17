@@ -42,10 +42,44 @@ set -a; source "$DOMAINS"; set +a
 : "${APP_HOST:?}" "${API_HOST:?}" "${ICECAST_HOST:?}" "${STREAM_HOST:?}"
 : "${APP_ROOT:?}" "${RUN_USER:?}" "${PHP_VERSION:?}"
 : "${CLIENT_PORT:?}" "${ICECAST_PORT:?}" "${ROUTER_PORT:?}" "${INTERNAL_API_PORT:?}"
+: "${INGEST_PORT:?}"
 : "${DOCKER_HOST_ADDR:?}"
+
+# INGEST_PORT is published on all interfaces by docker-compose.native.yml while
+# every other port in domains.env is a host listener or a loopback publish, so a
+# collision is not a config smell — it is a container that will not start, and
+# the symptom is every encoder in the world getting "connection refused" while
+# `docker ps` looks fine.
+#
+# ROUTER_PORT is in this list for the reason that is easiest to miss: it is
+# published by the SAME container. A collision there is not a degraded encoder
+# path, it is the station router failing to start at all — which takes
+# /broadcast/{slug} with it and stops the browser studio too.
+#
+# Fatal rather than a warning on purpose. The whole failure mode this feature
+# was built around is a broadcast that appears to work and carries nothing;
+# a setup step that half-succeeds is the same shape of problem.
+for _other in ICECAST_PORT ROUTER_PORT CLIENT_PORT INTERNAL_API_PORT; do
+  if [[ "$INGEST_PORT" == "${!_other}" ]]; then
+    echo "!! INGEST_PORT and ${_other} are both ${INGEST_PORT}." >&2
+    echo "   The ingest router publishes its port from a container, and" >&2
+    echo "   ${_other} already has that number on this box; they cannot" >&2
+    echo "   share one. Change either in infra/native/env/domains.env" >&2
+    echo "   and re-run." >&2
+    exit 1
+  fi
+done
+unset _other
 
 # Renders a template, substituting the __TOKEN__ placeholders. Kept as one
 # function so a new placeholder only has to be added in one place.
+#
+# INGEST_PORT is deliberately NOT here. Every other port in this list reaches a
+# host nginx vhost, a php-fpm pool or icecast.xml; the ingest port reaches none
+# of them, because Docker publishes it directly and nothing on the host proxies
+# it. It goes to docker-compose.native.yml through the environment instead. A
+# substitution with no template to land in looks like a rendered config that
+# exists somewhere, and there is none.
 render() {
   sed -e "s|__APP_HOST__|${APP_HOST}|g" \
       -e "s|__API_HOST__|${API_HOST}|g" \
@@ -191,8 +225,17 @@ else
 fi
 
 echo "==> Support containers"
-docker compose -f "$NATIVE/docker-compose.native.yml" up -d
+# --build because the station router is now an image of ours rather than stock
+# nginx: it carries the njs module the ingest routing needs, and the module is
+# pinned to an exact nginx version. Without this the first run after a module
+# bump silently keeps the old image.
+#
+# INGEST_PORT reaches compose through the environment — domains.env was sourced
+# with `set -a` above, so the interpolation in docker-compose.native.yml picks
+# it up without an --env-file.
+docker compose -f "$NATIVE/docker-compose.native.yml" up -d --build
 echo "  ✓ gocast-network, gocast-docker-proxy, gocast-station-router"
+echo "    encoder ingest published on 0.0.0.0:${INGEST_PORT}"
 
 echo "==> Firewall"
 # Icecast and the internal API vhost both bind all interfaces, because
@@ -222,6 +265,14 @@ if command -v ufw >/dev/null 2>&1; then
   done
   echo "  ✓ 80/443 open; ${ICECAST_PORT} and ${INTERNAL_API_PORT} allowed from Docker only"
   echo "    (ufw must be ENABLED for this to mean anything: ufw status)"
+  # Deliberately NOT `ufw allow ${INGEST_PORT}`. Docker publishes that port by
+  # writing to the DOCKER chain, which sits in front of the INPUT chain ufw
+  # manages — so the port is already reachable from the internet and a ufw rule
+  # for it would be a comforting no-op. It is open because we chose to publish
+  # it; closing it means removing the mapping in docker-compose.native.yml.
+  # Harbor authenticates every connection that arrives on it.
+  echo "  ! ${INGEST_PORT} (encoder ingest) is published by Docker IN FRONT OF ufw"
+  echo "    and is reachable from the internet regardless of ufw status."
 else
   echo "  ! ufw not installed. ${ICECAST_PORT} and ${INTERNAL_API_PORT} are"
   echo "    listening on all interfaces — close them before going live."

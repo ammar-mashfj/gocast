@@ -120,10 +120,10 @@ runtime.gc.set(runtime.gc.get().{
 # strand a station.
 ice_up = ref(false)
 
-def notify(event) =
+def post_event(body) =
   ignore(http.post(
     {!! json_encode("{$apiUrl}/api/internal/station-event") !!},
-    data=json.stringify({ slug = {!! json_encode($station->slug) !!}, event = event }),
+    data=body,
     headers=[
       ("Content-Type", "application/json"),
       ("Accept", "application/json"),
@@ -131,6 +131,29 @@ def notify(event) =
     ],
     timeout=5.
   ))
+end
+
+def notify(event) =
+  post_event(json.stringify({ slug = {!! json_encode($station->slug) !!}, event = event }))
+end
+
+# The one event that carries more than its own name.
+#
+# Split from notify() rather than given optional arguments because Liquidsoap
+# records are statically typed: one function cannot sometimes emit these keys
+# and sometimes not, and sending empty strings on every boot and Icecast
+# reconnect would put two meaningless fields in every payload for the sake of
+# one that needs them.
+#
+# `via` is always one of browser|external, never empty, so Laravel validates an
+# enum rather than guessing at a blank.
+def notify_live_connected(~client, ~via) =
+  post_event(json.stringify({
+    slug = {!! json_encode($station->slug) !!},
+    event = "live_connected",
+    client = client,
+    via = via
+  }))
 end
 
 on_start(fun () -> notify("boot"))
@@ -271,9 +294,81 @@ live_in = input.harbor(
 # broadcaster reads as connected.
 live_connected = ref(false)
 
-live_in.on_connect(synchronous=false, fun (_) -> begin
+# WHAT THE HEADERS ARE FOR, and why only three of them leave this container.
+#
+# Both ways into harbor arrive here with their request headers (harbor.ml:704
+# for the Icecast source protocol, :836 for the webcast WebSocket), lowercased
+# by harbor. They are the ONLY way to tell the browser studio from an external
+# encoder: an encoder makes no API call of its own, so without this every
+# BUTT and Mixxx session is filed under "Studio" on the station overview —
+# a wrong label in the one place someone looks to confirm their encoder worked.
+#
+#   Studio                          Encoder
+#   upgrade: websocket              user-agent: libshout/2.4.6
+#   sec-websocket-protocol: webcast content-type: audio/mpeg
+#   a browser user-agent            ice-name, ice-public
+#
+# ⚠ THIS LIST ALSO CONTAINS `authorization: Basic <base64 of source:streamkey>`.
+# That is a live, long-lived credential. Forwarding the header list wholesale
+# would write it into Laravel's request log and ship it to Sentry on the next
+# validation error. Three labels are read by name, here, before anything
+# crosses the container boundary — never the list.
+# Read one header by name, case-insensitively.
+#
+# THE CASE FOLDING IS NOT DEFENSIVE, IT IS REQUIRED. Liquidsoap's on_connect
+# documentation says "All labels are lowercase". They are not — verified
+# against the 2.4.5 image on 2026-09-15, where an Icecast source client's
+# headers arrive spelled exactly as the client sent them:
+#
+#   Authorization=Basic c291cmNl... | User-Agent=libshout/2.4.6 |
+#   Content-Type=audio/mpeg | ice-name=Raw Test
+#
+# so list.assoc("user-agent", ...) matches nothing and every encoder session
+# reports an empty client. The webcast path uses its own spelling. Normalising
+# here is the only lookup that works on both.
+def live_header(headers, label) =
+  normalized = list.map(fun (h) -> (string.case(lower=true, fst(h)), snd(h)), headers)
+  string.trim(list.assoc(default="", label, normalized))
+end
+
+# Truncate to what Laravel will accept, and no further.
+#
+# string.sub() alone would be wrong here: it returns "" when the requested
+# substring does not exist, so asking for 255 characters of a 20-character
+# user-agent throws the user-agent away. The length check is the whole point.
+def live_clip(value) =
+  if string.length(value) > 255 then
+    string.sub(value, start=0, length=255)
+  else
+    value
+  end
+end
+
+def live_via(headers) =
+  # A WebSocket handshake always carries Upgrade. An Icecast source client
+  # never does — so anything without it is an encoder, including a client
+  # that sends no headers at all.
+  upgrade = string.case(lower=true, live_header(headers, "upgrade"))
+  # `ws_protocol`, not `protocol`: the latter shadows a top-level binding in
+  # the standard library and Liquidsoap warns about it on every single boot.
+  ws_protocol = live_header(headers, "sec-websocket-protocol")
+
+  if string.contains(substring="websocket", upgrade) or ws_protocol != "" then
+    "browser"
+  else
+    "external"
+  end
+end
+
+live_in.on_connect(synchronous=false, fun (headers) -> begin
   live_connected := true
-  notify("live_connected")
+  notify_live_connected(
+    # "Mixxx 2.5.0" / "libshout/2.4.6" / a browser UA. Clipped to the column
+    # width Laravel validates, so a client with an essay for a user-agent
+    # cannot cost us a rejected event.
+    client=live_clip(live_header(headers, "user-agent")),
+    via=live_via(headers)
+  )
 end)
 live_in.on_disconnect(synchronous=false, fun () -> begin
   live_connected := false

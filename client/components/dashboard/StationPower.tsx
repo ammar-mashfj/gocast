@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
   IconBroadcast,
+  IconHeadphones,
   IconLoader2,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
@@ -12,6 +13,14 @@ import {
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import api from "@/lib/axios"
 import { cn } from "@/lib/utils"
 import { Station } from "@/interfaces/Station"
@@ -79,6 +88,10 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   const router = useRouter()
   const { status, loading, refresh } = useStationStatus(station.slug)
   const [pending, setPending] = useState<"start" | "stop" | "skip" | null>(null)
+  // Set when the API refuses a stop because an EXTERNAL encoder is on air.
+  // Holds the server's own sentence so the dialog names the software rather
+  // than saying "an encoder" over the top of an answer we already have.
+  const [cutoffPrompt, setCutoffPrompt] = useState<string | null>(null)
 
   // Fall back to the coarse state from the station payload until the first
   // poll lands, so the badge doesn't flicker through "unknown" on mount.
@@ -88,13 +101,13 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   const isAutoDj = status?.source === "autodj"
 
   // Is the broadcast coming from THIS tab? The broadcast context is per-tab,
-  // so a positive answer is certain while a negative one is not: another tab
-  // of this same browser, another machine, and an external encoder all look
-  // identical from here. Hence "another source" rather than "another device" —
-  // the only phrasing that is true in all three cases. Naming the actual
-  // device would need harbor's `live_connected` callback to carry the source's
-  // identity; today StationEventController opens every session with a
-  // hardcoded source_type of 'browser'.
+  // so a positive answer is certain while a negative one is not.
+  //
+  // What a negative answer MEANS is now narrower than it used to be. Harbor's
+  // `live_connected` reports whether the publisher arrived over the webcast
+  // WebSocket or the Icecast source protocol, so an encoder is no longer
+  // indistinguishable from another browser tab — see `liveFrom` below. Two
+  // browsers on the same station still are, and always will be from here.
   const { state: broadcastState, stationSlug: broadcastSlug } = useBroadcast()
   const liveFromThisBrowser =
     broadcastSlug === station.slug &&
@@ -108,13 +121,42 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
    * on its own said only that a human was publishing, never from where, which
    * is the one thing an owner staring at the badge wants to know.
    */
+  //
+  // For an encoder we name the software when harbor told us what it was
+  // ("Live from Mixxx 2.5.0") and fall back to the category when it did not —
+  // an older container, or a client that sends no user-agent.
+  /**
+   * Is the broadcast coming from an external encoder rather than a browser?
+   *
+   * This is the one distinction the card's ACTIONS turn on, not just its
+   * label. There is no studio to open for a BUTT broadcast — harbor allows one
+   * source per mount, so the studio could not take over even if it tried — and
+   * offering the button anyway sent the owner through two redirects to a page
+   * telling them "another browser or device is broadcasting", which is both
+   * wrong and no help.
+   */
+  const liveFromEncoder = isLive && status?.live_source?.type === "external"
+  const encoderClient = status?.live_source?.client ?? null
+
+  const liveFrom = () => {
+    if (liveFromThisBrowser) {
+      return "Live from this browser"
+    }
+
+    if (liveFromEncoder) {
+      return encoderClient ? `Live from ${encoderClient}` : "Live from an encoder"
+    }
+
+    // Another tab, another machine, or a container too old to say. All three
+    // are "some browser, not this one", which is what this phrasing means.
+    return "Live from another source"
+  }
+
   const sourceLabel =
     !isRunning || !status?.reachable
       ? null
       : isLive
-        ? liveFromThisBrowser
-          ? "Live from this browser"
-          : "Live from another source"
+        ? liveFrom()
         : status.source === "autodj"
           ? "AutoDJ"
           : status.source === "silence"
@@ -153,14 +195,29 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     }
   }, [isRunning, status?.now_playing])
 
+  /**
+   * Catch the page up with something the go-live dialog learnt first.
+   *
+   * The same pair as act() below, and for the same reason: the client poll
+   * owns the badge, the server render owns Recent Broadcasts and the activity
+   * counts, and an encoder connecting changes both. Passed to GoLiveTrigger,
+   * which fires it when a broadcaster appears and again on close.
+   */
+  const syncFromDialog = useCallback(() => {
+    void refresh()
+    router.refresh()
+  }, [refresh, router])
+
   async function act(
     action: "start" | "stop" | "skip",
     successMessage: string,
+    body?: Record<string, unknown>,
   ) {
     if (pending) return
     setPending(action)
     try {
-      await api.post(`/stations/${station.slug}/${action}`)
+      await api.post(`/stations/${station.slug}/${action}`, body)
+      setCutoffPrompt(null)
       toast.success(successMessage)
       await refresh()
       // The server-rendered page carries desired_state and the badges built
@@ -168,8 +225,18 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
       router.refresh()
     } catch (err) {
       const response = (err as {
-        response?: { status?: number; data?: { message?: string } }
+        response?: { status?: number; data?: { message?: string; code?: string } }
       })?.response
+      // An encoder is on air, and the owner may have no way to reach the
+      // machine it is running on — a dead laptop, or a stranger on a leaked
+      // stream key. A toast repeating "disconnect it there" is advice they
+      // cannot take, so offer the cut-off instead. The studio's plain
+      // `station_is_live` deliberately does NOT land here: that broadcast has
+      // a Stop button, and it ends the session cleanly.
+      if (response?.data?.code === "station_is_live_external") {
+        setCutoffPrompt(response.data.message ?? null)
+        return
+      }
       // The API writes these for humans (plan limits, "end your broadcast
       // first"), so show them rather than a generic failure.
       toast.error(response?.data?.message ?? "Something went wrong — please try again")
@@ -243,14 +310,52 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     </Button>
   )
 
+  // Confirmation for the one destructive control this card has. Cutting off
+  // an encoder ends a real broadcast for real listeners, so it is never the
+  // first click: the owner presses "Take off air", the API refuses and
+  // explains, and only then is this offered.
+  const cutoffDialog = (
+    <Dialog open={cutoffPrompt !== null} onOpenChange={(open) => !open && setCutoffPrompt(null)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Cut off this broadcast?</DialogTitle>
+          <DialogDescription className="leading-relaxed">
+            {cutoffPrompt}{" "}
+            Cutting it off takes {station.name} off air immediately and drops
+            everyone listening. The encoder will keep trying to reconnect until
+            it is stopped — if someone else has your stream key, choose{" "}
+            <span className="text-foreground font-medium">New key</span> in
+            settings afterwards so they cannot come back.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCutoffPrompt(null)}>
+            Leave it on air
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={pending !== null}
+            onClick={() => act("stop", "Broadcast cut off — station is off air", { force: true })}
+          >
+            {pending === "stop" && (
+              <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
+            )}
+            Cut it off
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+
   if (compact) {
     return (
       <div className="flex items-center gap-2">
+        {cutoffDialog}
         {badge}
         {isRunning ? (
           stopButton
         ) : autoDjLocked ? (
-          <GoLiveTrigger slug={station.slug} name={station.name}>
+          <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
             <Button className={actionClass}>
               <IconBroadcast size={14} data-icon="inline-start" />
               Go live
@@ -302,12 +407,25 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
             ? "Waiting for the station to answer"
             : "Anyone with your link can tune in"
 
-  /** Off air only: what the button underneath is actually going to do. */
-  const powerHint = isRunning
-    ? null
-    : autoDjLocked
-      ? "Go live and anyone with the link can tune in while you broadcast"
-      : "Put it on air and your AutoDJ rotation plays to anyone with the link"
+  /**
+   * What the buttons underneath are going to do — or, while an encoder holds
+   * the mount, what to do instead, because the only control that can end that
+   * broadcast is not in this app.
+   */
+  //
+  // Kept to one short sentence on purpose: this line is `line-clamp-2` inside
+  // a card that is ~250px wide in a two-up grid, and the longer version of
+  // this ("the studio can't take over while it's connected…") lost its verb to
+  // the ellipsis — leaving an owner looking for a stop button with half an
+  // instruction. Why the studio is not on offer is explained where it is
+  // actually asked, on the go-live page.
+  const powerHint = liveFromEncoder
+    ? `Stop broadcasting in ${encoderClient || "your encoder"} to end the show.`
+    : isRunning
+      ? null
+      : autoDjLocked
+        ? "Go live and anyone with the link can tune in while you broadcast"
+        : "Put it on air and your AutoDJ rotation plays to anyone with the link"
 
   const nowPlaying = status?.now_playing ?? lastNowPlaying.current
   const upNext = status?.up_next?.[0]
@@ -406,7 +524,29 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
             {/* Actions, most-wanted first. Off air, the thing you want is a
                 mount; once there is one, the thing you want is the mic. */}
             <div className="flex flex-col gap-2 shrink-0 @lg/power:min-w-[190px]">
-              {isLive ? (
+              {/* An encoder broadcast has no studio to open — harbor takes one
+                  source per mount, so the studio could not take over even if
+                  it tried, and the button used to send the owner through two
+                  redirects to a page saying "another browser or device is
+                  broadcasting". The useful thing at this moment is not a
+                  control at all: it is hearing what went out. */}
+              {/* Live, but the first status poll has not landed, so we do not
+                  yet know WHICH source is on air. "Open studio" would be a
+                  guess, and it is the wrong one for every encoder broadcast —
+                  so offer nothing for the one poll it takes to find out. The
+                  detail line above already reads "Checking…". */}
+              {isLive && !status ? null : liveFromEncoder ? (
+                <Button asChild className={actionClass}>
+                  <a
+                    href={`/station/${station.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IconHeadphones size={14} data-icon="inline-start" />
+                    Hear your stream
+                  </a>
+                </Button>
+              ) : isLive ? (
                 <Button asChild className={actionClass}>
                   <a href={`/dashboard/stations/${station.slug}/studio`}>
                     <IconBroadcast size={14} data-icon="inline-start" />
@@ -414,14 +554,14 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                   </a>
                 </Button>
               ) : isRunning ? (
-                <GoLiveTrigger slug={station.slug} name={station.name}>
+                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
                   <Button className={actionClass}>
                     <IconBroadcast size={14} data-icon="inline-start" />
                     Take over live
                   </Button>
                 </GoLiveTrigger>
               ) : autoDjLocked ? (
-                <GoLiveTrigger slug={station.slug} name={station.name}>
+                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
                   <Button className={actionClass}>
                     <IconBroadcast size={14} data-icon="inline-start" />
                     Go live
@@ -434,7 +574,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
               {isRunning ? (
                 stopButton
               ) : autoDjLocked ? null : (
-                <GoLiveTrigger slug={station.slug} name={station.name}>
+                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
                   <Button variant="outline" className={actionClass}>
                     <IconBroadcast size={14} data-icon="inline-start" />
                     Go live
@@ -500,6 +640,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
           </section>
         )}
       </div>
+      {cutoffDialog}
     </div>
   )
 }

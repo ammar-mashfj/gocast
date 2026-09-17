@@ -46,6 +46,16 @@ use App\Models\Station;
  *     from {@see StationAudioVerdict::Stop}. Silence with nothing to play is an
  *     idle station; silence with a library behind it is a bug.
  *
+ * A NOTE ON EXTERNAL ENCODERS, because this is the one place they interact
+ * with auto-stop. A DJ who switches their station on and then goes to open
+ * BUTT has `silent_stop_seconds` to get connected — nothing is attached and
+ * nothing is playing until they do, so the station reads as idle in exactly
+ * the way this mechanism exists to catch. At the configured default of ten
+ * minutes that is comfortable; at a minute it would not be, and the symptom
+ * would be an encoder that connects to a station that has just gone away.
+ * Once they ARE connected `broadcaster` is true and no amount of dead air
+ * stops the station, muted mic included.
+ *
  * EVERY UNKNOWN FAILS SAFE. An unreachable container, a container too old to
  * report the new fields, and a status that contradicts itself all resolve to
  * "do not stop". The cost of a wrong stop (a broadcast cut off, a paid rotation

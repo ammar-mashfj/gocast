@@ -27,6 +27,41 @@ export interface SocialLink {
   url: string
 }
 
+/**
+ * Everything an Icecast source client needs, composed by the API.
+ *
+ * Present ONLY on the owner's own station, only on a plan with the encoder,
+ * and only where an ingest router is actually deployed — so `undefined` means
+ * three different things and the settings card has to tell them apart with the
+ * plan flag. `password` is a live credential; nothing may log it or put it in
+ * a URL.
+ *
+ * Composed server-side rather than assembled here for the same reason as
+ * `hls_url`: the port belongs to the ingest router, not to anything the client
+ * knows about, and a second copy of that number would be wrong the day it
+ * moves.
+ */
+export interface StationEncoder {
+  /** Hostname a DJ types into the encoder's server field. */
+  host: string
+  /** The ingest router's port — NOT the station's harbor port. */
+  port: number
+  /** "/{slug}", with the leading slash every encoder UI expects. */
+  mount: string
+  /** Always "source". Not an account; harbor only reads the password. */
+  username: string
+  /**
+   * The station's stream key. Long-lived; rotated through its own endpoint.
+   *
+   * Null when the server holds a key it can no longer decrypt (an APP_KEY
+   * rotation). The card has to render that state rather than an empty field —
+   * rotating is the way out, and the button for it is on this same page.
+   */
+  password: string | null
+  /** When the key was last regenerated, or null if it never has been. */
+  rotated_at: string | null
+}
+
 export interface Station {
   id: string
   user_id: string
@@ -96,6 +131,12 @@ export interface Station {
    * owner's own stations, so it is absent from public/discover payloads.
    */
   watermarked?: boolean
+  /**
+   * Connection details for an external encoder. Absent unless the request is
+   * from the owner, their plan includes the encoder, AND this deployment has
+   * an ingest router — see StationEncoder.
+   */
+  encoder?: StationEncoder
   /**
    * How the AutoDJ walks the rotation. "sequential" plays it in the order the
    * drag handles set, looping at the end; "shuffle" plays a random permutation

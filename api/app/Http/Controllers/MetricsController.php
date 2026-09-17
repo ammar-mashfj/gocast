@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\IngestMetrics;
 use App\Services\LiquidsoapSupervisor;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,7 @@ use Throwable;
  */
 class MetricsController extends Controller
 {
-    public function __invoke(LiquidsoapSupervisor $supervisor): Response
+    public function __invoke(LiquidsoapSupervisor $supervisor, IngestMetrics $ingestMetrics): Response
     {
         $lines = [];
 
@@ -144,6 +145,27 @@ class MetricsController extends Controller
         $lines[] = '# HELP gocast_queue_jobs_failed Permanently failed jobs (failed_jobs table). Alert when this grows.';
         $lines[] = '# TYPE gocast_queue_jobs_failed gauge';
         $lines[] = "gocast_queue_jobs_failed {$failedJobs}";
+
+        // ---------- Broadcaster ingest ----------
+        // Connection attempts by outcome and credential. The only visibility
+        // there is into a broadcast that never started: a refused encoder
+        // leaves no session, no station event, and no listener — just a DJ
+        // looking at "connection failed".
+        //
+        // `refused{method="plan"}` is the interesting one. It is not a mistake
+        // anybody made: it is a valid stream key on an account whose plan no
+        // longer includes the encoder, which means somebody is trying to
+        // broadcast and being told no by billing. Worth a human's attention in
+        // a way that `refused{method="unknown"}` — mostly port scanners — is
+        // not.
+        $ingest = $ingestMetrics->snapshot();
+        $lines[] = '# HELP gocast_harbor_auth_total Broadcaster connection attempts, by outcome and credential type.';
+        $lines[] = '# TYPE gocast_harbor_auth_total counter';
+        foreach ($ingest as $outcome => $byMethod) {
+            foreach ($byMethod as $method => $count) {
+                $lines[] = "gocast_harbor_auth_total{outcome=\"{$outcome}\",method=\"{$method}\"} {$count}";
+            }
+        }
 
         // ---------- Redis liveness ----------
         try {

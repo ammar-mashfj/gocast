@@ -23,6 +23,7 @@
         \App\Models\StationEvent::TYPE_LIVE_AUDIO => 'badge-success',
         \App\Models\StationEvent::TYPE_TRACK_UPLOADED => 'badge-accent',
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'badge-ghost',
+        \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'badge-accent',
     ];
 
     /**
@@ -45,6 +46,7 @@
         \App\Models\StationEvent::TYPE_LIVE_AUDIO => 'Audio returned on the live input',
         \App\Models\StationEvent::TYPE_TRACK_UPLOADED => 'Track uploaded',
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'Track deleted',
+        \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'Encoder stream key rotated',
     ];
 @endphp
 

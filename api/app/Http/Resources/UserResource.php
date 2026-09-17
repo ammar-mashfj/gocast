@@ -58,6 +58,11 @@ class UserResource extends JsonResource
                 // dashboard hides the snippet from a plan without it; the
                 // embed page (PublicEmbedController) is what actually refuses.
                 'embed_enabled' => $this->canEmbed(),
+                // May this account broadcast from an external encoder? The
+                // settings card shows the connection details or the upsell
+                // from this; HarborAuthController is what actually refuses a
+                // connection, and StationResource is what withholds the key.
+                'encoder_enabled' => $this->canUseEncoder(),
                 'watermarked' => $this->watermarked(),
                 // When this plan ends and the account drops to Free. Null for
                 // an open-ended plan, which is every plan not granted by a

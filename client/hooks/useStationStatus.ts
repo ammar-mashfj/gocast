@@ -61,8 +61,16 @@ function intervalFor(status: StationStatus | null): number {
  * Polling stops while the tab is hidden — a dashboard left open in a
  * background tab shouldn't keep asking a container what it is playing — and
  * resumes with an immediate read so the UI is never stale on return.
+ *
+ * @param intervalMs Override the self-pacing above with a fixed cadence, for a
+ *   caller that is WATCHING FOR A SPECIFIC EVENT rather than displaying the
+ *   current state. The encoder panel is the one such caller: it waits for a
+ *   DJ to press Connect in BUTT, and `intervalFor` would pace an on-air
+ *   station at up to ten seconds — long enough that the dialog looks broken
+ *   while the encoder is already live. Failures still back off; nothing that
+ *   omits this changes behaviour.
  */
-export function useStationStatus(slug: string, enabled = true) {
+export function useStationStatus(slug: string, enabled = true, intervalMs?: number) {
   const [status, setStatus] = useState<StationStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -111,7 +119,9 @@ export function useStationStatus(slug: string, enabled = true) {
       if (cancelled.current) return
       timer.current = setTimeout(
         tick,
-        next === FAILED ? backoffFor(failures.current) : intervalFor(next),
+        next === FAILED
+          ? backoffFor(failures.current)
+          : (intervalMs ?? intervalFor(next)),
       )
     }
 
@@ -137,7 +147,7 @@ export function useStationStatus(slug: string, enabled = true) {
     // `status` is read inside tick() only to keep the pace while hidden;
     // including it would restart the loop on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, enabled, read])
+  }, [slug, enabled, read, intervalMs])
 
   return { status, loading, refresh }
 }

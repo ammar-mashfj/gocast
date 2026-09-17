@@ -123,6 +123,9 @@ class StationEvent extends Model
     /** Library: a track or jingle was removed. */
     public const TYPE_TRACK_DELETED = 'track_deleted';
 
+    /** The owner minted a new encoder password. Never carries the value. */
+    public const TYPE_STREAM_KEY_ROTATED = 'stream_key_rotated';
+
     /**
      * Types a station's container is allowed to report.
      *
@@ -158,6 +161,7 @@ class StationEvent extends Model
         ...self::CONTAINER_TYPES,
         self::TYPE_TRACK_UPLOADED,
         self::TYPE_TRACK_DELETED,
+        self::TYPE_STREAM_KEY_ROTATED,
     ];
 
     /** @var list<string> */

@@ -53,6 +53,16 @@ class StationStatusController extends Controller
                 // `started_at` is intent; this is evidence.
                 'last_ready_at' => $station->last_ready_at,
                 'source' => $status['source'] ?? null,
+                // WHO is broadcasting, when someone is — read from the open
+                // StreamSession rather than from the container, because the
+                // container knows a source is attached and nothing else.
+                //
+                // Until external ingest shipped this could not be answered at
+                // all: every session was opened with a hardcoded
+                // source_type of 'browser', so the power badge had to say
+                // "Live from another source" and mean "this browser, another
+                // browser, or an encoder — we cannot tell".
+                'live_source' => $this->liveSource($station),
                 'now_playing' => $this->nowPlaying($status),
                 'elapsed' => $status['elapsed'] ?? null,
                 'remaining' => $status['remaining'] ?? null,
@@ -60,6 +70,33 @@ class StationStatusController extends Controller
                 'up_next' => $this->upNext($station, $status),
             ],
         ]);
+    }
+
+    /**
+     * The open broadcast session, if there is one.
+     *
+     * `client` is the broadcaster's software as harbor saw it, and is null far
+     * more often than not — the studio's own session row carries none, and
+     * neither does a container that has not been relaunched since the template
+     * started reporting it. Nothing may depend on it being there.
+     *
+     * @return array{type: string, client: ?string}|null
+     */
+    private function liveSource(Station $station): ?array
+    {
+        $session = $station->streamSessions()
+            ->whereNull('ended_at')
+            ->latest('started_at')
+            ->first(['source_type', 'client']);
+
+        if ($session === null) {
+            return null;
+        }
+
+        return [
+            'type' => $session->source_type,
+            'client' => $session->client,
+        ];
     }
 
     /**

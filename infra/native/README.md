@@ -21,7 +21,7 @@ Everything in this directory is rendered and installed by
 | Next.js client | `gocast-client.service` |
 | TLS | `certbot --nginx` |
 | Docker API guard | `docker-proxy` container (see below) |
-| Station routing | `station-router` container (see below) |
+| Station routing + encoder ingest | `station-router` container (see below) |
 | Per-station playout | one `docker run` per on-air station |
 
 So: **two long-lived containers, plus one per on-air station.** Nothing else
@@ -69,7 +69,7 @@ nginx cannot resolve that name.** Docker's embedded DNS at `127.0.0.11` is
 only reachable from inside a container, and a station's bridge IP changes on
 every restart, so there is nothing stable to put in a config file.
 
-`station-router/nginx.conf` is a ~20-line nginx container that sits on
+`station-router/nginx.conf` is a small nginx container that sits on
 `gocast-network`, resolves the container name per request through
 `127.0.0.11`, and is published on `127.0.0.1:8091`. Host nginx forwards
 `/broadcast/{slug}` there and the router does the rest. Nothing needs
@@ -84,6 +84,69 @@ request time cannot drift. The router costs 8 MB.
 (Laravel has the same problem and solves it differently: it runs on the host
 too, so `LIQUIDSOAP_TELNET_RESOLVE=ip` makes it look each address up with
 `docker inspect`. That is fine for a poll and wrong for a proxy.)
+
+### External encoder ingest (BUTT, Mixxx, RadioDJ)
+
+The same container also carries ingest for Icecast source clients, on
+`INGEST_PORT` (default 8010), published on **all interfaces** — a DJ's copy of
+BUTT is out on the internet and has to reach it.
+
+**It is a `stream` block, not a vhost, and it has to be.** libshout opens with
+
+```
+SOURCE /my-station HTTP/1.0
+```
+
+— a non-HTTP verb, HTTP/1.0, no `Content-Length` and no `Transfer-Encoding`.
+nginx's http module cannot frame that body, concludes there is none, and
+proxies a request that succeeds while carrying no audio. The DJ's encoder says
+"connected" and the station plays silence. So these connections are routed at
+the TCP layer by njs, which is why the container is now built from a Dockerfile
+(the njs module is not in the stock image, and its version is pinned to
+nginx's — bump the two together or the container will not start).
+
+Three things about a real libshout connect are worth knowing before debugging
+one. All three are in `station-router/ingest.js`, with the capture they came
+from:
+
+1. **It opens with `OPTIONS * HTTP/1.1`**, on its own connection, to ask
+   whether the server takes `PUT`. It names no mount, so it cannot be routed to
+   a station — and closing it is fatal to the entire connect
+   (`shout_open() failed: err=Socket error`). The router answers it itself.
+2. **Its next connection is deliberately unauthenticated** and expects a 401.
+   That is not a refused broadcaster, and it is not counted as one.
+3. **Track titles arrive as a POST with a form body**, and harbor reads its
+   arguments from the query string only — it answers libshout's own metadata
+   request `unrecognised command`. The router rewrites it into the GET harbor
+   parses. Without that hop, audio works and now-playing is frozen for the
+   whole show.
+
+Ports: `INGEST_PORT` in `domains.env` is the host side, and must equal
+`LIQUIDSOAP_ENCODER_PORT` in `api/.env` — that plus `LIQUIDSOAP_ENCODER_HOST`
+is what the dashboard prints on a station's settings card. Leave the host unset
+and the card says the feature is unavailable here, which is the right default
+for a box where the port is not open.
+
+**ufw does not gate this port.** Docker's published-port rules land in the
+DOCKER chain, which the INPUT chain ufw manages never sees, so it is reachable
+whether or not `ufw status` suggests otherwise. Closing it means removing the
+mapping in `docker-compose.native.yml`. Every connection on it is still
+authenticated by harbor, against the station's `stream_key` and its owner's
+plan.
+
+To check it end to end after a deploy:
+
+```bash
+bash infra/native/verify-ingest.sh <stream-host> <ingest-port> <slug>
+```
+
+That exercises all four wire shapes in the order libshout sends them and names
+which one broke. The station has to be switched on.
+
+The stream key is **not** an argument — the script prompts for it without
+echo, or reads `GOCAST_STREAM_KEY`. It is a long-lived credential and argv
+would put it in `ps` and in your shell history, where it outlives every
+rotation.
 
 ---
 
@@ -288,11 +351,32 @@ curl -fsS https://icecast.gocast.fm/stream/<slug> -r 0-1024 -o /dev/null
 
 # 7. Go live from the studio, and watch the router
 docker logs gocast-station-router --tail 20
+
+# 8. External encoder ingest, end to end. The stream key is on the station's
+#    settings page; the station must be ON. Every check that fails names the
+#    wire shape that broke rather than just saying "connection refused".
+bash infra/native/verify-ingest.sh stream.gocast.fm 8010 <slug>   # prompts for the key
 ```
 
 ---
 
 ## Traps
+
+**`INGEST_PORT` cannot be `ICECAST_PORT`.** Icecast is a host listener and the
+ingest router is a published container port; they cannot share one, and the
+symptom is a container that will not start while `docker ps` still looks
+plausible. `setup-native.sh` refuses to run while the two collide. 8000 is the
+conventional Icecast source port and what every encoder defaults to — if you
+want DJs to be able to leave the port field alone, move Icecast rather than the
+ingest, since Icecast is only ever reached through its nginx vhost and nothing
+outside `domains.env` knows its number.
+
+**An encoder that "connects and streams silence" is an nginx problem, not an
+audio one.** If ingest is ever routed through the http block instead of the
+stream block — a well-meaning vhost, a proxy in front — libshout's `SOURCE`
+request loses its body and the broadcast is silent while everything reports
+success. Check `docker logs gocast-station-router` for `bytes_in`: a real
+broadcast is megabytes, a framing failure is a few hundred bytes.
 
 **`host.docker.internal` is 172.17.0.1, not 127.0.0.1.** `--add-host
 host-gateway` maps to the *default* bridge gateway even for containers on

@@ -239,6 +239,13 @@ if changed infra/native || [[ $ENV_CHANGED -eq 1 ]]; then
   MANUAL_STEPS+=("host config under infra/native/ (or domains.env) changed — after this deploy run:
        sudo bash infra/native/setup-native.sh && sudo certbot --nginx --cert-name <name>")
 fi
+if changed infra/native/station-router; then
+  MANUAL_STEPS+=("the station router changed — it carries the njs module the encoder
+       ingest routing needs, and its nginx version is pinned to the module's:
+       sudo bash infra/native/setup-native.sh      # rebuilds and restarts it
+       (a restart drops any encoder mid-broadcast; the studio path is unaffected
+        only if the router itself does not restart, which it will)")
+fi
 if changed infra/liquidsoap; then
   MANUAL_STEPS+=("the Liquidsoap image under infra/liquidsoap/ changed — rebuild it and relaunch:
        docker build -t gocast/liquidsoap:latest infra/liquidsoap/

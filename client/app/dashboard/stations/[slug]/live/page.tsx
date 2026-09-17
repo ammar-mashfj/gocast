@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import api from "@/lib/axios"
 import { shareOrCopy } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
+import type { StationStatus } from "@/interfaces/StationStatus"
 import type { BroadcastStepInfo, StepStatus } from "@/lib/broadcast"
 import { env } from "@/lib/env"
 
@@ -202,7 +203,22 @@ function SuccessView({ station, onOpenControls }: { station: Station; onOpenCont
   )
 }
 
-function AlreadyLiveView({ station }: { station: Station }) {
+/**
+ * @param liveSource How the person on air connected, when we know. An encoder
+ *   is worth naming: "another browser or device" is simply untrue of a BUTT
+ *   broadcast, and it sends the owner looking for a tab to close instead of
+ *   the one application that can actually end the show.
+ */
+function AlreadyLiveView({
+  station,
+  liveSource,
+}: {
+  station: Station
+  liveSource: StationStatus["live_source"] | null
+}) {
+  const fromEncoder = liveSource?.type === "external"
+  const client = liveSource?.client
+
   return (
     <Card className="border-amber-500/20 bg-amber-500/[0.03]">
       <CardContent className="flex flex-col items-center text-center py-10">
@@ -211,7 +227,9 @@ function AlreadyLiveView({ station }: { station: Station }) {
         </div>
         <h2 className="text-base font-medium mb-2">This station is already live</h2>
         <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-          Another browser or device is currently broadcasting. Stop that broadcast before starting a new one here.
+          {fromEncoder
+            ? `${client || "An external encoder"} is broadcasting to this station. Only one source can be connected at a time, so disconnect it there before broadcasting from the studio.`
+            : "Another browser or device is currently broadcasting. Stop that broadcast before starting a new one here."}
         </p>
         <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
           <Button className="w-full sm:w-auto" asChild>
@@ -240,6 +258,11 @@ export default function GoLivePage() {
   const slug = params.slug
   const { state, steps, error, start, engine } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
+  /**
+   * Only read to explain a refusal, so it is fetched once rather than polled:
+   * this page either starts a broadcast within seconds or shows why it cannot.
+   */
+  const [liveSource, setLiveSource] = useState<StationStatus["live_source"] | null>(null)
   const [micDisabled, setMicDisabled] = useState(false)
   // `prompting` blocks the auto-start until the user resolves the recovery prompt.
   const [prompting, setPrompting] = useState<null | "recover">(null)
@@ -275,6 +298,12 @@ export default function GoLivePage() {
     api.get(`/stations/${slug}`)
       .then((res) => setStation(res.data.data))
       .catch(() => router.push("/dashboard"))
+
+    // Failure is fine and deliberately silent — the refusal below still reads
+    // correctly without it, just less specifically.
+    api.get(`/stations/${slug}/status`)
+      .then((res) => setLiveSource(res.data.data.live_source ?? null))
+      .catch(() => {})
   }, [slug, router])
 
   useEffect(() => {
@@ -362,7 +391,7 @@ export default function GoLivePage() {
         <div className="text-xs tracking-widest uppercase text-muted-foreground">
           {station.name} — Already live
         </div>
-        <AlreadyLiveView station={station} />
+        <AlreadyLiveView station={station} liveSource={liveSource} />
       </div>
     )
   }

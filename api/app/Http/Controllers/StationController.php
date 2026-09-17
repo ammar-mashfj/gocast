@@ -43,7 +43,10 @@ class StationController extends Controller
 
         $station->load(['streamSessions', 'schedules']);
 
-        return new StationResource($station);
+        // The one owner-facing fetch behind a page that has somewhere to put
+        // the stream key — the settings card. index() deliberately does not
+        // ask: see StationResource::$withEncoder.
+        return (new StationResource($station))->withEncoder();
     }
 
     public function update(UpdateStationRequest $request, Station $station): StationResource

@@ -88,3 +88,18 @@ export function useEmbedLocked(): boolean {
   const plan = usePlan()
   return plan !== null && !plan.embed_enabled
 }
+
+/**
+ * Does this account NOT have external-encoder broadcasting? Same negative
+ * phrasing and same reason as the three above: an unknown plan must render
+ * unlocked.
+ *
+ * Drives the settings card's locked state only. HarborAuthController is what
+ * actually refuses a connection, and StationResource withholds the credential
+ * — so a wrong answer here shows the upsell to someone who has paid, never a
+ * stream key to someone who has not.
+ */
+export function useEncoderLocked(): boolean {
+  const plan = usePlan()
+  return plan !== null && !plan.encoder_enabled
+}
