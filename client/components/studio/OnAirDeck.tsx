@@ -13,16 +13,10 @@ import { useEngineVersion } from "@/lib/useEngine"
 import { useAudioLevels } from "@/lib/useAudioLevels"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { formatClock } from "@/lib/format"
+import { formatTrackTime as formatTime, formatClock } from "@/lib/format"
 
 /** Segment count in the mic meter. Enough to read peaks, few enough to stay crisp. */
 const MIC_METER_SEGMENTS = 28
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${String(s).padStart(2, "0")}`
-}
 
 /** "1h 10m" / "4m" — how much audio is left, not a clock time. */
 function formatRemaining(seconds: number): string {

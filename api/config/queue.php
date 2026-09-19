@@ -69,7 +69,29 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
-            'block_for' => null,
+
+            /*
+             * Seconds the worker will BLOCK on Redis waiting for a job.
+             *
+             * Null — Laravel's default — makes the worker POLL instead, and
+             * `queue:work` sleeps 3 seconds between polls when the queue is
+             * empty. An empty queue is the normal state here, so every queued
+             * job picked up an average of ~1.5s of latency before it even
+             * started, measured at 1.9s end to end.
+             *
+             * That was invisible while the queue only carried uploads, track
+             * analysis and email, where seconds do not matter. It stopped
+             * being invisible when station lifecycle broadcasts joined it:
+             * those exist to beat a 10-second poll, and spending a fifth of
+             * that budget waiting for a worker to wake up is most of the
+             * benefit gone.
+             *
+             * With this set the worker uses BLPOP and wakes the instant a job
+             * lands. Must stay comfortably below `retry_after`, or a worker
+             * blocking longer than the retry window would let another take a
+             * job it is about to receive.
+             */
+            'block_for' => (int) env('REDIS_QUEUE_BLOCK_FOR', 5),
             'after_commit' => false,
         ],
 

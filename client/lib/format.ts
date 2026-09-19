@@ -92,6 +92,19 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * "3:07" — a position or length INSIDE a track.
+ *
+ * Distinct from formatClock: a track is minutes long, and padding it out to
+ * `00:03:07` puts two meaningless zero fields in front of the only part that
+ * moves. Use formatClock for anything that can pass an hour, this for
+ * anything that cannot.
+ */
+export function formatTrackTime(seconds: number): string {
+  const total = Math.floor(Math.max(0, seconds))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
+}
+
+/**
  * HH:MM:SS for live timers (studio elapsed counters, file progress).
  *
  * Floors to whole seconds first. Track durations arrive from the analyzer as

@@ -15,7 +15,14 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    // `broadcasting/auth` is a sibling of `api/*`, not a child, so the
+    // wildcard does not reach it. Without it listed here the browser's
+    // preflight fails and the failure surfaces as a CORS error — which reads
+    // like a server misconfiguration rather than the one-line omission it is.
+    //
+    // `supports_credentials` below is already true, which is what lets the
+    // `token` cookie ride along on the subscription request.
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/auth'],
 
     'allowed_methods' => ['*'],
 

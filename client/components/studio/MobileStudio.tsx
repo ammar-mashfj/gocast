@@ -34,13 +34,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { QUEUE_BYTE_LIMIT, type QueueTrack } from "@/lib/audioEngine"
-import { formatBytes } from "@/lib/format"
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, "0")}`
-}
+import { formatTrackTime as formatTime, formatBytes } from "@/lib/format"
 
 
 /**

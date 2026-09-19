@@ -127,6 +127,10 @@ build_client() {
     NEXT_PUBLIC_API_URL="https://${API_HOST}/api" \
     NEXT_PUBLIC_APP_URL="https://${APP_HOST}" \
     NEXT_PUBLIC_ICECAST_URL="https://${ICECAST_HOST}" \
+    NEXT_PUBLIC_PUSHER_KEY="${NEXT_PUBLIC_PUSHER_KEY:-}" \
+    NEXT_PUBLIC_PUSHER_HOST="${NEXT_PUBLIC_PUSHER_HOST:-main.pusher.ably.net}" \
+    NEXT_PUBLIC_PUSHER_PORT="${NEXT_PUBLIC_PUSHER_PORT:-443}" \
+    NEXT_PUBLIC_BROADCAST_AUTH_URL="https://${API_HOST}/broadcasting/auth" \
     NEXT_PUBLIC_SENTRY_DSN="${NEXT_PUBLIC_SENTRY_DSN:-}" \
     SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-}" \
     npm run build || return 1

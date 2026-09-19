@@ -1,9 +1,11 @@
 <?php
 
+use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\LiquidsoapSupervisor;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -337,4 +339,60 @@ it('leaves an open session alone while the container still reports live', functi
     }
 
     expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeTrue();
+});
+
+it('tells an open dashboard when it brings a dead station back', function () {
+    // The reconciler is the ONLY producer for a container that died: `docker
+    // kill`, an OOM and a host reboot all fire nothing, and the absence of an
+    // event is not an event. Without this the owner's dashboard finds out on
+    // its next reconcile poll instead of when the recovery starts.
+    Event::fake([StationStateChanged::class]);
+
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'vanished',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor([]);
+    $supervisor->shouldReceive('up')->once()->withArgs(fn (Station $s) => $s->is($station));
+
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('started vanished')
+        ->assertExitCode(0);
+
+    Event::assertDispatched(
+        StationStateChanged::class,
+        fn (StationStateChanged $e) => $e->slug === 'vanished' && $e->event === 'reconciled',
+    );
+});
+
+it('tells an open dashboard when it recreates a wedged station', function () {
+    Event::fake([StationStateChanged::class]);
+
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'crash-looping',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor(unhealthyContainer('crash-looping'));
+    $supervisor->shouldReceive('removeContainer')->once();
+    $supervisor->shouldReceive('up')->once()->withArgs(fn (Station $s) => $s->is($station));
+
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    // Drift has to persist across two passes before the reconciler acts, so a
+    // station that merely looks unhealthy while booting is left alone.
+    $this->artisan('stations:reconcile')->assertExitCode(0);
+    Event::assertNotDispatched(StationStateChanged::class);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('recreated crash-looping')
+        ->assertExitCode(0);
+
+    Event::assertDispatched(
+        StationStateChanged::class,
+        fn (StationStateChanged $e) => $e->slug === 'crash-looping' && $e->event === 'reconciled',
+    );
 });

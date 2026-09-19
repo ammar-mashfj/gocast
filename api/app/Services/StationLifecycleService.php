@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
@@ -104,6 +105,17 @@ class StationLifecycleService
             StationEvent::record($station, StationEvent::TYPE_STARTED, properties: [
                 'reason' => $reason,
             ]);
+
+            // So a power press reaches dashboards OTHER than the one that made
+            // it: a second tab, a phone left open on the overview, the studio
+            // beside the dashboard. The tab that pressed the button already
+            // knows from its own response and does not need this.
+            //
+            // Last in the block, after the container is up and the intent is
+            // saved, for the same reason the container callbacks broadcast
+            // last: a client's response to this is to refetch, so anything it
+            // would want to see has to be true before it asks.
+            event(StationStateChanged::for($station, StationEvent::TYPE_STARTED));
 
             return $station;
         });
@@ -258,6 +270,12 @@ class StationLifecycleService
                 'reason' => $reason,
                 'forced' => $force,
             ]);
+
+            // Same reasoning as start(), plus one case that only happens here:
+            // `stations:sweep` stops a silent station on its own schedule, and
+            // nobody pressed anything. Without this the owner's open dashboard
+            // sits on "on air" until the next reconcile poll notices.
+            event(StationStateChanged::for($station, StationEvent::TYPE_STOPPED));
 
             return $station;
         });

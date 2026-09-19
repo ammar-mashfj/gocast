@@ -498,7 +498,7 @@ Then run the app processes directly, and only the audio in Docker:
 docker compose -f infra/native/docker-compose.native.yml up -d   # network + proxy + router
 cd api    && php artisan serve --no-reload                       # :8000, 4 workers
 cd client && npm run dev                                         # :3000
-cd api    && php artisan queue:work
+cd api    && php artisan queue:work --queue=realtime,default            # realtime first, or broadcasts never send
 ```
 
 `api/.env` for a laptop differs from the server in three ways:

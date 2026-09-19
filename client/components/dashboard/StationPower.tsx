@@ -28,6 +28,7 @@ import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { GoLiveTrigger } from "@/components/dashboard/GoLiveTrigger"
+import { TrackProgress } from "@/components/dashboard/TrackProgress"
 
 interface StationPowerProps {
   station: Station
@@ -631,6 +632,12 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                 </Button>
               )}
             </div>
+
+            {/* Only for AutoDJ. A live broadcast has no track length to
+                measure against, and the component renders nothing in that
+                case anyway — but mounting it would leave an rAF loop running
+                for a bar that can never appear. */}
+            {isAutoDj && <TrackProgress status={status} />}
 
             {upNext && (
               <div className="text-sm text-muted-foreground line-clamp-2">

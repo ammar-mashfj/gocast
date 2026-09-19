@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\StationStateChanged;
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use App\Models\StationEvent;
@@ -50,6 +51,36 @@ class StationEventController extends Controller
      * runOnReady/runOnNotReady webhooks.
      */
     private const EVENTS = StationEvent::CONTAINER_TYPES;
+
+    /**
+     * The subset worth putting on a socket: events that change what the
+     * dashboard draws.
+     *
+     * Not all nine, because a broadcast nobody can see is cost without
+     * benefit — and on Ably's free tier concurrent connections are the scarce
+     * resource, so every message we do not send is headroom.
+     *
+     *   • `boot` is excluded. It fires from on_start, BEFORE the audio graph
+     *     is ready, so the station reads as `starting` both before and after
+     *     it — there is nothing for a client to redraw. The event that
+     *     actually ends the boot is icecast_connected.
+     *   • `live_silent` / `live_audio` are excluded. Nothing renders them.
+     *   • `icecast_error` IS included, though it is easy to miss: the template
+     *     sets `ice_up := false` in on_error exactly as it does in
+     *     on_disconnect, so it produces the same `degraded` state. Leaving it
+     *     out would mean a station that loses its mount to an error rather
+     *     than a clean disconnect is the one case that stays stale.
+     *
+     * @var list<string>
+     */
+    private const BROADCAST_EVENTS = [
+        StationEvent::TYPE_SHUTDOWN,
+        StationEvent::TYPE_ICECAST_CONNECTED,
+        StationEvent::TYPE_ICECAST_DISCONNECTED,
+        StationEvent::TYPE_ICECAST_ERROR,
+        StationEvent::TYPE_LIVE_CONNECTED,
+        StationEvent::TYPE_LIVE_DISCONNECTED,
+    ];
 
     /** Cache key prefix holding the most recent event for a station. */
     public const CACHE_PREFIX = 'station-event:';
@@ -141,6 +172,23 @@ class StationEventController extends Controller
 
         if ($validated['event'] === 'live_disconnected') {
             $this->closeSessions($station);
+        }
+
+        // LAST, after the side effects above, because the client's response to
+        // this is to refetch. A broadcast sent before openSession() commits
+        // would race its own consumer: the dashboard asks
+        // GET /stations/{slug}/status, the session row is not there yet, and
+        // the answer it caches says nobody is broadcasting — the exact stale
+        // state the push exists to prevent, now arriving faster.
+        //
+        // Queued, NOT ShouldBroadcastNow. This request comes from a Liquidsoap
+        // container and is served by a php-fpm pool with pm.max_children = 12
+        // (infra/native/php/gocast.pool.conf). Publishing inline would hold a
+        // worker for as long as Ably takes to answer, and twelve of those is
+        // the whole API — including harbor-auth, which gates ingest. A
+        // broadcasting outage must not become an ingest outage.
+        if (in_array($validated['event'], self::BROADCAST_EVENTS, true)) {
+            event(StationStateChanged::for($station, $validated['event']));
         }
 
         Log::info('Station reported a lifecycle event', [

@@ -29,6 +29,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->group(base_path('routes/admin.php'));
         },
     )
+    // `/broadcasting/auth` signs a client's subscription to a private channel,
+    // so it has to authenticate the same way every other API call does — and
+    // ours does NOT authenticate the way Laravel assumes.
+    //
+    // The default registration puts this route on the `web` stack. Our browser
+    // clients carry a `token` COOKIE, not a session and not an Authorization
+    // header; `UseAuthTokenCookie` is what turns that cookie into the bearer
+    // header Sanctum reads, and it is prepended to the `api` group only (see
+    // withMiddleware below). Left on `web`, the cookie never becomes a bearer,
+    // Sanctum sees a guest, and EVERY private subscription 401s — while every
+    // ordinary API request keeps working, which is what makes it look like a
+    // broadcasting problem rather than a middleware one.
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        ['middleware' => ['api', 'auth:sanctum']],
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         // Trust the Caddy/FrankenPHP container sitting directly in front of
         // Laravel so `$request->ip()` returns the real client IP from

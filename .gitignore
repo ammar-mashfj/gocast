@@ -28,3 +28,7 @@
 # are named `api.env` / `domains.env`, so the `.env*` rules above miss them.
 infra/native/env/*.env
 !infra/native/env/*.example
+
+# Generated Liquidsoap scripts dumped at the root while reading the template.
+# The real ones live in each station's container; anything here is scratch.
+/*.liq

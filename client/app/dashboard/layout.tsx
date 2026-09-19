@@ -9,6 +9,7 @@ import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { AccountProvider, type Account } from "@/contexts/AccountContext"
 import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
 import { ProRequestProvider } from "@/contexts/ProRequestContext"
+import { RealtimeProvider } from "@/contexts/RealtimeContext"
 import { apiFetch } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { User } from "@/interfaces/User"
@@ -90,24 +91,30 @@ export default async function DashboardLayout({
   ])
 
   return (
-    <BroadcastProvider>
-      <AccountProvider account={account}>
-        {/* Inside AccountProvider: the dialog prefills from the account. */}
-        <ProRequestProvider>
-          <StationProvider station={station}>
-            <SidebarProvider>
-              <AppSidebar user={user} />
-              <SidebarInset>
-                <DashboardHeader />
-                <main className="flex-1 p-6">
-                  {children}
-                </main>
-                <BroadcastMiniController />
-              </SidebarInset>
-            </SidebarProvider>
-          </StationProvider>
-        </ProRequestProvider>
-      </AccountProvider>
-    </BroadcastProvider>
+    // The socket is opened here, once, for everything under the dashboard.
+    // `user` comes from the cookie rather than the /user fetch beside it: the
+    // id is identity, it cannot change mid-session, and the channel must not
+    // wait on a request that is allowed to fail.
+    <RealtimeProvider userId={user.id}>
+      <BroadcastProvider>
+        <AccountProvider account={account}>
+          {/* Inside AccountProvider: the dialog prefills from the account. */}
+          <ProRequestProvider>
+            <StationProvider station={station}>
+              <SidebarProvider>
+                <AppSidebar user={user} />
+                <SidebarInset>
+                  <DashboardHeader />
+                  <main className="flex-1 p-6">
+                    {children}
+                  </main>
+                  <BroadcastMiniController />
+                </SidebarInset>
+              </SidebarProvider>
+            </StationProvider>
+          </ProRequestProvider>
+        </AccountProvider>
+      </BroadcastProvider>
+    </RealtimeProvider>
   )
 }

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\StreamSession;
 use App\Services\LiquidsoapSupervisor;
@@ -198,6 +199,14 @@ class ReconcileStations extends Command
                 $supervisor->up($station);
                 $this->line("  ✓ started {$slug}");
 
+                // The only producer for a container that DIED. Nothing calls
+                // back when `docker kill`, an OOM or a host reboot takes one
+                // away — the absence of an event is not an event — so this
+                // pass is the first moment anything in the system knows, and
+                // an owner watching the dashboard should not have to wait for
+                // a poll to find out their station is being brought back.
+                event(StationStateChanged::for($station, 'reconciled'));
+
                 Log::warning('Reconciler restarted a station that should have been running', [
                     'station' => $slug,
                 ]);
@@ -266,6 +275,12 @@ class ReconcileStations extends Command
                 Cache::forget(self::UNHEALTHY_PASSES_PREFIX.$slug);
 
                 $this->line("  ✓ recreated {$slug} (was {$state['status']}/{$state['health']})");
+
+                // Same reasoning as the missing branch above. A crash-looping
+                // container is the case that used to be invisible from both
+                // sides: it is listed by `docker ps -a`, so it is neither
+                // missing nor unwanted, and it reports nothing while it dies.
+                event(StationStateChanged::for($station, 'reconciled'));
 
                 Log::warning('Reconciler recreated an unhealthy station', [
                     'station' => $slug,

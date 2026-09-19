@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useRef } from "react"
 import { toast } from "sonner"
-import { env } from "@/lib/env"
 import { fireOnce, LISTENER_MILESTONES } from "@/lib/milestones"
+import { usePublicStationFeed } from "./usePublicStationStats"
 
-/** How many poll samples the listener sparkline keeps. 24 × 8s ≈ 3 minutes. */
+/** How many poll samples the listener sparkline keeps. 24 × 10s = 4 minutes. */
 const HISTORY_LENGTH = 24
-const POLL_MS = 8000
 
 export interface BroadcastStats {
   /** Seconds since this broadcast went live. */
@@ -62,47 +61,52 @@ export function useBroadcastStats(
     return () => clearInterval(timer)
   }, [isLive])
 
-  useEffect(() => {
-    if (!isLive || !slug) return
-    let cancelled = false
+  // The count itself comes from the shared feed — one timer and one request
+  // per station across the whole tab, whoever else is asking. Only the things
+  // that are SESSION-scoped live here: the sparkline samples, the peak, and
+  // the milestone toasts, none of which the endpoint knows anything about.
+  //
+  // pauseWhenHidden: false is the one exception in the app. A broadcaster
+  // alt-tabs to their music library mid-show; coming back to a sparkline full
+  // of holes and a peak that missed its own high point would misreport the
+  // broadcast they are in the middle of. Affordable because it is one
+  // broadcaster per station — the public player, which is one per LISTENER,
+  // takes the default and pauses.
+  usePublicStationFeed(
+    slug,
+    (stats) => {
+      const count = stats.count ?? 0
 
-    async function poll() {
-      try {
-        const res = await fetch(
-          `${env.apiUrl}/public/stations/${slug}/listeners`,
-          { headers: { Accept: "application/json" } },
-        )
-        if (cancelled) return
-        const data = await res.json()
-        const count: number = data?.data?.count ?? 0
+      setListeners(count)
+      // One sample per READ, not per change: the sparkline is a series at a
+      // fixed cadence, and a station holding steady at five listeners has to
+      // draw a flat line rather than contribute a single point.
+      setHistory((prev) => [...prev, count].slice(-HISTORY_LENGTH))
 
-        setListeners(count)
-        setHistory((prev) => [...prev, count].slice(-HISTORY_LENGTH))
-
-        // Fire crossings — once per session per threshold, so a count that
-        // jitters around a boundary doesn't spam the broadcaster mid-show.
-        for (const m of LISTENER_MILESTONES) {
-          if (count >= m && peakRef.current < m) {
-            fireOnce(`live:${slug}:${startTimeRef.current}:${m}`, () => {
-              if (m === 1) toast.success("🎉 First listener tuned in!")
-              else toast.success(`🔥 ${m} listening — your biggest crowd this session`)
-            })
-          }
+      // Fire crossings — once per session per threshold, so a count that
+      // jitters around a boundary doesn't spam the broadcaster mid-show.
+      for (const m of LISTENER_MILESTONES) {
+        if (count >= m && peakRef.current < m) {
+          fireOnce(`live:${slug}:${startTimeRef.current}:${m}`, () => {
+            if (m === 1) toast.success("🎉 First listener tuned in!")
+            else toast.success(`🔥 ${m} listening — your biggest crowd this session`)
+          })
         }
-        if (count > peakRef.current) {
-          peakRef.current = count
-          setPeak(count)
-        }
-      } catch {
-        // Non-critical. The next interval retries; a broadcaster should never
-        // see an error because a stats poll timed out.
       }
-    }
 
-    poll()
-    const timer = setInterval(poll, POLL_MS)
-    return () => { cancelled = true; clearInterval(timer) }
-  }, [isLive, slug])
+      if (count > peakRef.current) {
+        peakRef.current = count
+        setPeak(count)
+      }
+    },
+    // pauseWhenHidden: false is the one exception in the app. A broadcaster
+    // alt-tabs to their music library mid-show; coming back to a sparkline
+    // full of holes and a peak that missed its own high point would misreport
+    // the broadcast they are in the middle of. Affordable because it is one
+    // broadcaster per station — the public player, which is one per LISTENER,
+    // takes the default and pauses.
+    { enabled: isLive, pauseWhenHidden: false },
+  )
 
   return { elapsed, listeners, peak, history, startedAt }
 }

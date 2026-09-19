@@ -52,17 +52,26 @@ export interface StationStatus {
   /**
    * Seconds into the current track; null when unknown.
    *
-   * Deliberately not rendered. Status is polled every 10s (see
-   * useStationStatus) over a 2s server cache, so this is a stopwatch that
-   * lurches in 10-second steps and can be 12 seconds stale. The fixes are
-   * both worse: polling every second multiplies container load for a
-   * cosmetic, and ticking it client-side between polls invents a number that
-   * then snaps backwards on each poll. On the silence bed it is not even a
-   * track position — `blank()` is one endless track, so it counts how long
-   * the station has been silent.
+   * Never rendered DIRECTLY. Status is polled over a 2s server cache, so read
+   * as-is this is a stopwatch that lurches in poll-sized steps. It is instead
+   * an anchor: `useTrackProgress` takes one reading, counts forward from it
+   * in the browser, and only snaps back when a later poll disagrees by more
+   * than the ordinary staleness — which is what lets the bar move smoothly
+   * while the poll itself gets slower.
+   *
+   * On the silence bed it is not a track position at all: `blank()` is one
+   * endless track, so it counts how long the station has been silent. That
+   * case is excluded by `remaining` being absent rather than by inspecting
+   * this.
    */
   elapsed: number | null
-  /** Seconds left of the current track; null when unknown (e.g. a live feed). Not rendered, for the same reason as elapsed. */
+  /**
+   * Seconds left of the current track; null when unknown — a live feed has no
+   * length, and neither does the silence bed.
+   *
+   * Paired with `elapsed` to give a duration. Its ABSENCE is the signal that
+   * there is no track to draw a progress bar for; see useTrackProgress.
+   */
   remaining: number | null
   playlist_length: number | null
   up_next: Array<{ id: string | null; title: string; artist: string | null }>

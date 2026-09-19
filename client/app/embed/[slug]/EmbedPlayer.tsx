@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Image from "next/image"
 import {
   IconLoader2,
@@ -12,6 +12,7 @@ import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { cn } from "@/lib/utils"
 import { useListenerSession } from "@/hooks/useListenerSession"
+import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
 import { useStreamPlayback, type NowPlaying } from "@/hooks/useStreamPlayback"
 
 interface EmbedPlayerProps {
@@ -45,35 +46,24 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
 
   useListenerSession(station.slug, playing, transport)
 
-  // Same poll as the station page, at the same cadence. In-band ID3 wins
-  // while it is available because it describes the audio this person is
-  // actually hearing; the poll describes what the station is playing now,
-  // several seconds ahead of an HLS listener's buffer.
-  useEffect(() => {
-    function poll() {
-      fetch(`${env.apiUrl}/public/stations/${station.slug}/listeners`, {
-        headers: { Accept: "application/json" },
-      })
-        .then((res) => res.json())
-        .then((res) => {
-          setListeners(typeof res.data?.count === "number" ? res.data.count : null)
-          setStation((prev) => ({
-            ...prev,
-            is_live: res.data?.is_live ?? prev.is_live,
-            is_on_air: res.data?.is_on_air ?? prev.is_on_air,
-          }))
-          const np = res.data?.now_playing
-          setPolled({
-            title: typeof np?.title === "string" && np.title.trim() !== "" ? np.title : null,
-            artist: typeof np?.artist === "string" && np.artist.trim() !== "" ? np.artist : null,
-          })
-        })
-        .catch(() => {})
-    }
-    poll()
-    const timer = setInterval(poll, 10000)
-    return () => clearInterval(timer)
-  }, [station.slug])
+  // The same shared feed the station page uses, so an embed and the full page
+  // open side by side are one request rather than two. In-band ID3 wins while
+  // it is available because it describes the audio this person is actually
+  // hearing; the poll describes what the station is playing now, several
+  // seconds ahead of an HLS listener's buffer.
+  //
+  // Paused while hidden, like the station page. An embed sits on somebody
+  // else's site, where a reader scrolling past leaves it mounted and unseen
+  // for as long as the tab is open.
+  usePublicStationFeed(station.slug, (stats) => {
+    setListeners(stats.count)
+    setStation((prev) => ({
+      ...prev,
+      is_live: stats.is_live ?? prev.is_live,
+      is_on_air: stats.is_on_air ?? prev.is_on_air,
+    }))
+    setPolled(stats.now_playing)
+  })
 
   const nowPlaying = inband ?? polled
   const offAir = !station.is_on_air

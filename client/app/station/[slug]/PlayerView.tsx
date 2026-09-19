@@ -27,6 +27,7 @@ import { resolveSocialLink } from "@/lib/socialLinks"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useListenerSession } from "@/hooks/useListenerSession"
+import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
 import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
 import { NotifyMeForm } from "./NotifyMeForm"
 import { ScheduleList } from "./ScheduleBlock"
@@ -519,49 +520,40 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // missing shows the right track instead of nothing at all.
   const hasInbandMetadataRef = useRef(false)
 
-  // Poll listener count + live status + now-playing.
+  // Listener count + live status + now-playing, from the SHARED feed: one
+  // timer and one request per station however many components ask, and paused
+  // while the tab is hidden.
+  //
+  // That pause is the one that counts. This is the only poll in the app whose
+  // volume scales with AUDIENCE rather than with owners — a popular station
+  // left open in fifty background tabs used to be fifty timers asking
+  // forever, for a page nobody was looking at.
   //
   // In-band ID3 wins whenever it is available, and the reason is HLS-specific:
-  // a listener is buffered several seconds behind the live edge, so this poll
+  // a listener is buffered several seconds behind the live edge, so this feed
   // describes the track the STATION is playing while ID3 describes the one
-  // this person is actually hearing. Preferring the poll would caption their
+  // this person is actually hearing. Preferring the feed would caption their
   // audio with a track that has not reached them yet.
   //
-  // The poll still matters. It populates the card before anyone presses play,
-  // it covers silent gaps, and it is the fallback for a stream carrying no
-  // ID3 at all — which is why it defers to `hasInbandMetadataRef` rather than
-  // to "is something playing".
-  useEffect(() => {
-    function fetchListeners() {
-      fetch(`${env.apiUrl}/public/stations/${station.slug}/listeners`, {
-        headers: { Accept: "application/json" },
-      })
-        .then((res) => res.json())
-        .then((res) => {
-          setListeners(res.data?.count ?? 0)
-          setStation((prev) => ({
-            ...prev,
-            is_live: res.data?.is_live ?? prev.is_live,
-            is_on_air: res.data?.is_on_air ?? prev.is_on_air,
-          }))
+  // The feed still matters. It populates the card before anyone presses play,
+  // it covers silent gaps, and it is the fallback for a stream carrying no ID3
+  // at all — which is why it defers to `hasInbandMetadataRef` rather than to
+  // "is something playing".
+  usePublicStationFeed(station.slug, (stats) => {
+    setListeners(stats.count ?? 0)
+    setStation((prev) => ({
+      ...prev,
+      is_live: stats.is_live ?? prev.is_live,
+      is_on_air: stats.is_on_air ?? prev.is_on_air,
+    }))
 
-          if (!hasInbandMetadataRef.current) {
-            const np = res.data?.now_playing
-            const next = {
-              title: typeof np?.title === "string" && np.title.trim() !== "" ? np.title : null,
-              artist: typeof np?.artist === "string" && np.artist.trim() !== "" ? np.artist : null,
-            }
-            setNowPlaying((prev) =>
-              prev.title === next.title && prev.artist === next.artist ? prev : next,
-            )
-          }
-        })
-        .catch(() => { /* listener poll failed — non-critical, retry on next interval */ })
+    if (!hasInbandMetadataRef.current) {
+      const next = stats.now_playing
+      setNowPlaying((prev) =>
+        prev.title === next.title && prev.artist === next.artist ? prev : next,
+      )
     }
-    fetchListeners()
-    const timer = setInterval(fetchListeners, 10000)
-    return () => clearInterval(timer)
-  }, [station.slug])
+  })
 
   // Reports this browser as a listener for as long as audio is actually
   // playing — which is the whole difference between this and counting
