@@ -285,12 +285,13 @@ it('stops recreating a station that has burned its hourly budget', function () {
         ->assertExitCode(1);
 });
 
-it('does not close the session of a broadcaster who has merely gone quiet', function () {
-    // `source != live` is not proof the broadcaster left: the dead-air guard
-    // demotes a silent-but-connected one to AutoDJ. Closing their session is
-    // unrecoverable — harbor fires on_connect once, so nothing reopens it when
-    // they speak again — and it costs them the idle reaper's protection
-    // mid-show. So the reconciler waits out the full strike budget.
+it('waits out the strike budget when the container cannot say who is attached', function () {
+    // A container too old to report `broadcaster` leaves only `source`, which
+    // describes which arm feeds the encoder rather than who is connected. So
+    // the reconciler spends its whole budget before acting: closing a live
+    // session is unrecoverable — harbor fires on_connect once, so nothing
+    // reopens it — and it costs the broadcaster the idle reaper's protection
+    // mid-show.
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'slug' => 'quiet-dj',
         'desired_state' => Station::STATE_RUNNING,
@@ -318,6 +319,33 @@ it('does not close the session of a broadcaster who has merely gone quiet', func
     $this->artisan('stations:reconcile')->run();
 
     expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeFalse();
+});
+
+it('leaves an attached broadcaster alone however long the arm says autodj', function () {
+    // The case the strike budget used to exist for, now answered outright:
+    // `broadcaster` says a source client is connected, whatever arm is
+    // currently feeding the encoder. No amount of passes may close it.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'attached-dj',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+
+    $supervisor = fakeSupervisor(['gocast-liquidsoap-attached-dj']);
+    $supervisor->shouldReceive('containerHost')->andReturn('attached-dj-host');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(
+        ['ready' => true, 'icecast' => true, 'source' => 'autodj', 'broadcaster' => true],
+        200,
+    )]);
+
+    foreach (range(1, (int) config('liquidsoap.stranded_session_strikes') + 2) as $pass) {
+        $this->artisan('stations:reconcile')->run();
+        Cache::forget('station-status:'.$station->id);
+    }
+
+    expect($station->streamSessions()->whereNull('ended_at')->exists())->toBeTrue();
 });
 
 it('leaves an open session alone while the container still reports live', function () {

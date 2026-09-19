@@ -76,7 +76,7 @@ a frame" and that request climbs the whole chain below.
             ┌───────────────────────┼────────────────────────┐
             │ priority 1            │ priority 2             │ priority 3
             ▼                       ▼                        ▼
-    live = blank.strip()    autodj_mix ≡ autodj_faded    bed = mksafe(blank())
+    live = live_raw         autodj_mix ≡ autodj_faded    bed = mksafe(blank())
            (:152)              ≡ autodj_leveled  :258/:255        :260
             │                       │
             ▼                       ▼
@@ -219,15 +219,17 @@ fails.
 Walking up from priority 1:
 
 ```liquidsoap
-live        = blank.strip(max_blank=15.0, threshold=-40.0, live_raw)   # :152
+live        = live_raw                                                  # :152
 live_raw    = buffer(buffer=2., max=10., live_tagged)                  # :150
 live_tagged = metadata.map(insert_missing=true, live_metadata, live_in) # :148
 live_in     = input.harbor("test", port=8090, auth=harbor_auth, icy=true) # :85
 ```
 
-- **`blank.strip`** is the dead-air guard, and it is the operator that makes
-  `live` *unavailable* after 15s below −40 dB — which is precisely the signal
-  `fallback` needs to demote a muted mic to AutoDJ on its own.
+- **`live = live_raw`** — straight through, no dead-air guard. There used to
+  be a `blank.strip` here that made `live` unavailable after 15s of silence so
+  `fallback` could demote to AutoDJ; it was removed because it made `source`
+  change under a connected broadcaster and the dashboard read that as "nobody
+  is live". A stalled source is still dropped by harbor's own `timeout`.
 - **`buffer`** decouples harbor's arrival timing from the main clock. 2s nominal,
   10s before samples drop.
 - **`metadata.map(insert_missing=true)`** stamps `"Live Broadcast"` on a
@@ -237,17 +239,6 @@ live_in     = input.harbor("test", port=8090, auth=harbor_auth, icy=true) # :85
   source protocol (BUTT, Mixxx) on the same mount, with `auth=harbor_auth` (:50)
   calling Laravel per connection attempt and **failing closed** on anything that
   is not a clean 200.
-
-### The parallel tap
-
-```liquidsoap
-silence_watch = blank.detect(max_blank=15.0, threshold=-40.0, live_raw)   # :158
-```
-
-A **second consumer of `live_raw`** — the only fork above the `rms` line. It
-watches the same signal without touching the audio, purely so `on_blank` /
-`on_noise` can tell Laravel the mic went quiet. `blank.strip` demotes silently;
-this is how the broadcaster finds out why they went off air.
 
 ---
 
@@ -341,7 +332,6 @@ samples:
 | `/status` | :343 | `output_source` + `ice_up` + `live` / `autodj_mix` readiness |
 | `/healthz` | :385 | `output_source.is_ready()`, `ice_up` |
 | now-playing push | :424 | `output_source.on_metadata` |
-| silence events | :163 | `silence_watch` (`live_raw`) |
 | connect events | :123 | `live_in.on_connect` / `on_disconnect` |
 | Icecast events | :444 | `icecast_out` callbacks → `ice_up` |
 | telnet | :7 | `jingles_m3u.reload`, `playlist_m3u.skip`, `var.set` |

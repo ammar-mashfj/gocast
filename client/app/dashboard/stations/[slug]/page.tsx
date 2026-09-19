@@ -103,25 +103,25 @@ export default async function StationDetailPage({
         <StationArtwork
           src={station.artwork_url}
           alt={station.name}
-          className="size-16 md:size-[72px] rounded-2xl shrink-0"
+          className="size-16 md:size-[144px] rounded-2xl shrink-0"
           iconSize={24}
-          sizes="72px"
+          sizes="144px"
         />
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <h1 className="text-2xl font-medium truncate">{station.name}</h1>
             {station.genre && (
-              <Badge variant="secondary" className="shrink-0">{station.genre}</Badge>
+              <Badge variant="secondary" className="shrink-0 text-sm" title="genre">{station.genre}</Badge>
             )}
           </div>
           {station.description && (
-            <p className="text-sm text-muted-foreground max-w-xl line-clamp-2">
+            <p className="text-sm text-muted-foreground  line-clamp-2">
               {station.description}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {meta.map((part, i) => (
-              <span key={part} className="inline-flex items-center gap-2">
+              <span key={part} className="inline-flex items-center gap-2 text-sm">
                 {i > 0 && <span className="text-border">•</span>}
                 {part}
               </span>

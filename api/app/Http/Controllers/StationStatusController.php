@@ -53,6 +53,23 @@ class StationStatusController extends Controller
                 // `started_at` is intent; this is evidence.
                 'last_ready_at' => $station->last_ready_at,
                 'source' => $status['source'] ?? null,
+                // IS SOMEBODY ON AIR. This is the field the dashboard renders
+                // its live/AutoDJ/off answer from, and `source` below is not:
+                // `broadcaster` flips the instant harbor accepts the
+                // connection, while `source` cannot say "live" until the live
+                // arm's 2s buffer has filled, and it describes which arm is
+                // feeding the encoder rather than who is here.
+                //
+                // Null on a container that predates the field — unknown, never
+                // "nobody". Consumers fall back to `live_source` below, or to
+                // `source === 'live'`, which is the same answer two seconds
+                // later.
+                //
+                // `state` above is NOT derived from this: its `live` vs
+                // `on_air` split still follows `source`, because it describes
+                // what listeners hear. Identity comes from here, routing from
+                // there.
+                'broadcaster' => $status['broadcaster'] ?? null,
                 // WHO is broadcasting, when someone is — read from the open
                 // StreamSession rather than from the container, because the
                 // container knows a source is attached and nothing else.

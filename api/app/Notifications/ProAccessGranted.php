@@ -8,6 +8,7 @@ use App\Notifications\Bell\BellPayload;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Support\Carbon;
 
 /**
  * Tells someone their access request was granted.
@@ -28,9 +29,12 @@ use Illuminate\Notifications\Messages\MailMessage;
  * That leaves the two entitlements that are actually live and actually differ:
  * AutoDJ and the concurrent listener cap.
  *
- * The "3 months" is a promise made by this email and nothing else: no code
- * expires a plan, so ending the term is an admin revoking the request by
- * hand from the review queue.
+ * The term is no longer a promise this email makes on its own. It used to be:
+ * "3 months on us" was hardcoded here while the grant had no end date, so the
+ * only thing that could end it was an admin remembering to click Revoke.
+ * AccessRequestController now writes `users.plan_expires_at` from the term the
+ * admin picked and passes both in — so the phrase in the copy and the date the
+ * account actually flips on are the same decision, and plans:expire keeps it.
  *
  * Queued because it is dispatched from the admin request that records the
  * grant, and a slow or unreachable mail host must not make approving somebody
@@ -46,7 +50,18 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         'Instagram' => 'https://www.instagram.com/gocastfm/',
     ];
 
-    public function __construct(private readonly Plan $plan) {}
+    /**
+     * @param  Carbon  $until  When plans:expire moves them back to Free.
+     * @param  string  $term  How long that is in words ("3 months"), exactly as
+     *                        the admin picked it. Passed rather than derived
+     *                        from `$until` so the email cannot round "2 months"
+     *                        into "61 days" or similar.
+     */
+    public function __construct(
+        private readonly Plan $plan,
+        private readonly Carbon $until,
+        private readonly string $term,
+    ) {}
 
     /**
      * @return list<string>
@@ -93,7 +108,14 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // actually start using AutoDJ. If they only repeated the sentence
         // above, opening the dialog would cost a click and tell you nothing,
         // which is the failure mode worth avoiding here.
-        $points = ['Three months free — no card, nothing to pay.'];
+        //
+        // The date is spelled out next to the term because the term is what
+        // the email said and the date is what anyone actually needs two months
+        // later, when this row is the only place either of them still exists.
+        $points = [
+            "{$this->term} on us — no card, nothing to pay.",
+            "It runs until {$this->until->toFormattedDateString()}, then your account goes back to Free on its own. Nothing you have made is deleted.",
+        ];
 
         if ($autoDj) {
             $points[] = 'Upload audio to your library and AutoDJ starts playing it straight away.';
@@ -122,7 +144,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             actionMode: BellPayload::MODE_EXPAND,
             detailHeading: 'What you get',
             detailPoints: $points,
-            meta: ['plan' => $this->plan->slug],
+            meta: [
+                'plan' => $this->plan->slug,
+                'expires_at' => $this->until->toIso8601String(),
+            ],
         );
     }
 
@@ -137,9 +162,14 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         $station = $notifiable->stations()->first();
 
         $message = (new MailMessage)
-            ->subject("You're on GoCast {$this->plan->name} — 3 months on us")
+            ->subject("You're on GoCast {$this->plan->name} — {$this->term} on us")
             ->greeting("Hey {$notifiable->name},")
-            ->line("Your request is approved. Your station is now on {$this->plan->name} for 3 months, free of charge.")
+            ->line("Your request is approved. Your station is now on {$this->plan->name} for {$this->term}, free of charge.")
+            // Said plainly rather than buried at the bottom. The account really
+            // does drop back on this date with nobody touching it, and finding
+            // that out from a 403 mid-upload is the outcome this line exists to
+            // prevent. PlanExpired mails them again on the day.
+            ->line("It runs until **{$this->until->toFormattedDateString()}**. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.")
             ->line('If you already have the dashboard open, refresh the page to see the change.')
             ->line('**What you get**')
             ->line('- Up to '.number_format($this->plan->max_listeners).' listeners at once.');

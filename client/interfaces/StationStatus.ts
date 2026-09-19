@@ -36,6 +36,21 @@ export interface StationStatus {
   /** Which source won the fallback. */
   source: "live" | "autodj" | "silence" | null
   /**
+   * IS SOMEBODY ON AIR — the answer the dashboard renders.
+   *
+   * Not `source === "live"`, which is a different question: `broadcaster`
+   * flips the instant harbor accepts the connection, while `source` names
+   * whichever arm is feeding the encoder and cannot say "live" until that
+   * arm's 2s buffer has filled. Identity belongs to the first; routing to the
+   * second.
+   *
+   * Null on a container that predates the field: unknown, never "nobody".
+   * `StationPower` falls back to `live_source !== null` (the open session),
+   * which a container too old to report this cannot contradict; a plain
+   * `source === "live"` would give the same answer two seconds later.
+   */
+  broadcaster: boolean | null
+  /**
    * How the person on air connected, from the open broadcast session. Null
    * when nobody is broadcasting.
    *

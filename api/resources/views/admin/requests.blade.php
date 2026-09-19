@@ -137,6 +137,23 @@
                                             {{ $entry->reviewed_at->diffForHumans() }}
                                         </div>
                                     @endif
+                                    {{-- The granted term, read off the account rather than the
+                                         entry: `plan_expires_at` is what plans:expire acts on, so
+                                         this is the date that will actually happen. A grant made
+                                         before terms existed has none, and says so. --}}
+                                    @if ($entry->status === \App\Models\WaitlistEntry::STATUS_APPROVED && $entry->user)
+                                        @if ($entry->user->plan_expires_at)
+                                            <div class="mt-1 text-xs opacity-60"
+                                                 title="{{ $entry->user->plan_expires_at->toDayDateTimeString() }}">
+                                                until {{ $entry->user->plan_expires_at->toFormattedDateString() }}
+                                                ({{ $entry->user->plan_expires_at->diffForHumans() }})
+                                            </div>
+                                        @else
+                                            <div class="mt-1 text-xs text-warning" title="Granted before terms existed — nothing will end this automatically">
+                                                no end date
+                                            </div>
+                                        @endif
+                                    @endif
                                 </td>
                                 <td class="text-sm">
                                     @if ($entry->social)
@@ -186,12 +203,25 @@
                                                  onto a plan. A Custom enquiry from a stranger is
                                                  answered by email and dismissed. --}}
                                             @if ($entry->user)
+                                                {{-- The term is part of the decision, so it sits in the
+                                                     approve form rather than behind a second step: the
+                                                     admin picks how long while looking at the request
+                                                     that asked for it. There is no open-ended option —
+                                                     see AccessRequestController::TERMS. --}}
                                                 <form method="POST" action="{{ route('admin.requests.approve', $entry) }}"
-                                                      onsubmit="return confirm('Put {{ $entry->email }} on {{ $entry->plan }}? They will be emailed.')">
+                                                      class="flex items-center gap-1"
+                                                      onsubmit="return confirm('Put {{ $entry->email }} on {{ $entry->plan }} for ' + this.term.options[this.term.selectedIndex].text + '? They will be emailed, and the account returns to Free on its own when it ends.')">
                                                     @csrf
+                                                    <select name="term" class="select select-xs w-24"
+                                                            @disabled(! $known)
+                                                            title="How long they keep the plan. It returns to Free automatically when this runs out.">
+                                                        @foreach ($terms as $value => $label)
+                                                            <option value="{{ $value }}" @selected($value === $defaultTerm)>{{ $label }}</option>
+                                                        @endforeach
+                                                    </select>
                                                     <button type="submit" class="btn btn-primary btn-xs"
                                                             @disabled(! $known)
-                                                            title="{{ $known ? 'Grant this plan and email them' : 'No plan is configured with this slug' }}">
+                                                            title="{{ $known ? 'Grant this plan for the term selected and email them' : 'No plan is configured with this slug' }}">
                                                         Approve
                                                     </button>
                                                 </form>

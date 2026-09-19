@@ -363,14 +363,22 @@ class ReconcileStations extends Command
 
             $key = self::LIVE_STRIKES_PREFIX.$station->id;
 
-            if (($status['source'] ?? null) === 'live') {
+            // `broadcaster` is the question this reconciler is actually
+            // asking — an open StreamSession claims a source client is
+            // attached, and that is the field that answers it. `source` is
+            // the fallback for a container too old to report it, and it is a
+            // WEAKER answer: it lags the connection by the live arm's buffer
+            // and describes which arm feeds the encoder, not who is here.
+            $attached = $status['broadcaster'] ?? (($status['source'] ?? null) === 'live');
+
+            if ($attached) {
                 Cache::forget($key);
 
                 continue;
             }
 
             $strikes = (int) Cache::get($key, 0) + 1;
-            $strikeLimit = max(1, (int) config('liquidsoap.stranded_session_strikes', 10));
+            $strikeLimit = max(1, (int) config('liquidsoap.stranded_session_strikes', 3));
 
             if ($dryRun) {
                 $this->line("  • {$station->slug} has an open session its container disagrees with (strike {$strikes}/{$strikeLimit})");
@@ -378,18 +386,20 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            // Deliberately patient, because `source != live` does not only mean
-            // "the broadcaster is gone". A connected broadcaster who goes quiet
-            // for longer than the dead-air guard is demoted by blank.strip, so
-            // their container reports `autodj` while their socket is still very
-            // much open. Closing their session then is unrecoverable: harbor
-            // fires on_connect once, so the `live_audio` event that follows
-            // them speaking again reopens nothing, and the station spends the
-            // rest of the show reading as not-live — under-counting airtime and
-            // forfeiting the idle reaper's protection mid-broadcast.
+            // Still patient, but far less than it was. This used to wait ten
+            // passes because `source != live` did not only mean "the
+            // broadcaster is gone": the dead-air guard demoted a connected DJ
+            // who went quiet, so their container said `autodj` with their
+            // socket wide open, and closing the session then was
+            // unrecoverable — harbor fires on_connect once, so nothing
+            // reopened it and the station spent the rest of the show reading
+            // as not-live, under-counting airtime and forfeiting the idle
+            // reaper's protection mid-broadcast.
             //
-            // Ten passes at a one-minute cadence keeps the ten minutes of grace
-            // this had when it ran every five minutes with a limit of two.
+            // With the guard gone and `broadcaster` read above, a false
+            // negative needs a status pulled across the connect itself. The
+            // strikes remain to cover that race; they no longer have to cover
+            // a DJ pausing for breath.
             if ($strikes < $strikeLimit) {
                 Cache::put($key, $strikes, now()->addHour());
 

@@ -28,7 +28,9 @@ beforeEach(function () {
     config()->set('liquidsoap.loudness_max_gain_db', 12.0);
     config()->set('liquidsoap.apply_amplify', true);
 
-    $this->station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'night-shift']);
+    // onPlan('pro'): the annotations below are produced by AutoDjScheduler,
+    // which hands back null for an owner without AutoDJ.
+    $this->station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->create(['slug' => 'night-shift']);
 });
 
 it('annotates cue points and gain on a measured track', function () {

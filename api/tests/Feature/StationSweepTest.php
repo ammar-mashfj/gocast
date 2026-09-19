@@ -87,9 +87,10 @@ function silentFor(Station $station, int $secondsAgo): Station
 // ── The seam: cases neither predecessor could see ──
 
 it('never stops a broadcaster who has merely gone quiet', function () {
-    // THE case the old design got wrong. blank.strip demotes a muted mic, so
-    // the container reports `autodj` while the socket is wide open — and
-    // "went quiet for 15s" was indistinguishable from "hung up".
+    // THE case the old design got wrong: `source` describes which arm feeds
+    // the encoder, so a DJ with nothing queued reads as `autodj` (or
+    // `silence`) with their socket wide open. Stopping on that is hanging up
+    // on a show that has not started yet.
     $station = silentFor(sweptStation(), 3600);
 
     expect(verdictFor($station, status(['broadcaster' => true, 'source' => 'autodj', 'rms' => 0.0])))

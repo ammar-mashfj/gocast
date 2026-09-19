@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { QRCodeCanvas } from "qrcode.react"
@@ -255,56 +256,79 @@ export function StreamPanel({ stationId, stats, bytesSent }: StreamPanelProps) {
       </div>
 
       {/* End broadcast */}
-      <div className="mt-auto flex flex-col gap-2.5 pt-2">
-        {confirmEnd && (
-          <div className="flex flex-col gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-            <p className="text-xs text-destructive leading-relaxed">
-              Ending stops the stream for everyone tuned in. Your queue is kept.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="destructive"
-                size="sm"
-                className="flex-1"
-                disabled={ending}
-                onClick={async () => {
-                  setEnding(true)
-                  try {
-                    await stop({ releaseStation: autoDjLocked })
-                    router.push(`/dashboard/stations/${stationId}`)
-                    // The station page is server-rendered from desired_state,
-                    // and the studio redirects there the moment the socket
-                    // closes — ahead of the stop above. Without this it shows
-                    // "On air" until its next status poll.
-                    router.refresh()
-                  } finally {
-                    setEnding(false)
-                  }
-                }}
-              >
-                {ending ? "Ending…" : "Yes, end it"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => setConfirmEnd(false)}
-              >
-                Keep going
-              </Button>
-            </div>
-          </div>
-        )}
+      <div className="mt-auto pt-2">
         <Button
           variant="outline"
-          className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => setConfirmEnd(true)}
-          disabled={confirmEnd}
         >
           <IconPlayerStopFilled data-icon="inline-start" />
           End broadcast
         </Button>
       </div>
+
+      {/* A dialog rather than a panel unfolding above the button.
+          Inline, the confirmation appeared in the bottom corner of a sidebar
+          that is already dense with numbers, and its "Yes, end it" landed
+          roughly where the eye already was — a confirmation you can agree to
+          without having read it is not one. The modal takes the page, so the
+          consequence gets read before the only irreversible action in the
+          studio.
+
+          Not dismissable while the stop is in flight: it closes the socket
+          and navigates away, so there is nothing left to come back to. */}
+      <Dialog
+        open={confirmEnd}
+        onOpenChange={(next) => {
+          if (!ending) setConfirmEnd(next)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>End this broadcast?</DialogTitle>
+            <DialogDescription>
+              Everyone tuned in right now is cut off{" "}
+              {/* The same fact `stop({ releaseStation: autoDjLocked })` acts
+                  on, said out loud: with AutoDJ the station keeps playing,
+                  without it the station goes off air entirely. */}
+              {autoDjLocked
+                ? "and the station goes off air."
+                : "and AutoDJ takes over, so the station stays up."}{" "}
+              Your queue is kept.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={ending}
+              onClick={() => setConfirmEnd(false)}
+            >
+              Keep going
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={ending}
+              onClick={async () => {
+                setEnding(true)
+                try {
+                  await stop({ releaseStation: autoDjLocked })
+                  router.push(`/dashboard/stations/${stationId}`)
+                  // The station page is server-rendered from desired_state,
+                  // and the studio redirects there the moment the socket
+                  // closes — ahead of the stop above. Without this it shows
+                  // "On air" until its next status poll.
+                  router.refresh()
+                } finally {
+                  setEnding(false)
+                }
+              }}
+            >
+              {ending ? "Ending…" : "Yes, end it"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

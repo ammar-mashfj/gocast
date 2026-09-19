@@ -3,6 +3,7 @@
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\LiquidsoapSupervisor;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\patchJson;
@@ -218,4 +219,89 @@ it('leaves the rest of the station editable without AutoDJ', function () {
         ->patchJson("/api/stations/{$station->slug}", ['name' => 'Renamed'])
         ->assertOk()
         ->assertJsonPath('data.name', 'Renamed');
+});
+
+// ── The downgrade gate ──
+//
+// The rotation half of a downgrade enforces itself: the container asks Laravel
+// for every track and AutoDjScheduler::next() answers null. The jingle arm
+// asks nobody — it reads an m3u off disk — so a downgraded station used to go
+// silent on music and carry on playing station IDs forever. Worse than
+// cosmetic: a jingle registers on the output meter, so StationAudioPolicy
+// scored the station `InUse` at every sweep and it never powered down.
+
+it('keeps jingles audible while the owner is on an AutoDJ plan', function () {
+    $station = Station::factory()->for(proOwner(), 'user')->create(['jingles_enabled' => true]);
+
+    expect($station->jinglesAudible())->toBeTrue();
+});
+
+it('takes jingles off air when the owner loses AutoDJ', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create(['jingles_enabled' => true]);
+
+    $owner->forceFill(['plan_id' => Plan::query()->where('slug', 'free')->value('id')])->save();
+
+    // The column is untouched — the owner's own setting is theirs to keep, and
+    // it comes back on its own if the plan does.
+    expect($station->fresh()->jingles_enabled)->toBeTrue()
+        ->and($station->fresh()->jinglesAudible())->toBeFalse();
+});
+
+it('pushes the jingle switch to running containers on a plan change', function () {
+    // Without a restart, exactly like the watermark: the whole reason both are
+    // interactive variables. A downgrade that waited for the next restart
+    // would leave the station IDs playing for as long as the container lives.
+    $owner = proOwner();
+    Station::factory()->for($owner, 'user')->create([
+        'jingles_enabled' => true,
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('restart');
+    $supervisor->shouldReceive('applyWatermarkSettings')->once();
+    $supervisor->shouldReceive('applyJingleSettings')->once();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $owner->update(['plan_id' => Plan::query()->where('slug', 'free')->value('id')]);
+});
+
+it('pushes the NEW plan when plans:expire performs the downgrade', function () {
+    // The push is only worth anything if it carries the plan that was just
+    // written, and the caller that matters most did not: plans:expire
+    // eager-loads `plan` to name the ended one in its email, and Eloquent
+    // keeps a loaded belongsTo across a change of its key. The observer hands
+    // that same user to the pushes, which walk station -> user -> plan — so
+    // without unsetting it, a term running out pushed `jingles_enabled = true`
+    // and the watermark off, the entitlements of the plan that had just ended.
+    // Asserted on what was actually read, not on the call having happened.
+    $owner = proOwner();
+    $owner->forceFill(['plan_expires_at' => now()->subMinute()])->save();
+    Station::factory()->for($owner, 'user')->create([
+        'jingles_enabled' => true,
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $pushed = [];
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('restart');
+    $supervisor->shouldReceive('applyWatermarkSettings')->once()
+        ->andReturnUsing(function (Station $station) use (&$pushed) {
+            $pushed['watermark'] = $station->user->watermarked();
+
+            return true;
+        });
+    $supervisor->shouldReceive('applyJingleSettings')->once()
+        ->andReturnUsing(function (Station $station) use (&$pushed) {
+            $pushed['jingles'] = $station->jinglesAudible();
+
+            return true;
+        });
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    test()->artisan('plans:expire')->assertSuccessful();
+
+    expect($pushed['jingles'])->toBeFalse()
+        ->and($pushed['watermark'])->toBe((bool) Plan::query()->where('slug', 'free')->value('watermark_enabled'));
 });

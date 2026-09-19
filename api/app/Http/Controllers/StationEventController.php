@@ -42,6 +42,12 @@ class StationEventController extends Controller
      * reachable by every station container, so the payload is not trusted to
      * name its own cache keys.
      *
+     * `live_silent` and `live_audio` USED to be in this list, reported by the
+     * dead-air guard that no longer exists. A container rendered before that
+     * guard was removed still posts them; it gets the same 422 as any unknown
+     * event, notify() ignores the response, and the container stops sending
+     * them the next time it is recreated. Nothing to migrate.
+     *
      * The list lives on {@see StationEvent} because both this endpoint and the
      * admin timeline filter need it, and two copies of a container's
      * vocabulary would drift the first time one is extended. Two of them carry
@@ -56,7 +62,7 @@ class StationEventController extends Controller
      * The subset worth putting on a socket: events that change what the
      * dashboard draws.
      *
-     * Not all nine, because a broadcast nobody can see is cost without
+     * Not all seven, because a broadcast nobody can see is cost without
      * benefit — and on Ably's free tier concurrent connections are the scarce
      * resource, so every message we do not send is headroom.
      *
@@ -64,7 +70,6 @@ class StationEventController extends Controller
      *     is ready, so the station reads as `starting` both before and after
      *     it — there is nothing for a client to redraw. The event that
      *     actually ends the boot is icecast_connected.
-     *   • `live_silent` / `live_audio` are excluded. Nothing renders them.
      *   • `icecast_error` IS included, though it is easy to miss: the template
      *     sets `ice_up := false` in on_error exactly as it does in
      *     on_disconnect, so it produces the same `degraded` state. Leaving it

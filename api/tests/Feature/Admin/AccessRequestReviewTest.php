@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AccessRequestController;
 use App\Models\Admin;
 use App\Models\Plan;
 use App\Models\Station;
@@ -48,21 +49,96 @@ describe('approving', function () {
         expect($entry->user->fresh()->plan_id)->toBe($this->pro->id);
     });
 
+    it('grants the term the admin picked', function () {
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '2-weeks']);
+
+        expect($entry->user->fresh()->plan_expires_at->startOfSecond())
+            ->toEqual(now()->addWeeks(2)->startOfSecond());
+    });
+
     /**
-     * An admin's grant is open-ended. An account that came in on a 30-day
-     * invite must not have that clock keep ticking underneath the approval,
-     * or plans:expire undoes the decision a month later.
+     * Months are calendar months, not a day count. "3 months" granted on the
+     * 20th has to end on the 20th, or the email says one thing and the column
+     * says another — which is the whole failure this change was made to fix.
      */
-    it('makes the grant open-ended even on an invite trial', function () {
+    it('counts a month as a calendar month', function () {
+        $this->travelTo('2026-11-30 09:00:00');
+
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '3-months']);
+
+        expect($entry->user->fresh()->plan_expires_at->toDateString())->toBe('2027-02-28');
+    });
+
+    it('defaults to three months when the form sends no term', function () {
+        // The term the grant email promised for months before anything
+        // enforced it, so an old form or a bare post lands where it always
+        // claimed to.
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry));
+
+        expect($entry->user->fresh()->plan_expires_at->startOfSecond())
+            ->toEqual(now()->addMonths(3)->startOfSecond());
+    });
+
+    it('refuses a term that is not on the list without settling the request', function () {
+        // A stale or tampered form. Substituting a term nobody chose would
+        // grant a length the admin never saw, so it refuses — and must leave
+        // the row pending so the real decision is still there to make.
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '10-years'])
+            ->assertRedirect()
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'not a term we grant'));
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING)
+            ->and($entry->user->fresh()->plan_id)->toBe($this->free->id);
+
+        Notification::assertNothingSent();
+    });
+
+    /**
+     * The point of the whole thing: the grant ends on its own. Before this,
+     * `plan_expires_at` was nulled on approval and the only way back to Free
+     * was an admin remembering to click Revoke.
+     */
+    it('drops the account back to free once the term runs out', function () {
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '1-week']);
+
+        $this->travel(6)->days();
+        $this->artisan('plans:expire');
+
+        expect($entry->user->fresh()->plan_id)->toBe($this->pro->id);
+
+        $this->travel(2)->days();
+        $this->artisan('plans:expire');
+
+        expect($entry->user->fresh()->plan_id)->toBe($this->free->id)
+            ->and($entry->user->fresh()->plan_expires_at)->toBeNull();
+    });
+
+    /**
+     * An account that came in on a 30-day invite and is then granted 3 months
+     * gets three months from today — not three months and thirty days, and
+     * not the invite's date left in place to undo the decision early.
+     */
+    it('replaces an invite trial clock rather than adding to it', function () {
         $user = User::factory()->create([
             'plan_id' => $this->pro->id,
             'plan_expires_at' => now()->addDays(10),
         ]);
         $entry = proRequest($user);
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), ['term' => '3-months']);
 
-        expect($user->fresh()->plan_expires_at)->toBeNull();
+        expect($user->fresh()->plan_expires_at->startOfSecond())
+            ->toEqual(now()->addMonths(3)->startOfSecond());
 
         $this->travel(11)->days();
         $this->artisan('plans:expire');
@@ -116,7 +192,6 @@ describe('approving', function () {
 
                 expect($body)->toContain('1,000 listeners')
                     ->and($body)->toContain('AutoDJ')
-                    ->and($body)->toContain('3 months')
                     ->and($body)->toContain('refresh the page')
                     // The two links they actually need: where to upload, and
                     // what to hand to listeners.
@@ -125,6 +200,54 @@ describe('approving', function () {
                     ->and($body)->toContain('instagram.com/gocastfm')
                     ->and($body)->not->toContain('watermark')
                     ->and($body)->not->toContain('5 stations');
+
+                return true;
+            });
+    });
+
+    it('words the email around the term that was actually granted', function () {
+        // The copy used to say "3 months" whatever happened, and nothing ended
+        // the plan at all. Both halves are asserted together on purpose: the
+        // sentence and the column have to come from the same decision.
+        $entry = proRequest();
+        Station::factory()->for($entry->user)->create();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '2-weeks']);
+
+        $endsOn = $entry->user->fresh()->plan_expires_at->toFormattedDateString();
+
+        Notification::assertSentTo($entry->user, ProAccessGranted::class,
+            function (ProAccessGranted $notification) use ($entry, $endsOn) {
+                $mail = $notification->toMail($entry->user);
+                $body = collect([...$mail->introLines, ...$mail->outroLines])->implode(' ');
+
+                expect($mail->subject)->toContain('2 weeks')
+                    ->and($body)->toContain('for 2 weeks')
+                    ->and($body)->toContain($endsOn)
+                    ->and($body)->toContain('goes back to Free automatically')
+                    ->and($body)->not->toContain('3 months');
+
+                return true;
+            });
+    });
+
+    it('puts the end date in the bell as well as the email', function () {
+        // The email is read once on the day it arrives. Two months later the
+        // bell is the only place the date still exists.
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), ['term' => '1-month']);
+
+        $expiresAt = $entry->user->fresh()->plan_expires_at;
+
+        Notification::assertSentTo($entry->user, ProAccessGranted::class,
+            function (ProAccessGranted $notification) use ($entry, $expiresAt) {
+                $payload = $notification->toDatabase($entry->user->fresh());
+                $points = implode(' ', $payload['action']['detail']['points']);
+
+                expect($points)->toContain('1 month on us')
+                    ->and($points)->toContain($expiresAt->toFormattedDateString())
+                    ->and($payload['meta']->expires_at)->toBe($expiresAt->toIso8601String());
 
                 return true;
             });
@@ -386,6 +509,22 @@ describe('the queue view', function () {
         $this->get(route('admin.requests.index', ['status' => 'approved']))
             ->assertOk()
             ->assertSee('Ada Reviewer');
+    });
+
+    it('offers every term on the approve form, preselecting the default', function () {
+        proRequest();
+
+        $response = $this->get(route('admin.requests.index'))->assertOk();
+
+        foreach (AccessRequestController::TERMS as $value => $term) {
+            $response->assertSee('value="'.$value.'"', false)
+                ->assertSee($term['label']);
+        }
+
+        // Nothing here may grant a plan that never ends — that was the old
+        // behaviour and the reason the term is enforced at all.
+        $response->assertSee('value="'.AccessRequestController::DEFAULT_TERM.'" selected', false)
+            ->assertDontSee('No end date');
     });
 
     it('offers no approve button for an enquiry with no account', function () {

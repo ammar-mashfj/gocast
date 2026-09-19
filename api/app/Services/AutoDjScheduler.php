@@ -30,15 +30,35 @@ class AutoDjScheduler
 
     /**
      * The next track as a Liquidsoap `annotate:` URI, or null when the station
-     * has no rotation.
+     * has no rotation, or none it is entitled to play.
      *
      * Null is a normal answer, not a failure: a station with an empty library
      * is the common case for a live-only broadcaster. The script turns it into
      * an unavailable source, and the fallback demotes to the silence bed —
      * exactly what an empty rotation file used to do.
+     *
+     * THE PLAN IS PART OF THE QUESTION, and this is the only place the answer
+     * can be enforced. Nothing in the rendered .liq knows about plans: the
+     * AutoDJ arm is written into every station's script whatever they pay, and
+     * a plan change never restarts a container (UserObserver pushes the
+     * watermark over telnet precisely to avoid dropping listeners mid-show).
+     * So a station downgraded off a paid plan kept asking for tracks here and
+     * kept being given them — it lost only the ability to upload new ones. The
+     * guard below is what actually takes the music off air, and because the
+     * script already treats null as "nothing to play", it does so at the next
+     * track boundary rather than by cutting the current one.
+     *
+     * It returns BEFORE the cursor moves, deliberately. The container keeps
+     * polling every `autodj_retry_delay` seconds for as long as it runs, and
+     * advancing the cursor — or dealing a new shuffle deck — on each of those
+     * would shred the running order the owner gets back if they re-subscribe.
      */
     public function next(Station $station): ?string
     {
+        if (! ($station->user?->canUseAutoDj() ?? false)) {
+            return null;
+        }
+
         $track = $station->autodj_order === Station::AUTODJ_ORDER_SHUFFLE
             ? $this->advanceShuffled($station)
             : $this->advanceSequential($station);

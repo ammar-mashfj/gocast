@@ -312,10 +312,14 @@ class StationLifecycleService
 
     /**
      * Is the track library available on this user's plan?
+     *
+     * Delegates rather than re-reading the column: AutoDjScheduler gates
+     * playback on the same question, and two copies of the rule are two
+     * chances for the upload half and the playback half to disagree.
      */
     public function autoDjEnabled(User $user): bool
     {
-        return (bool) ($user->plan?->autodj_enabled ?? false);
+        return $user->canUseAutoDj();
     }
 
     /**

@@ -65,9 +65,6 @@ it('stays off the wire for events nothing renders', function (string $event) {
     // as `starting` both before and after it, so there is nothing to redraw.
     // icecast_connected is what actually ends the boot.
     'boot',
-    // Not surfaced anywhere in the UI. On the wire they would be pure noise.
-    'live_silent',
-    'live_audio',
 ]);
 
 it('broadcasts nothing for an event it does not recognise', function () {

@@ -31,8 +31,6 @@ function renderStationScript(Station $station, array $overrides = []): string
         'harborInputPort' => 8090,
         'harborInputTimeout' => 10.0,
         'rmsWindow' => 2.0,
-        'blankMax' => 15.0,
-        'blankThreshold' => -40.0,
         'crossfadeEnabled' => true,
         'crossfadeDuration' => 5.0,
         'crossfadeFade' => 3.0,
@@ -107,30 +105,34 @@ it('exposes the harbor control surface on the configured port', function () {
         ->and($script)->toContain('output_source.last_metadata()');
 });
 
-it('guards the live input against dead air', function () {
+it('passes the live input straight through, with no dead-air guard', function () {
+    // A connected broadcaster holds the fallback whether or not they are
+    // making a sound. The guard that used to demote them turned "which arm is
+    // feeding the encoder" into an answer about who is on air, and the
+    // dashboard read it as one — telling live DJs to go live.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('blank.strip(')
-        ->and($script)->toContain('max_blank=15.0')
-        ->and($script)->toContain('threshold=-40.0');
+    expect($script)->toContain('live = live_raw')
+        ->and($script)->not->toContain('blank.strip(')
+        ->and($script)->not->toContain('blank.detect(');
 });
 
-it('emits liquidsoap-valid floats for fractional blank settings', function () {
-    // `{{ $blankMax }}.` would render "12.5." — a syntax error that only
-    // shows up when a container refuses to boot.
-    $script = renderStationScript($this->station, ['blankMax' => 12.5, 'blankThreshold' => -37.5]);
+it('answers "is somebody on air" from the connection alone, not from readiness', function () {
+    // `live_in.is_ready()` stays true for as long as the live arm still has
+    // buffered audio to play out: harbor pre-buffers 12s by default, and the
+    // buffer() below it holds 2s more. ORing readiness in here meant
+    // `broadcaster` kept reporting a DJ who had already pressed Stop for
+    // another twelve seconds — and with their StreamSession already closed,
+    // the dashboard phrased that as "Live from another source".
+    //
+    // The ref alone is both earlier and later than readiness in the right
+    // direction: on_connect fires before harbor has pre-buffered anything,
+    // and on_disconnect fires before the backlog has drained.
+    $script = renderStationScript($this->station);
 
-    expect($script)->toContain('max_blank=12.5')
-        ->and($script)->toContain('threshold=-37.5')
-        ->and($script)->not->toContain('12.5.')
-        ->and($script)->not->toContain('-37.5.');
-});
-
-it('omits the dead-air guard when it is disabled', function () {
-    $script = renderStationScript($this->station, ['blankMax' => 0.0]);
-
-    expect($script)->not->toContain('live = blank.strip(')
-        ->and($script)->toContain('live = live_raw');
+    // Matched as a whole body rather than by absence of `is_ready`, which the
+    // comment above it quotes.
+    expect($script)->toContain("def broadcaster_attached() =\n  live_connected()\nend");
 });
 
 it('persists HLS state so restarts do not break mid-stream listeners', function () {
@@ -458,23 +460,16 @@ it('reports its own lifecycle so laravel does not have to infer it', function ()
         ->toContain('on_shutdown(fun () -> notify("shutdown"))');
 });
 
-it('tells the broadcaster when their input goes silent', function () {
-    // blank.strip demotes to AutoDJ without a word; blank.detect exists purely
-    // so somebody can be told why they just went off air.
+it('reports no silence events at all', function () {
+    // `live_silent` / `live_audio` went with the detector. They were
+    // edge-triggered notifies into a table nothing read, and a lost one left
+    // the record wrong until the next transition.
     $script = renderStationScript($this->station);
 
     expect($script)
-        ->toContain('silence_watch.on_blank')
-        ->toContain('silence_watch.on_noise')
-        ->toContain('notify("live_silent")');
-});
-
-it('omits the silence watcher when the dead-air guard is disabled', function () {
-    $script = renderStationScript($this->station, ['blankMax' => 0.0]);
-
-    expect($script)
         ->not->toContain('silence_watch')
-        ->and($script)->toContain('live = live_raw');
+        ->and($script)->not->toContain('notify("live_silent")')
+        ->and($script)->not->toContain('notify("live_audio")');
 });
 
 it('never reads playlist methods from the status endpoint', function () {
@@ -852,7 +847,7 @@ it('names a broadcaster who sends no metadata at all', function () {
         // insert_missing is what makes it fire: metadata.map only runs on
         // metadata events, and a client that sends none never produces one.
         ->and($script)->toContain('metadata.map(insert_missing=true, live_metadata, live_in)')
-        // Attached at the source, so it survives the buffer and blank.strip.
+        // Attached at the source, so it survives the buffer.
         ->and($script)->toContain('buffer(buffer=2., max=10., live_tagged)');
 });
 

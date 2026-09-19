@@ -169,7 +169,7 @@ export function GoLiveTrigger({
             taller encoder panel (five values, a setup accordion and a power
             banner) and handles mobile browser chrome that a vh unit does
             not. */}
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md md:max-w-lg">
           {view === "encoder" ? (
             <EncoderView
               station={station}
@@ -184,7 +184,7 @@ export function GoLiveTrigger({
             <>
               <DialogHeader>
                 <DialogTitle>How do you want to broadcast?</DialogTitle>
-                <DialogDescription>
+                <DialogDescription className="mt-2 text-sm">
                   Pick how you want to go on air for {station.name}.
                 </DialogDescription>
               </DialogHeader>
@@ -203,6 +203,7 @@ export function GoLiveTrigger({
 
                 {showEncoder && (
                   <ModeButton
+                    className="mt-2"
                     icon={<IconPlugConnected size={18} className="text-muted-foreground" />}
                     iconClass="bg-muted"
                     title={
@@ -235,30 +236,32 @@ function ModeButton({
   title,
   description,
   onClick,
+  className,
 }: {
   icon: ReactNode
   iconClass: string
   title: ReactNode
   description: string
   onClick: () => void
+  className?: string
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent bg-transparent cursor-pointer"
+      className={cn("flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent bg-transparent cursor-pointer", className)}
     >
       <div
         className={cn(
-          "size-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
+          "size-11 rounded-lg flex items-center justify-center shrink-0 mt-0.5 self-center",
           iconClass,
         )}
       >
         {icon}
       </div>
       <div>
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
+        <div className="text-sm font-bold">{title}</div>
+        <div className="text-sm text-muted-foreground mt-2">{description}</div>
       </div>
     </button>
   )

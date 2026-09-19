@@ -22,9 +22,11 @@ use Throwable;
  * disagree with each other about the same station in the same minute. Two of
  * the cases they got wrong were only visible from the seam between them:
  *
- *   • A broadcaster who muted their mic was demoted by blank.strip, so the
- *     container reported `autodj` while their socket was open. Nothing could
- *     tell that from "the broadcaster hung up".
+ *   • A broadcaster who muted their mic was demoted by the dead-air guard, so
+ *     the container reported `autodj` while their socket was open. Nothing
+ *     could tell that from "the broadcaster hung up". That guard is gone, but
+ *     the distinction it exposed is not: `source` still answers "which arm is
+ *     feeding the encoder", never "is somebody here".
  *
  *   • A paid station whose rotation had stalled reported `source = "autodj"`
  *     and emitted nothing. No mechanism in the system could see it: the silent

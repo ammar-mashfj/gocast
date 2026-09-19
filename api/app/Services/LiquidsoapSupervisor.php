@@ -654,7 +654,10 @@ class LiquidsoapSupervisor
         // in use would leave the other stale — so switching modes back would
         // briefly apply whatever value was last written, until the next save.
         $commands = [
-            self::VAR_JINGLES_ENABLED.' = '.($station->jingles_enabled ? 'true' : 'false'),
+            // jinglesAudible(), not the raw column: same gate as the render,
+            // so a downgrade takes the station IDs off air at the next
+            // telnet push rather than at the next container restart.
+            self::VAR_JINGLES_ENABLED.' = '.($station->jinglesAudible() ? 'true' : 'false'),
             self::VAR_JINGLE_BY_TRACKS.' = '.($station->jingle_mode === Station::JINGLE_MODE_TRACKS ? 'true' : 'false'),
             self::VAR_JINGLE_INTERVAL.' = '.$interval,
             self::VAR_JINGLE_EVERY_TRACKS.' = '.max(1, (int) $station->jingle_every_tracks),
@@ -1151,15 +1154,15 @@ class LiquidsoapSupervisor
             'harborInputTimeout' => (float) config('liquidsoap.harbor_input_timeout'),
             // Averaging window for the output-level meter /status reports.
             'rmsWindow' => (float) config('liquidsoap.rms_window_seconds'),
-            // Dead-air guard on the live input; 0 disables it.
-            'blankMax' => (float) config('liquidsoap.blank_max_seconds'),
-            'blankThreshold' => (float) config('liquidsoap.blank_threshold_db'),
             // Jingles. Per-station rather than per-install: which IDs a
             // station plays and how often is editorial, not operational.
             // The source name and filename are passed through from
             // PlaylistFileWriter's constants so the telnet reload command and
             // the path in the script can never drift from what Laravel writes.
-            'jinglesEnabled' => (bool) $station->jingles_enabled,
+            // Gated on the plan, not just the owner's switch: the jingle
+            // arm reads an m3u off disk, so nothing else would ever take
+            // it off air for a downgraded station. See jinglesAudible().
+            'jinglesEnabled' => $station->jinglesAudible(),
             // AutoDJ rotation. The script asks Laravel for one track at a
             // time; `autodjRetryDelay` is how long it waits before re-asking
             // after "nothing to play".

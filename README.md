@@ -79,7 +79,6 @@ gocast/
 │       └── station-router/          # resolves station containers for nginx
 ├── docs/                    # Specs, plans, flow docs
 ├── backup.sh                # MySQL + uploads + TLS + playlists → object storage
-├── GO-LIVE.md               # Launch-readiness punch list
 └── api-reference.md         # Full HTTP API reference
 ```
 

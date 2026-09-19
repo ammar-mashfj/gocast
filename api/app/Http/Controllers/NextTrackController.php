@@ -22,6 +22,11 @@ use Illuminate\Http\Response;
  * ordinary "this station has no tracks" case — the script must be able to tell
  * "nothing to play" from "something is broken", and only the second is worth
  * logging in a container's stderr.
+ *
+ * A station whose owner is not on an AutoDJ plan gets that same 204, from the
+ * guard in AutoDjScheduler::next(). It is not an error case and must not look
+ * like one: the container is running and correct, it simply has nothing it may
+ * play, which is indistinguishable here from an empty library.
  */
 class NextTrackController extends Controller
 {
@@ -31,7 +36,14 @@ class NextTrackController extends Controller
             'slug' => ['required', 'string', 'max:255'],
         ]);
 
-        $station = Station::query()->where('slug', $validated['slug'])->first();
+        // user.plan eager loaded because AutoDjScheduler::next() checks the
+        // owner's entitlement before it picks anything. Left lazy it would be
+        // two extra queries per track boundary on every running station, on
+        // the one path where latency turns into late audio.
+        $station = Station::query()
+            ->with('user.plan')
+            ->where('slug', $validated['slug'])
+            ->first();
 
         if ($station === null) {
             return response('', 404);

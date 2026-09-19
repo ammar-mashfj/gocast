@@ -57,12 +57,20 @@ it('does not treat other events as evidence of being audible', function () {
 });
 
 it('remembers the most recent event for a station', function () {
-    postEvent(['slug' => 'reporting-station', 'event' => 'live_silent'])->assertOk();
+    postEvent(['slug' => 'reporting-station', 'event' => 'icecast_error'])->assertOk();
 
     $cached = Cache::get(StationEventController::CACHE_PREFIX.$this->station->id);
 
-    expect($cached['event'])->toBe('live_silent')
+    expect($cached['event'])->toBe('icecast_error')
         ->and($cached['at'])->not->toBeNull();
+});
+
+it('refuses the retired silence events', function () {
+    // A container rendered before the dead-air guard was removed still posts
+    // these. It gets the ordinary unknown-event refusal, notify() ignores the
+    // response, and the container stops sending them once it is recreated.
+    postEvent(['slug' => 'reporting-station', 'event' => 'live_silent'])->assertStatus(422);
+    postEvent(['slug' => 'reporting-station', 'event' => 'live_audio'])->assertStatus(422);
 });
 
 it('drops events it does not recognise', function () {

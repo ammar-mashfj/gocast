@@ -31,11 +31,12 @@ use App\Models\Station;
  *
  * THE THREE SIGNALS, and why each is needed:
  *
- *   • `broadcaster` — is a source client attached, MUTED OR NOT. Distinct from
- *     `source == "live"`, which goes false as soon as blank.strip demotes a
- *     muted mic. Without this, "the broadcaster went quiet for 15 seconds" and
- *     "the broadcaster hung up" are the same observation, and stopping on it
- *     cuts off a live show.
+ *   • `broadcaster` — is a source client attached, MAKING A SOUND OR NOT.
+ *     Distinct from `source == "live"`, which lags the connection by the live
+ *     arm's buffer and speaks about fallback arms rather than about people.
+ *     Without this, "the broadcaster has not pressed play yet" and "the
+ *     broadcaster hung up" are the same observation, and stopping on it cuts
+ *     off a live show.
  *
  *   • `rms` — is sound ACTUALLY leaving the station. Ground truth, independent
  *     of which arm won the fallback. This is the signal that separates a
@@ -130,9 +131,10 @@ class StationAudioPolicy
             return StationAudioVerdict::Unreported;
         }
 
-        // Someone is attached. Covers the case the previous design could not
-        // see: a broadcaster whose mic is muted is demoted by blank.strip, so
-        // the source reads "autodj" while their socket is wide open.
+        // Someone is attached, making a sound or not. This is the signal that
+        // must never be confused with `source`: a broadcaster sitting on an
+        // open socket with nothing queued is a live show about to start, and
+        // stopping it is yanking a DJ off air mid-setup.
         //
         // `source == "live"` is ORed in rather than trusted alone: if the two
         // ever disagree, the reading that keeps the station on air wins.
@@ -167,11 +169,13 @@ class StationAudioPolicy
      * Is there music this station is both entitled to play and has uploaded?
      *
      * Entitlement is part of the question, not a separate check. A station
-     * downgraded from a paid plan keeps its library but loses the AutoDJ arm,
-     * so the container correctly plays nothing — and calling that a fault would
-     * hold the container open forever while alerting about a bug that is not
-     * one. Jingles do not count: they are punctuation, and a library of nothing
-     * but jingles has nothing to punctuate.
+     * downgraded from a paid plan keeps its library but stops being served
+     * from it — AutoDjScheduler::next() answers null for an owner without
+     * AutoDJ, so the container correctly plays nothing. Calling that a fault
+     * would hold the container open forever while alerting about a bug that is
+     * not one; treating it as silence is what eventually powers the station
+     * down. Jingles do not count: they are punctuation, and a library of
+     * nothing but jingles has nothing to punctuate.
      */
     private function hasPlayableRotation(Station $station): bool
     {

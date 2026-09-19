@@ -141,7 +141,10 @@ it('sets jingle settings over telnet in liquidsoap var syntax', function () {
     // bool refuses "1". Both failures are answered on a socket nobody reads,
     // so the setting silently never applies and the only symptom is a station
     // that ignores its own settings until it happens to restart.
-    $station = Station::factory()->for(User::factory(), 'user')->make([
+    // onPlan('pro'): the switch is gated on the owner's plan too — see
+    // Station::jinglesAudible() — so a free owner would push `false` here and
+    // this test would be asserting against the gate rather than the syntax.
+    $station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->make([
         'slug' => 'night-shift',
         'jingles_enabled' => true,
         'jingle_interval_seconds' => 900,
@@ -173,7 +176,7 @@ it('pushes both modes settings, not only the active one', function () {
     // They are independent variables in the script. Sending only the mode in
     // use would leave the other stale, so switching modes back would briefly
     // apply whatever was last written until the next save.
-    $station = Station::factory()->for(User::factory(), 'user')->make([
+    $station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->make([
         'jingles_enabled' => true,
         'jingle_mode' => Station::JINGLE_MODE_TRACKS,
         'jingle_interval_seconds' => 600,
@@ -206,6 +209,28 @@ it('sends false rather than omitting the switch when jingles are turned off', fu
     // owner just disabled.
     $station = Station::factory()->for(User::factory(), 'user')->make([
         'jingles_enabled' => false,
+        'jingle_interval_seconds' => 1800,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldReceive('telnet')
+        ->once()
+        ->with($station, 'var.set jingles_enabled = false')
+        ->andReturn('');
+    $supervisor->shouldReceive('telnet')->times(3)->andReturn('');
+
+    expect($supervisor->applyJingleSettings($station))->toBeTrue();
+});
+
+it('sends false for a station whose owner is not on an AutoDJ plan', function () {
+    // The owner's switch is still on — it is theirs to keep, and it comes back
+    // if the plan does. What changes is whether the arm may play: the jingle
+    // playlist reads an m3u off disk and asks nobody, so this push is the only
+    // thing that takes station IDs off air short of a restart. Left playing,
+    // they keep signal on the output meter and StationAudioPolicy never scores
+    // the station silent enough to power down.
+    $station = Station::factory()->for(User::factory()->onPlan('free'), 'user')->make([
+        'jingles_enabled' => true,
         'jingle_interval_seconds' => 1800,
     ]);
 

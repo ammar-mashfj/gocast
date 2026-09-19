@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { IconPencil, IconBroadcast, IconPlayerPlayFilled } from "@tabler/icons-react"
 import { Station } from "@/interfaces/Station"
 import { Button } from "@/components/ui/button"
@@ -20,7 +21,7 @@ export function StationActions({ station, mode }: StationActionsProps) {
       <>
         <Button variant="outline" className="flex-1 md:flex-initial" onClick={() => setShowEdit(true)}>
           <IconPencil data-icon="inline-start" />
-          Edit
+          Edit Station Profile
         </Button>
         <StationFormDialog
           open={showEdit}
@@ -33,10 +34,13 @@ export function StationActions({ station, mode }: StationActionsProps) {
 
   if (station.is_live) {
     return (
+      // A Link, not an anchor: a full page load would tear down
+      // BroadcastProvider and with it the live socket, dropping the very
+      // broadcast this button exists to return to.
       <Button className="w-full md:w-auto" asChild>
-        <a href={`/dashboard/stations/${station.slug}/studio`}>
+        <Link href={`/dashboard/stations/${station.slug}/studio`}>
           <IconBroadcast data-icon="inline-start" /> Open studio
-        </a>
+        </Link>
       </Button>
     )
   }

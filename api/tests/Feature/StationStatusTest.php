@@ -309,3 +309,43 @@ it('surfaces the icecast connection through the status endpoint', function () {
         ->assertJsonPath('data.icecast_connected', false)
         ->assertJsonPath('data.ready', true);
 });
+
+/**
+ * The dashboard's power card has to tell "nobody is here" from "here with
+ * nothing queued", and `source` cannot: it names whichever arm is feeding the
+ * encoder, and it cannot say "live" until the live arm's buffer has filled —
+ * which is the state EVERY browser broadcast passes through before its first
+ * track plays. Without this field the card read "Silence — go live to put
+ * sound on air" at somebody who had gone live thirty seconds earlier.
+ */
+it('reports an attached broadcaster even while another arm holds the fallback', function () {
+    $user = User::factory()->create();
+    $station = runningStation($user);
+
+    harborReturns(['ready' => true, 'source' => 'silence', 'broadcaster' => true]);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        // The silence bed holds the fallback, not the broadcaster — nothing
+        // has arrived on the live arm yet.
+        ->assertJsonPath('data.state', 'on_air')
+        ->assertJsonPath('data.source', 'silence')
+        // …and yet somebody is very much on air.
+        ->assertJsonPath('data.broadcaster', true);
+});
+
+it('reports an unknown broadcaster as null rather than as nobody', function () {
+    // A container that predates the field. "We cannot tell" must never render
+    // as "nobody is broadcasting" — that is the reading that ends with a live
+    // DJ being told to go live.
+    $user = User::factory()->create();
+    $station = runningStation($user);
+
+    harborReturns(['ready' => true, 'source' => 'autodj']);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.broadcaster', null);
+});

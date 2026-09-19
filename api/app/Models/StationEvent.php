@@ -99,12 +99,6 @@ class StationEvent extends Model
     /** Container: Icecast refused or errored. */
     public const TYPE_ICECAST_ERROR = 'icecast_error';
 
-    /** Container: the live input went quiet. */
-    public const TYPE_LIVE_SILENT = 'live_silent';
-
-    /** Container: audio returned on the live input. */
-    public const TYPE_LIVE_AUDIO = 'live_audio';
-
     /** Container: a broadcaster connected to harbor — AutoDJ steps aside. */
     public const TYPE_LIVE_CONNECTED = 'live_connected';
 
@@ -141,8 +135,6 @@ class StationEvent extends Model
         self::TYPE_ICECAST_CONNECTED,
         self::TYPE_ICECAST_DISCONNECTED,
         self::TYPE_ICECAST_ERROR,
-        self::TYPE_LIVE_SILENT,
-        self::TYPE_LIVE_AUDIO,
         self::TYPE_LIVE_CONNECTED,
         self::TYPE_LIVE_DISCONNECTED,
     ];

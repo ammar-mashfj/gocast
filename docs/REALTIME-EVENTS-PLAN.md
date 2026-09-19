@@ -224,8 +224,8 @@ if (in_array($validated['event'], self::BROADCAST_EVENTS, true)) {
 
 Deliberately excluded: `boot` (fires before the audio graph is ready, so the
 station reads as `starting` both before and after it; `icecast_connected` is
-what ends the boot), and `live_silent` / `live_audio`, which are not surfaced
-anywhere in the UI today and would be noise on the wire. `icecast_error` is
+what ends the boot). `live_silent` / `live_audio` were also excluded while
+they existed; they went with the dead-air guard on 2026-09-19. `icecast_error` is
 included because the template sets `ice_up := false` in `on_error` exactly as
 in `on_disconnect`, so it produces the same `degraded` state.
 
@@ -390,7 +390,8 @@ Targeted files only — the API suite takes minutes.
 **`api/tests/Feature/StationEventBroadcastTest.php`** (new)
 
 - Each of the six broadcast events dispatches `StationStateChanged`.
-- `live_silent` and `live_audio` do not.
+- `live_silent` and `live_audio` do not (they have since been retired
+  altogether and now 422 like any unknown event).
 - An unknown event still 422s and dispatches nothing.
 - The payload carries `slug`, `event`, `at` and nothing else.
 - `live_connected` broadcasts *after* the StreamSession is opened, so a client

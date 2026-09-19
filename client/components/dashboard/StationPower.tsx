@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
@@ -115,17 +116,31 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     (broadcastState === "live" || broadcastState === "reconnecting")
 
   /**
-   * The SOURCE axis: what is actually making the sound.
+   * IS SOMEBODY ON AIR?
    *
-   * Null whenever we cannot answer honestly — off air, or the container has
-   * not replied yet — so the UI omits the chip rather than guessing. "Live"
-   * on its own said only that a human was publishing, never from where, which
-   * is the one thing an owner staring at the badge wants to know.
+   * One question, one answer, and deliberately NOT derived from `state` or
+   * `source`. Those describe which arm is feeding the encoder — a routing
+   * decision that changes underneath a broadcaster who has not pressed play
+   * yet, and that lags the connection itself by the live arm's 2s buffer.
+   * Reading identity off the routing table is what had this card telling
+   * people who were live, from this very tab, to go live.
+   *
+   * Three signals, strongest first:
+   *   • this tab's own broadcast context — instant and certain when true,
+   *     meaningless when false (the broadcast may be someone else's);
+   *   • the container's `broadcaster` flag, which flips the moment harbor
+   *     accepts a connection and is the same reading StationAudioPolicy
+   *     refuses to auto-stop on;
+   *   • `live_source`, for a container too old to report the flag. It reads a
+   *     database row that can outlive a container whose `live_disconnected`
+   *     was lost, so it is consulted last and only while the station runs.
    */
-  //
-  // For an encoder we name the software when harbor told us what it was
-  // ("Live from Mixxx 2.5.0") and fall back to the category when it did not —
-  // an older container, or a client that sends no user-agent.
+  const broadcasterAttached =
+    isRunning &&
+    (liveFromThisBrowser ||
+      (status?.reachable === true &&
+        (status.broadcaster ?? status.live_source !== null)))
+
   /**
    * Is the broadcast coming from an external encoder rather than a browser?
    *
@@ -136,9 +151,12 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
    * telling them "another browser or device is broadcasting", which is both
    * wrong and no help.
    */
-  const liveFromEncoder = isLive && status?.live_source?.type === "external"
+  const liveFromEncoder = broadcasterAttached && status?.live_source?.type === "external"
   const encoderClient = status?.live_source?.client ?? null
 
+  // For an encoder we name the software when harbor told us what it was
+  // ("Live from Mixxx 2.5.0") and fall back to the category when it did not —
+  // an older container, or a client that sends no user-agent.
   const liveFrom = () => {
     if (liveFromThisBrowser) {
       return "Live from this browser"
@@ -153,16 +171,53 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     return "Live from another source"
   }
 
-  const sourceLabel =
-    !isRunning || !status?.reachable
-      ? null
-      : isLive
-        ? liveFrom()
-        : status.source === "autodj"
-          ? "AutoDJ"
-          : status.source === "silence"
-            ? "Silence"
-            : null
+  /**
+   * Is the live arm still airing audio from a broadcaster who has already
+   * gone?
+   *
+   * `broadcaster` drops the instant harbor lets go, but the live arm keeps
+   * playing out what it had buffered — ~12s of harbor pre-buffer plus the 2s
+   * `buffer()` — so `source` says "live" for a good while afterwards. Those
+   * seconds are real: listeners are still hearing the broadcast.
+   *
+   * Without this the chip blinked out for twelve seconds and came back, which
+   * reads as a glitch rather than as a handover. It is deliberately NOT
+   * attributed — `liveFrom()` would name a session that has already closed,
+   * which is the "Live from another source" wrongness this whole axis was
+   * rebuilt to stop telling.
+   */
+  const liveTailDraining =
+    !broadcasterAttached && status?.reachable === true && status.source === "live"
+
+  /**
+   * The SOURCE axis: who or what is holding the mount.
+   *
+   * Four answers: a broadcaster (named), their audio still draining (unnamed),
+   * the rotation, or nothing. Null while we cannot answer honestly — off air,
+   * or no reply yet — so the chip is omitted rather than guessed at.
+   *
+   * A broadcaster outranks the arm: they hold the mount whether or not they
+   * are making a sound this second, and saying otherwise is how this chip
+   * ended up contradicting the mini controller in the corner of the same
+   * screen.
+   */
+  const sourceLabel = !isRunning
+    ? null
+    : broadcasterAttached
+      ? liveFrom()
+      : !status?.reachable
+        ? null
+        : liveTailDraining
+          ? "Live"
+          : status.source === "autodj"
+            ? "AutoDJ"
+            : status.source === "silence"
+              ? "Silence"
+              : null
+
+  /** Green while live audio is on air, muted for a machine. */
+  const sourceClass =
+    broadcasterAttached || liveTailDraining ? "text-emerald-400" : "text-muted-foreground"
 
   // Without AutoDJ there is no unattended arm: the station's AutoDJ source is
   // a silence bed, so a station that is on air with nobody broadcasting emits
@@ -188,6 +243,11 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
   // shows what it used to be playing.
   const lastNowPlaying = useRef<{ title: string | null; artist: string | null } | null>(null)
 
+  // Also cleared when a broadcaster arrives or leaves, not only when the
+  // station stops. The ref exists to bridge the gap BETWEEN TRACKS on one
+  // source; carried across a change of source it does something else
+  // entirely — holds the outgoing AutoDJ title under a chip that now names a
+  // live DJ, which is the same contradiction in miniature.
   useEffect(() => {
     if (!isRunning) {
       lastNowPlaying.current = null
@@ -195,6 +255,10 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
       lastNowPlaying.current = status.now_playing
     }
   }, [isRunning, status?.now_playing])
+
+  useEffect(() => {
+    lastNowPlaying.current = null
+  }, [broadcasterAttached])
 
   /**
    * Catch the page up with something the go-live dialog learnt first.
@@ -264,11 +328,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
       {sourceLabel && (
         <>
           <span className="text-xs text-muted-foreground/50" aria-hidden="true">·</span>
-          <span
-            className={cn("text-xs", isLive ? "text-emerald-400" : "text-muted-foreground")}
-          >
-            {sourceLabel}
-          </span>
+          <span className={cn("text-xs", sourceClass)}>{sourceLabel}</span>
         </>
       )}
     </Badge>
@@ -442,9 +502,11 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
     nowPlayingLine = [nowPlaying.title, nowPlaying.artist].filter(Boolean).join(" — ")
   } else if (!status?.reachable) {
     nowPlayingLine = "Waiting for the station to answer"
-  } else if (isLive) {
-    // A broadcaster only has a title if their software sends one. Saying
-    // "waiting for track info" would imply something is late; nothing is.
+  } else if (broadcasterAttached) {
+    // A broadcaster only has a title if their software sends one, and the
+    // studio sends none. Saying "waiting for track info" would imply
+    // something is late; nothing is. What they are playing THROUGH the
+    // broadcast is the studio's business, and the studio shows it.
     nowPlayingLine = "A live broadcast — no track info sent"
   } else if (hasRotation) {
     // Producing audio from a rotation that exists, but no title has been seen
@@ -536,7 +598,9 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                   guess, and it is the wrong one for every encoder broadcast —
                   so offer nothing for the one poll it takes to find out. The
                   detail line above already reads "Checking…". */}
-              {isLive && !status ? null : liveFromEncoder ? (
+              {/* …except when the broadcast is this tab's own, which needs no
+                  poll to identify: the studio is the right button, now. */}
+              {isLive && !status && !liveFromThisBrowser ? null : liveFromEncoder ? (
                 <Button asChild className={actionClass}>
                   <a
                     href={`/station/${station.slug}`}
@@ -547,12 +611,15 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                     Hear your stream
                   </a>
                 </Button>
-              ) : isLive ? (
+              ) : broadcasterAttached ? (
                 <Button asChild className={actionClass}>
-                  <a href={`/dashboard/stations/${station.slug}/studio`}>
+                  {/* A Link, not an anchor: a full page load would tear
+                      down BroadcastProvider and with it the live socket,
+                      dropping the broadcast this button returns to. */}
+                  <Link href={`/dashboard/stations/${station.slug}/studio`}>
                     <IconBroadcast size={14} data-icon="inline-start" />
                     Open studio
-                  </a>
+                  </Link>
                 </Button>
               ) : isRunning ? (
                 <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
@@ -601,10 +668,7 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                 <>
                   <span className="text-xs text-muted-foreground/50" aria-hidden="true">·</span>
                   <span
-                    className={cn(
-                      "text-xs font-medium uppercase tracking-wider",
-                      isLive ? "text-emerald-400" : "text-muted-foreground",
-                    )}
+                    className={cn("text-xs font-medium uppercase tracking-wider", sourceClass)}
                   >
                     {sourceLabel}
                   </span>

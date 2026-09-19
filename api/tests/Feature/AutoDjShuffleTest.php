@@ -18,7 +18,9 @@ use function Pest\Laravel\actingAs;
  */
 function shuffledStation(int $trackCount): Station
 {
-    $station = Station::factory()->create([
+    // withAutoDj: a free owner gets null from AutoDjScheduler::next() whatever
+    // is in the library, so a shuffle test on a default station tests nothing.
+    $station = Station::factory()->withAutoDj()->create([
         'autodj_order' => Station::AUTODJ_ORDER_SHUFFLE,
     ]);
 
@@ -164,7 +166,9 @@ it('repeats the only track a one track rotation has', function () {
 });
 
 it('answers with no track when the rotation is empty', function () {
-    $station = Station::factory()->create(['autodj_order' => Station::AUTODJ_ORDER_SHUFFLE]);
+    // Entitled, so the null below is genuinely about the empty library rather
+    // than about the plan gate answering first.
+    $station = Station::factory()->withAutoDj()->create(['autodj_order' => Station::AUTODJ_ORDER_SHUFFLE]);
 
     expect(app(AutoDjScheduler::class)->next($station))->toBeNull();
 });

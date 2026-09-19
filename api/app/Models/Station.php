@@ -406,6 +406,31 @@ class Station extends Model
     }
 
     /**
+     * Should the jingle arm be allowed to play?
+     *
+     * The owner's switch AND their plan. The switch alone is not enough, and
+     * the reason is the same one that put the plan check inside
+     * AutoDjScheduler::next(): nothing in the rendered .liq knows about plans,
+     * and a plan change never restarts a container.
+     *
+     * Without this, a station downgraded off AutoDJ went silent on the
+     * rotation and kept playing station IDs forever — the jingle arm reads an
+     * m3u from disk, which no downgrade rewrites and no scheduler is asked
+     * about. Worse than cosmetic: a jingle puts real signal on the meter, so
+     * StationAudioPolicy scored the station `InUse` at every sweep and it
+     * never powered down. That contradicts hasPlayableRotation(), which
+     * already says jingles must not count — "a library of nothing but jingles
+     * has nothing to punctuate".
+     *
+     * Read at render time for the initial value and pushed over telnet by
+     * UserObserver on a plan change, so it lands without dropping listeners.
+     */
+    public function jinglesAudible(): bool
+    {
+        return (bool) $this->jingles_enabled && ($this->user?->canUseAutoDj() ?? false);
+    }
+
+    /**
      * The AutoDJ rotation, in the order AutoDjScheduler walks it to answer
      * the container's "what do I play next?".
      */

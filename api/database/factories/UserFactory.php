@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Plan;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -31,6 +32,22 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
+    }
+
+    /**
+     * Put the account on a plan by slug.
+     *
+     * `users.plan_id` defaults to 1 — the free row — so a factory user has no
+     * AutoDJ, no encoder and no embed unless a test says otherwise. Looked up
+     * rather than created so tests exercise the same rows production grants;
+     * firstOrFail because a typo'd slug silently landing on free is how an
+     * entitlement test passes while asserting nothing.
+     */
+    public function onPlan(string $slug): static
+    {
+        return $this->state(fn () => [
+            'plan_id' => Plan::where('slug', $slug)->firstOrFail()->id,
+        ]);
     }
 
     /**

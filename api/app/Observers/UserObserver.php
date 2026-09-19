@@ -19,13 +19,20 @@ use Throwable;
  *
  * On the plan change:
  *
- * Only one thing currently depends on the plan at runtime — the free-tier
- * watermark — and it is the case that matters most to get instant: somebody
- * has just paid to remove "powered by GoCast", and until this runs they can
- * still hear it. Restarting their stations would technically work and would
- * also disconnect every listener they have, mid-show, as their reward for
- * upgrading. So the watermark is an interactive variable in the script and
- * this pushes the new value over telnet instead.
+ * Two things depend on the plan at runtime, and both are interactive variables
+ * in the rendered script precisely so they can be changed without a restart:
+ *
+ *   • the free-tier watermark — the case that matters most to get instant.
+ *     Somebody has just paid to remove "powered by GoCast", and until this
+ *     runs they can still hear it. Restarting their stations would technically
+ *     work and would also disconnect every listener they have, mid-show, as
+ *     their reward for upgrading.
+ *
+ *   • the jingle arm — see Station::jinglesAudible(). Unlike the rotation,
+ *     which enforces a downgrade by itself (the container asks Laravel for
+ *     every track and AutoDjScheduler answers null), jingles play from an m3u
+ *     on disk and ask nobody. This push is the only thing that takes them off
+ *     air short of a restart.
  *
  * The other direction (a downgrade, or an expired subscription) matters too,
  * and takes the same path.
@@ -87,6 +94,16 @@ class UserObserver
             return;
         }
 
+        // The `plan` relation, if the caller had it loaded, is the OLD plan.
+        // Eloquent does not drop a loaded belongsTo when its key changes, and
+        // plans:expire — the one caller that performs a downgrade
+        // automatically — eager-loads it to name the ended plan in the email.
+        // Every push below walks station -> user -> plan, so left in place it
+        // would send the entitlements of the plan that just ended: jingles
+        // kept audible, watermark left off. Unset rather than reloaded so it
+        // costs nothing for a caller that never touched it.
+        $user->unsetRelation('plan');
+
         // Only running stations have a container to talk to. A stopped one
         // renders the new value into its script whenever it next starts.
         $stations = $user->stations()->running()->get();
@@ -103,6 +120,28 @@ class UserObserver
                 $this->supervisor->applyWatermarkSettings($station);
             } catch (Throwable $e) {
                 Log::error('UserObserver: watermark push failed', [
+                    'user' => $user->id,
+                    'station' => $station->slug,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // Jingles are gated on the plan too — Station::jinglesAudible().
+            // The rotation half of a downgrade enforces itself, because the
+            // container asks Laravel for every track and AutoDjScheduler
+            // answers null. The jingle half cannot: that arm reads an m3u off
+            // disk and asks nobody, so without this push a downgraded station
+            // keeps playing station IDs until it is next restarted — which,
+            // since a jingle registers on the meter, is long enough for the
+            // sweep to keep scoring it `InUse` and never power it down.
+            //
+            // Separate try, not folded into the one above: losing the
+            // watermark push must not also cost the jingle push, and the two
+            // failures are worth telling apart in the log.
+            try {
+                $this->supervisor->applyJingleSettings($station);
+            } catch (Throwable $e) {
+                Log::error('UserObserver: jingle push failed', [
                     'user' => $user->id,
                     'station' => $station->slug,
                     'error' => $e->getMessage(),

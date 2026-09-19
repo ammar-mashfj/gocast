@@ -127,7 +127,7 @@ it('keeps mail on the notifications that had it before the bell existed', functi
     // here is silent: the dashboard would still light up, and nobody would
     // notice the mail had stopped until someone asked why they were never told.
     expect((new PlanExpired($plan, $plan))->via($user))->toContain('mail')
-        ->and((new ProAccessGranted($plan))->via($user))->toContain('mail')
+        ->and((new ProAccessGranted($plan, Carbon::parse('2026-12-01'), '3 months'))->via($user))->toContain('mail')
         ->and((new InviteRedeemed($plan, null))->via($user))->toContain('mail')
         ->and((new InactiveBroadcasterNudge(null))->via($user))->toContain('mail')
         // The one that was mail-only until it joined the bell. The bell was
@@ -180,7 +180,7 @@ it('produces a renderable payload for every converted notification', function ()
 
     $payloads = [
         'PlanExpired' => (new PlanExpired($plan, $plan))->toDatabase($user->fresh()),
-        'ProAccessGranted' => (new ProAccessGranted($plan))->toDatabase($user->fresh()),
+        'ProAccessGranted' => (new ProAccessGranted($plan, Carbon::parse('2026-12-01'), '3 months'))->toDatabase($user->fresh()),
         'InviteRedeemed' => (new InviteRedeemed($plan, Carbon::parse('2026-12-01')))->toDatabase($user),
         'InactiveBroadcasterNudge' => (new InactiveBroadcasterNudge('night-shift'))->toDatabase($user),
         'WelcomeNotification' => (new WelcomeNotification)->toDatabase($user),
@@ -211,7 +211,7 @@ it('gives every expanding notification something to expand into', function () {
     Station::factory()->for($user, 'user')->create();
 
     $expanding = [
-        'ProAccessGranted' => (new ProAccessGranted($plan))->toDatabase($user->fresh()),
+        'ProAccessGranted' => (new ProAccessGranted($plan, Carbon::parse('2026-12-01'), '3 months'))->toDatabase($user->fresh()),
         'InviteRedeemed' => (new InviteRedeemed($plan, Carbon::parse('2026-12-01')))->toDatabase($user),
         'PlanExpired' => (new PlanExpired($plan, $free))->toDatabase($user),
         'WelcomeNotification' => (new WelcomeNotification)->toDatabase($user),

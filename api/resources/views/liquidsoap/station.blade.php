@@ -18,9 +18,6 @@
       $hlsVariant      — string (encoder label AND the media-playlist filename;
                                  config('liquidsoap.hls_variant') — see the HLS
                                  block below for why it is shared with the URL)
-      $blankMax        — float  (seconds of silence before the live source is
-                                 marked unavailable; 0 disables dead-air strip)
-      $blankThreshold  — float  (dBFS below which audio counts as silence)
       $jinglesEnabled  — bool   (initial state of the jingle switch)
       $jingleInterval  — float  (minimum seconds between two jingles)
       $jingleByTracks  — bool   (space jingles by track count, not by time)
@@ -278,20 +275,21 @@ live_in = input.harbor(
 #
 # synchronous=false is not optional here: notify() makes an HTTP POST with a
 # 5s timeout, and a synchronous callback runs on the streaming thread — a slow
-# or hanging API would stall the audio for every listener. Same reasoning as
-# the blank.detect callbacks below.
+# or hanging API would stall the audio for every listener.
+#
 # Local mirror of the same connect/disconnect facts, for /status to report.
 #
-# WHY THIS EXISTS SEPARATELY FROM `source`. `live` is wrapped in blank.strip
-# below, so a broadcaster who mutes their mic is demoted and `current_source()`
-# starts saying "autodj" while their socket is still wide open. Anything that
-# decides whether to STOP a station must be able to tell "nobody is here" from
-# "here but quiet" — stopping the second is yanking a live show off air.
+# WHY THIS EXISTS SEPARATELY FROM `source`. This flips the instant harbor
+# accepts the connection, and back the instant it lets go; `current_source()`
+# cannot say "live" until the live arm's buffers have filled, and it keeps
+# saying it for as long as they take to drain. So this is the honest answer to
+# "is somebody broadcasting?" and `source` is the answer to "which arm is
+# feeding the encoder" — two questions that are only sometimes the same, and
+# only one of which is about a person.
 #
-# A ref driven by these callbacks rather than only `live_in.is_ready()`: these
-# are in-process calls that cannot be lost the way the notify() HTTP posts can,
-# and the reader below ORs the two so the answer fails SAFE — any evidence of a
-# broadcaster reads as connected.
+# A ref driven by these callbacks rather than by `live_in.is_ready()`: these
+# are in-process calls that cannot be lost the way the notify() HTTP posts
+# can, and readiness answers the other question. See broadcaster_attached.
 live_connected = ref(false)
 
 # WHAT THE HEADERS ARE FOR, and why only three of them leave this container.
@@ -375,9 +373,27 @@ live_in.on_disconnect(synchronous=false, fun () -> begin
   notify("live_disconnected")
 end)
 
-# True when a source client is attached, MUTED OR NOT.
+# True when a source client is attached, MAKING A SOUND OR NOT.
+#
+# `live_connected` ALONE. This was `live_connected() or live_in.is_ready()`,
+# ORed to fail safe, and the OR was the bug. It reads as harmless belt and
+# braces, but `is_ready()` stays true for as long as the live arm still has
+# buffered audio to play out — measured at 12.4s on 2.4.5, because
+# input.harbor's own `buffer` defaults to 12s and this script does not
+# override it. So the field invented to answer "is a person on air" WITHOUT
+# the buffer lag carried that lag anyway, on the way out: a DJ who pressed
+# Stop was reported as a broadcaster for another twelve seconds, and since
+# their StreamSession had already closed, the dashboard phrased it as "Live
+# from another source".
+#
+# The OR bought nothing on the way IN, either. `is_ready()` cannot be true
+# before on_connect has fired, because harbor pre-buffers first — so this ref
+# LEADS readiness by the whole buffer. The tail was the only thing it changed.
+#
+# "Is live audio still airing?" is a real and separate question, and `source`
+# is already its answer: it says "live" until the arm actually runs dry.
 def broadcaster_attached() =
-  live_connected() or live_in.is_ready()
+  live_connected()
 end
 
 # A broadcaster who sends no metadata at all — the studio page, and every
@@ -403,43 +419,25 @@ live_tagged = metadata.map(insert_missing=true, live_metadata, live_in)
 
 live_raw = buffer(buffer=2., max=10., live_tagged)
 
-@if ($blankMax > 0)
-# Dead-air guard. A broadcaster who mutes their mic, sleeps their laptop or
-# loses their audio device keeps the RTSP session open — the stream is still
-# "there", it's just silent. Without this the fallback below stays locked on
-# `live` and every listener hears nothing while AutoDJ sits idle behind it.
+# The live arm, straight through. There is no dead-air guard: a connected
+# broadcaster holds the fallback whether or not they are making a sound.
 #
-# blank.strip declares the source unavailable after {{ $blankMax }}s under
-# {{ $blankThreshold }} dB, which is exactly the signal fallback needs to
-# demote to AutoDJ on its own. It re-promotes as soon as audio returns.
+# There used to be one — blank.strip demoted a source that went quiet for 15s
+# so AutoDJ could step in. It was removed because it answered a question
+# nobody asked and broke the one everybody did. "Is somebody broadcasting?"
+# and "is sound coming out of them?" are different questions, and folding the
+# second into the fallback made `current_source()` change identity underneath
+# a live DJ: the dashboard read the routing decision as the answer to the
+# first question and told people who were on air to go on air. On a plan with
+# no AutoDJ arm it demoted silence to silence, which is pure churn.
 #
-# The threshold is deliberately forgiving: a dramatic pause or a quiet intro
-# must never knock a real broadcaster off air.
-{{-- number_format keeps a literal decimal point in the output: Liquidsoap's
-     lexer needs `15.0`, and a bare `{{ $blankMax }}.` would emit `15.5.` for
-     any non-integer value, which is a syntax error. --}}
-live = blank.strip(
-  max_blank={{ number_format($blankMax, 1, '.', '') }},
-  threshold={{ number_format($blankThreshold, 1, '.', '') }},
-  live_raw
-)
-
-# blank.strip demotes silently — the broadcaster whose mic is muted hears
-# AutoDJ take over and has no idea why. blank.detect watches the same signal
-# without touching the audio, purely so we can tell them.
-#
-# In 2.4 these callbacks are methods, not constructor arguments; the form the
-# published docs show does not compile.
-silence_watch = blank.detect(
-  max_blank={{ number_format($blankMax, 1, '.', '') }},
-  threshold={{ number_format($blankThreshold, 1, '.', '') }},
-  live_raw
-)
-silence_watch.on_blank(synchronous=false, fun () -> notify("live_silent"))
-silence_watch.on_noise(synchronous=false, fun () -> notify("live_audio"))
-@else
+# What it was actually protecting against is already covered: harbor's own
+# `timeout` ({{ $harborInputTimeout }}s, see input.harbor above) declares a
+# STALLED source gone, which is every case that matters — a sleeping laptop, a
+# wifi handover, a crashed encoder. What blank.strip uniquely caught was a
+# source still sending healthy frames of digital silence, and that is the
+# normal state of a studio whose DJ has not pressed play yet.
 live = live_raw
-@endif
 
 # === AutoDJ rotation — one track at a time, from Laravel ===
 #
@@ -1145,8 +1143,9 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         # from "playing to nobody".
         icecast = ice_up(),
         source = current_source(),
-        # Is a broadcaster attached? Distinct from `source == "live"`, which
-        # goes false the moment blank.strip demotes a muted mic.
+        # Is a broadcaster attached? THE answer to "is somebody on air", and
+        # the one the dashboard renders. `source` below lags it by the live
+        # arm's buffer and speaks about fallback arms rather than people.
         broadcaster = broadcaster_attached(),
         # Is sound ACTUALLY leaving this station? Ground truth, independent of
         # which arm won. 0.0 with no broadcaster and no rotation means the

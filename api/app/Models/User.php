@@ -91,6 +91,25 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * May this user's stations play a track rotation?
+     *
+     * Gates BOTH halves of the AutoDJ, which is the point of it living here.
+     * The upload half has always been gated (TrackController, via
+     * StationLifecycleService::assertAutoDjEnabled); the playback half was not,
+     * so a station downgraded off a paid plan kept its container asking
+     * NextTrackController for tracks and kept getting them — it simply could
+     * not add new ones. AutoDjScheduler::next() now asks this too, which is the
+     * enforcement point that actually takes the music off air.
+     *
+     * Same null-coalescing convention as canEmbed() and canUseEncoder(): no
+     * plan row is free, and free has no AutoDJ.
+     */
+    public function canUseAutoDj(): bool
+    {
+        return (bool) ($this->plan?->autodj_enabled ?? false);
+    }
+
+    /**
      * May this user's stations be embedded on third-party sites?
      *
      * Read by UserResource (so the dashboard knows whether to show the

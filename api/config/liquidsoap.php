@@ -282,27 +282,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Dead-air handling on the live input
-    |--------------------------------------------------------------------------
-    |
-    | A broadcaster who mutes their mic, sleeps their laptop, or loses their
-    | audio device keeps the RTSP session open — so without this the `live`
-    | source stays "available" and listeners get silence indefinitely while
-    | AutoDJ sits idle behind it.
-    |
-    | blank.strip marks the live source unavailable after `blank_max_seconds`
-    | below `blank_threshold_db`, which lets the fallback demote to AutoDJ on
-    | its own. Set blank_max_seconds to 0 to disable the behaviour entirely.
-    |
-    | 15s is deliberately generous: a dramatic pause or a quiet intro must not
-    | knock a real broadcaster off air.
-    */
-
-    'blank_max_seconds' => (float) env('LIQUIDSOAP_BLANK_MAX_SECONDS', 15),
-    'blank_threshold_db' => (float) env('LIQUIDSOAP_BLANK_THRESHOLD_DB', -40),
-
-    /*
-    |--------------------------------------------------------------------------
     | Output level window
     |--------------------------------------------------------------------------
     |
@@ -870,15 +849,18 @@ return [
     | Consecutive passes an open StreamSession may disagree with its container
     | before the reconciler closes it as stranded.
     |
-    | Far more patient than the unhealthy threshold on purpose: the signal is
-    | `source != live`, which a broadcaster triggers merely by falling silent
-    | for longer than the dead-air guard. Closing a live broadcaster's session
-    | cannot be undone by anything the container will send afterwards, so this
-    | errs towards leaving a genuinely stranded session open for a few extra
-    | minutes rather than cutting a real show short.
+    | The signal is the container's `broadcaster` flag, which answers exactly
+    | what an open session claims — so a few passes is enough. It was ten while
+    | the dead-air guard existed, because back then a DJ merely falling silent
+    | looked identical to one who had hung up.
+    |
+    | Not one, because closing a live broadcaster's session cannot be undone by
+    | anything the container will send afterwards: harbor fires on_connect
+    | once. Three passes at a one-minute cadence still errs towards leaving a
+    | genuinely stranded session open rather than cutting a real show short.
     */
 
-    'stranded_session_strikes' => (int) env('LIQUIDSOAP_STRANDED_SESSION_STRIKES', 10),
+    'stranded_session_strikes' => (int) env('LIQUIDSOAP_STRANDED_SESSION_STRIKES', 3),
 
     /*
     |--------------------------------------------------------------------------

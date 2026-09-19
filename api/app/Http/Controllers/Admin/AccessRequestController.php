@@ -24,6 +24,14 @@ use Illuminate\View\View;
  * nothing here needs to touch a station. UserObserver additionally pushes the
  * watermark flag into running containers, which costs nothing but changes
  * nothing either while no clips are installed.
+ *
+ * Every grant is for a fixed term. It used to be open-ended while the email
+ * said "3 months on us", which meant the term existed only in that sentence
+ * and ending one depended on an admin remembering to click Revoke months
+ * later. The admin now picks the length, it is written to
+ * `users.plan_expires_at`, and plans:expire moves the account back to Free on
+ * the hour it runs out — the same machinery an invite trial already used.
+ * Revoke is still there for ending one early.
  */
 class AccessRequestController extends Controller
 {
@@ -33,6 +41,36 @@ class AccessRequestController extends Controller
      * a paid plan or downgrade them further than intended.
      */
     private const FREE_PLAN_SLUG = 'free';
+
+    /**
+     * How long a grant can run for, as the approve dropdown offers it.
+     *
+     * Weeks and months are kept apart rather than flattened into a day count
+     * so the dates land where the label says they do: "3 months" granted on
+     * the 20th ends on the 20th, not 90 days later on the 19th. The label is
+     * also the exact phrase the email uses, so what the admin picked and what
+     * the user is told are the same string and cannot drift.
+     *
+     * There is deliberately no open-ended option. That was the old behaviour
+     * and the whole reason nothing ever expired; anything that genuinely needs
+     * to run forever is a plan change on the account, not a request grant.
+     *
+     * @var array<string, array{label: string, weeks: int, months: int}>
+     */
+    public const TERMS = [
+        '1-week' => ['label' => '1 week', 'weeks' => 1, 'months' => 0],
+        '2-weeks' => ['label' => '2 weeks', 'weeks' => 2, 'months' => 0],
+        '1-month' => ['label' => '1 month', 'weeks' => 0, 'months' => 1],
+        '2-months' => ['label' => '2 months', 'weeks' => 0, 'months' => 2],
+        '3-months' => ['label' => '3 months', 'weeks' => 0, 'months' => 3],
+    ];
+
+    /**
+     * Preselected in the dropdown, and what a post with no `term` at all is
+     * taken to mean. Three months because that is the term the grant email
+     * has been promising since before anything enforced it.
+     */
+    public const DEFAULT_TERM = '3-months';
 
     public function index(Request $request): View
     {
@@ -91,6 +129,10 @@ class AccessRequestController extends Controller
             // Requests from a real account, which are the only ones that can
             // actually be granted — a Custom enquiry from a stranger cannot.
             'fromAccounts' => WaitlistEntry::whereNotNull('user_id')->count(),
+            // The approve dropdown. Passed rather than read off the class in
+            // the view so the template has no reason to know the controller.
+            'terms' => array_map(fn (array $term) => $term['label'], self::TERMS),
+            'defaultTerm' => self::DEFAULT_TERM,
             'emptyMessage' => $this->emptyMessage($search, $plan, $status),
         ]);
     }
@@ -111,9 +153,22 @@ class AccessRequestController extends Controller
      * between two adjacent statements, and the fix is to revoke and approve
      * again — which is strictly better than the alternative failure, where a
      * paid plan is granted and nothing records who did it.
+     *
+     * The end date is computed BEFORE the claim, with the other guards, so a
+     * stale form is refused without stamping a decision on the row.
      */
     public function approve(Request $request, WaitlistEntry $entry): RedirectResponse
     {
+        $term = self::TERMS[(string) $request->input('term', self::DEFAULT_TERM)] ?? null;
+
+        if ($term === null) {
+            // Only reachable from a form that no longer matches this list, so
+            // the honest answer is to refuse rather than silently substitute a
+            // term nobody chose. Flashed like every other refusal here because
+            // the admin layout renders `status` and not the error bag.
+            return back()->with('status', 'That is not a term we grant. Reload the page and pick one from the list.');
+        }
+
         if ($entry->user_id === null) {
             // Not a permission failure — there is genuinely nobody to upgrade.
             return back()->with('status', "{$entry->email} has no GoCast account, so there is nothing to grant. Reply by email and dismiss the request.");
@@ -154,13 +209,20 @@ class AccessRequestController extends Controller
             return back()->with('status', 'That request was already settled — nothing changed.');
         }
 
-        // The end date is cleared as well: an admin's grant is open-ended,
-        // and leaving an invite trial's `plan_expires_at` in place would let
-        // plans:expire quietly undo this decision on the old date.
-        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => null])->save();
-        $user->notify(new ProAccessGranted($plan));
+        // Overwritten rather than extended: an account that arrived on a
+        // 30-day invite and is then granted 3 months gets three months from
+        // today, not three months and thirty days. The admin picked a term
+        // looking at this row, and the date they get is the one they picked.
+        // NoOverflow: three months from 30 November is the end of February,
+        // not the 2nd of March. Carbon overflows by default, which would put
+        // the account's real end date a couple of days past the one the email
+        // it is about to send names.
+        $endsAt = now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
 
-        return back()->with('status', "{$user->email} is on {$plan->name} and has been emailed. Their dashboard catches up on their next page load.");
+        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
+        $user->notify(new ProAccessGranted($plan, $endsAt, $term['label']));
+
+        return back()->with('status', "{$user->email} is on {$plan->name} for {$term['label']}, until {$endsAt->toFormattedDateString()}, and has been emailed. It returns to Free on its own; their dashboard catches up on their next page load.");
     }
 
     /**

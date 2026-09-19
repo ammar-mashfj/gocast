@@ -4,7 +4,7 @@ A complete reading of a rendered `station.liq` — every top-level binding, ever
 `def`, how they connect, and what breaks if one is moved.
 
 The worked example is `test.liq` at the repo root: the dev-mode render for the
-station with slug `test`, 1,199 lines. Every line number in this document refers
+station with slug `test`, 1,207 lines. Every line number in this document refers
 to that file. Re-render it with the recipe in [§14](#14-re-rendering-and-verifying).
 
 ---
@@ -17,12 +17,12 @@ to that file. Re-render it with the recipe in [§14](#14-re-rendering-and-verify
 4. [The symbol table](#4-the-symbol-table)
 5. [Walkthrough: process settings (1–50)](#5-walkthrough-process-settings-150)
 6. [Walkthrough: reporting and auth (52–158)](#6-walkthrough-reporting-and-auth-52158)
-7. [Walkthrough: the live input (160–392)](#7-walkthrough-the-live-input-160392)
-8. [Walkthrough: AutoDJ and jingles (394–609)](#8-walkthrough-autodj-and-jingles-394609)
-9. [Walkthrough: level, transition, mix (611–752)](#9-walkthrough-level-transition-mix-611752)
-10. [Walkthrough: the display split and watermark (754–890)](#10-walkthrough-the-display-split-and-watermark-754890)
-11. [Walkthrough: the control surface (892–1000)](#11-walkthrough-the-control-surface-8921000)
-12. [Walkthrough: outputs (1002–1199)](#12-walkthrough-outputs-10021199)
+7. [Walkthrough: the live input (160–399)](#7-walkthrough-the-live-input-160399)
+8. [Walkthrough: AutoDJ and jingles (401–616)](#8-walkthrough-autodj-and-jingles-401616)
+9. [Walkthrough: level, transition, mix (618–759)](#9-walkthrough-level-transition-mix-618759)
+10. [Walkthrough: the display split and watermark (761–897)](#10-walkthrough-the-display-split-and-watermark-761897)
+11. [Walkthrough: the control surface (899–1008)](#11-walkthrough-the-control-surface-8991008)
+12. [Walkthrough: outputs (1010–1207)](#12-walkthrough-outputs-10101207)
 13. [Cross-cutting: state, threads, wire](#13-cross-cutting-state-threads-wire)
 14. [Re-rendering and verifying](#14-re-rendering-and-verifying)
 15. [What is deliberately absent](#15-what-is-deliberately-absent)
@@ -41,7 +41,7 @@ api/resources/views/liquidsoap/station.blade.php     the template (1,378 lines)
         │  LiquidsoapSupervisor::renderLiqFile()      api/app/Services/LiquidsoapSupervisor.php:1126
         │  View::make('liquidsoap.station', [ ~45 variables ])->render()
         ▼
-/var/gocast/liq/{slug}.liq                           the render (1,199 lines for `test`)
+/var/gocast/liq/{slug}.liq                           the render (1,207 lines for `test`)
         │
         │  docker run … -v /var/gocast/liq/{slug}.liq:/station.liq:ro …
         │               -v /var/gocast/playlists/{slug}:/data/playlists:ro
@@ -63,7 +63,7 @@ Three consequences worth holding onto while reading:
   corrupt its own inputs.
 - **Editing the file on the host does nothing until the container restarts.**
   The mount is of the file, and Liquidsoap parses it once at startup. This is
-  why the runtime-settable knobs in [§8.4](#84-interactive-variables-515518) exist
+  why the runtime-settable knobs in [§8.4](#84-interactive-variables-522525) exist
   at all: they are the things that must change *without* a restart, because a
   restart drops every listener.
 
@@ -82,7 +82,7 @@ looks — it re-renders only for the columns the script actually embeds.
 | Track added / removed / reordered | `jingles_m3u.reload` over telnet, or nothing at all for rotation tracks | none |
 
 The last row is the one that shaped the whole AutoDJ design — see
-[§8.1](#81-autodj_next-411441-and-why-there-is-no-playlist).
+[§8.1](#81-autodj_next-418448-and-why-there-is-no-playlist).
 
 ---
 
@@ -97,7 +97,6 @@ The render in `test.liq` took these branches:
 | Template flag | Config key | This render | What the other branch looks like |
 | --- | --- | --- | --- |
 | `$gcSpaceOverhead > 0` | `gc_space_overhead` = 80 | **on** — `runtime.gc.set` block at 47 | block omitted entirely; stock OCaml GC |
-| `$blankMax > 0` | `blank_max_seconds` = 15 | **on** — `blank.strip` at 360, `blank.detect` at 372 | `live = live_raw`; a muted mic holds the stream forever |
 | `$applyAmplify` | `apply_amplify` = true | **on** — `amplify(1., …)` at 642 | `autodj_leveled = autodj_rotation`; `liq_amplify` annotations inert |
 | `$crossfadeEnabled` | `crossfade_enabled` = **false** | **off** — `autodj_faded = autodj_leveled` at 690 | ~90 lines: a `cross.smart` port with five level-comparison branches |
 | `$limiterIncludeLive` | `limiter_include_live` = true | **bottom** — `limit()` at 884, below the watermark | `limit()` moves up to 717 on the AutoDJ arm; live audio unguarded |
@@ -132,68 +131,65 @@ Audio flows down. Dotted arrows are taps that read the signal without carrying i
   │     │                 ▲                                              │
   │     │                 └── harbor_auth(login) → POST /harbor-auth     │ 119
   │     ▼                                                                │
-  │  live_tagged      metadata.map(insert_missing=true, live_metadata)   │ 344
+  │  live_tagged      metadata.map(insert_missing=true, live_metadata)   │ 363
   │     │             └─ supplies title="Live Broadcast" when none sent  │
   │     ▼                                                                │
-  │  live_raw         buffer(buffer=2., max=10.)                         │ 346
-  │     │                                                                │
-  │     ├╌╌╌╌╌╌╌╌►  silence_watch   blank.detect(15s, -40dB)             │ 372
-  │     │            │ on_blank → notify("live_silent")                  │
-  │     │            │ on_noise → notify("live_audio")      (tap only)   │
+  │  live_raw         buffer(buffer=2., max=10.)                         │ 365
   │     ▼                                                                │
-  │  live             blank.strip(max_blank=15., threshold=-40.)         │ 360
-  │                   └─ goes UNAVAILABLE while silent → fallback demotes│
+  │  live             = live_raw  (no dead-air guard — see 7.7)          │ 385
+  │                   └─ a connected broadcaster holds the fallback,     │
+  │                      making a sound or not                           │
   │                                                                      │
-  │  autodj           request.dynamic(id="playlist_m3u", autodj_next)    │ 443
+  │  autodj           request.dynamic(id="playlist_m3u", autodj_next)    │ 450
   │     │                 ▲                                              │
-  │     │                 └── autodj_next() → GET /next-track            │ 411
+  │     │                 └── autodj_next() → GET /next-track            │ 418
   │     │                                                                │
-  │  jingles          playlist(id="jingles_m3u", "/data/playlists/…")    │ 484
+  │  jingles          playlist(id="jingles_m3u", "/data/playlists/…")    │ 491
   │     │                                                                │
-  │  watermark        playlist(id="watermark", "/data/system")           │ 830
+  │  watermark        playlist(id="watermark", "/data/system")           │ 837
   └──────────────────────────────────────────────────────────────────────┘
 
-  jingle_arm      = source.available(delay(initial=true, jingle_delay,      604
+  jingle_arm      = source.available(delay(initial=true, jingle_delay,      611
                                            jingles), jingle_due)
         │
-  autodj_rotation = fallback(track_sensitive=TRUE, [jingle_arm, autodj])    609
+  autodj_rotation = fallback(track_sensitive=TRUE, [jingle_arm, autodj])    616
         │            └─ TRUE: a due jingle waits for the track to end
         ▼
-  autodj_leveled  = amplify(1., autodj_rotation)                            642
+  autodj_leveled  = amplify(1., autodj_rotation)                            649
         │            └─ per-track liq_amplify; ABOVE cross on purpose
         ▼
-  autodj_faded    = autodj_leveled            (cross() here when enabled)   690
+  autodj_faded    = autodj_leveled            (cross() here when enabled)   697
         ▼
-  autodj_mix      = autodj_faded              (limit() here when !include_live) 717
+  autodj_mix      = autodj_faded              (limit() here when !include_live) 724
         │
-        │   bed = mksafe(blank())                                           720
+        │   bed = mksafe(blank())                                           727
         ▼         │
-  mixed = mksafe(fallback(track_sensitive=FALSE, [live, autodj_mix, bed]))  731
+  mixed = mksafe(fallback(track_sensitive=FALSE, [live, autodj_mix, bed]))  738
         │          └─ FALSE: a broadcaster going live interrupts instantly
         ▼
-  output_source   = rms(duration=2.0, mixed)          ◄── THE TRUTH         752
+  output_source   = rms(duration=2.0, mixed)          ◄── THE TRUTH         759
         │  ╎╎╎
-        │  ╎╎└╌╌► /status           reads .is_ready() .rms() .elapsed()     951
-        │  ╎└╌╌╌► /healthz          reads .is_ready()                      1014
-        │  └╌╌╌╌► .on_metadata(push_now_playing) → POST /now-playing       1083
+        │  ╎╎└╌╌► /status           reads .is_ready() .rms() .elapsed()     958
+        │  ╎└╌╌╌► /healthz          reads .is_ready()                      1022
+        │  └╌╌╌╌► .on_metadata(push_now_playing) → POST /now-playing       1091
         ▼
-  listener_source = replay_jingle_metadata(output_source)  ◄── THE DISPLAY  793
+  listener_source = replay_jingle_metadata(output_source)  ◄── THE DISPLAY  800
         │            └─ replays the last real track's title over a jingle
         ▼
-  broadcast_source= smooth_add(p=watermark_duck, normal=listener_source,    868
+  broadcast_source= smooth_add(p=watermark_duck, normal=listener_source,    875
         │                      special=watermark_arm)
         ▼
-  broadcast_out   = limit(threshold=-1.0, broadcast_source)                 884
+  broadcast_out   = limit(threshold=-1.0, broadcast_source)                 891
         │
-        ├──► output.icecast(%mp3(128k), mount="/stream/test")              1088
-        └──► output.file.hls("/data/hls", 4s segments, [("aac", adts)])    1190
+        ├──► output.icecast(%mp3(128k), mount="/stream/test")              1096
+        └──► output.file.hls("/data/hls", 4s segments, [("aac", adts)])    1198
 ```
 
 ### The one structural idea
 
 Everything above `output_source` answers *"what is this station playing?"*.
 Everything below it answers *"what should a listener see and hear?"*. They are
-not the same sentence, and the file splits at line 752 precisely so they can
+not the same sentence, and the file splits at line 759 precisely so they can
 disagree:
 
 - A **jingle** is genuinely on air, so `/status` must say so — but the listener's
@@ -213,52 +209,51 @@ Every name bound at the top level, in the order the file binds them. `S` = sourc
 
 | Line | Name | Kind | Built from | Read by |
 | --- | --- | --- | --- | --- |
-| 63 | `ice_up` | R bool | — | `/status` 967, `/healthz` 1017, written by 1113/1118/1123 |
+| 63 | `ice_up` | R bool | — | `/status` 974, `/healthz` 1025, written by 1121/1126/1131 |
 | 65 | `post_event` | F | — | `notify`, `notify_live_connected` |
-| 78 | `notify` | F | `post_event` | 101, 102, 317, 377, 378, 1115, 1120, 1126 |
-| 92 | `notify_live_connected` | F | `post_event` | 307 only |
+| 78 | `notify` | F | `post_event` | 101, 102, 318, 1123, 1128, 1134 |
+| 92 | `notify_live_connected` | F | `post_event` | 308 only |
 | 119 | `harbor_auth` | F | — | `input.harbor(auth=…)` 205 |
 | 202 | `live_in` | S fallible | harbor :8090 | `live_tagged`, `broadcaster_attached` |
-| 237 | `live_connected` | R bool | — | `broadcaster_attached` 322 |
-| 271 | `live_header` | F | — | `live_via`, on_connect 311 |
-| 281 | `live_clip` | F | — | on_connect 311 |
-| 289 | `live_via` | F | `live_header` | on_connect 312 |
-| 321 | `broadcaster_attached` | F | `live_connected`, `live_in` | `/status` 971 |
-| 336 | `live_metadata` | F | — | `metadata.map` 344 |
-| 344 | `live_tagged` | S fallible | `live_in` | `live_raw` |
-| 346 | `live_raw` | S fallible | `live_tagged` | `live`, `silence_watch` |
-| 360 | `live` | S fallible | `live_raw` | `mixed` 731, `current_source` 925, `watermark_due` 854 |
-| 372 | `silence_watch` | S fallible | `live_raw` | nothing — exists for its callbacks |
-| 411 | `autodj_next` | F | — | `request.dynamic` 445 |
-| 443 | `autodj` | S fallible | `autodj_next` | `autodj_rotation`, `.on_track` 536 |
-| 484 | `jingles` | S fallible | `jingles.m3u` | `jingle_arm`, `.on_track` 537 |
-| 515–518 | `jingles_enabled` `jingle_by_tracks` `jingle_interval` `jingle_every_tracks` | I | telnet | `jingle_due`, `jingle_delay` |
-| 535 | `tracks_since_jingle` | R int | — | `jingle_due` 601 |
-| 595 | `jingle_delay` | F | `jingle_by_tracks`, `jingle_interval` | `delay()` 605 |
-| 599 | `jingle_due` | F | 3 interactive vars + counter | `source.available` 606 |
-| 604 | `jingle_arm` | S fallible | `jingles` | `autodj_rotation` |
-| 609 | `autodj_rotation` | S fallible | `jingle_arm`, `autodj` | `autodj_leveled` |
-| 642 | `autodj_leveled` | S fallible | `autodj_rotation` | `autodj_faded` |
-| 690 | `autodj_faded` | S fallible | `autodj_leveled` | `autodj_mix` |
-| 717 | `autodj_mix` | S fallible | `autodj_faded` | `mixed` 731, `current_source` 927, `watermark_due` 854 |
-| 720 | `bed` | S **infallible** | `blank()` | `mixed` 731 |
-| 731 | `mixed` | S **infallible** | `live`, `autodj_mix`, `bed` | `output_source` |
-| 752 | `output_source` | S infallible | `mixed` | `/status`, `/healthz`, `on_metadata`, `listener_source` |
-| 778 | `replay_jingle_metadata` | F | — | 793 |
-| 793 | `listener_source` | S infallible | `output_source` | `broadcast_source` |
-| 830 | `watermark` | S fallible | `/data/system` | `watermark_arm` |
-| 844–846 | `watermark_enabled` `watermark_interval` `watermark_duck` | I | telnet | `watermark_due`, `delay`, `smooth_add` |
-| 853 | `watermark_due` | F | `live`, `autodj_mix` | `source.available` 862 |
-| 860 | `watermark_arm` | S fallible | `watermark` | `smooth_add` 872 |
-| 868 | `broadcast_source` | S infallible | `listener_source` + `watermark_arm` | `broadcast_out` |
-| 884 | `broadcast_out` | S infallible | `broadcast_source` | both outputs |
-| 910 | `internal_key_of` | F | — | `authorized` |
-| 917 | `authorized` | F | `internal_key_of` | `/status` 952 |
-| 924 | `current_source` | F | `live`, `autodj_mix` | `/status` 968, `/healthz` 1017 |
-| 947 | `finite` | F | — | `/status` 978, 987 |
-| 1051–1052 | `last_pushed_title` `last_pushed_artist` | R string | — | `push_now_playing` |
-| 1054 | `push_now_playing` | F | the two refs | `on_metadata` 1083 |
-| 1088 | `icecast_out` | output | `broadcast_out` | its own three callbacks |
+| 238 | `live_connected` | R bool | — | `broadcaster_attached` 341 |
+| 272 | `live_header` | F | — | `live_via`, on_connect 312 |
+| 282 | `live_clip` | F | — | on_connect 312 |
+| 290 | `live_via` | F | `live_header` | on_connect 313 |
+| 340 | `broadcaster_attached` | F | `live_connected` | `/status` 979 |
+| 355 | `live_metadata` | F | — | `metadata.map` 363 |
+| 363 | `live_tagged` | S fallible | `live_in` | `live_raw` |
+| 365 | `live_raw` | S fallible | `live_tagged` | `live` |
+| 385 | `live` | S fallible — **alias** of `live_raw` | `live_raw` | `mixed` 738, `current_source` 932, `watermark_due` 861 |
+| 418 | `autodj_next` | F | — | `request.dynamic` 452 |
+| 450 | `autodj` | S fallible | `autodj_next` | `autodj_rotation`, `.on_track` 543 |
+| 491 | `jingles` | S fallible | `jingles.m3u` | `jingle_arm`, `.on_track` 544 |
+| 522–525 | `jingles_enabled` `jingle_by_tracks` `jingle_interval` `jingle_every_tracks` | I | telnet | `jingle_due`, `jingle_delay` |
+| 542 | `tracks_since_jingle` | R int | — | `jingle_due` 608 |
+| 602 | `jingle_delay` | F | `jingle_by_tracks`, `jingle_interval` | `delay()` 612 |
+| 606 | `jingle_due` | F | 3 interactive vars + counter | `source.available` 613 |
+| 611 | `jingle_arm` | S fallible | `jingles` | `autodj_rotation` |
+| 616 | `autodj_rotation` | S fallible | `jingle_arm`, `autodj` | `autodj_leveled` |
+| 649 | `autodj_leveled` | S fallible | `autodj_rotation` | `autodj_faded` |
+| 697 | `autodj_faded` | S fallible | `autodj_leveled` | `autodj_mix` |
+| 724 | `autodj_mix` | S fallible | `autodj_faded` | `mixed` 738, `current_source` 934, `watermark_due` 861 |
+| 727 | `bed` | S **infallible** | `blank()` | `mixed` 738 |
+| 738 | `mixed` | S **infallible** | `live`, `autodj_mix`, `bed` | `output_source` |
+| 759 | `output_source` | S infallible | `mixed` | `/status`, `/healthz`, `on_metadata`, `listener_source` |
+| 785 | `replay_jingle_metadata` | F | — | 793 |
+| 800 | `listener_source` | S infallible | `output_source` | `broadcast_source` |
+| 837 | `watermark` | S fallible | `/data/system` | `watermark_arm` |
+| 851–853 | `watermark_enabled` `watermark_interval` `watermark_duck` | I | telnet | `watermark_due`, `delay`, `smooth_add` |
+| 860 | `watermark_due` | F | `live`, `autodj_mix` | `source.available` 869 |
+| 867 | `watermark_arm` | S fallible | `watermark` | `smooth_add` 879 |
+| 875 | `broadcast_source` | S infallible | `listener_source` + `watermark_arm` | `broadcast_out` |
+| 891 | `broadcast_out` | S infallible | `broadcast_source` | both outputs |
+| 917 | `internal_key_of` | F | — | `authorized` |
+| 924 | `authorized` | F | `internal_key_of` | `/status` 959 |
+| 931 | `current_source` | F | `live`, `autodj_mix` | `/status` 975, `/healthz` 1025 |
+| 954 | `finite` | F | — | `/status` 986, 987 |
+| 1059–1060 | `last_pushed_title` `last_pushed_artist` | R string | — | `push_now_playing` |
+| 1062 | `push_now_playing` | F | the two refs | `on_metadata` 1091 |
+| 1096 | `icecast_out` | output | `broadcast_out` | its own three callbacks |
 
 **Reading the fallibility column.** Liquidsoap's type checker distinguishes
 sources that may have nothing to play (*fallible*) from those that always do
@@ -440,7 +435,7 @@ Get that wrong and every connection attempt is refused with
 
 ---
 
-## 7. Walkthrough: the live input (160–392)
+## 7. Walkthrough: the live input (160–399)
 
 ### 7.1 `live_in` (202–210)
 
@@ -482,33 +477,50 @@ leak protection, a firewall blocking UDP, or symmetric NAT each produced a sessi
 that negotiated successfully and then never carried a byte. A WebSocket reaches
 anyone who can load the studio page.
 
-### 7.2 `live_connected`, and why it is not just `is_ready()` (237)
+### 7.2 `live_connected`, and why it is not just `is_ready()` (238)
 
 ```liquidsoap
 live_connected = ref(false)
 ```
 
-`live` (line 360) is wrapped in `blank.strip`, so a broadcaster who mutes their
-mic is *demoted* — `current_source()` starts answering `"autodj"` while their
-socket is wide open. Anything deciding whether to **stop** a station must be able
-to tell *"nobody is here"* from *"here but quiet"*, because stopping the second is
-yanking a live show off air.
+This flips the instant harbor accepts a connection and back the instant it lets
+go. `current_source()` cannot say `"live"` until the live arm's buffers have
+filled (harbor pre-buffers 12s by default, `buffer()` holds 2s more) and keeps
+saying it until they drain — so it answers *"which arm is feeding the encoder"*,
+never *"is somebody here"*. Anything deciding whether to **stop** a station, or
+what the dashboard should call the station, must read this ref: a DJ on an open
+socket with nothing queued yet is a live show about to start.
 
-So connection is tracked twice, and the reader ORs the two:
+The ref **is** the answer, on its own:
 
 ```liquidsoap
-def broadcaster_attached() =          # 321
-  live_connected() or live_in.is_ready()
+def broadcaster_attached() =          # 340
+  live_connected()
 end
 ```
 
-The ref is driven by in-process callbacks that cannot be lost the way an HTTP
-`notify()` can; `is_ready()` catches anything the ref missed. **The answer fails
-safe: any evidence of a broadcaster reads as connected.** `/status` reports it as
-`broadcaster`, and `StationStatusService::normalize()` maps a missing field to
-`null` — *unknown, do not act* — rather than to `false`.
+It used to be `live_connected() or live_in.is_ready()`, ORed to fail safe, and the
+OR was the bug. `is_ready()` stays true for as long as the live arm still has
+buffered audio to play out — measured at 12.4s on 2.4.5, because `input.harbor`'s
+own `buffer` defaults to 12s and this script does not override it. So the field
+invented to answer *"is a person on air"* **without** the buffer lag carried that
+lag anyway, on the way out: a DJ who pressed Stop was still reported as a
+broadcaster for another twelve seconds, and since their `StreamSession` had
+already closed, the dashboard phrased it as *"Live from another source"*.
 
-### 7.3 Reading headers without leaking a credential (243–303)
+It bought nothing on the way **in**, either. `is_ready()` cannot be true before
+`on_connect` has fired, because harbor pre-buffers first — so the ref *leads*
+readiness by the whole buffer. The tail was the only thing the OR changed.
+
+*"Is live audio still airing?"* is a real and separate question, and `source`
+already answers it: it says `"live"` until the arm actually runs dry.
+
+The ref is driven by in-process callbacks that cannot be lost the way an HTTP
+`notify()` can. `/status` reports it as `broadcaster`, and
+`StationStatusService::normalize()` maps a missing field to `null` — *unknown, do
+not act* — rather than to `false`.
+
+### 7.3 Reading headers without leaking a credential (244–304)
 
 Both ways into harbor arrive with their request headers (harbor.ml:704 for the
 Icecast source protocol, :836 for the webcast WebSocket). They are **the only way
@@ -530,7 +542,7 @@ into Laravel's request log and ship it to Sentry on the next validation error.
 boundary. Never the list.**
 
 ```liquidsoap
-def live_header(headers, label) =                                        # 271
+def live_header(headers, label) =                                        # 272
   normalized = list.map(fun (h) -> (string.case(lower=true, fst(h)), snd(h)), headers)
   string.trim(list.assoc(default="", label, normalized))
 end
@@ -547,7 +559,7 @@ path uses its own spelling. Normalising here is the only lookup that works on bo
 `fst`/`snd` are pair accessors; `list.assoc(default=…, key, list)` is the lookup.
 
 ```liquidsoap
-def live_clip(value) =                                                   # 281
+def live_clip(value) =                                                   # 282
   if string.length(value) > 255 then string.sub(value, start=0, length=255)
   else value end
 end
@@ -558,7 +570,7 @@ substring does not exist, so asking for 255 characters of a 20-character
 user-agent would throw the user-agent away.
 
 ```liquidsoap
-def live_via(headers) =                                                  # 289
+def live_via(headers) =                                                  # 290
   upgrade = string.case(lower=true, live_header(headers, "upgrade"))
   ws_protocol = live_header(headers, "sec-websocket-protocol")
   if string.contains(substring="websocket", upgrade) or ws_protocol != ""
@@ -572,7 +584,7 @@ headers at all** — the right default, since the studio always sends them. The
 variable is named `ws_protocol` and not `protocol` because the latter shadows a
 standard-library binding and Liquidsoap warns about it on every boot.
 
-### 7.4 The connect/disconnect callbacks (305–319)
+### 7.4 The connect/disconnect callbacks (306–320)
 
 ```liquidsoap
 live_in.on_connect(synchronous=false, fun (headers) -> begin
@@ -599,7 +611,7 @@ every listener.
 `live_disconnected` is also, in practice, **the AutoDJ switch**: it is the event
 that marks the moment listeners stopped hearing a human.
 
-### 7.5 Supplying a title nobody sent (332–344)
+### 7.5 Supplying a title nobody sent (351–363)
 
 ```liquidsoap
 def live_metadata(m) =
@@ -620,7 +632,7 @@ makes Liquidsoap synthesise the call at the start of a track that arrived withou
 any. A client that *does* send a title takes the `else` branch untouched, and a
 title arriving later simply replaces this one.
 
-### 7.6 `buffer` (346)
+### 7.6 `buffer` (365)
 
 ```liquidsoap
 live_raw = buffer(buffer=2., max=10., live_tagged)
@@ -630,42 +642,38 @@ Decouples harbor's arrival timing from Liquidsoap's main clock, so a momentary
 hiccup on the broadcaster's side does not underrun the output. 2s nominal, 10s
 before samples are dropped.
 
-### 7.7 The dead-air pair (348–378)
-
-Two operators reading the same signal for two different purposes.
+### 7.7 No dead-air guard (385; was 348–378 before it was removed)
 
 ```liquidsoap
-live = blank.strip(max_blank=15.0, threshold=-40.0, live_raw)             # 360
+live = live_raw
 ```
 
-**`blank.strip` makes the source unavailable** after 15s below −40 dB, which is
-exactly the signal `fallback` needs to demote to AutoDJ on its own. It re-promotes
-as soon as audio returns. Without it, the fallback stays locked on `live` and every
-listener hears nothing while AutoDJ sits idle behind it. The threshold is
-deliberately forgiving — a dramatic pause or a quiet intro must never knock a real
-broadcaster off air.
+The live arm goes straight through. There **used** to be a `blank.strip` here
+(15s below −40 dB made `live` unavailable so `fallback` could demote to AutoDJ)
+with a `blank.detect` tap beside it posting `live_silent` / `live_audio`. Both
+were removed on 2026-09-19.
 
-```liquidsoap
-silence_watch = blank.detect(max_blank=15.0, threshold=-40.0, live_raw)   # 372
-silence_watch.on_blank(synchronous=false, fun () -> notify("live_silent"))
-silence_watch.on_noise(synchronous=false, fun () -> notify("live_audio"))
-```
+The guard answered a question nobody asked and broke the one everybody did.
+*"Is somebody broadcasting?"* and *"is sound coming out of them?"* are different
+questions; folding the second into the fallback made `current_source()` change
+identity underneath a connected DJ, and the dashboard — reading the routing
+decision as the answer to the first question — told people who were on air to go
+on air. On a plan with no AutoDJ arm it demoted silence to silence.
 
-`blank.strip` demotes **silently** — the broadcaster whose mic is muted hears
-AutoDJ take over with no idea why. `blank.detect` watches the same signal without
-touching the audio, purely so we can tell them. It is the one source in this file
-that nothing downstream consumes; it exists for its callbacks. In 2.4 these are
-methods, not constructor arguments — the form the published docs show does not
-compile.
+What it protected against is already covered by harbor's own `timeout`, which
+declares a **stalled** source gone: a sleeping laptop, a wifi handover, a crashed
+encoder. What `blank.strip` uniquely caught was a source still sending healthy
+frames of digital silence — the normal state of a studio whose DJ has not pressed
+play yet.
 
 ---
 
-## 8. Walkthrough: AutoDJ and jingles (394–609)
+## 8. Walkthrough: AutoDJ and jingles (401–616)
 
-### 8.1 `autodj_next` (411–441), and why there is no playlist
+### 8.1 `autodj_next` (418–448), and why there is no playlist
 
 This is the most consequential design decision in the file, and the comment above
-it (380–410) is the argument.
+it (387–417) is the argument.
 
 The obvious shape is `playlist("playlist.m3u")`, and it *was*, until the reload it
 requires was measured on 2.4.5: **after `playlist_m3u.reload` the list restarts at
@@ -720,7 +728,7 @@ seconds for the life of every live-only station.
 The returned string is a Liquidsoap `annotate:` URI built by
 `PlaylistFileWriter::annotateTrack()` — see [§13.5](#135-the-annotation-contract).
 
-### 8.2 `autodj` and the skip command (443–459)
+### 8.2 `autodj` and the skip command (450–466)
 
 ```liquidsoap
 autodj = request.dynamic(id = "playlist_m3u", retry_delay = { 10.0 }, autodj_next)
@@ -747,7 +755,7 @@ is registered here and pointed at the source's own `skip()`. Verified over telne
 without this the command answers *"unknown command"* and skip-track silently does
 nothing.
 
-### 8.3 `jingles` (461–490)
+### 8.3 `jingles` (468–497)
 
 ```liquidsoap
 jingles = playlist(id = "jingles_m3u", "/data/playlists/jingles.m3u",
@@ -780,7 +788,7 @@ jingles on.** Measured on 2.4.5: a station whose `jingles.m3u` is empty logs thr
 lines at boot and nothing ever again. `on_fail` does not fire, because nothing
 pulls from a source the fallback never selects.
 
-### 8.4 Interactive variables (515–518)
+### 8.4 Interactive variables (522–525)
 
 ```liquidsoap
 jingles_enabled    = interactive.bool("jingles_enabled", false)
@@ -815,7 +823,7 @@ Verified on 2.4.5: a station booted with jingles off and a 600s interval, switch
 on at 5s over telnet, played its next jingle at the following track boundary with
 no restart and no gap.
 
-### 8.5 The counter (522–537)
+### 8.5 The counter (529–544)
 
 ```liquidsoap
 tracks_since_jingle = ref(0)
@@ -837,7 +845,7 @@ mark that triggered them: the fallback re-evaluates availability at that same
 boundary, and a counter updated on a separate task can arrive after the decision it
 was supposed to inform.
 
-### 8.6 Jingle scheduling: one graph, two gates (539–609)
+### 8.6 Jingle scheduling: one graph, two gates (546–616)
 
 This is the subtlest mechanism in the file. There are two ways to space jingles and
 the owner picks one per station:
@@ -853,16 +861,16 @@ switchable at runtime; a graph that changed shape per mode could only change by
 restarting the container.
 
 ```liquidsoap
-def jingle_delay() =                                                      # 595
+def jingle_delay() =                                                      # 602
   if jingle_by_tracks() then 0.0 else jingle_interval() end
 end
 
-def jingle_due() =                                                        # 599
+def jingle_due() =                                                        # 606
   jingles_enabled()
   and (not jingle_by_tracks() or tracks_since_jingle() >= jingle_every_tracks())
 end
 
-jingle_arm = source.available(                                            # 604
+jingle_arm = source.available(                                            # 611
   delay(initial=true, jingle_delay, jingles),
   jingle_due
 )
@@ -895,7 +903,7 @@ The "only switch at a track boundary" guarantee comes from the fallback below,
 which is where it belongs:
 
 ```liquidsoap
-autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])  # 609
+autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])  # 616
 ```
 
 **That flag defers the SWITCH; the other one deferred the QUESTION.** A jingle
@@ -907,7 +915,7 @@ The only thing lost by evaluating the predicate continuously is that switching
 jingles off *mid-jingle* now cuts it short rather than letting it finish — a fair
 reading of "off".
 
-Contrast [`mixed` at 731](#93-the-audio-brain-718731), which is deliberately
+Contrast [`mixed` at 731](#93-the-audio-brain-725738), which is deliberately
 `track_sensitive=false`: a human going live **should** interrupt instantly rather
 than wait out a five-minute track. The two flags are opposite because the two
 questions are opposite.
@@ -917,9 +925,9 @@ rotation just falls through to the silence bed.
 
 ---
 
-## 9. Walkthrough: level, transition, mix (611–752)
+## 9. Walkthrough: level, transition, mix (618–759)
 
-### 9.1 `amplify` (611–642)
+### 9.1 `amplify` (618–649)
 
 ```liquidsoap
 autodj_leveled = amplify(1., autodj_rotation)
@@ -956,7 +964,7 @@ ID recorded on a phone should not be the loudest thing on the station.
 `LIQUIDSOAP_APPLY_AMPLIFY=false` removes the operator and the whole library plays at
 its original levels, with any `liq_amplify` annotation inert.
 
-### 9.2 `autodj_faded` and `autodj_mix`: two flag seams (644–717)
+### 9.2 `autodj_faded` and `autodj_mix`: two flag seams (651–724)
 
 In this render both lines are pass-throughs:
 
@@ -965,7 +973,7 @@ autodj_faded = autodj_leveled     # 690  crossfade disabled
 autodj_mix   = autodj_faded       # 717  limiter is at the bottom instead
 ```
 
-**With `crossfade_enabled=true`**, line 690 becomes a ~90-line `cross.smart` port
+**With `crossfade_enabled=true`**, line 697 becomes a ~90-line `cross.smart` port
 from AzuraCast. The point of it is that it does *not* always overlap: it compares
 the loudness of outgoing and incoming tracks and only fades when the result will
 not turn to mush.
@@ -1002,17 +1010,17 @@ would duck every transition by 6 dB. And reading `a.metadata` is not just the
 jingle check — `cross()` only exposes that field when the script references it, and
 the type checker needs to see that happen.
 
-**With `limiter_include_live=false`**, line 717 becomes
+**With `limiter_include_live=false`**, line 724 becomes
 `autodj_mix = limit(threshold=-1.0, autodj_faded)` and the limiter at 884
 disappears. That is the *previous* behaviour, kept as a rollback: it left live audio
 reaching the encoders unguarded, which was a hole exactly the size of the problem
 the limiter was there to solve.
 
-### 9.3 The audio brain (718–731)
+### 9.3 The audio brain (725–738)
 
 ```liquidsoap
-bed = mksafe(blank())                                                     # 720
-mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))   # 731
+bed = mksafe(blank())                                                     # 727
+mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))   # 738
 ```
 
 Priority is positional: **live > autodj > bed**. `track_sensitive=false` means a
@@ -1026,10 +1034,10 @@ always available, because `fallback()` is conservatively typed as fallible.
 
 **Nothing further processes the mix**, and source switches are hard cuts by design.
 Fading between live and AutoDJ would mean fading live audio, which is the source
-leak described in [§9.2](#92-autodj_faded-and-autodj_mix-two-flag-seams-644717). A
+leak described in [§9.2](#92-autodj_faded-and-autodj_mix-two-flag-seams-651724). A
 broadcaster dropping off air should cut to AutoDJ.
 
-### 9.4 `rms` (733–752)
+### 9.4 `rms` (740–759)
 
 ```liquidsoap
 output_source = rms(duration=2.0, mixed)
@@ -1044,7 +1052,7 @@ Two rules:
 
 - **Inserted once, here, as a permanent operator.** `/status` then just reads the
   float it maintains. It must never be applied per request — that is exactly the
-  mistake `playlist_length`/`up_next` made (see [§11.3](#113-status-9511012)).
+  mistake `playlist_length`/`up_next` made (see [§11.3](#113-status-9581020)).
 - **`duration` is both the averaging window and the update interval.** Verified
   against the image rather than assumed: `rms()` reports `0.0` until the first
   window completes, then refreshes once per window. Keep it short enough that any
@@ -1053,9 +1061,9 @@ Two rules:
 
 ---
 
-## 10. Walkthrough: the display split and watermark (754–890)
+## 10. Walkthrough: the display split and watermark (761–897)
 
-### 10.1 `replay_jingle_metadata` (754–793)
+### 10.1 `replay_jingle_metadata` (761–800)
 
 From here down the graph splits in two, and the split is the point. `output_source`
 stays **the truth**; `listener_source` carries **what a player should display**.
@@ -1097,7 +1105,7 @@ Verified on 2.4.5 with two annotated playlists and a listener on each stream:
 through two jingles, the truth stream reported "Station ID" and the listener stream
 held "Real Song" without a flicker.
 
-### 10.2 The watermark clips (795–846)
+### 10.2 The watermark clips (802–853)
 
 ```liquidsoap
 watermark = playlist(id = "watermark", "/data/system", mode = "randomize",
@@ -1120,7 +1128,7 @@ re-render rather than a container recreate. `ReloadWatermarkClips` sends
 `watermark.reload` over telnet when an admin changes the library.
 
 ```liquidsoap
-watermark_enabled  = interactive.bool("watermark_enabled", false)          # 844
+watermark_enabled  = interactive.bool("watermark_enabled", false)          # 851
 watermark_interval = interactive.float("watermark_interval", 600.0)
 watermark_duck     = interactive.float("watermark_duck", 0.150)
 ```
@@ -1130,7 +1138,7 @@ Interactive for the same reason the jingle settings are, plus a commercial one:
 dropping the listeners the owner just paid to keep.
 `LiquidsoapSupervisor::applyWatermarkSettings()` (`:707`) sends all three.
 
-### 10.3 `watermark_due` and the arm (848–866)
+### 10.3 `watermark_due` and the arm (855–873)
 
 ```liquidsoap
 def watermark_due() =
@@ -1153,7 +1161,7 @@ Not `track_sensitive`, for the jingle reason plus one of its own: a watermark ri
 *on top* rather than replacing a track, so it has no boundary to wait for — and on a
 live stream there are none anyway.
 
-### 10.4 `smooth_add` (848–876), and why an operator is allowed on the live path
+### 10.4 `smooth_add` (855–883), and why an operator is allowed on the live path
 
 ```liquidsoap
 broadcast_source = smooth_add(duration = 1.0, p = watermark_duck,
@@ -1189,7 +1197,7 @@ and the now-playing push both read it and should keep reporting what the *statio
 playing — a platform ID is not the station's now-playing, and routing it through here
 would also risk the clip's own metadata overwriting a real track title.
 
-### 10.5 `limit` (878–884)
+### 10.5 `limit` (885–891)
 
 ```liquidsoap
 broadcast_out = limit(threshold=-1.0, broadcast_source)
@@ -1207,9 +1215,9 @@ what is playing, then decide how loud it may be"*.
 
 ---
 
-## 11. Walkthrough: the control surface (892–1000)
+## 11. Walkthrough: the control surface (899–1008)
 
-### 11.1 Why serve instead of push (892–908)
+### 11.1 Why serve instead of push (899–915)
 
 Liquidsoap knows things Laravel can only infer: what is playing right now, how far
 into it we are, which source won the fallback, and whether the graph is actually
@@ -1221,15 +1229,15 @@ to keep in sync.
 Both endpoints are on harbor's HTTP server, port 8080 inside the container, reachable
 only over `gocast-network` — the same exposure as telnet.
 
-### 11.2 Auth helpers and `current_source` (910–949)
+### 11.2 Auth helpers and `current_source` (917–956)
 
 ```liquidsoap
-def internal_key_of(req) =                                                # 910
+def internal_key_of(req) =                                                # 917
   lower = req.headers["x-internal-key"]
   if lower != "" then lower else req.headers["X-Internal-Key"] end
 end
 
-def authorized(req) = internal_key_of(req) == "dev-internal-key" end      # 917
+def authorized(req) = internal_key_of(req) == "dev-internal-key" end      # 924
 ```
 
 Harbor lowercases incoming header names, but — as §7.3 established the hard way —
@@ -1238,7 +1246,7 @@ standard library already binds `request` at the top level and shadowing it warns
 every boot.
 
 ```liquidsoap
-def current_source() =                                                    # 924
+def current_source() =                                                    # 931
   if live.is_ready() then "live"
   elsif autodj_mix.is_ready() then "autodj"
   else "silence" end
@@ -1246,12 +1254,13 @@ end
 ```
 
 Derived from readiness **in the same priority order `fallback()` itself uses**, so it
-cannot drift from what listeners hear. Note it reads `live` (post-`blank.strip`), so a
-muted broadcaster reports `"autodj"` — which is correct for "what is audible" and
-wrong for "is anyone connected". That second question is `broadcaster_attached()`.
+cannot drift from what listeners hear. Note it lags the connection by the live arm's
+buffers, so a broadcaster who has just connected, or has nothing queued, reports
+`"autodj"` — which is correct for "what is audible" and wrong for "is anyone
+connected". That second question is `broadcaster_attached()`.
 
 ```liquidsoap
-def finite(x) =                                                           # 947
+def finite(x) =                                                           # 954
   if float.is_nan(x) or float.is_infinite(x) then -1. else x end
 end
 ```
@@ -1269,7 +1278,7 @@ playlist and an offline broadcaster.
 `-1` rather than `null` because `StationStatusService::normalize()` already maps
 negative durations to null, so this stays one convention for "unknown".
 
-### 11.3 `/status` (951–1012)
+### 11.3 `/status` (958–1020)
 
 ```liquidsoap
 harbor.http.register(port=8080, method="GET", "/status", fun (req, response) ->
@@ -1301,8 +1310,9 @@ Three of these exist because they are *not* the same question as their neighbour
 - **`ready` vs `icecast`.** If Icecast rejects the source (bad password, Icecast
   down) the graph is perfectly ready and the mount does not exist. Reporting both is
   what lets Laravel tell *"on air"* from *"playing to nobody"*.
-- **`broadcaster` vs `source == "live"`.** The latter goes false the moment
-  `blank.strip` demotes a muted mic.
+- **`broadcaster` vs `source == "live"`.** The former flips the instant harbor
+  accepts or drops the connection; the latter lags it by the live arm's buffers
+  in both directions and describes an arm, not a person.
 - **`rms` vs `source`.** `0.0` with no broadcaster and no rotation means the silence
   bed; `0.0` *with* a rotation means the rotation is broken.
 
@@ -1340,7 +1350,7 @@ send an operator looking in the wrong place. Containers predating the field repo
 `null`, which is read as "trust the old behaviour" rather than marking the whole
 fleet degraded mid-rollout.
 
-### 11.4 `/healthz` (1014–1020)
+### 11.4 `/healthz` (1022–1028)
 
 ```liquidsoap
 harbor.http.register(port=8080, method="GET", "/healthz", fun (_, response) ->
@@ -1373,9 +1383,9 @@ a secret is a healthcheck that breaks when the secret rotates.
 
 ---
 
-## 12. Walkthrough: outputs (1002–1199)
+## 12. Walkthrough: outputs (1010–1207)
 
-### 12.1 The now-playing push (1002–1083)
+### 12.1 The now-playing push (1010–1091)
 
 ```liquidsoap
 last_pushed_title  = ref("")
@@ -1415,7 +1425,7 @@ of when the track actually changed.
 
 `synchronous=false` for the usual reason: this does HTTP.
 
-### 12.2 Icecast (1085–1129)
+### 12.2 Icecast (1093–1137)
 
 ```liquidsoap
 icecast_out = output.icecast(
@@ -1448,7 +1458,7 @@ enough not to hammer a restarting Icecast, short enough that a blip costs listen
 seconds rather than minutes. That retry is also the reason `/healthz` can afford to
 ignore Icecast entirely.
 
-### 12.3 HLS (1131–1199)
+### 12.3 HLS (1139–1207)
 
 ```liquidsoap
 output.file.hls("/data/hls",
@@ -1550,7 +1560,6 @@ the rendered file carries initial values read from the station row, and why
 | --- | --- | --- | --- |
 | `harbor_auth` | 205 | n/a — blocking by contract | the answer gates the connection; one request per attempt is cheap |
 | `live_in.on_connect` / `on_disconnect` | 305, 315 | **false** | does HTTP |
-| `silence_watch.on_blank` / `on_noise` | 377, 378 | **false** | does HTTP |
 | `autodj.on_track` / `jingles.on_track` | 536, 537 | **true** | one integer assignment, and must be *ordered* before the fallback re-evaluates at that same boundary |
 | `output_source.on_metadata` | 1083 | **false** | does HTTP |
 | `icecast_out.on_connect` / `on_disconnect` / `on_error` | 1113–1123 | **false** | does HTTP |
@@ -1571,11 +1580,11 @@ Four endpoints, one shared secret (`X-Internal-Key`, matched against
 | Endpoint | Method | Called from | When | On failure |
 | --- | --- | --- | --- | --- |
 | `/api/internal/harbor-auth` | POST | `harbor_auth` 119 | every connection attempt | **fail closed** + `log.severe` |
-| `/api/internal/next-track?slug=` | GET | `autodj_next` 411 | whenever the rotation needs a track | `null` → source unavailable → silence bed; `log.severe` unless 204 |
-| `/api/internal/now-playing` | POST | `push_now_playing` 1054 | distinct, non-jingle metadata change | ignored — Laravel keeps the stale Redis value |
+| `/api/internal/next-track?slug=` | GET | `autodj_next` 418 | whenever the rotation needs a track | `null` → source unavailable → silence bed; `log.severe` unless 204 |
+| `/api/internal/now-playing` | POST | `push_now_playing` 1062 | distinct, non-jingle metadata change | ignored — Laravel keeps the stale Redis value |
 | `/api/internal/station-event` | POST | `post_event` 65 | the nine events below | ignored — reconcile/sweep are the backstop |
 
-The nine events:
+The seven events:
 
 | Event | Line | Meaning |
 | --- | --- | --- |
@@ -1583,8 +1592,6 @@ The nine events:
 | `shutdown` | 102 | clean SIGTERM; absent on a wedge or SIGKILL |
 | `live_connected` | 307 | broadcaster accepted — **carries `client` and `via`** |
 | `live_disconnected` | 317 | socket closed; in practice *this is the AutoDJ switch* |
-| `live_silent` | 377 | 15s under −40 dB — the broadcaster is demoted but still attached |
-| `live_audio` | 378 | audio returned |
 | `icecast_connected` | 1115 | listeners can hear this station |
 | `icecast_disconnected` | 1120 | mount lost — `/status` will report `degraded` |
 | `icecast_error` | 1126 | connection failed; retrying in 5s |
@@ -1624,8 +1631,8 @@ annotate:jingle="true",liq_amplify="-3.2dB",liq_cue_in="0.4",duration="184.740",
 
 | Key | Read by | Notes |
 | --- | --- | --- |
-| `jingle` | **this script** — `jingle_due` bookkeeping, `replay_jingle_metadata` 782, `push_now_playing` 1055, and the crossfade's first branch | ours; the one annotation with no display meaning |
-| `liq_amplify` | **Liquidsoap** — `amplify()` 642 via `settings.amplify.override` | must carry a `dB` suffix |
+| `jingle` | **this script** — `jingle_due` bookkeeping, `replay_jingle_metadata` 789, `push_now_playing` 1063, and the crossfade's first branch | ours; the one annotation with no display meaning |
+| `liq_amplify` | **Liquidsoap** — `amplify()` 649 via `settings.amplify.override` | must carry a `dB` suffix |
 | `liq_cue_in` / `liq_cue_out` | **Liquidsoap** — the cue-point machinery | trims measured silence off the head and tail |
 | `duration` | Liquidsoap | lets `remaining()` be right before the decoder knows |
 | `title` / `artist` | display, and `/status` | escaped by `escapeAnnotateValue()` |
@@ -1642,7 +1649,8 @@ it is worth stating twice because nothing errors when you get it wrong.
 | Laravel unreachable | healthy | reachable, `rms` may be 0 | `on-air` — **looks fine** | silence bed; no broadcaster can connect |
 | Library empty, nobody live | healthy | `source: "silence"`, `rms: 0.0` | `on-air` | silence bed |
 | Rotation files undecodable | healthy | `source: "autodj"`, `rms: 0.0` | `on-air` | silence — **`rms` is the only tell** |
-| Broadcaster mutes mic | healthy | `source: "autodj"`, `broadcaster: true` | `on-air` | AutoDJ; `live_silent` event fires |
+| Broadcaster mutes mic | healthy | `source: "live"`, `broadcaster: true` | `live` | silence — the broadcaster holds the fallback |
+| Broadcaster connected, nothing queued yet | healthy | `source: "autodj"`, `broadcaster: true` | `on-air` | AutoDJ until the live arm's buffer fills |
 | Broadcaster's laptop sleeps | healthy | `broadcaster: true` for up to 10s | `live` then `on-air` | AutoDJ after the harbor timeout |
 | Icecast down | healthy, **`/healthz` still 200** | `icecast: false` | `degraded` | Icecast listeners silent; HLS unaffected |
 | Audio graph not ready | `/healthz` 503 | `ready: false` | `starting` | nothing |

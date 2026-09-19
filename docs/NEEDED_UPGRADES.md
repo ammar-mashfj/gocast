@@ -3,9 +3,25 @@
 Written 2026-08-18, after moving the AutoDJ rotation off `playlist()` and onto
 `request.dynamic`.
 
-This is a planning document, not a runbook. Nothing here is built. It records
-what is missing, why each item matters, and — where it was measured rather than
-assumed — the evidence behind the claim.
+This is a planning document, not a runbook. It records what is missing, why
+each item matters, and — where it was measured rather than assumed — the
+evidence behind the claim.
+
+**Reconciled against the code on 2026-09-19.** The original text claimed
+nothing here was built; that is no longer true, so every section now opens with
+a status line. Summary:
+
+| § | Item | Status |
+|---|------|--------|
+| 0 | `track_plays` history table | **Open** — still the prerequisite |
+| 1 | Now-playing push | **Half built** — owner-side only, and the transport went to Pusher, not SSE |
+| 2 | Playlists and scheduling | **Open** for playback; an announcement-only schedule table now exists |
+| 3 | Embeddable player | **Built** 2026-09-08 |
+| 4 | Analytics | **Largely built** 2026-08-30/09-01; only the per-song half is left, and it needs §0 |
+
+Two appendix items (cue points, loudness normalization) also shipped — see the
+appendix. Section bodies below are the original analysis and are left intact
+where they are still correct; corrections are marked **Update (2026-09-19)**.
 
 ---
 
@@ -42,6 +58,15 @@ what makes the rest of this document possible.
 
 ## 0. Prerequisite: a play history table
 
+**Status (2026-09-19): open, and now the only thing blocking per-song
+reporting.** No `track_plays` migration, model or reference exists anywhere in
+the code. Everything below still stands as written, with one thing sharpened:
+the rest of the analytics stack landed without it (see §4), so this table's
+remaining job is narrower and more specific than it was in August — per-song
+performance, most/least played, never-played. The duplicate-prevention argument
+also softened, because the shuffled deck now solves ordinary repeats without a
+history; see the Update in the bullet below.
+
 **Build this first, whatever else you pick.** Two of the four items below need
 it, and it is the smallest thing on the list.
 
@@ -56,6 +81,16 @@ serves:
 - **Duplicate prevention** in the scheduler (no same song within N tracks, no
   same artist back to back), which is most of what makes a rotation sound
   professional rather than mechanical.
+
+  **Update (2026-09-19):** partly solved another way. `AutoDjScheduler` now
+  deals from a stored shuffled deck — a random permutation of the whole
+  rotation, consumed one card at a time (`AutoDjScheduler::advanceShuffled`
+  and `::deal`, `api/app/Services/AutoDjScheduler.php:100`). That guarantees no repeat until the rotation is
+  exhausted, which is *stronger* than "no same song within N tracks". What a
+  history would still add is artist-level spacing and weighting, and it would
+  let the deck-seam hack (`avoidHead`) be replaced by a real lookback. So this
+  bullet is a refinement now, not a fix — which is why §0 is no longer urgent
+  on rotation-quality grounds alone.
 - **Every analytics feature** in section 4.
 
 Two features, one table, no new plumbing.
@@ -70,7 +105,36 @@ disagree by one track, and on a container restart by one skipped track.
 
 ## 1. Now-playing push
 
-**Status: called a must. The hard half is already done.**
+**Status (2026-09-19): half built, and the transport decision went the other
+way.** Broadcasting infrastructure now exists and is wired end to end —
+`api/config/broadcasting.php` (Pusher protocol, Reverb-compatible, with a
+`log` driver as the kill switch tests run against), `client/lib/echo.ts` and
+`client/contexts/RealtimeContext.tsx`. But there is exactly one event,
+`StationStateChanged` (`api/app/Events/StationStateChanged.php`), it broadcasts
+as `station.state` on `PrivateChannel('user.'.$userId)`, and it carries
+on/off lifecycle state — not track metadata. That serves the **owner's
+dashboard**, not listeners.
+
+So of the two legs described below:
+
+- **Owner leg: done.** `client/hooks/useStationStatus.ts` subscribes and falls
+  back to adaptive polling when the socket is down.
+- **Listener leg: still open.** The public player still polls —
+  `client/hooks/usePublicStationStats.ts:19`, `POLL_MS = 10_000`. Every
+  listener of a station computes its own feed, which is the exact fan-out shape
+  this section warned against.
+- **"Up next": still not exposed anywhere.** This remains the most valuable
+  part of the item and the cheapest now that the transport exists.
+
+**Correction to the recommendation below:** the doc argued for SSE. The project
+chose the Pusher protocol instead, and the private per-user channel for the
+owner's dashboard is a good reason for that choice (SSE would have needed a
+separate auth story). Read the SSE-vs-WebSocket comparison below as history;
+the open question is no longer *which transport* but *which channel* the public
+now-playing feed rides on — it wants a **public** per-station channel, not the
+private per-user one that exists.
+
+**Original status: called a must. The hard half is already done.**
 
 The client currently polls for now-playing. That is the wrong shape and it is
 also unnecessary work: the station container already pushes to
@@ -104,6 +168,22 @@ correct upstream, so this is a matter of not undoing them.
 ---
 
 ## 2. Playlists and scheduling
+
+**Status (2026-09-19): still the largest functional gap. Nothing here drives
+playback.** One thing changed that this section's "What exists today" no longer
+accounts for: a `station_schedules` table now exists
+(`api/database/migrations/2026_09_11_100100_create_station_schedules_table.php`)
+— `days` (JSON), `start_time`, `label`, `position` — with an editor at
+`client/app/dashboard/stations/[slug]/ScheduleEditor.tsx` and a public render
+at `client/app/station/[slug]/ScheduleBlock.tsx`.
+
+**It is announcement-only, and deliberately so.** It is the DJ's published
+claim about when they are usually on air. Its only consumer in PHP is
+`Station::schedules()` (`api/app/Models/Station.php:441`); `AutoDjScheduler`
+does not read it and nothing switches audio on it. It is the "cheap version"
+from `USER-FLOW-UPGRADES.md` §4, not this section. Do not let its existence
+suggest this item is underway — but *do* reuse its table shape if the full
+version is built, rather than inventing a second one.
 
 **The largest functional gap, and the one the refactor was for.**
 
@@ -197,7 +277,20 @@ understand — unlike storage caps, which they have to be taught to care about.
 
 ## 3. Embeddable player
 
-**Status: agreed.**
+**Status (2026-09-19): BUILT, 2026-09-08.** `client/app/embed/[slug]/page.tsx`
+and `EmbedPlayer.tsx`, gated on an `embed_enabled` plan column (Pro only; a
+free station's `/embed` URL 404s). The requirements list below was met except
+for one item, which is still outstanding:
+
+- **Now-playing over the channel from §1** — not done. The embed shares the
+  polling path with the main player, so the multiplication warned about below
+  is real. It is the strongest remaining argument for finishing §1's listener
+  leg.
+
+Kept in this document rather than deleted because the free-tier branding
+reasoning in the last paragraph is still the live rationale for that gate.
+
+**Original status: agreed.**
 
 An iframe or script snippet a station drops onto their own website. Public
 station pages exist at `/station/[slug]`; the embed is the thing that travels —
@@ -222,7 +315,29 @@ rides over live speech).
 
 ## 4. Analytics
 
-**Status: agreed. Mostly queries over data we nearly have.**
+**Status (2026-09-19): largely BUILT, 2026-08-30 to 2026-09-01.** The listener
+side shipped on its own data model rather than on `track_plays`:
+`listener_sessions`, `listener_stats_hourly` and `listener_geo_daily`
+(migrations 2026_08_30_1200*), rolled up by `RollupListenerStats` /
+`SyncListenerCounts` / `SweepListenerSessions`, served by `AudienceController`,
+and gated for display by the `analytics_days` plan column.
+
+Against the list below:
+
+- **Listeners over time** — built.
+- **Peak concurrent listeners** — built.
+- **Client and geographic breakdown** — table exists; geo still needs
+  Cloudflare headers to be populated.
+- **Per-song performance** — **open**, needs §0.
+- **Most/least played, never-played** — **open**, needs §0.
+
+So this section is now *only* the two per-song items, and §0 is the whole of
+what stands between here and them. The sales-surface note in the last paragraph
+has also moved on: listener-hour metering was dropped from the pricing model,
+so peak concurrent listeners is the number that matters there, not
+listener-hours.
+
+**Original status: agreed. Mostly queries over data we nearly have.**
 
 `StreamSession` already records broadcast sessions for billing, and listener
 counts are synced. What is missing is history and reporting. With `track_plays`
@@ -252,14 +367,20 @@ Recorded so the decisions are deliberate rather than accidental.
 
 **Content handling**
 
-- Per-track **cue points and fades** (`liq_cue_in` / `liq_cue_out` /
-  `liq_fade_in` / `liq_fade_out`) — trim dead air off a file without
-  re-encoding. The `.liq` already enables `cue_in_metadata`; nothing populates
-  it.
-- **Loudness normalization** — per-track LUFS analysis and amplification to a
-  target, so tracks do not jump in volume. The template deliberately refuses
-  `normalize()` because it is an AGC that makes the volume breathe; this is the
-  correct version of that idea, and the image supports autocue for it.
+- ~~Per-track **cue points and fades**~~ — **BUILT, 2026-08-18** (the same day
+  this document was written). `TrackAnalyzer` populates `cue_in_seconds` /
+  `cue_out_seconds` on `tracks`
+  (`api/database/migrations/2026_08_18_234430_add_analysis_to_tracks_table.php`)
+  and `PlaylistFileWriter` emits them as `liq_cue_in` / `liq_cue_out`
+  (`api/app/Services/PlaylistFileWriter.php:318`). `liq_fade_in` /
+  `liq_fade_out` are still unpopulated.
+- ~~**Loudness normalization**~~ — **BUILT, 2026-08-18.** `loudness_lufs` and
+  `true_peak_db` are analyzed per track and turned into a `liq_amplify`
+  annotation against a target
+  (`api/app/Services/PlaylistFileWriter.php:338`), which is exactly the
+  "correct version of that idea" this bullet asked for — the template still
+  refuses `normalize()`. An un-analyzed file carries no annotation and plays as
+  before.
 - Album art extraction, duplicate detection, folder-based media browsing.
 
 **Listener requests** — a public request endpoint with per-song and per-requester
@@ -284,11 +405,38 @@ product inside AzuraCast, not a feature. Decide deliberately.
 
 **Ops** — scheduled backups, and remote storage backends (S3/SFTP) so media is
 not stranded on the box. Relevant given the storage caps were sized against a
-160 GB disk.
+160 GB disk. **Update (2026-09-19):** scheduled backups are
+addressed in substance — `backup.sh` at the repo root dumps MySQL and the
+uploads to S3/R2/B2 nightly, and `deploy-native.sh` takes a local gzipped
+`mysqldump` before any migration and refuses to migrate without one. The gap
+left is installation, not code: nothing in the repo schedules `backup.sh` (no
+timer unit, no mention in `setup-native.sh`), so its cron line lives only in
+its own header comment. Remote storage for *media* is still open — that is a
+separate question from backups, and the storage caps are still sized against
+the box's disk.
 
 ---
 
 ## Suggested order
+
+**Superseded — rewritten 2026-09-19.** Three of the five steps below are done
+or partly done. The original is kept underneath for the record.
+
+1. **Finish §1's listener leg** — a public per-station channel carrying the
+   current and next track. The transport, the client wiring and the
+   metadata hook all exist; this is the largest visible win for the least new
+   code, and it is the one outstanding requirement of the shipped embed.
+2. **`track_plays`** (§0) — half a day. Not urgent on rotation-quality grounds
+   any more (the shuffled deck covers that), and its analytics payoff scales
+   with how much is actually going to air. The argument for doing it sooner
+   rather than later is only that history cannot be backfilled, so the trigger
+   is real broadcast volume, not a date.
+3. **Per-song reporting** (§4, remainder) — follows §0 directly and is the
+   only part of analytics still missing.
+4. **Playlists** (§2) — unchanged: the largest piece of work and the largest
+   gap. Reuse `station_schedules` rather than adding a second schedule table.
+
+### Original order, as written 2026-08-18
 
 1. **`track_plays`** (§0) — unblocks two of the four, smallest item on the list.
 2. **Now-playing push** (§1) — the hard half is already built; this is the
@@ -302,6 +450,12 @@ not stranded on the box. Relevant given the storage caps were sized against a
 ---
 
 ## Provenance
+
+**Reconciliation pass, 2026-09-19.** Every status line added above was read out
+of the code, not inferred: migrations listed in full, `AutoDjScheduler` and
+`StationStateChanged` read end to end, and the absence of `track_plays`
+confirmed by grepping the whole tree rather than by listing migrations alone.
+The original provenance for the August analysis follows.
 
 Claims about Liquidsoap behaviour in "Why now" were measured against the real
 `gocast/liquidsoap:latest` image on 2026-08-18, not taken from documentation:

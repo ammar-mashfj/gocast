@@ -44,6 +44,32 @@ class StationFactory extends Factory
     }
 
     /**
+     * A station whose owner may actually run a rotation.
+     *
+     * AutoDjScheduler::next() returns null for anyone else, so a test about
+     * ordering, cursors or annotations built on a default station is a test
+     * about silence. The default is free because `users.plan_id` defaults to
+     * the free row — see UserFactory::onPlan().
+     *
+     * Skipped when the caller supplies their own owner with `for()`: that test
+     * is choosing the plan itself.
+     *
+     * The guard is load-bearing, not politeness. Laravel PREPENDS the `for()`
+     * resolvers to the state list (Factory::getRawAttributes) and then reduces
+     * left to right, so a state that sets `user_id` unconditionally wins over
+     * an owner the caller named — in either call order. Without this, a test
+     * written as `->for($user)->withAutoDj()` silently gets a station somebody
+     * else owns, and every assertion it makes about $user is about the wrong
+     * row.
+     */
+    public function withAutoDj(): static
+    {
+        return $this->state(fn () => $this->for->isNotEmpty() ? [] : [
+            'user_id' => User::factory()->onPlan('pro'),
+        ]);
+    }
+
+    /**
      * A station in the admin-curated rail.
      *
      * Sets `featured_at` alongside the flag, the way Station::markFeatured()

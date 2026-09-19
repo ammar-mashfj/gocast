@@ -4,17 +4,38 @@ Written 2026-09-10, after walking both flows end to end against the code:
 broadcaster (signup → station → preflight → studio → stop → share) and
 listener (link → play → save → notify).
 
-This is a planning document, not a runbook. Nothing here is built. It is
-deliberately **not** a quality review — the code it describes is well
-reasoned and heavily commented. Every item below is a gap in the *flow*: a
-place where the product stops the user rather than carries them.
+This is a planning document, not a runbook. It is deliberately **not** a
+quality review — the code it describes is well reasoned and heavily
+commented. Every item below is a gap in the *flow*: a place where the product
+stops the user rather than carries them.
+
+**Reconciled against the code on 2026-09-19**, fifteen commits past the
+baseline below. The original text claimed nothing here was built; two items
+have since shipped:
+
+| § | Item | Status |
+|---|------|--------|
+| 1 | Shared link is a dead end off air | **Open** |
+| 2 | Nothing survives a broadcast | **Open** — four decisions still unanswered |
+| 3 | External encoders unreachable | **Built** 2026-09-15 |
+| 4 | No schedule | **Cheap version built** 2026-09-11; ICS link still missing |
+| 5 | Listeners have no identity | **Open** |
+| 6 | The studio is a monologue | **Open, and still argued against** |
+| 7 | Verification gates the fun part | **Open** — unchanged |
+
+Each section now opens with a status line. Bodies are the original analysis and
+are left intact where still correct; corrections are marked
+**Update (2026-09-19)**.
 
 Companion to [`NEEDED_UPGRADES.md`](NEEDED_UPGRADES.md), which covers the
 platform capabilities (play history, scheduling, now-playing push). Where the
 two overlap it is noted, because several items here are the user-facing half
 of something already specced there.
 
-Line references are to the code as of `main` @ `4e8e4d9`.
+Line references are to the code as of `main` @ `4e8e4d9` and **have drifted** —
+`PlayerView.tsx` alone grew from 789 lines to roughly 1050. Treat any line
+number below as "this is the file, search for the behaviour"; the ones quoted
+in the 2026-09-19 status lines were re-checked.
 
 ---
 
@@ -33,6 +54,14 @@ Line references are to the code as of `main` @ `4e8e4d9`.
 ---
 
 ## 1. The shared link is a dead end most of the time
+
+**Status (2026-09-19): open, and still the biggest item here.** The off-air
+page gained a schedule block (§4) and a description toggle, so it is no longer
+*only* an email form — a visitor can now at least learn when the station is
+usually on. `RelatedStations.tsx` still exists and is still rendered nowhere:
+the component is defined at `client/app/station/[slug]/RelatedStations.tsx:27`
+and has no call site anywhere in `client/app`. The doc below says it is
+"imported and commented out"; it is now not imported at all.
 
 **Evidence.** `client/app/station/[slug]/PlayerView.tsx:789` — an off-air
 station renders the words "Off air" and an email capture form, and nothing
@@ -66,6 +95,14 @@ whole set.
 ---
 
 ## 2. Nothing survives a broadcast
+
+**Status (2026-09-19): open, nothing started.** No recording or replay
+migrations exist, and `api/config/liquidsoap.php` still has no `output.file` —
+so the container is not writing audio anywhere. The four open decisions at the
+end of this section (the cap value, the free/Pro split, the retention window,
+and where to tap) are all still unanswered, and the costing note in Provenance
+still applies: the RAM/CPU numbers for a third output are reasoned, not
+measured against the image.
 
 **Status: scope decided 2026-09-11. Live sessions only, capped. The cap value
 and the free/Pro split are open — see "Open decisions" at the end.**
@@ -289,7 +326,20 @@ during implementation.
 
 ## 3. External encoders are advertised but unreachable
 
-**Evidence.** `README.md` claims the ingest supports "the classic Icecast
+**Status (2026-09-19): BUILT, 2026-09-15.** Long-lived per-station stream keys
+now exist (`api/database/migrations/2026_09_15_140100_add_stream_key_to_stations_table.php`),
+gated by an `encoder_enabled` plan column
+(`2026_09_15_140000_add_encoder_enabled_to_plans_table.php`), and
+`HarborAuthController` accepts them alongside the 60-second broadcast token.
+Ingest routes through a TCP router container (`infra/native/station-router/`),
+and `infra/native/verify-ingest.sh` exists to check it. The README's BUTT/Mixxx
+claim is now true.
+
+The section is kept rather than deleted because the four libshout behaviours
+that silently break this ingest are the kind of thing that gets re-discovered
+the hard way; the analysis below is why the design looks the way it does.
+
+**Evidence, as of 2026-09-10.** `README.md` claims the ingest supports "the classic Icecast
 source protocol for BUTT/Mixxx". `api/app/Http/Controllers/HarborAuthController.php`
 accepts exactly one credential: the token minted by `BroadcastTokenService`,
 which is station-scoped, MAC-signed and **60 seconds long**
@@ -326,7 +376,25 @@ a whole user segment.
 
 ## 4. No schedule — neither side can express recurrence
 
-**Evidence.** No schedule table, no schedule UI, nothing on the station model.
+**Status (2026-09-19): cheap version BUILT, 2026-09-11. One piece missing.**
+`station_schedules`
+(`api/database/migrations/2026_09_11_100100_create_station_schedules_table.php`)
+holds `days` (JSON), `start_time`, `label` and `position` per station, edited at
+`client/app/dashboard/stations/[slug]/ScheduleEditor.tsx` and rendered publicly
+by `client/app/station/[slug]/ScheduleBlock.tsx`. It came out lightly
+structured rather than free-text, which is better than what this section asked
+for — it can be rendered, sorted and later read by a scheduler.
+
+**Still missing: the "Add to calendar" ICS link.** There is no `VCALENDAR`
+anywhere in the tree. That was half the point of the cheap version — a
+published claim a listener can act on — so this is a small, self-contained
+follow-up rather than a finished item.
+
+The **full version** (scheduled playlists, automatic switching) remains open;
+see `NEEDED_UPGRADES.md` §2, and note that nothing in `AutoDjScheduler` reads
+this table.
+
+**Evidence, as of 2026-09-10.** No schedule table, no schedule UI, nothing on the station model.
 The only forward-looking signal in the product is
 `SendStationLiveNotifications`, which fires once, after the fact, to whoever
 left an email address.
@@ -349,6 +417,12 @@ broadcast therefore starts its audience from zero.
 
 ## 5. Listeners have no identity, so there is no repeat loop
 
+**Status (2026-09-19): open, nothing started.** No VAPID keys, no push
+subscription table, no service worker — the only workers in `client/public/`
+are `encoder-worker.js` and `pcm-worklet.js`, which are audio. Re-engagement is
+still email-only. §4 shipping raises the value of this item: there is now a
+published schedule to push *about*.
+
 **Evidence.** The saved-station library is `localStorage`
 (`PlayerView.tsx:87-95`). Follows are anonymous rows in
 `station_notify_subscriptions`. Re-engagement is email, once, via
@@ -370,6 +444,11 @@ one.
 ---
 
 ## 6. The studio is a monologue
+
+**Status (2026-09-19): open, and the verdict below is unchanged.** Nothing was
+built, deliberately. The one thing that would change the argument —
+per-track attribution for AutoDJ — still depends on `NEEDED_UPGRADES.md` §0,
+which is also still open.
 
 **Status: NOT CONVINCED (2026-09-11). The design below is recorded so it does
 not have to be re-derived, not because it is approved. Read "The case against"
@@ -626,6 +705,13 @@ studio animation is the by-product rather than the point.
 
 ## 7. Verification gates the fun part
 
+**Status (2026-09-19): open, entirely unchanged.** `apiResource('stations')` is
+still inside the `middleware('verified')` group at `api/routes/api.php:115`.
+Worth noting how much of the *surrounding* routing has since been moved
+deliberately outside that group — the bell feed, account self-service, invite
+redemption, all with comments explaining why — which makes stations the
+conspicuous remaining exception rather than the default.
+
 **Evidence.** `api/routes/api.php` — `apiResource('stations')` sits inside the
 `middleware('verified')` group. A fresh signup cannot name their station until
 they have gone to their inbox and come back.
@@ -653,15 +739,73 @@ hard redirect, and note that §1 and §2 both feed it: a discover page listing
 stations with replays is useful at a much lower station count than one listing
 only who is live this second.
 
-**`GO-LIVE.md` is stale.** It describes a relay service that no longer exists
-(the WebSocket-to-Icecast bridge was replaced by Liquidsoap's `input.harbor`)
-and lists as blockers several things that shipped. It will mislead whoever
-reads it next. Either date-stamp it as a historical record or rewrite it
-against the current architecture.
+**Discover, 2026-09-19:** unchanged — still an unconditional `redirect("/")`
+plus the matching rewrite at `next.config.ts:132`. The §1/§2 argument for
+re-enabling it behind a threshold still holds and is now slightly stronger,
+since §4 means an off-air station listed on a discover page has something to
+say.
+
+**`GO-LIVE.md` was deleted on 2026-09-19** rather than rewritten. It was a
+pre-v2 punch list: it described the WebSocket-to-Icecast relay service that no
+longer exists (replaced by Liquidsoap's `input.harbor`), a Vite `index.html`
+the Next.js client does not have, and thirty-odd blockers of which all but a
+handful had shipped. `LAUNCH_STATUS.md` already serves as the historical
+snapshot. Its four genuinely-open items were checked and are recorded here so
+they are not lost with the file:
+
+- **No `LICENSE` file**, though `README.md` claims MIT. Still true.
+- **No CI.** `.github/workflows/` does not exist — no lint, type-check or test
+  on push, against a suite that does now exist and takes minutes to run.
+- **Off-box backups are written but never installed.** `backup.sh` at the repo
+  root does the right thing — nightly `mysqldump` plus uploads to S3/R2/B2,
+  credentials read from `api/.env`, retention delegated to a bucket lifecycle
+  rule — and `deploy-native.sh` separately takes a local pre-migration dump and
+  refuses to migrate without one. What is missing is the last step: nothing in
+  the repo schedules `backup.sh`. There is no timer unit beside the three in
+  `infra/native/systemd/`, and neither `setup-native.sh` nor
+  `infra/native/README.md` mentions it — the cron line exists only as a comment
+  in the script's own header. So whether backups actually run on the host is a
+  fact not captured anywhere in the repo, which is the part worth fixing.
+- **No API versioning** — every route is under a bare `/api` with no version
+  prefix. Arguably correct for a single first-party client; recorded so it
+  stays a decision rather than an oversight.
+
+Everything else on that list is done or obsolete: `robots.txt` is now a proper
+`client/app/robots.ts` with a sitemap, error boundaries exist
+(`app/error.tsx`, `app/global-error.tsx`), `not-found.tsx` exists,
+`laravel/tinker` is in `require-dev`, password reset is implemented, a PWA
+manifest exists at `app/manifest.ts`, and Sentry is wired on both sides.
 
 ---
 
 ## Suggested order
+
+**Superseded — rewritten 2026-09-19.** §3 (which was step 2) shipped, and §4
+(step 3) shipped in its cheap form. The original is kept underneath.
+
+1. **§2 capture + §1 off-air page.** Unchanged as the top item, and unchanged
+   in reasoning: recording is what makes the off-air page alive, and the
+   off-air page is what makes every shared link work. The four open decisions
+   still have to be answered before the first line is written. One addition
+   since: `RelatedStations` is already written and unrendered, so part of the
+   off-air page is a wiring job rather than a build.
+2. **`NEEDED_UPGRADES.md` §1 listener leg.** Not in the original list, because
+   in September there was no broadcasting infrastructure to finish. There is
+   now, and a public per-station now-playing channel is the cheapest visible
+   improvement left in the product — it also closes the one outstanding
+   requirement of the shipped embed.
+3. **§4's ICS link.** Hours, not days. The table and the UI exist; the listener
+   half of the cheap schedule does not.
+4. **§7 verification gate.** Small, independent, moves activation. Unchanged.
+5. **§5 web push.** Now genuinely unblocked on the "something to push about"
+   side, since §4 shipped. Still wants §1 finished first.
+6. **§6 reactions — still not convinced, still last.** If it is ever picked up,
+   start with the half-day probe rather than the full design.
+
+Not on this list but ahead of all of it: the four P0s in
+`station-hardening-plan.md`.
+
+### Original order, as written 2026-09-10
 
 1. **§2 capture + §1 off-air page.** One project, not two. Recording is what
    makes the off-air page alive, and the off-air page is what makes every
@@ -684,6 +828,14 @@ against the current architecture.
 ---
 
 ## Provenance
+
+**Reconciliation pass, 2026-09-19.** Every status line added above was read out
+of the code: migration directory listed in full, `HarborAuthController`,
+`station_schedules` and its two components read directly, the absence of
+recording confirmed against `api/config/liquidsoap.php`, the absence of push
+confirmed against `client/public/` and a tree-wide grep for VAPID, and each
+salvaged `GO-LIVE.md` item checked one by one rather than assumed. The original
+provenance for the September analysis follows.
 
 Every claim above was read out of the code on 2026-09-10, not inferred from
 the docs — including the two places where the docs and the code disagree

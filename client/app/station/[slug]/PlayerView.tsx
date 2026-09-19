@@ -520,6 +520,58 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // missing shows the right track instead of nothing at all.
   const hasInbandMetadataRef = useRef(false)
 
+  /**
+   * Fold a new title/artist into state, shifting the outgoing track into the
+   * "Just played" list.
+   *
+   * THE single writer for `nowPlaying`. Both metadata sources go through it, so
+   * a track transition looks identical whether it arrived as in-band ID3 or
+   * from the poll, and `prevNowPlayingRef` cannot drift out of step with the
+   * state it is supposed to describe — it did, while the artist was patched in
+   * by a second, separate update, and every "Just played" entry lost its artist
+   * as a result.
+   *
+   * Unchanged metadata is dropped here rather than at each call site. It is the
+   * common case, not an edge one: Liquidsoap writes the same ID3 tag into every
+   * HLS segment, so the same track is re-announced every few seconds for as
+   * long as it plays.
+   */
+  const applyMetadata = useCallback((next: { title: string | null; artist: string | null }) => {
+    const prev = prevNowPlayingRef.current
+    if (prev.title === next.title && prev.artist === next.artist) return
+
+    if (prev.title) {
+      setRecentTracks((rec) => {
+        if (rec[0]?.title === prev.title && rec[0]?.artist === prev.artist) return rec
+        return [{ title: prev.title!, artist: prev.artist, at: Date.now() }, ...rec].slice(0, MAX_RECENT_TRACKS)
+      })
+    }
+    prevNowPlayingRef.current = next
+    setNowPlaying(next)
+  }, [])
+
+  /**
+   * Split the "Artist - Title" convention, for the sources that really use it.
+   *
+   * That is Icecast's `StreamTitle` and its ICY-over-HLS equivalent (a TXXX
+   * frame described as "StreamTitle") — one string with both halves in it,
+   * because ICY has only one field to put them in.
+   *
+   * It is NOT how Liquidsoap tags HLS segments. Those carry a proper ID3 frame
+   * set with the title in TIT2 and the artist in TPE1, and running them through
+   * here would both invent an artist for any track whose name contains " - "
+   * and discard the real one. See `readCues`.
+   */
+  const applyStreamTitle = useCallback((raw: string) => {
+    const trimmed = raw.trim()
+    const dash = trimmed.indexOf(" - ")
+    applyMetadata(
+      dash >= 0
+        ? { artist: cleanMetadata(trimmed.slice(0, dash)), title: cleanMetadata(trimmed.slice(dash + 3)) }
+        : { title: cleanMetadata(trimmed), artist: null },
+    )
+  }, [applyMetadata])
+
   // Listener count + live status + now-playing, from the SHARED feed: one
   // timer and one request per station however many components ask, and paused
   // while the tab is hidden.
@@ -547,12 +599,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       is_on_air: stats.is_on_air ?? prev.is_on_air,
     }))
 
-    if (!hasInbandMetadataRef.current) {
-      const next = stats.now_playing
-      setNowPlaying((prev) =>
-        prev.title === next.title && prev.artist === next.artist ? prev : next,
-      )
-    }
+    if (!hasInbandMetadataRef.current) applyMetadata(stats.now_playing)
   })
 
   // Reports this browser as a listener for as long as audio is actually
@@ -565,36 +612,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // back to the Icecast mount is already inside the number the admin poll
   // returns, and counting them here as well would report them twice.
   useListenerSession(station.slug, playing, transport)
-
-  /**
-   * Fold a new title/artist into state, shifting the outgoing track into the
-   * "Just played" list.
-   *
-   * Shared by both metadata sources so a track transition looks identical
-   * whether it arrived as in-band ID3 or from the poll.
-   */
-  const applyMetadata = useCallback((next: { title: string | null; artist: string | null }) => {
-    const prev = prevNowPlayingRef.current
-    if (prev.title && (prev.title !== next.title || prev.artist !== next.artist)) {
-      setRecentTracks((rec) => {
-        if (rec[0]?.title === prev.title && rec[0]?.artist === prev.artist) return rec
-        return [{ title: prev.title!, artist: prev.artist, at: Date.now() }, ...rec].slice(0, MAX_RECENT_TRACKS)
-      })
-    }
-    prevNowPlayingRef.current = next
-    setNowPlaying(next)
-  }, [])
-
-  /** Split the "Artist - Title" convention both ID3 and ICY use for one string. */
-  const applyStreamTitle = useCallback((raw: string) => {
-    const trimmed = raw.trim()
-    const dash = trimmed.indexOf(" - ")
-    applyMetadata(
-      dash >= 0
-        ? { artist: cleanMetadata(trimmed.slice(0, dash)), title: cleanMetadata(trimmed.slice(dash + 3)) }
-        : { title: cleanMetadata(trimmed), artist: null },
-    )
-  }, [applyMetadata])
 
   const teardown = useCallback(() => {
     hlsRef.current?.destroy()
@@ -614,6 +631,11 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     setTransport(null)
     setPlaying(false)
     setLoading(false)
+    // The ref has to go with the state it mirrors. `applyMetadata` drops an
+    // update that matches it, so leaving the last track behind here would make
+    // pressing play again on that same track a no-op: the card would sit empty
+    // until the station moved on.
+    prevNowPlayingRef.current = { title: null, artist: null }
     setNowPlaying({ title: null, artist: null })
   }, [])
 
@@ -727,25 +749,65 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     const audio = audioRef.current
     if (!audio) return
 
+    /**
+     * Read one tag — every frame of it — and apply it as a SINGLE update.
+     *
+     * The frames of a tag all share a timestamp, so they go active together and
+     * arrive here as one `cuechange` with the whole set in `activeCues`. Title
+     * and artist live in different frames, so anything that applies them one at
+     * a time is applying half a tag twice:
+     *
+     *   TYER "2025"  TIT2 "КАМИН"  TDAT "2025"  TPE1 "EMIN feat. JONY"  TALB …
+     *
+     * Per-frame, TIT2 set the title with no artist and TPE1 patched the artist
+     * back in afterwards. Since Liquidsoap repeats the tag in every segment,
+     * that cleared-then-restored artist ran every few seconds for the whole
+     * listen, and the dock line remounts whenever the artist changes, so it
+     * replayed its entrance animation each time — the flicker. It was also
+     * silently order-dependent: the frame order is whatever the file's own tags
+     * give (three different layouts across the stations on this box), and a file
+     * listing TPE1 before TIT2 would have had its artist wiped by the title
+     * frame that followed and never shown one at all.
+     */
     function readCues(track: TextTrack) {
       const cues = track.activeCues
       if (!cues || cues.length === 0) return
 
+      let title: string | null = null
+      let artist: string | null = null
+      let streamTitle: string | null = null
+
       for (let i = 0; i < cues.length; i++) {
-        // `value` is hls.js's and WebKit's parsed ID3 frame. TIT2 carries the
-        // stream title, which Liquidsoap writes in the same "Artist - Title"
-        // form as the ICY metadata this replaced.
+        // `value` is hls.js's and WebKit's parsed ID3 frame: `key` is the frame
+        // id, and `info` is the description of a TXXX frame (empty otherwise).
         const value = (cues[i] as unknown as { value?: { key?: string; data?: unknown; info?: string } }).value
         if (!value || typeof value.data !== "string") continue
 
-        if (value.key === "TIT2" || value.info === "StreamTitle") {
-          hasInbandMetadataRef.current = true
-          applyStreamTitle(value.data)
-        } else if (value.key === "TPE1" && value.data.trim() !== "") {
-          hasInbandMetadataRef.current = true
-          setNowPlaying((prev) => ({ ...prev, artist: cleanMetadata(value.data as string) }))
+        if (value.info === "StreamTitle") {
+          // ICY metadata smuggled through a TXXX frame: both halves in one
+          // string, to be split. A real TIT2 is not this.
+          streamTitle = value.data
+        } else if (value.key === "TIT2") {
+          title = cleanMetadata(value.data)
+        } else if (value.key === "TPE1") {
+          artist = cleanMetadata(value.data)
         }
       }
+
+      if (streamTitle !== null) {
+        hasInbandMetadataRef.current = true
+        applyStreamTitle(streamTitle)
+        return
+      }
+
+      // No title in this tag, no caption to show — and crucially, no reason to
+      // claim in-band metadata and shut the poll out. A tag we cannot read
+      // leaves the feed driving the card, which is the whole point of that
+      // fallback.
+      if (title === null) return
+
+      hasInbandMetadataRef.current = true
+      applyMetadata({ title, artist })
     }
 
     const listening = new Set<TextTrack>()
@@ -770,7 +832,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       audio.textTracks.removeEventListener("addtrack", onAddTrack)
       listening.clear()
     }
-  }, [applyStreamTitle])
+  }, [applyMetadata, applyStreamTitle])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1060,7 +1122,14 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
                 )}
               </div>
               <div
-                key={`${nowPlaying.title ?? ""}|${nowPlaying.artist ?? ""}`}
+                // Keyed on the title alone. The key exists to replay the
+                // slide-in when the TRACK changes, and the artist is not a
+                // track — it is a detail of one, which can land in a later
+                // update than the title it belongs to. Keying on it too meant
+                // an artist arriving (or briefly going missing) remounted the
+                // line and replayed a 420ms entrance animation over a track
+                // that had not changed.
+                key={nowPlaying.title ?? ""}
                 className={`truncate text-[17px] font-medium @max-[520px]/player:text-[15px] ${styles.trackSlideIn}`}
                 title={nowPlaying.artist ? `${nowPlaying.title} — ${nowPlaying.artist}` : nowPlaying.title ?? undefined}
               >
