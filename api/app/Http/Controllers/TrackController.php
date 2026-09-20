@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DestroyTracksRequest;
 use App\Http\Requests\ReorderTracksRequest;
 use App\Http\Requests\StoreTrackRequest;
 use App\Http\Requests\UpdateTrackRequest;
@@ -28,6 +29,7 @@ use RuntimeException;
  *   PATCH  /stations/{station:slug}/tracks/reorder    -> reorder  (ids[], kind)
  *   PATCH  /tracks/{track}                            -> update   (title, artist)
  *   DELETE /tracks/{track}                            -> destroy
+ *   DELETE /stations/{station:slug}/tracks            -> destroyMany (track_ids[])
  *
  * Every list-scoped route takes an optional `kind` — "music" (the rotation,
  * and the default) or "jingle" (station IDs). The two lists are separate
@@ -51,7 +53,28 @@ class TrackController extends Controller
             'kind' => ['sometimes', Rule::in(Track::KINDS)],
         ])['kind'] ?? Track::KIND_MUSIC;
 
-        $tracks = $station->tracks()->where('kind', $kind)->get();
+        return $this->library($station, $kind);
+    }
+
+    /**
+     * One list of a station's tracks plus the storage meter — the payload the
+     * library screen is built from.
+     *
+     * Shared by index() and destroyMany() so a bulk delete answers in exactly
+     * the shape the client already knows how to apply. `$extra` is merged into
+     * `meta` for anything only one caller reports.
+     *
+     * @param  array<string, mixed>  $extra
+     */
+    private function library(Station $station, string $kind = Track::KIND_MUSIC, array $extra = []): JsonResponse
+    {
+        // Music rows carry which playlists they are in — the library view's
+        // chips, and its "not in any playlist" warning, come from this. One
+        // query for the whole list; jingles are never members.
+        $tracks = $station->tracks()
+            ->where('kind', $kind)
+            ->when($kind === Track::KIND_MUSIC, fn ($query) => $query->with('playlists:playlists.id'))
+            ->get();
         $cap = (int) config('liquidsoap.station_storage_bytes');
         // Usage is deliberately NOT scoped to `kind`: one cap covers the
         // whole station, so the meter must read the same number whichever
@@ -64,7 +87,7 @@ class TrackController extends Controller
                 'kind' => $kind,
                 'storage_used_bytes' => $used,
                 'storage_cap_bytes' => $cap,
-            ],
+            ] + $extra,
         ]);
     }
 
@@ -80,11 +103,16 @@ class TrackController extends Controller
 
         $kind = $request->kind();
 
+        // Validated as one of this station's playlists; null means the
+        // default, which TrackImporter resolves. Jingles ignore it.
+        $playlistId = $request->playlistId();
+        $playlist = $playlistId === null ? null : $station->playlists()->whereKey($playlistId)->first();
+
         $created = [];
         $errors = [];
         foreach ($request->file('files', []) as $idx => $file) {
             try {
-                $created[] = $this->importer->import($station, $file, $kind);
+                $created[] = $this->importer->import($station, $file, $kind, $playlist);
             } catch (RuntimeException $e) {
                 // Quota exceeded mid-batch — surface which file and stop;
                 // partial successes are kept (status code reflects that).
@@ -101,6 +129,12 @@ class TrackController extends Controller
             $created === [] && $errors !== [] => 422,
             default => 207,
         };
+
+        // Same shape as index(): the client appends these rows to the library
+        // list, which needs to know where they landed.
+        foreach ($created as $track) {
+            $track->load('playlists:playlists.id');
+        }
 
         return response()->json([
             'data' => TrackResource::collection(collect($created)),
@@ -134,10 +168,28 @@ class TrackController extends Controller
         return response()->noContent();
     }
 
+    /**
+     * Delete several files at once — the library's multi-select.
+     *
+     * Returns the fresh library rather than 204, because the client has just
+     * invalidated its own copy of both the list and the storage meter, and a
+     * batch is exactly when guessing at the new totals goes wrong.
+     */
+    public function destroyMany(DestroyTracksRequest $request, Station $station): JsonResponse
+    {
+        $this->authorize('deleteAny', [Track::class, $station]);
+
+        $deleted = $this->importer->destroyMany($station, $request->trackIds());
+
+        return $this->library($station, Track::KIND_MUSIC, ['deleted' => $deleted]);
+    }
+
     public function reorder(ReorderTracksRequest $request, Station $station): AnonymousResourceCollection
     {
         $this->authorize('reorder', [Track::class, $station]);
 
+        // Library order only. What plays is a playlist's order, edited on
+        // PlaylistTrackController::reorder — this no longer touches it.
         $kind = $request->kind();
         $this->importer->reorder($station, $request->validated('ids'), $kind);
 

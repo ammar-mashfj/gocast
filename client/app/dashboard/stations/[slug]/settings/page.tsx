@@ -112,7 +112,15 @@ export default async function StationSettingsPage({
           page; scroll-mt keeps the heading off the top edge on arrival. */}
       <Card id="schedule" className="scroll-mt-6">
         <CardHeader>
-          <CardTitle className="text-base font-medium">Schedule</CardTitle>
+          <CardTitle className="text-base font-medium">Show times</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            The times you tell listeners you&apos;re live. To change what AutoDJ plays by time of
+            day, use{" "}
+            <Link href={`/dashboard/stations/${station.slug}/schedule`} className="text-primary hover:underline">
+              Schedule
+            </Link>{" "}
+            under AutoDJ.
+          </p>
         </CardHeader>
         <CardContent>
           <ScheduleEditor station={station} />

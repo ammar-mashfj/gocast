@@ -37,11 +37,13 @@ class NextTrackController extends Controller
         ]);
 
         // user.plan eager loaded because AutoDjScheduler::next() checks the
-        // owner's entitlement before it picks anything. Left lazy it would be
-        // two extra queries per track boundary on every running station, on
-        // the one path where latency turns into late audio.
+        // owner's entitlement before it picks anything; defaultPlaylist and
+        // the slots (with their playlists) because AutoDjProgramme resolves
+        // the rotation from them. Left lazy they would be several extra
+        // queries per track boundary on every running station, on the one
+        // path where latency turns into late audio.
         $station = Station::query()
-            ->with('user.plan')
+            ->with(['user.plan', 'defaultPlaylist', 'autodjSlots.playlist'])
             ->where('slug', $validated['slug'])
             ->first();
 

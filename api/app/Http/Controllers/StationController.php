@@ -41,7 +41,7 @@ class StationController extends Controller
     {
         $this->authorize('view', $station);
 
-        $station->load(['streamSessions', 'schedules']);
+        $station->load(['streamSessions', 'schedules', 'autodjSlots.playlist', 'defaultPlaylist']);
 
         // The one owner-facing fetch behind a page that has somewhere to put
         // the stream key — the settings card. index() deliberately does not

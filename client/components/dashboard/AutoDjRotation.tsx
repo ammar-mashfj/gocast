@@ -6,16 +6,24 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
+import type { Programme } from "@/interfaces/Station"
 import { Track } from "@/interfaces/Track"
 import { formatAirtime, formatClock } from "@/lib/format"
+import { describeProgramme } from "@/lib/programme"
 
 /** Enough to prove the rotation is real without turning the page into a library. */
 const PREVIEW_COUNT = 4
 
 interface AutoDjRotationProps {
   slug: string
-  /** The `music` list, already in `position` order — the API orders by it. */
+  /** The default playlist's members, already in play order — the API orders by it. */
   tracks: Track[]
+  /** Name of the playlist those tracks belong to. Null only when the fetch failed. */
+  playlistName?: string | null
+  /** The resolved programme, when the station fetch carried one. Drives the "until" line. */
+  programme?: Programme | null
+  timezone?: string | null
+  defaultName?: string | null
   /**
    * True when the track fetch failed. The rest of the page is still worth
    * rendering, so the card degrades to a link instead of taking the route down
@@ -33,7 +41,15 @@ interface AutoDjRotationProps {
  * station — you had to open the library to find out whether there was anything
  * in it at all.
  */
-export function AutoDjRotation({ slug, tracks, unavailable = false }: AutoDjRotationProps) {
+export function AutoDjRotation({
+  slug,
+  tracks,
+  playlistName = null,
+  programme = null,
+  timezone = null,
+  defaultName = null,
+  unavailable = false,
+}: AutoDjRotationProps) {
   // Every subtitle below the locked branch promises the rotation plays when
   // the owner is off air. On a plan without AutoDJ that is simply untrue —
   // the stream stops — and this card sits on the station overview, which is
@@ -44,13 +60,21 @@ export function AutoDjRotation({ slug, tracks, unavailable = false }: AutoDjRota
   const preview = tracks.slice(0, PREVIEW_COUNT)
   const remaining = tracks.length - preview.length
 
+  // "until 12:00 · then Main rotation" — only when a slot is on, or one is
+  // coming. A station with no slots gets the plain subtitle below.
+  const onNow = programme && (programme.slot_id !== null || programme.next !== null)
+    ? describeProgramme(programme, timezone, defaultName)
+    : null
+
   const subtitle = unavailable
     ? "Couldn't load the rotation just now."
     : locked
       ? "Your stream stops when you close your encoder. AutoDJ fills that gap."
       : tracks.length === 0
-        ? "Empty — a station with no tracks goes on air to silence."
-        : `${tracks.length} track${tracks.length === 1 ? "" : "s"} • ${formatAirtime(totalSeconds)} • plays in order whenever you're off air`
+        ? `${playlistName ?? "The default playlist"} is empty — a station with nothing to play goes on air to silence.`
+        : onNow?.detail
+          ? `${playlistName ?? onNow.now} • ${onNow.detail} • ${tracks.length} track${tracks.length === 1 ? "" : "s"}`
+          : `${playlistName ?? "Default playlist"} • ${tracks.length} track${tracks.length === 1 ? "" : "s"} • ${formatAirtime(totalSeconds)} • plays whenever you're off air`
 
   return (
     <Card className="@container/autodj gap-0 overflow-hidden">
@@ -84,7 +108,7 @@ export function AutoDjRotation({ slug, tracks, unavailable = false }: AutoDjRota
               ? "See what AutoDJ does"
               : tracks.length === 0 && !unavailable
                 ? "Add tracks"
-                : "Manage tracks"}
+                : "Manage music"}
             <IconArrowRight data-icon="inline-end" />
           </Link>
         </Button>
@@ -109,7 +133,7 @@ export function AutoDjRotation({ slug, tracks, unavailable = false }: AutoDjRota
           ))}
           {remaining > 0 && (
             <div className="px-6 py-3 border-t border-border text-xs text-muted-foreground">
-              {remaining} more track{remaining === 1 ? "" : "s"} in rotation
+              {remaining} more track{remaining === 1 ? "" : "s"} in {playlistName ?? "the playlist"}
             </div>
           )}
         </div>

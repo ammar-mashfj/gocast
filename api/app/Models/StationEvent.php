@@ -121,6 +121,15 @@ class StationEvent extends Model
     public const TYPE_STREAM_KEY_ROTATED = 'stream_key_rotated';
 
     /**
+     * The rotation started drawing from a different playlist — a scheduled
+     * slot beginning or ending, the default changing, or an empty slot
+     * falling through. Recorded by AutoDjScheduler at the track boundary
+     * where it happened, so "why did the music change at 12:04" has an
+     * answer on the timeline.
+     */
+    public const TYPE_PLAYLIST_CHANGED = 'playlist_changed';
+
+    /**
      * Types a station's container is allowed to report.
      *
      * StationEventController holds the same list for its own validation. This
@@ -153,6 +162,7 @@ class StationEvent extends Model
         ...self::CONTAINER_TYPES,
         self::TYPE_TRACK_UPLOADED,
         self::TYPE_TRACK_DELETED,
+        self::TYPE_PLAYLIST_CHANGED,
         self::TYPE_STREAM_KEY_ROTATED,
     ];
 

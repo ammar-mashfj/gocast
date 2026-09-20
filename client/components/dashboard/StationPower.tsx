@@ -489,6 +489,9 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
         : "Put it on air and your AutoDJ rotation plays to anyone with the link"
 
   const nowPlaying = status?.now_playing ?? lastNowPlaying.current
+  // Both describe the playlist AutoDJ is drawing from right now — a slot's
+  // or the default — walked the way the scheduler walks it, so a shuffled
+  // playlist's queue is the head of its deck.
   const upNext = status?.up_next?.[0]
   const hasRotation = (status?.playlist_length ?? 0) > 0
 

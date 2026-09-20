@@ -5,6 +5,7 @@ import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
+import type { Playlist } from "@/interfaces/Playlist"
 import { Track } from "@/interfaces/Track"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +18,7 @@ import { StationChecklist } from "@/components/dashboard/StationChecklist"
 import { StationShare } from "@/components/dashboard/StationShare"
 import { LiveListeners } from "@/components/dashboard/LiveListeners"
 import { formatDate } from "@/lib/format"
-import { StationActions } from "./StationActions"
+import { StationActions } from "../StationActions"
 
 /**
  * Every station encodes identically — it is hardcoded in the Liquidsoap
@@ -39,6 +40,8 @@ export default async function StationDetailPage({
   let sessions: StreamSession[]
   let sessionTotal: number
   let tracks: Track[]
+  let playlist: Playlist | null
+  let defaultName: string | null
   let tracksUnavailable: boolean
 
   // All three in one flight. The rotation used to be fetched AFTER this block
@@ -49,23 +52,45 @@ export default async function StationDetailPage({
   // so it settles to an empty rotation instead of rejecting, and the
   // Promise.all only ever sees the two failures that are actually fatal.
   try {
-    const [stationRes, sessionsRes, tracksRes] = await Promise.all([
+    const [stationRes, sessionsRes, playlistsRes] = await Promise.all([
       apiFetch<{ data: Station }>(`/stations/${slug}`),
       // Laravel's paginator, so `total` is what tells us whether the 14-day
       // window below is complete or merely the first page of a busy station.
       apiFetch<{ data: StreamSession[]; total?: number }>(`/stations/${slug}/sessions`),
-      apiFetch<{ data: Track[] }>(`/stations/${slug}/tracks`)
-        .then((res) => ({ tracks: res.data, unavailable: false }))
+      apiFetch<{ data: Playlist[] }>(`/stations/${slug}/playlists`)
+        .then((res) => res.data)
         .catch((err) => {
-          console.error(`[station/${slug}] track fetch failed:`, err)
-          return { tracks: [] as Track[], unavailable: true }
+          console.error(`[station/${slug}] playlist fetch failed:`, err)
+          return null
         }),
     ])
     station = stationRes.data
     sessions = sessionsRes.data
     sessionTotal = sessionsRes.total ?? sessionsRes.data.length
-    tracks = tracksRes.tracks
-    tracksUnavailable = tracksRes.unavailable
+
+    // What AutoDJ actually plays is whichever playlist the programme
+    // resolves to right now (a slot's, or the default) — not the library: a
+    // track in no playlist never airs. One more hop for its members, and a
+    // failure here degrades one card rather than taking the route down.
+    const activeId = station.programme?.playlist?.id ?? playlistsRes?.find((p) => p.is_default)?.id ?? null
+    playlist = playlistsRes?.find((p) => p.id === activeId) ?? null
+    defaultName = playlistsRes?.find((p) => p.is_default)?.name ?? null
+    if (playlistsRes === null) {
+      tracks = []
+      tracksUnavailable = true
+    } else if (activeId === null) {
+      tracks = []
+      tracksUnavailable = false
+    } else {
+      try {
+        tracks = (await apiFetch<{ data: Track[] }>(`/playlists/${activeId}/tracks`)).data
+        tracksUnavailable = false
+      } catch (err) {
+        console.error(`[station/${slug}] rotation fetch failed:`, err)
+        tracks = []
+        tracksUnavailable = true
+      }
+    }
   } catch (err) {
     // Only render the 404 page when the backend actually said the station
     // is missing. Any other failure (timeout, 401 from a stale cookie, 5xx)
@@ -160,7 +185,15 @@ export default async function StationDetailPage({
             truncated={sessionTotal > sessions.length}
           />
 
-          <AutoDjRotation slug={station.slug} tracks={tracks} unavailable={tracksUnavailable} />
+          <AutoDjRotation
+            slug={station.slug}
+            tracks={tracks}
+            playlistName={playlist?.name ?? null}
+            programme={station.programme ?? null}
+            timezone={station.timezone}
+            defaultName={defaultName}
+            unavailable={tracksUnavailable}
+          />
 
           <RecentBroadcasts sessions={sessions} />
         </div>

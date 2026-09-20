@@ -46,7 +46,16 @@ class ReplaceStationSchedulesRequest extends FormRequest
             // storing it would mean the editor can save a row that never
             // renders.
             'schedules.*.days' => ['required', 'array', 'min:1', 'max:7'],
-            'schedules.*.days.*' => ['integer', 'between:0,6', 'distinct'],
+            // NO `distinct` here, deliberately. On a wildcard path Laravel
+            // extracts from the leading explicit segment (`schedules`) and
+            // matches `schedules.*.days.*`, so it compares the day values
+            // across EVERY row rather than within one: a station with
+            // "Breakfast, Mon-Fri" and "Drivetime, Mon-Fri" could not save
+            // its schedule at all, and the error named `schedules.1.days.0`.
+            // Duplicates inside one row are harmless and the controller
+            // dedupes them. Same trap, same answer, as
+            // ReplaceAutodjSlotsRequest.
+            'schedules.*.days.*' => ['integer', 'between:0,6'],
             // Wall clock only. Seconds and offsets are both rejected: the
             // first is noise, the second would be a second source of truth
             // about the zone, which stations.timezone already owns.

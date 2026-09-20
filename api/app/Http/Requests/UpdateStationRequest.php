@@ -57,10 +57,6 @@ class UpdateStationRequest extends FormRequest
             'social_links.*.url' => ['required', 'string', 'url:http,https', 'max:2048'],
             'social_links.*.label' => ['nullable', 'string', 'max:30'],
             'theme_config' => ['nullable', 'array'],
-            // Sequential or shuffle. Switching costs nothing and disturbs
-            // nothing: it is read per track by AutoDjScheduler, never rendered
-            // into the .liq, so it does not restart the container.
-            'autodj_order' => ['sometimes', Rule::in(Station::AUTODJ_ORDERS)],
             'jingles_enabled' => ['sometimes', 'boolean'],
             'jingle_mode' => ['sometimes', Rule::in(Station::JINGLE_MODES)],
             // 1 minute floor: below that the delay operator stops being a
@@ -99,6 +95,16 @@ class UpdateStationRequest extends FormRequest
                 $validator->errors()->add(
                     'timezone',
                     "Remove the station's show times before clearing its timezone.",
+                );
+            }
+
+            // Same for the AutoDJ slots, with a sharper consequence: a slot
+            // with no zone is unresolvable, and AutoDjProgramme treats the
+            // station as unscheduled — every slot silently stops applying.
+            if ($station instanceof Station && $station->autodjSlots()->exists()) {
+                $validator->errors()->add(
+                    'timezone',
+                    "Remove the station's AutoDJ slots before clearing its timezone.",
                 );
             }
         });

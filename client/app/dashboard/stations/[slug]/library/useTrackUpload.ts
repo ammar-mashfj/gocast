@@ -33,6 +33,12 @@ interface Options {
   slug: string
   /** Omitted for the rotation; "jingle" for the dialog. The endpoint is the same. */
   kind?: "jingle"
+  /**
+   * Which playlist a music upload joins. Null or omitted means the station's
+   * default, so "upload it and it plays" holds from the library view too.
+   * Ignored for jingles, which are never playlist members.
+   */
+  playlistId?: string | null
   /** Word for the toast — "track" or "jingle". */
   noun: string
   /** Called once per committed batch, so a long drop fills the list as it goes. */
@@ -45,7 +51,7 @@ interface Options {
  * same whether it is a jingle or a rotation track, and the two copies of this
  * loop had already started to drift — only the rotation batched.
  */
-export function useTrackUpload({ slug, kind, noun, onUploaded }: Options) {
+export function useTrackUpload({ slug, kind, playlistId, noun, onUploaded }: Options) {
   const locked = useAutoDjLocked()
   const [progress, setProgress] = useState<UploadProgress | null>(null)
   // A second drop while the first is in flight would interleave two progress
@@ -128,6 +134,7 @@ export function useTrackUpload({ slug, kind, noun, onUploaded }: Options) {
           // `kind` is the only difference between the two surfaces, which is
           // what keeps quota, tag reading and storage identical across both.
           if (kind) form.append("kind", kind)
+          if (!kind && playlistId) form.append("playlist_id", playlistId)
           for (const file of batch) form.append("files[]", file)
 
           const { data } = await api.post<{
@@ -178,7 +185,7 @@ export function useTrackUpload({ slug, kind, noun, onUploaded }: Options) {
         setProgress(null)
       }
     },
-    [slug, kind, noun, onUploaded, locked],
+    [slug, kind, playlistId, noun, onUploaded, locked],
   )
 
   return { progress, uploading: progress !== null, upload }

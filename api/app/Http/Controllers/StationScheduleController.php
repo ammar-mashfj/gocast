@@ -38,6 +38,16 @@ class StationScheduleController extends Controller
             ]);
         }
 
+        // The zone is shared with the AutoDJ slots, and a slot with no zone
+        // is unresolvable: AutoDjProgramme would treat the station as
+        // unscheduled and every slot would silently stop applying. Same
+        // guard as UpdateStationRequest and the slots request.
+        if ($timezone === null && $station->timezone !== null && $station->autodjSlots()->exists()) {
+            throw ValidationException::withMessages([
+                'timezone' => "Remove the station's AutoDJ slots before clearing its timezone.",
+            ]);
+        }
+
         DB::transaction(function () use ($station, $rows, $timezone) {
             // Same transaction as the rows below, so the zone can never end
             // up applied to times that were not saved with it.
@@ -54,9 +64,11 @@ class StationScheduleController extends Controller
             foreach ($rows as $position => $row) {
                 $station->schedules()->create([
                     'label' => $row['label'] ?? null,
-                    // Re-index and sort so the stored array is canonical,
-                    // whatever order the checkboxes were clicked in.
-                    'days' => collect($row['days'])->map(fn ($day) => (int) $day)->sort()->values()->all(),
+                    // Re-index, dedupe and sort so the stored array is
+                    // canonical, whatever order the checkboxes were clicked
+                    // in. The dedupe is what lets the request rule drop
+                    // `distinct` — see the note there.
+                    'days' => collect($row['days'])->map(fn ($day) => (int) $day)->unique()->sort()->values()->all(),
                     'start_time' => $row['start_time'],
                     'position' => $position,
                 ]);

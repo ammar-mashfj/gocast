@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Station;
 use App\Models\Track;
+use App\Services\PlaylistTracks;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -36,6 +37,23 @@ class TrackFactory extends Factory
             'file_size_bytes' => fake()->numberBetween(1024, 5_000_000),
             'position' => 1,
         ];
+    }
+
+    /**
+     * A music track joins its station's default playlist, exactly as an
+     * upload does (TrackImporter::import). Without this every scheduler and
+     * next-track test would have to attach by hand, and a test that forgot
+     * would pass against an empty rotation.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Track $track): void {
+            $playlist = $track->station?->defaultPlaylist;
+
+            if ($playlist !== null && $track->kind === Track::KIND_MUSIC) {
+                app(PlaylistTracks::class)->attach($playlist, [$track->getKey()]);
+            }
+        });
     }
 
     /**

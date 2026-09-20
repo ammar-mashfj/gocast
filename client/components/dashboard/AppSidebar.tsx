@@ -104,14 +104,15 @@ const NAV_ITEMS: NavItem[] = [
     isActive: (p) =>
       p === "/dashboard" ||
       (/^\/dashboard\/stations\/[^/]+/.test(p) &&
-        !/^\/dashboard\/stations\/[^/]+\/(library|audience|settings)/.test(p)),
+        !/^\/dashboard\/stations\/[^/]+\/(library|schedule|audience|settings)/.test(p)),
   },
   {
     title: "AutoDJ",
     href: "/dashboard/library",
     stationHref: (slug) => `/dashboard/stations/${slug}/library`,
     icon: IconPlaylist,
-    isActive: (p) => p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/library/.test(p),
+    isActive: (p) =>
+      p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/(library|schedule)/.test(p),
     lock: "autodj",
   },
   {

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AudienceController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AutodjSlotController;
 use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
@@ -15,6 +16,8 @@ use App\Http\Controllers\NextTrackController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PlaylistController;
+use App\Http\Controllers\PlaylistTrackController;
 use App\Http\Controllers\PublicEmbedController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\StationController;
@@ -173,6 +176,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // owner edits a short ordered list, and position is the array index.
         Route::put('/stations/{station:slug}/schedules', [StationScheduleController::class, 'replace']);
 
+        // The AutoDJ programme — which playlist plays when. Same full-list
+        // PUT shape as the show times above, and deliberately a different
+        // route, controller and table: this one is read by the audio path.
+        Route::put('/stations/{station:slug}/autodj-slots', [AutodjSlotController::class, 'replace']);
+
         // AutoDJ tracks — list, upload, reorder, edit, delete. The reorder
         // endpoint is registered before the implicit-binding {track} update
         // so "reorder" doesn't get parsed as a ULID.
@@ -182,6 +190,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/stations/{station:slug}/tracks/reorder', [TrackController::class, 'reorder']);
         Route::patch('/tracks/{track}', [TrackController::class, 'update']);
         Route::delete('/tracks/{track}', [TrackController::class, 'destroy']);
+        // Bulk delete for the library's multi-select. Station-scoped so one
+        // batch means one playlist rewrite and one Liquidsoap reload, rather
+        // than one of each per file.
+        Route::delete('/stations/{station:slug}/tracks', [TrackController::class, 'destroyMany']);
+
+        // Playlists — named rotations with their own play order and cursor,
+        // the unit the schedule will switch between. `reorder` before the
+        // implicit-binding {track} route for the same reason as above.
+        Route::get('/stations/{station:slug}/playlists', [PlaylistController::class, 'index']);
+        Route::post('/stations/{station:slug}/playlists', [PlaylistController::class, 'store']);
+        Route::patch('/playlists/{playlist}', [PlaylistController::class, 'update']);
+        Route::delete('/playlists/{playlist}', [PlaylistController::class, 'destroy']);
+        Route::get('/playlists/{playlist}/tracks', [PlaylistTrackController::class, 'index']);
+        Route::put('/playlists/{playlist}/tracks', [PlaylistTrackController::class, 'replace']);
+        Route::post('/playlists/{playlist}/tracks', [PlaylistTrackController::class, 'store']);
+        Route::patch('/playlists/{playlist}/tracks/reorder', [PlaylistTrackController::class, 'reorder']);
+        Route::delete('/playlists/{playlist}/tracks/{track}', [PlaylistTrackController::class, 'destroy']);
     });
 });
 

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -26,7 +27,8 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string $slug
  * @property string|null $description
  * @property string|null $genre
- * @property string|null $timezone IANA name the advertised show times are written in
+ * @property string|null $timezone IANA name the advertised show times and AutoDJ slots are written in
+ * @property string|null $autodj_last_playlist_id which playlist the rotation last drew from; monitoring only
  * @property string|null $artwork_url
  * @property bool $is_live
  * @property bool $featured
@@ -39,8 +41,6 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string $icecast_password
  * @property string|null $stream_key long-lived credential an external encoder authenticates with
  * @property Carbon|null $stream_key_rotated_at
- * @property string $autodj_order one of AUTODJ_ORDER_SEQUENTIAL | AUTODJ_ORDER_SHUFFLE
- * @property list<string>|null $autodj_deck unplayed remainder of the current shuffle
  * @property bool $jingles_enabled
  * @property string $jingle_mode one of JINGLE_MODE_INTERVAL | JINGLE_MODE_TRACKS
  * @property int $jingle_interval_seconds
@@ -106,23 +106,6 @@ class Station extends Model
     public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
 
     /**
-     * Walk the rotation in `position` order, wrapping at the end. The order
-     * the owner set with the drag handles in the library, played as written.
-     */
-    public const AUTODJ_ORDER_SEQUENTIAL = 'sequential';
-
-    /**
-     * Play a random permutation of the rotation, dealing a fresh one each time
-     * the last is exhausted. Deliberately not called "random": a random pick
-     * per track can repeat a song immediately, which is never what anyone
-     * means. Every track airs exactly once before any track airs twice.
-     */
-    public const AUTODJ_ORDER_SHUFFLE = 'shuffle';
-
-    /** @var list<string> */
-    public const AUTODJ_ORDERS = [self::AUTODJ_ORDER_SEQUENTIAL, self::AUTODJ_ORDER_SHUFFLE];
-
-    /**
      * How many featured stations the public rail shows. Featuring more than
      * this is allowed — it is curation, not a queue — but the extras are not
      * visible, which is why the admin panel counts against this number rather
@@ -157,12 +140,23 @@ class Station extends Model
             // Same reasoning. LiquidsoapSupervisor renders the .liq straight
             // off the in-memory model, so a null interval here would reach
             // delay() as 0 — a jingle between every single track.
-            $station->autodj_order ??= self::AUTODJ_ORDER_SEQUENTIAL;
-
             $station->jingles_enabled ??= false;
             $station->jingle_mode ??= self::JINGLE_MODE_INTERVAL;
             $station->jingle_interval_seconds ??= self::DEFAULT_JINGLE_INTERVAL_SECONDS;
             $station->jingle_every_tracks ??= self::DEFAULT_JINGLE_EVERY_TRACKS;
+        });
+
+        // Every station owns a default playlist from its first moment: it is
+        // what AutoDJ plays when nothing else is scheduled, and where uploads
+        // land when no playlist is named. Here rather than in the controller
+        // so factories, seeders and the admin panel all get one too.
+        static::created(function (Station $station) {
+            $station->playlists()->forceCreate([
+                'name' => Playlist::DEFAULT_NAME,
+                'is_default' => true,
+                'order' => Playlist::ORDER_SEQUENTIAL,
+                'position' => 0,
+            ]);
         });
     }
 
@@ -245,7 +239,6 @@ class Station extends Model
             'stream_key' => 'encrypted',
             'stream_key_rotated_at' => 'datetime',
             'featured_at' => 'datetime',
-            'autodj_deck' => 'array',
             'jingles_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
@@ -431,12 +424,48 @@ class Station extends Model
     }
 
     /**
-     * The AutoDJ rotation, in the order AutoDjScheduler walks it to answer
-     * the container's "what do I play next?".
+     * Every music file in the library, in library order.
+     *
+     * NOT the rotation any more: what AutoDJ walks is a Playlist (see
+     * defaultPlaylist() and AutoDjScheduler). A music track in no playlist
+     * is in the library and never plays.
      */
     public function musicTracks(): HasMany
     {
         return $this->tracks()->where('kind', Track::KIND_MUSIC);
+    }
+
+    /**
+     * The station's rotations — the default first, then the owner's own
+     * arrangement.
+     */
+    public function playlists(): HasMany
+    {
+        return $this->hasMany(Playlist::class)
+            ->orderByDesc('is_default')
+            ->orderBy('position')
+            ->orderBy('created_at');
+    }
+
+    /**
+     * The rotation AutoDJ plays when nothing else is scheduled, and where an
+     * upload lands when no playlist is named. Exactly one per station,
+     * created with it (see booted()) and undeletable (PlaylistController).
+     */
+    public function defaultPlaylist(): HasOne
+    {
+        return $this->hasOne(Playlist::class)->where('is_default', true);
+    }
+
+    /**
+     * The AutoDJ programme: which playlist plays on which weekdays between
+     * which hours. Read by the audio path through AutoDjProgramme. Not to be
+     * confused with schedules(), the advertised show times, which nothing on
+     * the audio path reads.
+     */
+    public function autodjSlots(): HasMany
+    {
+        return $this->hasMany(AutodjSlot::class)->orderBy('position');
     }
 
     /**

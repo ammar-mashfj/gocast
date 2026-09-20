@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\Track;
+use App\Services\AutoDjProgramme;
 use App\Services\StationStatusService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 
 /**
  * Live audio state for one station, read from its Liquidsoap container.
@@ -28,11 +31,20 @@ class StationStatusController extends Controller
     /** How many upcoming tracks the dashboard shows. */
     private const UP_NEXT_LIMIT = 5;
 
-    public function __invoke(Station $station, StationStatusService $statusService): JsonResponse
+    public function __invoke(Station $station, StationStatusService $statusService, AutoDjProgramme $programme): JsonResponse
     {
         $this->authorize('view', $station);
 
         $status = $statusService->fetch($station);
+
+        // The playlist AutoDJ is drawing from right now — a slot's, or the
+        // default — resolved once per poll and shared by the count and the
+        // queue below. Eager-loaded for the same reason NextTrackController
+        // does it: this endpoint is polled every few seconds per open
+        // dashboard, and resolve() reads the slots and the default as
+        // relations.
+        $station->load(['autodjSlots.playlist', 'defaultPlaylist']);
+        $playlist = $programme->resolve($station)['playlist'];
 
         return response()->json([
             'data' => [
@@ -83,8 +95,8 @@ class StationStatusController extends Controller
                 'now_playing' => $this->nowPlaying($status),
                 'elapsed' => $status['elapsed'] ?? null,
                 'remaining' => $status['remaining'] ?? null,
-                'playlist_length' => $this->playlistLength($station),
-                'up_next' => $this->upNext($station, $status),
+                'playlist_length' => $this->playlistLength($playlist),
+                'up_next' => $this->upNext($playlist, $status),
             ],
         ]);
     }
@@ -146,28 +158,36 @@ class StationStatusController extends Controller
      * operator "otherwise we will run into synchronization issues" — so polling
      * it every couple of seconds was a standing hazard once crossfade was on.
      *
-     * Rotation only. Jingles live in the same table but in their own list,
-     * written to a separate playlist Liquidsoap plays on a timer — they are
-     * never "next" in the sense this card means, and reading tracks() rather
-     * than musicTracks() showed a station whose rotation was empty a queue of
-     * its station IDs while it played silence.
+     * The playlist the programme resolved to, walked the way AutoDjScheduler
+     * walks it. Not the library: a track that is in no playlist never plays,
+     * and jingles live in their own list written to a separate source
+     * Liquidsoap plays on a timer — neither is ever "next" in the sense this
+     * card means.
      *
+     * @param  array<string, mixed>|null  $status
      * @return list<array{id: ?string, title: string, artist: ?string}>
      */
-    private function upNext(Station $station, ?array $status): array
+    private function upNext(?Playlist $playlist, ?array $status): array
     {
-        $tracks = $station->musicTracks()
-            ->orderBy('position')
-            ->get(['id', 'title', 'artist'])
+        if ($playlist === null) {
+            return [];
+        }
+
+        $tracks = $playlist->tracks()
+            ->get(['tracks.id', 'tracks.title', 'tracks.artist'])
             ->values();
 
         if ($tracks->isEmpty()) {
             return [];
         }
 
-        // Anchor on what the container says is playing. The AutoDJ playlist
-        // runs in `mode = "normal"` — top to bottom, looping — so everything
-        // after the current row, wrapping at the end, is what plays next.
+        if ($playlist->order === Playlist::ORDER_SHUFFLE) {
+            return $this->upNextShuffled($playlist, $tracks);
+        }
+
+        // Anchor on what the container says is playing. Sequential order runs
+        // top to bottom, looping — so everything after the current row,
+        // wrapping at the end, is what plays next.
         $currentIndex = $tracks->search(
             fn (Track $track): bool => $track->title === ($status['title'] ?? null)
                 && $track->artist === ($status['artist'] ?? null)
@@ -185,19 +205,57 @@ class StationStatusController extends Controller
             /** @var Track $track */
             $track = $tracks[($start + $offset) % $count];
 
-            $upNext[] = [
-                'id' => $track->id,
-                'title' => $track->title,
-                'artist' => $track->artist,
-            ];
+            $upNext[] = $this->queueEntry($track);
         }
 
         return $upNext;
     }
 
-    /** Rotation length — what AutoDJ actually cycles through, jingles excluded. */
-    private function playlistLength(Station $station): int
+    /**
+     * A shuffled playlist's queue is the head of its deck: the scheduler pops
+     * the track it hands out, so what remains is, in order, what airs next.
+     * IDs of tracks since removed are skipped exactly as the scheduler skips
+     * them. No deck (nothing has played since the mode was set, or the last
+     * one just ran out) means the next deal has not happened yet, and an
+     * empty list is more honest than a guess at a permutation.
+     *
+     * @param  Collection<int, Track>  $tracks
+     * @return list<array{id: ?string, title: string, artist: ?string}>
+     */
+    private function upNextShuffled(Playlist $playlist, $tracks): array
     {
-        return $station->musicTracks()->count();
+        $byId = $tracks->keyBy('id');
+        $upNext = [];
+
+        foreach ($playlist->deck ?? [] as $id) {
+            $track = $byId->get($id);
+            if ($track === null) {
+                continue;
+            }
+
+            $upNext[] = $this->queueEntry($track);
+
+            if (count($upNext) === self::UP_NEXT_LIMIT) {
+                break;
+            }
+        }
+
+        return $upNext;
+    }
+
+    /** @return array{id: ?string, title: string, artist: ?string} */
+    private function queueEntry(Track $track): array
+    {
+        return [
+            'id' => $track->id,
+            'title' => $track->title,
+            'artist' => $track->artist,
+        ];
+    }
+
+    /** Length of the playlist on air now — what AutoDJ actually cycles through, jingles excluded. */
+    private function playlistLength(?Playlist $playlist): int
+    {
+        return $playlist?->tracks()->count() ?? 0;
     }
 }

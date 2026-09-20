@@ -152,7 +152,7 @@ class PlaylistFileWriter
      * `duration`, the jingle arm reads `jingle`), and two builders would be
      * two places for that contract to drift.
      */
-    public function annotateTrack(Track $track, bool $isJingle = false): string
+    public function annotateTrack(Track $track, bool $isJingle = false, ?string $playlist = null): string
     {
         // Absolute container path — relative paths inside an annotate URI are
         // not resolved against the m3u's own directory (unlike bare m3u
@@ -167,6 +167,7 @@ class PlaylistFileWriter
             $track->duration_seconds === null ? null : (float) $track->duration_seconds,
             $isJingle,
             $track,
+            $playlist,
         );
     }
 
@@ -252,6 +253,7 @@ class PlaylistFileWriter
         ?float $durationSeconds = null,
         bool $isJingle = false,
         ?Track $track = null,
+        ?string $playlist = null,
     ): string {
         $parts = [];
 
@@ -272,6 +274,15 @@ class PlaylistFileWriter
         $artist = trim((string) $artist);
         if ($artist !== '') {
             $parts[] = 'artist="'.$this->escapeAnnotateValue($artist).'"';
+        }
+
+        // Which playlist the rotation drew this from. Not read by the script;
+        // it rides along in `on_metadata` so now-playing and the station
+        // timeline can say where a track came from once the schedule can
+        // switch playlists by time of day.
+        $playlist = trim((string) $playlist);
+        if ($playlist !== '') {
+            $parts[] = 'playlist="'.$this->escapeAnnotateValue($playlist).'"';
         }
 
         return 'annotate:'.implode(',', $parts).':'.$path;

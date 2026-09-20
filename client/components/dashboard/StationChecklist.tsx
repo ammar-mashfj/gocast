@@ -60,8 +60,8 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
           {
             key: "tracks",
             done: trackCount > 0,
-            title: "Fill the AutoDJ rotation",
-            hint: "Without tracks the station goes on air to silence.",
+            title: "Fill the default playlist",
+            hint: "It is what plays when you're off air — empty, the station goes on air to silence.",
             href: `/dashboard/stations/${station.slug}/library`,
           },
         ]),

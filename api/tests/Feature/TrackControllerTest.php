@@ -5,6 +5,7 @@ use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 
 use function Pest\Laravel\actingAs;
@@ -328,4 +329,168 @@ it('compacts positions within a kind when a track is deleted', function () {
     expect($second->refresh()->position)->toBe(1)
         // Untouched: the jingle list has its own sequence.
         ->and($jingle->refresh()->position)->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Bulk delete — DELETE /api/stations/{slug}/tracks
+|--------------------------------------------------------------------------
+|
+| The library's multi-select. Everything single delete guarantees must hold
+| for a batch as well: positions compact per kind, playlists renumber, files
+| go, and nobody else's tracks are reachable.
+*/
+
+it('rejects unauthenticated bulk deletes', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    deleteJson("/api/stations/{$station->slug}/tracks", ['track_ids' => [$track->id]])
+        ->assertUnauthorized();
+});
+
+it('forbids non-owners from bulk deleting tracks', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    actingAs(User::factory()->create(), 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", ['track_ids' => [$track->id]])
+        ->assertForbidden();
+
+    expect(Track::whereKey($track->id)->exists())->toBeTrue();
+});
+
+it('deletes several tracks at once and returns the remaining library', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $first = Track::factory()->for($station)->create(['position' => 1, 'title' => 'Gone one']);
+    $second = Track::factory()->for($station)->create(['position' => 2, 'title' => 'Kept']);
+    $third = Track::factory()->for($station)->create(['position' => 3, 'title' => 'Gone two']);
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", [
+            'track_ids' => [$first->id, $third->id],
+        ])
+        ->assertOk()
+        ->assertJsonPath('meta.deleted', 2)
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.title', 'Kept');
+
+    expect(Track::whereKey([$first->id, $third->id])->count())->toBe(0)
+        // The survivor closes the gap rather than staying at #2.
+        ->and($second->refresh()->position)->toBe(1);
+});
+
+it('compacts each kind independently on a mixed bulk delete', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $music1 = Track::factory()->for($station)->create(['position' => 1]);
+    $music2 = Track::factory()->for($station)->create(['position' => 2]);
+    $jingle1 = Track::factory()->for($station)->jingle()->create(['position' => 1]);
+    $jingle2 = Track::factory()->for($station)->jingle()->create(['position' => 2]);
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", [
+            'track_ids' => [$music1->id, $jingle1->id],
+        ])
+        ->assertOk()
+        ->assertJsonPath('meta.deleted', 2);
+
+    expect($music2->refresh()->position)->toBe(1)
+        ->and($jingle2->refresh()->position)->toBe(1);
+});
+
+it('removes bulk-deleted tracks from their playlists and renumbers what is left', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $playlist = $station->defaultPlaylist;
+
+    // The factory attaches each music track to the default playlist in turn,
+    // so pivot positions are 1, 2, 3 before this runs.
+    $first = Track::factory()->for($station)->create(['position' => 1]);
+    $second = Track::factory()->for($station)->create(['position' => 2]);
+    $third = Track::factory()->for($station)->create(['position' => 3]);
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", [
+            'track_ids' => [$first->id, $second->id],
+        ])
+        ->assertOk();
+
+    $members = DB::table('playlist_track')
+        ->where('playlist_id', $playlist->id)
+        ->orderBy('position')
+        ->pluck('position', 'track_id');
+
+    expect($members)->toHaveCount(1)
+        ->and((int) $members[$third->id])->toBe(1);
+});
+
+it('deletes the audio files from disk', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    $dir = $this->tmpDir.'/'.$station->slug;
+    File::ensureDirectoryExists($dir);
+    File::put($dir.'/'.$track->path, 'audio');
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", ['track_ids' => [$track->id]])
+        ->assertOk();
+
+    expect(File::exists($dir.'/'.$track->path))->toBeFalse();
+});
+
+it('refuses a batch containing another station\'s track', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $mine = Track::factory()->for($station)->create();
+    $theirs = Track::factory()->for(Station::factory()->for(User::factory(), 'user'))->create();
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", [
+            'track_ids' => [$mine->id, $theirs->id],
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('track_ids.1');
+
+    // Nothing partially applied — the whole batch is rejected up front.
+    expect(Track::whereKey($mine->id)->exists())->toBeTrue()
+        ->and(Track::whereKey($theirs->id)->exists())->toBeTrue();
+});
+
+it('rejects an empty or duplicated bulk delete', function () {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", ['track_ids' => []])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('track_ids');
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", [
+            'track_ids' => [$track->id, $track->id],
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('track_ids.1');
+});
+
+it('still lets a downgraded user bulk delete their library', function () {
+    // Same rule as the single delete above: a downgrade must never trap
+    // someone's files behind a paywall.
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    $owner = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($owner, 'user')->create();
+    $track = Track::factory()->for($station)->create();
+
+    actingAs($owner, 'sanctum')
+        ->deleteJson("/api/stations/{$station->slug}/tracks", ['track_ids' => [$track->id]])
+        ->assertOk()
+        ->assertJsonPath('meta.deleted', 1);
 });

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Plan;
+use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\Track;
 use Illuminate\Testing\TestResponse;
@@ -58,13 +59,15 @@ it('remembers where the rotation got to', function () {
     askForNextTrack($this->station->slug);
     askForNextTrack($this->station->slug);
 
-    expect($this->station->fresh()->autodj_cursor_position)->toBe(2);
+    expect($this->station->defaultPlaylist->fresh()->cursor_position)->toBe(2);
 });
 
 /**
- * The cursor update runs at every track boundary on every station. If it went
- * through the model it would fire StationObserver, which re-renders the .liq
- * and restarts the container — a restart per track, fleet-wide.
+ * The cursor update runs at every track boundary on every station. It lives
+ * on the playlist now, but the station row must still not move: anything
+ * that went through the Station model would fire StationObserver, which
+ * re-renders the .liq and restarts the container — a restart per track,
+ * fleet-wide.
  */
 it('does not disturb the station row', function () {
     $before = $this->station->fresh()->updated_at;
@@ -168,22 +171,21 @@ describe('the plan gate', function () {
 
         askForNextTrack($station->slug)->assertOk();
 
-        $cursor = $station->fresh()->autodj_cursor_position;
+        $cursor = $station->defaultPlaylist->fresh()->cursor_position;
 
         $station->user->forceFill(['plan_id' => Plan::where('slug', 'free')->value('id')])->save();
 
         collect(range(1, 5))->each(fn () => askForNextTrack($station->slug)->assertNoContent());
 
-        expect($station->fresh()->autodj_cursor_position)->toBe($cursor);
+        expect($station->defaultPlaylist->fresh()->cursor_position)->toBe($cursor);
     });
 
     it('does not deal a new shuffle deck while it is refusing', function () {
         // Same reasoning as the cursor, for the other ordering mode: the deck
         // is what makes shuffle avoid repeats, and burning through it on a
         // refusal is the same lost state in a different column.
-        $station = Station::factory()->withAutoDj()->create([
-            'autodj_order' => Station::AUTODJ_ORDER_SHUFFLE,
-        ]);
+        $station = Station::factory()->withAutoDj()->create();
+        $station->defaultPlaylist->fill(['order' => Playlist::ORDER_SHUFFLE])->save();
 
         collect(range(1, 3))->each(fn (int $n) => Track::factory()->create([
             'station_id' => $station->id,
@@ -195,13 +197,13 @@ describe('the plan gate', function () {
 
         askForNextTrack($station->slug)->assertOk();
 
-        $deck = $station->fresh()->autodj_deck;
+        $deck = $station->defaultPlaylist->fresh()->deck;
 
         $station->user->forceFill(['plan_id' => Plan::where('slug', 'free')->value('id')])->save();
 
         collect(range(1, 5))->each(fn () => askForNextTrack($station->slug)->assertNoContent());
 
-        expect($station->fresh()->autodj_deck)->toBe($deck);
+        expect($station->defaultPlaylist->fresh()->deck)->toBe($deck);
     });
 
     it('picks the rotation back up unchanged when the plan comes back', function () {

@@ -203,3 +203,13 @@ it('reloads jingles when the station has them enabled', function () {
 
     (new PlaylistFileWriter($supervisor))->reload($station);
 });
+
+it('names the playlist a rotation track came from', function () {
+    // Not read by the script; it rides along in on_metadata so now-playing
+    // and the timeline can say where a track came from once the schedule
+    // switches playlists by time of day.
+    $track = playlistTrack(['title' => 'T']);
+
+    expect(app(PlaylistFileWriter::class)->annotateTrack($track, playlist: 'Morning "Calm"'))
+        ->toBe('annotate:duration="100.000",title="T",playlist="Morning \"Calm\"":/data/playlists/01abc.mp3');
+});

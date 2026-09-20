@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\AnalyzeTrack;
+use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\Track;
@@ -35,6 +36,7 @@ class TrackImporter
 {
     public function __construct(
         private readonly PlaylistFileWriter $playlistWriter,
+        private readonly PlaylistTracks $playlistTracks,
     ) {}
 
     /**
@@ -67,8 +69,12 @@ class TrackImporter
      * rotation) or Track::KIND_JINGLE (station IDs). Jingles count against
      * the same per-station storage cap: they are usually seconds long, and a
      * second quota would be two numbers to explain in the UI for no benefit.
+     *
+     * A music track also joins a playlist — `$playlist` if given, else the
+     * station's default — because a track in no playlist never plays, and
+     * "upload it and it plays" is the promise the library page makes.
      */
-    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC): Track
+    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC, ?Playlist $playlist = null): Track
     {
         $size = $file->getSize();
         if ($size === false) {
@@ -95,7 +101,7 @@ class TrackImporter
         $relativePath = $track->getKey().'.'.$extension;
         $absolutePath = $dir.'/'.$relativePath;
 
-        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track, $kind) {
+        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track, $kind, $playlist) {
             // Lock the station row so two concurrent uploads serialize and
             // each sees the other's incremented total in the quota check.
             Station::whereKey($station->id)->lockForUpdate()->first();
@@ -116,6 +122,15 @@ class TrackImporter
                     'position' => $this->nextPosition($station, $kind),
                 ]);
                 $track->save();
+
+                // Inside the transaction so a track can never be committed
+                // without its playlist membership.
+                if ($kind === Track::KIND_MUSIC) {
+                    $destination = $playlist ?? $station->defaultPlaylist;
+                    if ($destination !== null) {
+                        $this->playlistTracks->attach($destination, [$track->getKey()]);
+                    }
+                }
             } catch (\Throwable $e) {
                 // Don't leave an orphan on disk if any step fails after move().
                 if (is_file($absolutePath)) {
@@ -184,6 +199,10 @@ class TrackImporter
             'bytes' => $track->file_size_bytes,
         ];
 
+        // Before the row goes: the FK cascade would drop the pivot rows on
+        // its own, but only this renumbers what each playlist has left.
+        $this->playlistTracks->detachEverywhere($track);
+
         $track->delete();
 
         // Compact: every later track shifts down by one. Keeps positions
@@ -199,6 +218,110 @@ class TrackImporter
         $this->playlistWriter->reload($station);
 
         StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $deletedDetails);
+    }
+
+    /**
+     * Delete several of a station's tracks in one pass. Returns how many rows
+     * were actually removed; IDs that are not this station's are ignored
+     * rather than failing the batch.
+     *
+     * NOT a loop over destroy(), and the difference is the point. destroy()
+     * rewrites the playlist file and reloads Liquidsoap every time, so twenty
+     * single deletes are twenty reloads of a station that may be on air. Here
+     * the whole batch shares one write and one reload.
+     *
+     * Order matters. The database work runs inside a transaction and the files
+     * are unlinked only once it has committed — a rolled-back batch that had
+     * already deleted the audio would leave rows pointing at nothing, which is
+     * the one outcome worse than an orphaned file on disk.
+     *
+     * @param  list<string>  $trackIds
+     */
+    public function destroyMany(Station $station, array $trackIds): int
+    {
+        $tracks = $station->tracks()->whereKey($trackIds)->get();
+        if ($tracks->isEmpty()) {
+            return 0;
+        }
+
+        $stationDir = $this->playlistWriter->stationDir($station);
+
+        // Read everything off the models while they still exist; afterwards
+        // these arrays are the only record of what the files were.
+        $paths = [];
+        $events = [];
+        $kinds = [];
+        foreach ($tracks as $track) {
+            $paths[] = $stationDir.'/'.$track->path;
+            $kinds[$track->kind] = true;
+            $events[] = [
+                'track_id' => $track->getKey(),
+                'kind' => $track->kind,
+                'title' => $track->title,
+                'artist' => $track->artist,
+                'bytes' => $track->file_size_bytes,
+            ];
+        }
+
+        DB::transaction(function () use ($tracks, $station, $kinds) {
+            // The FK cascade would drop the pivot rows on its own, but only
+            // this renumbers what each playlist has left.
+            foreach ($tracks as $track) {
+                $this->playlistTracks->detachEverywhere($track);
+            }
+
+            Track::query()->whereKey($tracks->modelKeys())->delete();
+
+            // One compaction per affected kind, instead of destroy()'s
+            // decrement-per-deletion. The two lists number independently.
+            foreach (array_keys($kinds) as $kind) {
+                $this->resequence($station, (string) $kind);
+            }
+        });
+
+        foreach ($paths as $absolute) {
+            if (is_file($absolute)) {
+                @unlink($absolute);
+            }
+        }
+
+        $this->playlistWriter->write($station);
+        $this->playlistWriter->reload($station);
+
+        // One event per file, the same as deleting them one at a time would
+        // have produced — the admin timeline should not lose detail just
+        // because the owner used the checkbox.
+        foreach ($events as $details) {
+            StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $details);
+        }
+
+        return $tracks->count();
+    }
+
+    /**
+     * Close the gaps in one kind's `position` sequence, leaving it 1-based and
+     * contiguous in its existing order.
+     *
+     * Only rows whose position actually moves are written, so deleting from
+     * the tail of a large library costs almost nothing.
+     */
+    private function resequence(Station $station, string $kind): void
+    {
+        $rows = $station->tracks()
+            ->where('kind', $kind)
+            ->orderBy('position')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['id', 'position']);
+
+        $position = 0;
+        foreach ($rows as $row) {
+            $position++;
+            if ((int) $row->position === $position) {
+                continue;
+            }
+            Track::query()->whereKey($row->id)->update(['position' => $position]);
+        }
     }
 
     /**

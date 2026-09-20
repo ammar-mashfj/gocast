@@ -1,173 +1,456 @@
 "use client"
 
-import { useState, useRef, useCallback, useMemo } from "react"
+import { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import { toast } from "sonner"
 import {
-  IconGripVertical,
-  IconTrash,
-  IconEdit,
   IconCheck,
-  IconX,
   IconLoader2,
-  IconMusic,
   IconMicrophone,
-  IconSearch,
   IconPlus,
   IconSparkles,
-  IconArrowsShuffle,
 } from "@tabler/icons-react"
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core"
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
 import api from "@/lib/axios"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { formatBytes, formatDate, formatDuration } from "@/lib/format"
+import { formatBytes, formatDuration } from "@/lib/format"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useProRequest } from "@/contexts/ProRequestContext"
+import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
+import { AddToPlaylistDialog } from "./AddToPlaylistDialog"
+import { AllTracksView } from "./AllTracksView"
 import { AutoDjUpsell } from "./AutoDjUpsell"
-import { JinglesDialog } from "./JinglesDialog"
 import { FixTagsDialog } from "./FixTagsDialog"
+import { JinglesDialog } from "./JinglesDialog"
+import { PlaylistRail, LIBRARY_KEY } from "./PlaylistRail"
+import { PlaylistView } from "./PlaylistView"
+import { TrackPicker } from "./TrackPicker"
+import type { TrackEditFields } from "./TrackRow"
 import { AUDIO_ACCEPT } from "./upload"
 import { useTrackUpload } from "./useTrackUpload"
 import { UploadProgressBar } from "./UploadProgressBar"
-
-type SortKey = "order" | "title" | "length"
-
-const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: "order", label: "Play order" },
-  { key: "title", label: "Title" },
-  { key: "length", label: "Longest" },
-]
-
-/**
- * Rows rendered before "Show all" appears. This is a guard for a library that
- * has grown past what anyone wants to paint at once, not an editorial choice —
- * a rotation of any normal size never reaches it, so the button stays hidden
- * and the screen behaves as if there were no limit at all.
- */
-const INITIAL_LIMIT = 50
-
-/** Column track shared by the header row and every track row, so they line up. */
-const ROW_GRID =
-  "grid grid-cols-[1.25rem_1.75rem_minmax(0,1fr)_auto] " +
-  "md:grid-cols-[1.25rem_2rem_minmax(0,1fr)_minmax(0,0.7fr)_4rem_4.5rem_5rem_4.5rem] " +
-  "gap-3 items-center px-4"
 
 interface Props {
   station: Station
   initialTracks: Track[]
   initialMeta: LibraryMeta
+  initialPlaylists: Playlist[]
 }
 
-export function LibraryView({ station, initialTracks, initialMeta }: Props) {
+/** Renumber a member list after anything that changes it, so `position` stays what the # column shows. */
+function renumber(list: Track[]): Track[] {
+  return list.map((t, i) => (t.position === i + 1 ? t : { ...t, position: i + 1 }))
+}
+
+type NameDialog = { mode: "create" } | { mode: "rename"; playlist: Playlist } | null
+
+/**
+ * The AutoDJ screen: the library on one side, the playlists built from it on
+ * the other, and one set of state that keeps them agreeing.
+ *
+ * Two lists describe the same tracks — the library (every file, with which
+ * playlists it is in) and each playlist's members (a subset, in play order) —
+ * so every edit is applied to both here rather than in whichever view the
+ * click landed in. The views are presentational and receive callbacks.
+ */
+export function LibraryView({ station, initialTracks, initialMeta, initialPlaylists }: Props) {
   const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
+  const [playlists, setPlaylists] = useState<Playlist[]>(initialPlaylists)
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
+  const [members, setMembers] = useState<Record<string, Track[]>>({})
+  const [selected, setSelected] = useState<string>(
+    () => initialPlaylists.find((p) => p.is_default)?.id ?? LIBRARY_KEY,
+  )
   const [dragOver, setDragOver] = useState(false)
   const [jinglesOpen, setJinglesOpen] = useState(false)
-  const [order, setOrder] = useState(station.autodj_order)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [nameDialog, setNameDialog] = useState<NameDialog>(null)
+  /** The library selection waiting for a playlist to be chosen; null = closed. */
+  const [bulkAddIds, setBulkAddIds] = useState<string[] | null>(null)
   const [savingOrder, setSavingOrder] = useState(false)
   const [fixTagsOpen, setFixTagsOpen] = useState(false)
   const [tagBannerDismissed, setTagBannerDismissed] = useState(false)
-  const [query, setQuery] = useState("")
-  const [sort, setSort] = useState<SortKey>("order")
-  const [limit, setLimit] = useState(INITIAL_LIMIT)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   /**
-   * AutoDJ is not on this plan. Uploading is the only thing this locks —
-   * listing, reordering, editing and deleting all stay live, matching
-   * TrackController exactly. A downgrade must never trap someone's files
-   * behind a paywall, and a library someone can still curate is a much better
-   * argument for upgrading than one they've been locked out of.
+   * AutoDJ is not on this plan. Uploading and creating playlists are what this
+   * locks — listing, reordering, editing and deleting all stay live, matching
+   * the API exactly. A downgrade must never trap someone's files behind a
+   * paywall, and a library someone can still curate is a much better argument
+   * for upgrading than one they've been locked out of.
    */
   const locked = useAutoDjLocked()
 
-  // The dashboard's single request dialog, mounted by the layout. Every CTA
-  // on this screen opens that one rather than its own, so they settle
-  // together — and so does the sidebar's.
+  // The dashboard's single request dialog, mounted by the layout.
   const proRequest = useProRequest()
 
-  // Which row is on air. Polled at the hook's own pace — 10s while the station
-  // is up, 30s when it is off — which is cheap enough to leave running on a
-  // screen someone keeps open while they reorganise a rotation.
+  // Which row is on air. Polled at the hook's own pace.
   const { status } = useStationStatus(slug)
 
-  // The storage cap covers the whole station, so a jingle upload or delete
-  // has to move this meter too.
-  const applyStorageDelta = useCallback((deltaBytes: number) => {
-    setMeta((prev) => ({
-      ...prev,
-      storage_used_bytes: prev.storage_used_bytes + deltaBytes,
-    }))
+  const defaultPlaylist = useMemo(() => playlists.find((p) => p.is_default) ?? null, [playlists])
+  const currentPlaylist = useMemo(
+    () => (selected === LIBRARY_KEY ? null : (playlists.find((p) => p.id === selected) ?? null)),
+    [selected, playlists],
+  )
+  const playlistNames = useMemo(() => new Map(playlists.map((p) => [p.id, p.name])), [playlists])
+
+  // A playlist's members are fetched the first time it is opened and kept
+  // after that, updated in place by every edit below.
+  useEffect(() => {
+    if (currentPlaylist === null || members[currentPlaylist.id] !== undefined) return
+    const id = currentPlaylist.id
+    let cancelled = false
+    api
+      .get<{ data: Track[] }>(`/playlists/${id}/tracks`)
+      .then(({ data }) => {
+        if (!cancelled) setMembers((prev) => ({ ...prev, [id]: data.data }))
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Couldn't load that playlist.")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentPlaylist, members])
+
+  const refetchMembers = useCallback(async (id: string) => {
+    const { data } = await api.get<{ data: Track[] }>(`/playlists/${id}/tracks`)
+    setMembers((prev) => ({ ...prev, [id]: data.data }))
   }, [])
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
+  const refetchLibrary = useCallback(async () => {
+    const { data } = await api.get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`)
+    setTracks(data.data)
+    setMeta(data.meta)
+  }, [slug])
+
+  const refetchPlaylists = useCallback(async () => {
+    const { data } = await api.get<{ data: Playlist[] }>(`/stations/${slug}/playlists`)
+    setPlaylists(data.data)
+  }, [slug])
+
+  const applyStorageDelta = useCallback((deltaBytes: number) => {
+    setMeta((prev) => ({ ...prev, storage_used_bytes: prev.storage_used_bytes + deltaBytes }))
+  }, [])
+
+  /** Keep the rail's counts honest without a refetch. */
+  const bumpPlaylist = useCallback((id: string, deltaCount: number, deltaSeconds: number) => {
+    setPlaylists((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              track_count: Math.max(0, (p.track_count ?? 0) + deltaCount),
+              duration_seconds: Math.max(0, (p.duration_seconds ?? 0) + deltaSeconds),
+            }
+          : p,
+      ),
+    )
+  }, [])
+
+  // ---- uploads ---------------------------------------------------------
 
   /**
-   * Applied per batch so a long drop fills the list as it goes instead of
-   * jumping at the end, and so the storage meter tracks it.
+   * Applied per batch so a long drop fills the list as it goes. The server
+   * says which playlists each new row joined, so both lists can be updated
+   * without a round trip.
    */
   const handleUploaded = useCallback(
     (added: Track[]) => {
       setTracks((prev) => [...prev, ...added])
       applyStorageDelta(added.reduce((sum, t) => sum + t.file_size_bytes, 0))
+      for (const track of added) {
+        for (const id of track.playlist_ids ?? []) {
+          bumpPlaylist(id, 1, track.duration_seconds ?? 0)
+          setMembers((prev) =>
+            prev[id] === undefined
+              ? prev
+              : { ...prev, [id]: renumber([...prev[id], { ...track, playlist_ids: undefined }]) },
+          )
+        }
+      }
     },
-    [applyStorageDelta],
+    [applyStorageDelta, bumpPlaylist],
   )
 
   const { progress, uploading, upload } = useTrackUpload({
     slug,
+    playlistId: currentPlaylist?.id ?? null,
     noun: "track",
     onUploaded: handleUploaded,
   })
 
+  function pickFiles() {
+    if (locked) return
+    fileInputRef.current?.click()
+  }
+
+  // ---- track edits (both lists) ----------------------------------------
+
+  const handleEdit = useCallback(
+    async (id: string, fields: TrackEditFields) => {
+      const patch = (t: Track) => (t.id === id ? ({ ...t, ...fields } as Track) : t)
+      setTracks((prev) => prev.map(patch))
+      setMembers((prev) => Object.fromEntries(Object.entries(prev).map(([k, list]) => [k, list.map(patch)])))
+      try {
+        await api.patch(`/tracks/${id}`, fields)
+      } catch {
+        toast.error("Save failed. Refreshing…")
+        await refetchLibrary()
+        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+      }
+    },
+    [refetchLibrary, refetchMembers, currentPlaylist],
+  )
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      const target = tracks.find((t) => t.id === id)
+      if (!target) return
+      // TODO: replace with shadcn AlertDialog
+      if (!window.confirm(`Delete "${target.title}"? It leaves every playlist too. This can't be undone.`)) return
+
+      setTracks((prev) => prev.filter((t) => t.id !== id))
+      setMembers((prev) =>
+        Object.fromEntries(Object.entries(prev).map(([k, list]) => [k, renumber(list.filter((t) => t.id !== id))])),
+      )
+      for (const pid of target.playlist_ids ?? []) bumpPlaylist(pid, -1, -(target.duration_seconds ?? 0))
+      applyStorageDelta(-target.file_size_bytes)
+
+      try {
+        await api.delete(`/tracks/${id}`)
+        toast.success("Track deleted.")
+      } catch {
+        toast.error("Delete failed. Refreshing…")
+        await refetchLibrary()
+        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+      }
+    },
+    [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchMembers, currentPlaylist],
+  )
+
   /**
-   * Flip the rotation between sequential and shuffle.
+   * Delete every selected file in one request.
    *
-   * Optimistic, and safe to be: the setting is read per track by the
-   * scheduler and never rendered into the .liq, so nothing restarts and no
-   * listener hears the switch. The worst a failed PATCH costs is the toggle
-   * snapping back.
+   * Not a loop over handleDelete: each single delete rewrites the station's
+   * playlist file and reloads Liquidsoap, so twenty of them is twenty reloads
+   * of a station that may be on air. The bulk endpoint does that work once.
    *
-   * The change lands on the NEXT track boundary, not this one — the container
-   * has already been handed the song it is about to play. Saying so is the
-   * difference between "nothing happened" and "it worked".
+   * Optimistic first so a long list clears immediately, then the server's own
+   * library replaces it — after a batch, the counts and the storage meter are
+   * exactly what nobody should be guessing at.
    */
-  const toggleShuffle = useCallback(async () => {
-    if (locked || savingOrder) return
+  const handleBulkDelete = useCallback(
+    async (ids: string[]) => {
+      const set = new Set(ids)
+      const targets = tracks.filter((t) => set.has(t.id))
+      if (targets.length === 0) return
 
-    const next = order === "shuffle" ? "sequential" : "shuffle"
-    const previous = order
+      setTracks((prev) => prev.filter((t) => !set.has(t.id)))
+      setMembers((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).map(([k, list]) => [k, renumber(list.filter((t) => !set.has(t.id)))]),
+        ),
+      )
+      for (const track of targets) {
+        for (const pid of track.playlist_ids ?? []) {
+          bumpPlaylist(pid, -1, -(track.duration_seconds ?? 0))
+        }
+      }
+      applyStorageDelta(-targets.reduce((sum, t) => sum + t.file_size_bytes, 0))
 
-    setOrder(next)
+      try {
+        const { data } = await api.delete<{ data: Track[]; meta: LibraryMeta }>(
+          `/stations/${slug}/tracks`,
+          { data: { track_ids: ids } },
+        )
+        setTracks(data.data)
+        setMeta(data.meta)
+        toast.success(`Deleted ${targets.length} track${targets.length === 1 ? "" : "s"}.`)
+        // The rail's per-playlist counts and the open playlist's membership
+        // both moved; neither is in the response.
+        await refetchPlaylists()
+        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+      } catch {
+        toast.error("Delete failed. Refreshing…")
+        await refetchLibrary()
+        await refetchPlaylists()
+        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+      }
+    },
+    [
+      tracks,
+      slug,
+      bumpPlaylist,
+      applyStorageDelta,
+      refetchLibrary,
+      refetchPlaylists,
+      refetchMembers,
+      currentPlaylist,
+    ],
+  )
+
+  /**
+   * Put the library's selection into a playlist chosen in the dialog.
+   *
+   * One POST for the whole set — the endpoint has always taken a list, and it
+   * ignores tracks already in the playlist, so overlapping selections need no
+   * special case here.
+   */
+  const handleBulkAddToPlaylist = useCallback(
+    async (playlistId: string) => {
+      const ids = bulkAddIds ?? []
+      if (ids.length === 0) return
+
+      try {
+        const { data } = await api.post<{ data: Track[] }>(`/playlists/${playlistId}/tracks`, {
+          track_ids: ids,
+        })
+        setMembers((prev) => ({ ...prev, [playlistId]: data.data }))
+        const set = new Set(ids)
+        setTracks((prev) =>
+          prev.map((t) =>
+            set.has(t.id) && !(t.playlist_ids ?? []).includes(playlistId)
+              ? { ...t, playlist_ids: [...(t.playlist_ids ?? []), playlistId] }
+              : t,
+          ),
+        )
+        setPlaylists((prev) =>
+          prev.map((p) =>
+            p.id === playlistId
+              ? {
+                  ...p,
+                  track_count: data.data.length,
+                  duration_seconds: data.data.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0),
+                }
+              : p,
+          ),
+        )
+        const name = playlistNames.get(playlistId) ?? "the playlist"
+        toast.success(`Added ${ids.length} track${ids.length === 1 ? "" : "s"} to ${name}.`)
+      } catch {
+        toast.error("Couldn't add those tracks.")
+        throw new Error("add failed")
+      }
+    },
+    [bulkAddIds, playlistNames],
+  )
+
+  const applyTagFixes = useCallback((updates: Array<{ id: string; artist: string }>) => {
+    const byId = new Map(updates.map((u) => [u.id, u.artist]))
+    const patch = (t: Track) => (byId.has(t.id) ? { ...t, artist: byId.get(t.id)! } : t)
+    setTracks((prev) => prev.map(patch))
+    setMembers((prev) => Object.fromEntries(Object.entries(prev).map(([k, list]) => [k, list.map(patch)])))
+  }, [])
+
+  // ---- membership -------------------------------------------------------
+
+  const handleRemove = useCallback(
+    async (trackId: string) => {
+      const playlist = currentPlaylist
+      if (!playlist) return
+      const removed = members[playlist.id]?.find((t) => t.id === trackId)
+      setMembers((prev) => ({ ...prev, [playlist.id]: renumber((prev[playlist.id] ?? []).filter((t) => t.id !== trackId)) }))
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === trackId ? { ...t, playlist_ids: (t.playlist_ids ?? []).filter((id) => id !== playlist.id) } : t,
+        ),
+      )
+      bumpPlaylist(playlist.id, -1, -(removed?.duration_seconds ?? 0))
+      try {
+        await api.delete(`/playlists/${playlist.id}/tracks/${trackId}`)
+      } catch {
+        toast.error("Couldn't remove it. Refreshing…")
+        await refetchMembers(playlist.id)
+        await refetchLibrary()
+      }
+    },
+    [currentPlaylist, members, bumpPlaylist, refetchMembers, refetchLibrary],
+  )
+
+  const handleAddFromLibrary = useCallback(
+    async (ids: string[]) => {
+      const playlist = currentPlaylist
+      if (!playlist) return
+      try {
+        const { data } = await api.post<{ data: Track[] }>(`/playlists/${playlist.id}/tracks`, { track_ids: ids })
+        setMembers((prev) => ({ ...prev, [playlist.id]: data.data }))
+        const set = new Set(ids)
+        setTracks((prev) =>
+          prev.map((t) =>
+            set.has(t.id) && !(t.playlist_ids ?? []).includes(playlist.id)
+              ? { ...t, playlist_ids: [...(t.playlist_ids ?? []), playlist.id] }
+              : t,
+          ),
+        )
+        setPlaylists((prev) =>
+          prev.map((p) =>
+            p.id === playlist.id
+              ? {
+                  ...p,
+                  track_count: data.data.length,
+                  duration_seconds: data.data.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0),
+                }
+              : p,
+          ),
+        )
+        toast.success(`Added ${ids.length} track${ids.length === 1 ? "" : "s"} to ${playlist.name}.`)
+      } catch {
+        toast.error("Couldn't add those tracks.")
+        throw new Error("add failed")
+      }
+    },
+    [currentPlaylist],
+  )
+
+  const handleReorder = useCallback(
+    async (ids: string[]) => {
+      const playlist = currentPlaylist
+      if (!playlist) return
+      setMembers((prev) => {
+        const byId = new Map((prev[playlist.id] ?? []).map((t) => [t.id, t]))
+        return { ...prev, [playlist.id]: renumber(ids.map((id) => byId.get(id)!).filter(Boolean)) }
+      })
+      try {
+        await api.patch(`/playlists/${playlist.id}/tracks/reorder`, { ids })
+      } catch {
+        toast.error("Couldn't save order. Refreshing…")
+        await refetchMembers(playlist.id)
+      }
+    },
+    [currentPlaylist, refetchMembers],
+  )
+
+  // ---- playlists --------------------------------------------------------
+
+  /**
+   * Flip a playlist between sequential and shuffle. Optimistic, and safe to
+   * be: the setting is read per track by the scheduler and never rendered
+   * into the .liq, so nothing restarts and no listener hears the switch. The
+   * change lands on the NEXT track boundary — the container has already been
+   * handed the song it is about to play.
+   */
+  const toggleOrder = useCallback(async () => {
+    const playlist = currentPlaylist
+    if (!playlist || locked || savingOrder) return
+    const next = playlist.order === "shuffle" ? "sequential" : "shuffle"
+    setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, order: next } : p)))
     setSavingOrder(true)
-
     try {
-      await api.patch(`/stations/${slug}`, { autodj_order: next })
+      await api.patch(`/playlists/${playlist.id}`, { order: next })
       toast.success(
         next === "shuffle"
           ? "Shuffling. Every track plays once before any repeats."
@@ -175,172 +458,157 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
         { description: "Takes effect after the track that's on air now." },
       )
     } catch {
-      setOrder(previous)
+      setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, order: playlist.order } : p)))
       toast.error("Couldn't change the play order.")
     } finally {
       setSavingOrder(false)
     }
-  }, [locked, savingOrder, order, slug])
+  }, [currentPlaylist, locked, savingOrder])
 
-  const handleReorder = useCallback(async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-
-    // Functional setter snapshots the current array on render — using the
-    // `tracks` closure caused stale-order PATCHes when reorders fired back
-    // to back. We compute `next` inside the setter and stash it for the
-    // network call.
-    let next: Track[] | null = null
-    setTracks((prev) => {
-      const oldIdx = prev.findIndex((t) => t.id === active.id)
-      const newIdx = prev.findIndex((t) => t.id === over.id)
-      if (oldIdx === -1 || newIdx === -1) return prev
-      next = arrayMove(prev, oldIdx, newIdx).map((t, i) => ({ ...t, position: i + 1 }))
-      return next
-    })
-    if (!next) return
-
-    try {
-      await api.patch(`/stations/${slug}/tracks/reorder`, { ids: (next as Track[]).map((t) => t.id) })
-    } catch {
-      toast.error("Couldn't save order. Refreshing…")
-      const { data } = await api.get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`)
-      setTracks(data.data)
-      setMeta(data.meta)
-    }
-  }, [slug])
-
-  const handleDelete = useCallback(async (id: string) => {
-    let target: Track | undefined
-    setTracks((prev) => {
-      target = prev.find((t) => t.id === id)
-      return prev
-    })
-    if (!target) return
-    // TODO: replace with shadcn AlertDialog
-    if (!window.confirm(`Delete "${target.title}"? This can't be undone.`)) return
-
-    const removed = target
-    setTracks((prev) => prev.filter((t) => t.id !== id))
-    applyStorageDelta(-removed.file_size_bytes)
-
-    try {
-      await api.delete(`/tracks/${id}`)
-      toast.success("Track deleted.")
-    } catch {
-      toast.error("Delete failed. Refreshing…")
-      const { data } = await api.get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`)
-      setTracks(data.data)
-      setMeta(data.meta)
-    }
-  }, [slug, applyStorageDelta])
-
-  const handleEdit = useCallback(async (id: string, fields: { title?: string; artist?: string | null }) => {
-    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...fields } as Track : t)))
-    try {
-      await api.patch(`/tracks/${id}`, fields)
-    } catch {
-      toast.error("Save failed. Refreshing…")
-      const { data } = await api.get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`)
-      setTracks(data.data)
-    }
-  }, [slug])
-
-  const applyTagFixes = useCallback((updates: Array<{ id: string; artist: string }>) => {
-    const byId = new Map(updates.map((u) => [u.id, u.artist]))
-    setTracks((prev) => prev.map((t) => (byId.has(t.id) ? { ...t, artist: byId.get(t.id)! } : t)))
-  }, [])
-
-  const totalSeconds = useMemo(
-    () => tracks.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0),
-    [tracks],
+  const submitName = useCallback(
+    async (name: string) => {
+      if (nameDialog === null) return
+      if (nameDialog.mode === "create") {
+        const { data } = await api.post<{ data: Playlist }>(`/stations/${slug}/playlists`, { name })
+        setPlaylists((prev) => [...prev, data.data])
+        setMembers((prev) => ({ ...prev, [data.data.id]: [] }))
+        setSelected(data.data.id)
+        toast.success(`Created ${data.data.name}.`)
+      } else {
+        const { playlist } = nameDialog
+        const { data } = await api.patch<{ data: Playlist }>(`/playlists/${playlist.id}`, { name })
+        setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, name: data.data.name } : p)))
+      }
+    },
+    [nameDialog, slug],
   )
 
+  const setDefault = useCallback(async () => {
+    const playlist = currentPlaylist
+    if (!playlist || playlist.is_default) return
+    const previous = playlists
+    setPlaylists((prev) => prev.map((p) => ({ ...p, is_default: p.id === playlist.id })))
+    try {
+      await api.patch(`/playlists/${playlist.id}`, { is_default: true })
+      toast.success(`${playlist.name} is now the default.`, {
+        description: "It plays whenever nothing else is scheduled, and new uploads land in it.",
+      })
+    } catch {
+      setPlaylists(previous)
+      toast.error("Couldn't change the default.")
+    }
+  }, [currentPlaylist, playlists])
+
+  const deletePlaylist = useCallback(async () => {
+    const playlist = currentPlaylist
+    if (!playlist || playlist.is_default) return
+    // TODO: replace with shadcn AlertDialog
+    // Slots that play this playlist go with it (the API cascades them), so
+    // the owner hears about that here rather than from a gap in the week.
+    const slotCount = (station.autodj_slots ?? []).filter((s) => s.playlist_id === playlist.id).length
+    const slotNote =
+      slotCount === 0
+        ? ""
+        : ` ${slotCount === 1 ? "The schedule slot that plays it is" : `The ${slotCount} schedule slots that play it are`} removed too.`
+    if (!window.confirm(`Delete "${playlist.name}"? The tracks stay in your library.${slotNote}`)) return
+    setPlaylists((prev) => prev.filter((p) => p.id !== playlist.id))
+    setMembers((prev) => {
+      const next = { ...prev }
+      delete next[playlist.id]
+      return next
+    })
+    setTracks((prev) =>
+      prev.map((t) => ({ ...t, playlist_ids: (t.playlist_ids ?? []).filter((id) => id !== playlist.id) })),
+    )
+    setSelected(defaultPlaylist?.id ?? LIBRARY_KEY)
+    try {
+      await api.delete(`/playlists/${playlist.id}`)
+      toast.success(`Deleted ${playlist.name}.`)
+    } catch {
+      toast.error("Couldn't delete it. Refreshing…")
+      const { data } = await api.get<{ data: Playlist[] }>(`/stations/${slug}/playlists`)
+      setPlaylists(data.data)
+      await refetchLibrary()
+    }
+  }, [currentPlaylist, defaultPlaylist, slug, station.autodj_slots, refetchLibrary])
+
+  // ---- derived ----------------------------------------------------------
+
   const untagged = useMemo(() => tracks.filter((t) => !t.artist), [tracks])
+  const totalSeconds = useMemo(() => tracks.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0), [tracks])
 
   /**
-   * The row that is on air.
-   *
-   * `now_playing` carries no track id, so this matches on title + artist —
-   * exactly what StationStatusController::upNext() already does server-side to
-   * anchor the queue. Same logic, same single limitation: two tracks with an
-   * identical title AND artist highlight the first. Restricted to the AutoDJ
-   * source, since a live broadcaster's metadata has nothing to do with the
-   * rotation.
+   * The row that is on air. `now_playing` carries no track id, so this
+   * matches on title + artist — exactly what StationStatusController::upNext()
+   * does server-side. Restricted to the AutoDJ source, since a live
+   * broadcaster's metadata has nothing to do with the rotation.
    */
   const nowPlayingId = useMemo(() => {
     const np = status?.now_playing
     if (!np || status?.source !== "autodj") return null
-    const match = tracks.find(
-      (t) => t.title === np.title && (t.artist ?? null) === (np.artist ?? null),
-    )
+    const match = tracks.find((t) => t.title === np.title && (t.artist ?? null) === (np.artist ?? null))
     return match?.id ?? null
   }, [status, tracks])
 
-  const q = query.trim().toLowerCase()
-
-  const visible = useMemo(() => {
-    const filtered = q
-      ? tracks.filter((t) => `${t.title} ${t.artist ?? ""}`.toLowerCase().includes(q))
-      : tracks
-
-    const ordered = [...filtered]
-    if (sort === "title") ordered.sort((a, b) => a.title.localeCompare(b.title))
-    else if (sort === "length") ordered.sort((a, b) => b.duration_seconds - a.duration_seconds)
-    else ordered.sort((a, b) => a.position - b.position)
-
-    return ordered
-  }, [tracks, q, sort])
-
-  const shown = visible.slice(0, limit)
-
-  /**
-   * Dragging only makes sense against the real rotation.
-   *
-   * `reorder` takes a full ordered `ids[]` array, so a drag inside a filtered
-   * or title-sorted view would either write a wrong order or silently drop the
-   * rows that aren't on screen. The handles disappear instead of pretending,
-   * and the toolbar says why.
-   *
-   * Shuffle is the same argument from the other end: the order would save
-   * correctly and then never be played, which is a worse lie than a missing
-   * handle. The deck holds track IDs, so dragging genuinely changes nothing.
-   */
-  const canReorder =
-    sort === "order" && q === "" && shown.length === tracks.length && order === "sequential"
-
-  /** Why the handles are gone. Two different reasons, and they need different words. */
-  const reorderHint =
-    order === "shuffle"
-      ? "· shuffle ignores manual order — switch it off to reorder"
-      : "· switch to Play order with search cleared to reorder"
-
   const usagePct = Math.min(100, (meta.storage_used_bytes / meta.storage_cap_bytes) * 100)
-
-  function pickFiles() {
-    if (locked) return
-    fileInputRef.current?.click()
-  }
 
   const stats = [
     `${tracks.length} track${tracks.length === 1 ? "" : "s"}`,
-    totalSeconds > 0 ? `${formatDuration(Math.round(totalSeconds))} of rotation` : null,
-    // The middle clause describes what the rotation DOES, which is a promise
-    // a free account's rotation does not keep — it never airs.
-    locked
-      ? "rotation plays only on Pro"
-      : order === "shuffle"
-        ? "shuffled, every track once per pass"
-        : "plays in order, then loops",
+    totalSeconds > 0 ? `${formatDuration(Math.round(totalSeconds))} of music` : null,
+    `${playlists.length} playlist${playlists.length === 1 ? "" : "s"}`,
+    locked ? "plays only on Pro" : null,
     `${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`,
   ].filter(Boolean) as string[]
+
+  const pickerCandidates = useMemo(() => {
+    if (!currentPlaylist) return []
+    const inside = new Set((members[currentPlaylist.id] ?? []).map((t) => t.id))
+    return tracks.filter((t) => !inside.has(t.id))
+  }, [currentPlaylist, members, tracks])
+
+  const belowToolbar = (
+    <>
+      {/* Progress sits between the toolbar and the storage meter: in the
+          panel the files are landing in, and above the bar that is about to
+          move because of them. */}
+      {progress && (
+        <UploadProgressBar progress={progress} className="border-b border-border bg-primary/5 px-4 py-2.5" />
+      )}
+
+      {/* Storage, reduced to the one pixel row it earns. */}
+      <div
+        className="h-[3px] bg-muted"
+        title={`${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`}
+      >
+        <div
+          className={cn("h-full transition-all", usagePct >= 90 ? "bg-destructive" : "bg-primary")}
+          style={{ width: `${Math.max(usagePct, usagePct > 0 ? 0.4 : 0)}%` }}
+        />
+      </div>
+
+      {untagged.length > 0 && !tagBannerDismissed && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-primary/5 border-b border-primary/15 text-sm">
+          <span className="flex-1 min-w-[220px] text-primary/90">
+            {untagged.length} track{untagged.length === 1 ? " has" : "s have"} no artist tag —
+            listeners see “Unknown artist” in the player.
+          </span>
+          <Button size="sm" onClick={() => setFixTagsOpen(true)}>
+            Fix tags
+          </Button>
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setTagBannerDismissed(true)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
+    </>
+  )
 
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end gap-4">
         <div className="flex-1 min-w-[280px] flex flex-col gap-2">
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-medium">AutoDJ library</h1>
+            <h1 className="text-2xl font-medium">Music</h1>
             {locked && (
               <Badge
                 variant="outline"
@@ -360,46 +628,10 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
-          {/* Sits with Jingles rather than in the list toolbar on purpose. The
-              toolbar's sort already has an option called "Play order", and it
-              controls what THIS SCREEN shows — putting a setting that changes
-              what the STATION airs next to it would make the two impossible to
-              tell apart. Up here with the other things that change the
-              broadcast, the distinction is the layout. */}
-          <Button
-            variant="outline"
-            onClick={toggleShuffle}
-            disabled={locked || savingOrder}
-            title={
-              locked
-                ? "Shuffle is part of AutoDJ, which isn't in your plan."
-                : order === "shuffle"
-                  ? "Playing a random pass of the rotation. Click for play order."
-                  : "Playing top to bottom. Click to shuffle."
-            }
-          >
-            <IconArrowsShuffle size={16} data-icon="inline-start" />
-            Shuffle
-            {locked ? (
-              <Badge
-                variant="outline"
-                className="ml-1 border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"
-              >
-                Pro
-              </Badge>
-            ) : (
-              order === "shuffle" && (
-                <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                  on
-                </span>
-              )
-            )}
-          </Button>
           {/* Jingles are AutoDJ: they only ever play between rotation
               tracks, so on a plan without it there is nothing behind this
-              dialog that could work — uploads are refused and the settings
-              are refused. Disabled outright rather than opened onto a screen
-              of dead controls. */}
+              dialog that could work. Disabled outright rather than opened
+              onto a screen of dead controls. */}
           <Button
             variant="outline"
             onClick={() => setJinglesOpen(true)}
@@ -436,7 +668,15 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
               {proRequest.requested ? "Request sent" : "Upgrade to enable AutoDJ"}
             </Button>
           ) : (
-            <Button onClick={pickFiles} disabled={uploading}>
+            <Button
+              onClick={pickFiles}
+              disabled={uploading}
+              title={
+                currentPlaylist
+                  ? `Uploads join ${currentPlaylist.name}.`
+                  : `Uploads join ${defaultPlaylist?.name ?? "the default playlist"}.`
+              }
+            >
               {uploading ? (
                 <IconLoader2 size={16} className="animate-spin" data-icon="inline-start" />
               ) : (
@@ -468,204 +708,84 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
               an ad for something the user apparently already has. */}
           <div className="flex items-center gap-3">
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground shrink-0">
-              Preview of the rotation editor
+              Preview of the playlist editor
             </span>
             <span className="h-px flex-1 bg-border" />
           </div>
         </>
       )}
 
-      {/* The whole panel is the drop target. A dedicated dropzone card used to
-          own the top of the screen while the library it fed sat below the
-          fold; dragging anywhere over the list now does the same job and costs
-          no vertical space. */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault()
-          if (!dragOver && !locked) setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(false)
-          if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
-        }}
-        className={cn(
-          "rounded-xl border overflow-hidden transition-colors",
-          dragOver ? "border-primary bg-primary/5" : "border-border bg-card",
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-3 p-3 border-b border-border">
-          <div className="relative flex-1 min-w-[220px]">
-            <IconSearch
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-            />
-            <Input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setLimit(INITIAL_LIMIT)
-              }}
-              placeholder="Search title or artist"
-              className="h-9 pl-9 pr-16 text-sm"
-            />
-            {q !== "" && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-                {visible.length} found
-              </span>
-            )}
-          </div>
+      <div className="flex flex-col md:flex-row gap-4 items-start">
+        <PlaylistRail
+          playlists={playlists}
+          libraryCount={tracks.length}
+          selected={selected}
+          onSelect={setSelected}
+          onCreate={() => setNameDialog({ mode: "create" })}
+          locked={locked}
+        />
 
-          <div className="flex items-center gap-1.5">
-            {SORTS.map((s) => (
-              <Button
-                key={s.key}
-                size="sm"
-                variant={sort === s.key ? "secondary" : "ghost"}
-                onClick={() => setSort(s.key)}
-                className={sort === s.key ? undefined : "text-muted-foreground"}
-              >
-                {s.label}
-              </Button>
-            ))}
-          </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-dashed"
-            onClick={pickFiles}
-            disabled={uploading || locked}
-            title={locked ? "AutoDJ is not included in your plan." : undefined}
-          >
-            {locked ? "Uploading needs Pro" : "Drop files or browse"}
-          </Button>
-        </div>
-
-        {/* Progress sits between the toolbar and the storage meter: in the
-            panel the files are landing in, and above the bar that is about to
-            move because of them. */}
-        {progress && (
-          <UploadProgressBar
-            progress={progress}
-            className="border-b border-border bg-primary/5 px-4 py-2.5"
-          />
-        )}
-
-        {/* Storage, reduced to the one pixel row it earns. It used to be a
-            whole card rendering a bar at 0.2%. */}
+        {/* The whole panel is the drop target: dragging files anywhere over
+            the list uploads them into whatever is being looked at. */}
         <div
-          className="h-[3px] bg-muted"
-          title={`${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            if (!dragOver && !locked) setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
+          }}
+          className={cn(
+            "flex-1 min-w-0 w-full rounded-xl border overflow-hidden transition-colors",
+            dragOver ? "border-primary bg-primary/5" : "border-border bg-card",
+          )}
         >
-          <div
-            className={cn("h-full transition-all", usagePct >= 90 ? "bg-destructive" : "bg-primary")}
-            style={{ width: `${Math.max(usagePct, usagePct > 0 ? 0.4 : 0)}%` }}
-          />
+          {currentPlaylist ? (
+            <PlaylistView
+              key={currentPlaylist.id}
+              playlist={currentPlaylist}
+              tracks={members[currentPlaylist.id] ?? null}
+              locked={locked}
+              uploading={uploading}
+              savingOrder={savingOrder}
+              nowPlayingId={nowPlayingId}
+              onPickFiles={pickFiles}
+              onAddFromLibrary={() => setPickerOpen(true)}
+              onReorder={handleReorder}
+              onRemove={handleRemove}
+              onEdit={handleEdit}
+              onToggleOrder={toggleOrder}
+              onRename={() => setNameDialog({ mode: "rename", playlist: currentPlaylist })}
+              onSetDefault={setDefault}
+              onDelete={deletePlaylist}
+              belowToolbar={belowToolbar}
+            />
+          ) : (
+            <AllTracksView
+              tracks={tracks}
+              playlistNames={playlistNames}
+              locked={locked}
+              uploading={uploading}
+              nowPlayingId={nowPlayingId}
+              onPickFiles={pickFiles}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onBulkDelete={handleBulkDelete}
+              onBulkAdd={setBulkAddIds}
+              belowToolbar={belowToolbar}
+            />
+          )}
         </div>
-
-        {untagged.length > 0 && !tagBannerDismissed && (
-          <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-primary/5 border-b border-primary/15 text-sm">
-            <span className="flex-1 min-w-[220px] text-primary/90">
-              {untagged.length} track{untagged.length === 1 ? " has" : "s have"} no artist tag —
-              listeners see “Unknown artist” in the player.
-            </span>
-            <Button size="sm" onClick={() => setFixTagsOpen(true)}>
-              Fix tags
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => setTagBannerDismissed(true)}
-            >
-              Dismiss
-            </Button>
-          </div>
-        )}
-
-        {tracks.length === 0 ? (
-          <div className="flex flex-col items-center text-center py-14 gap-2">
-            <IconMusic size={28} className="text-muted-foreground" />
-            <div className="text-sm font-medium">No tracks yet</div>
-            <p className="text-xs text-muted-foreground">
-              {locked
-                ? "This is where your rotation lives. Upgrade to start filling it."
-                : "Drag audio files anywhere onto this panel to start the AutoDJ."}
-            </p>
-          </div>
-        ) : (
-          <>
-            <div
-              className={cn(
-                ROW_GRID,
-                "py-2 border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground",
-              )}
-            >
-              <span />
-              <span className="text-right">#</span>
-              <span>Title</span>
-              <span className="hidden md:block">Artist</span>
-              <span className="hidden md:block text-right">Length</span>
-              <span className="hidden md:block text-right">Size</span>
-              <span className="hidden md:block">Added</span>
-              <span />
-            </div>
-
-            {/* `id` is not cosmetic — without it this tree fails to hydrate.
-                dnd-kit derives the `aria-describedby` it puts on every drag
-                handle from useUniqueId(), which is backed by a MODULE-SCOPED
-                counter (@dnd-kit/utilities). That counter lives as long as the
-                process: the Node server keeps incrementing it across requests,
-                so the Nth render of this page emits "DndDescribedBy-(N-1)"
-                while the browser, starting from a fresh module, always emits
-                "DndDescribedBy-0". Every request after the first mismatches.
-                Passing an explicit id short-circuits the counter entirely —
-                useUniqueId returns the value it is given. */}
-            <DndContext
-              id="library-track-list"
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleReorder}
-            >
-              <SortableContext items={shown.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                {shown.map((track) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    reorderable={canReorder}
-                    onAir={track.id === nowPlayingId}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border text-xs text-muted-foreground">
-              <span>
-                {q !== ""
-                  ? `Showing ${shown.length} of ${visible.length} matches`
-                  : `Showing ${shown.length} of ${tracks.length}`}
-                {!canReorder && tracks.length > 1 && (
-                  <span className="ml-2 text-muted-foreground/70">{reorderHint}</span>
-                )}
-              </span>
-              {shown.length < visible.length && (
-                <Button variant="outline" size="sm" onClick={() => setLimit(visible.length)}>
-                  Show all {visible.length}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
         {locked && "On Pro: "}
-        MP3, M4A, AAC, FLAC, OGG and WAV up to 300 MB per file. Station IDs and liners
-        belong under{" "}
+        MP3, M4A, AAC, FLAC, OGG and WAV up to 300 MB per file. A track can be in any number of
+        playlists; the default playlist plays whenever nothing else is scheduled. Station IDs and
+        liners belong under{" "}
         {locked ? (
           <span className="text-foreground">Jingles</span>
         ) : (
@@ -677,7 +797,7 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
             Jingles
           </button>
         )}{" "}
-        so they interleave between tracks instead of joining the rotation.
+        so they interleave between tracks instead of joining a playlist.
       </p>
 
       <JinglesDialog
@@ -693,180 +813,105 @@ export function LibraryView({ station, initialTracks, initialMeta }: Props) {
         tracks={untagged}
         onSaved={applyTagFixes}
       />
+
+      {currentPlaylist && (
+        <TrackPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          playlistName={currentPlaylist.name}
+          candidates={pickerCandidates}
+          onAdd={handleAddFromLibrary}
+        />
+      )}
+
+      <AddToPlaylistDialog
+        open={bulkAddIds !== null}
+        onClose={() => setBulkAddIds(null)}
+        count={bulkAddIds?.length ?? 0}
+        playlists={playlists}
+        onAdd={handleBulkAddToPlaylist}
+      />
+
+      <PlaylistNameDialog dialog={nameDialog} onClose={() => setNameDialog(null)} onSubmit={submitName} />
     </div>
   )
 }
 
-interface TrackRowProps {
-  track: Track
-  /** False while searching or sorting — see `canReorder`. */
-  reorderable: boolean
-  onAir: boolean
-  onEdit: (id: string, fields: { title?: string; artist?: string | null }) => void
-  onDelete: (id: string) => void
+interface NameDialogProps {
+  dialog: NameDialog
+  onClose: () => void
+  onSubmit: (name: string) => Promise<void>
 }
 
-function TrackRow({ track, reorderable, onAir, onEdit, onDelete }: TrackRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: track.id,
-    disabled: !reorderable,
-  })
-  const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(track.title)
-  const [artist, setArtist] = useState(track.artist ?? "")
+/** One small dialog for both "New playlist" and "Rename": a name, and a button. */
+function PlaylistNameDialog({ dialog, onClose, onSubmit }: NameDialogProps) {
+  const [name, setName] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  }
+  const open = dialog !== null
+  const initial = dialog?.mode === "rename" ? dialog.playlist.name : ""
 
-  function commit() {
-    const trimmedTitle = title.trim()
-    const trimmedArtist = artist.trim()
-    if (trimmedTitle === "") {
-      toast.error("Title can't be empty.")
-      return
+  useEffect(() => {
+    if (open) {
+      setName(initial)
+      setError(null)
+      setSaving(false)
     }
-    setEditing(false)
-    if (trimmedTitle !== track.title || trimmedArtist !== (track.artist ?? "")) {
-      onEdit(track.id, {
-        title: trimmedTitle,
-        artist: trimmedArtist === "" ? null : trimmedArtist,
-      })
+  }, [open, initial])
+
+  async function submit() {
+    const trimmed = name.trim()
+    if (trimmed === "" || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSubmit(trimmed)
+      onClose()
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { errors?: { name?: string[] } } } })?.response?.data?.errors?.name?.[0] ??
+        "Couldn't save that name."
+      setError(message)
+    } finally {
+      setSaving(false)
     }
-  }
-
-  function cancel() {
-    setTitle(track.title)
-    setArtist(track.artist ?? "")
-    setEditing(false)
-  }
-
-  /**
-   * Seed the inputs from the track as it is RIGHT NOW, not as it was when this
-   * row first mounted.
-   *
-   * `useState(track.title)` runs its initialiser once; the row then survives
-   * any number of external edits with the same key, so opening the editor
-   * after a bulk tag fix used to show the pre-fix values and silently write
-   * them back on save. Reading the prop at the moment editing starts is both
-   * the fix and the only place the answer is knowable.
-   */
-  function startEditing() {
-    setTitle(track.title)
-    setArtist(track.artist ?? "")
-    setEditing(true)
-  }
-
-  if (editing) {
-    return (
-      <div ref={setNodeRef} style={style} className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-          className="h-8 flex-1 min-w-[160px] text-sm"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit()
-            if (e.key === "Escape") cancel()
-          }}
-        />
-        <Input
-          value={artist}
-          onChange={(e) => setArtist(e.target.value)}
-          placeholder="Artist (optional)"
-          className="h-8 flex-1 min-w-[140px] text-sm"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit()
-            if (e.key === "Escape") cancel()
-          }}
-        />
-        <div className="flex items-center gap-1 shrink-0">
-          <Button size="icon-sm" variant="ghost" aria-label="Save" onClick={commit}>
-            <IconCheck size={16} />
-          </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="Cancel" onClick={cancel}>
-            <IconX size={16} />
-          </Button>
-        </div>
-      </div>
-    )
   }
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        ROW_GRID,
-        "py-2 border-b border-border last:border-b-0 group",
-        onAir ? "bg-primary/10" : "hover:bg-muted/40",
-      )}
-    >
-      {reorderable ? (
-        <div
-          {...attributes}
-          {...listeners}
-          role="button"
-          tabIndex={0}
-          aria-label="Drag to reorder"
-          className="text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none inline-flex"
-        >
-          <IconGripVertical size={15} />
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{dialog?.mode === "rename" ? "Rename playlist" : "New playlist"}</DialogTitle>
+          <DialogDescription>
+            {dialog?.mode === "rename"
+              ? "Listeners never see this; it is for you."
+              : "A playlist is a set of tracks with its own play order. Fill it from your library, or upload straight into it."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-1.5">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Morning Calm"
+            maxLength={60}
+            autoFocus
+            aria-label="Playlist name"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit()
+            }}
+          />
+          {error && <span className="text-xs text-destructive">{error}</span>}
         </div>
-      ) : (
-        <span />
-      )}
-
-      <span
-        className={cn(
-          "text-xs tabular-nums text-right",
-          onAir ? "text-primary font-medium" : "text-muted-foreground",
-        )}
-      >
-        {track.position}
-      </span>
-
-      <div className="min-w-0">
-        <div className="text-sm truncate">{track.title}</div>
-        {/* Artist gets its own column from md up; below that it rides under
-            the title rather than being dropped. */}
-        <div className="md:hidden text-xs text-muted-foreground truncate">
-          {track.artist ?? "Unknown artist"}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "hidden md:block text-xs truncate",
-          track.artist ? "text-muted-foreground" : "text-muted-foreground/60 italic",
-        )}
-      >
-        {track.artist ?? "Unknown artist"}
-      </div>
-
-      <span className="hidden md:block text-xs text-muted-foreground tabular-nums text-right">
-        {track.duration_seconds > 0 ? formatDuration(Math.round(track.duration_seconds)) : "—"}
-      </span>
-
-      <span className="hidden md:block text-xs text-muted-foreground tabular-nums text-right">
-        {formatBytes(track.file_size_bytes)}
-      </span>
-
-      <span className="hidden md:block text-xs text-muted-foreground truncate">
-        {formatDate(track.created_at)}
-      </span>
-
-      <div className="flex items-center justify-end gap-0.5">
-        <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={startEditing}>
-          <IconEdit size={15} />
-        </Button>
-        <Button size="icon-sm" variant="ghost" aria-label="Delete" onClick={() => onDelete(track.id)}>
-          <IconTrash size={15} className="text-destructive" />
-        </Button>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={name.trim() === "" || saving}>
+            {saving ? "Saving…" : dialog?.mode === "rename" ? "Rename" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

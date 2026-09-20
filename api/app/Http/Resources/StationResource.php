@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Models\Station;
 use App\Models\StationSchedule;
 use App\Models\StreamSession;
+use App\Services\AutoDjProgramme;
 use App\Services\StationStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -261,7 +262,6 @@ class StationResource extends JsonResource
                     'rotated_at' => $this->stream_key_rotated_at,
                 ],
             ),
-            'autodj_order' => $this->autodj_order,
             'jingles_enabled' => (bool) $this->jingles_enabled,
             'jingle_mode' => $this->jingle_mode,
             'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
@@ -284,6 +284,33 @@ class StationResource extends JsonResource
                 );
 
                 return StationScheduleResource::collection($schedules);
+            }),
+            // The AutoDJ programme. Owner-only pages load `autodjSlots`
+            // (show(), the slot save); nothing public does, so neither key
+            // appears there. `programme` is resolved per request from the
+            // loaded relations — one small computation, no extra queries
+            // beyond the empty-playlist check.
+            'autodj_slots' => $this->whenLoaded('autodjSlots', fn () => AutodjSlotResource::collection($this->autodjSlots)),
+            'programme' => $this->whenLoaded('autodjSlots', function () {
+                $programme = app(AutoDjProgramme::class)->resolve($this->resource);
+
+                return [
+                    'playlist' => $programme['playlist'] === null ? null : [
+                        'id' => $programme['playlist']->id,
+                        'name' => $programme['playlist']->name,
+                    ],
+                    'slot_id' => $programme['slot']?->id,
+                    'until' => $programme['until']?->toIso8601String(),
+                    'next' => $programme['next'] === null ? null : [
+                        'slot_id' => $programme['next']['slot']->id,
+                        'label' => $programme['next']['slot']->label,
+                        'playlist' => [
+                            'id' => $programme['next']['slot']->playlist?->id,
+                            'name' => $programme['next']['slot']->playlist?->name,
+                        ],
+                        'starts_at' => $programme['next']['starts_at']->toIso8601String(),
+                    ],
+                ];
             }),
             'stats' => $this->whenLoaded('streamSessions', function () {
                 // Broadcast figures: these genuinely are about someone holding

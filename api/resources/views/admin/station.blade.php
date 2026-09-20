@@ -21,6 +21,7 @@
         \App\Models\StationEvent::TYPE_LIVE_DISCONNECTED => 'badge-ghost',
         \App\Models\StationEvent::TYPE_TRACK_UPLOADED => 'badge-accent',
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'badge-ghost',
+        \App\Models\StationEvent::TYPE_PLAYLIST_CHANGED => 'badge-info',
         \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'badge-accent',
     ];
 
@@ -42,6 +43,7 @@
         \App\Models\StationEvent::TYPE_LIVE_DISCONNECTED => 'Broadcaster left — AutoDJ took over',
         \App\Models\StationEvent::TYPE_TRACK_UPLOADED => 'Track uploaded',
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'Track deleted',
+        \App\Models\StationEvent::TYPE_PLAYLIST_CHANGED => 'Playlist changed',
         \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'Encoder stream key rotated',
     ];
 @endphp

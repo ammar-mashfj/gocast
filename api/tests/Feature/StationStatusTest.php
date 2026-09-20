@@ -1,11 +1,15 @@
 <?php
 
+use App\Models\AutodjSlot;
+use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\PlaylistTracks;
 use App\Services\StationStatusService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 use function Pest\Laravel\actingAs;
 
@@ -199,6 +203,77 @@ it('starts the queue at the top when the current track is unknown', function () 
         ->assertOk()
         ->assertJsonPath('data.playlist_length', 1)
         ->assertJsonPath('data.up_next.0.title', 'Only');
+});
+
+it('serves the queue from the playlist a slot has put on air, not the default', function () {
+    // While a slot is active the default is not what plays, so neither the
+    // count nor the queue may describe it.
+    $user = User::factory()->create();
+    $station = runningStation($user, ['timezone' => 'UTC']);
+
+    Track::factory()->for($station)->create(['title' => 'Default only', 'artist' => 'A']);
+
+    $evening = Playlist::factory()->for($station)->create(['name' => 'Evening']);
+    $slotTrack = Track::factory()->for($station)->create(['title' => 'Slot track', 'artist' => 'B']);
+    app(PlaylistTracks::class)->replace($evening, [$slotTrack->id]);
+
+    // Every day, all day: end at or before start runs to the next midnight.
+    AutodjSlot::factory()->create([
+        'station_id' => $station->id,
+        'playlist_id' => $evening->id,
+        'days' => [0, 1, 2, 3, 4, 5, 6],
+        'start_time' => '00:00:00',
+        'end_time' => '00:00:00',
+    ]);
+
+    harborReturns(['ready' => true, 'source' => 'autodj', 'title' => null, 'artist' => null]);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.playlist_length', 1)
+        ->assertJsonPath('data.up_next.0.id', $slotTrack->id)
+        ->assertJsonCount(1, 'data.up_next');
+});
+
+it('serves a shuffled queue from the head of the deck', function () {
+    // The scheduler pops what it hands out, so the deck IS the queue. The
+    // library order and the now-playing anchor say nothing about it.
+    $user = User::factory()->create();
+    $station = runningStation($user);
+
+    $first = Track::factory()->for($station)->create(['title' => 'First', 'artist' => 'A', 'position' => 1]);
+    $second = Track::factory()->for($station)->create(['title' => 'Second', 'artist' => 'B', 'position' => 2]);
+    $gone = (string) Str::ulid();
+
+    $station->defaultPlaylist->forceFill([
+        'order' => Playlist::ORDER_SHUFFLE,
+        'deck' => [$gone, $second->id, $first->id],
+    ])->save();
+
+    harborReturns(['ready' => true, 'source' => 'autodj', 'title' => 'First', 'artist' => 'A']);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.up_next.0.id', $second->id)
+        ->assertJsonPath('data.up_next.1.id', $first->id)
+        ->assertJsonCount(2, 'data.up_next');
+});
+
+it('serves an empty shuffled queue before the first deal', function () {
+    $user = User::factory()->create();
+    $station = runningStation($user);
+    Track::factory()->for($station)->create(['title' => 'Only', 'artist' => 'A']);
+    $station->defaultPlaylist->forceFill(['order' => Playlist::ORDER_SHUFFLE, 'deck' => null])->save();
+
+    harborReturns(['ready' => true, 'source' => 'autodj', 'title' => null, 'artist' => null]);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.playlist_length', 1)
+        ->assertJsonPath('data.up_next', []);
 });
 
 it('keeps jingles out of the queue and the playlist count', function () {

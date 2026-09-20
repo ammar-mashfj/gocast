@@ -32,6 +32,15 @@ class StoreTrackRequest extends FormRequest
     {
         return [
             'kind' => ['sometimes', Rule::in(Track::KINDS)],
+            // Where a music upload lands. Absent, it joins the station's
+            // default playlist, so "upload it and it plays" stays true.
+            // Ignored for jingles, which are never playlist members.
+            'playlist_id' => [
+                'sometimes',
+                'nullable',
+                'ulid',
+                Rule::exists('playlists', 'id')->where('station_id', $this->route('station')->id),
+            ],
             'files' => ['required', 'array', 'min:1', 'max:30'],
             'files.*' => [
                 'required',
@@ -50,5 +59,12 @@ class StoreTrackRequest extends FormRequest
     public function kind(): string
     {
         return (string) $this->validated('kind', Track::KIND_MUSIC);
+    }
+
+    public function playlistId(): ?string
+    {
+        $id = $this->validated('playlist_id');
+
+        return $id === null ? null : (string) $id;
     }
 }

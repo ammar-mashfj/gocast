@@ -6,6 +6,7 @@ use App\Models\Plan;
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\PlaylistTracks;
 use App\Services\StationAudioPolicy;
 use App\Services\StationLifecycleException;
 use App\Services\StationLifecycleService;
@@ -105,6 +106,18 @@ it('reports a rotation that is playing nothing instead of stopping it', function
 
     expect(verdictFor($station, status(['source' => 'autodj', 'rms' => 0.0])))
         ->toBe(StationAudioVerdict::Fault);
+});
+
+it('treats a full library with an empty playlist as idle, not as a fault', function () {
+    // What plays is the resolved playlist, never the library. A track in no
+    // playlist never airs, so this station is correctly silent and must be
+    // allowed to power down rather than be reported as broken on every sweep.
+    $station = silentFor(sweptStation(autoDj: true), 3600);
+    $track = Track::factory()->for($station)->create(['kind' => Track::KIND_MUSIC]);
+    app(PlaylistTracks::class)->detachEverywhere($track);
+
+    expect(verdictFor($station, status(['source' => 'autodj', 'rms' => 0.0])))
+        ->toBe(StationAudioVerdict::Stop);
 });
 
 it('stops a downgraded station whose library it may no longer play', function () {

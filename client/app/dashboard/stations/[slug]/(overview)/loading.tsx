@@ -27,6 +27,21 @@ import { useStationBySlug } from "@/contexts/StationContext"
  * station. The shape below tracks page.tsx: header, then a two-column grid
  * with power/activity/rotation/broadcasts on the left and share/checklist on
  * the right.
+ *
+ * WHY THE (overview) ROUTE GROUP. A loading.tsx covers its own segment AND
+ * every descendant segment without one of its own. Sitting directly in
+ * `[slug]/`, this file was therefore the fallback for library, schedule,
+ * audience, settings, live and studio as well — so opening the Schedule page,
+ * or switching between the Music and Schedule tabs, flashed a power card,
+ * an activity chart and a listener dial that belong to a different page
+ * entirely. Every one of those routes is dynamic (`apiFetch` reads cookies and
+ * sets no-store), so the flash happened on every single navigation, not
+ * occasionally.
+ *
+ * The route group adds no URL segment — the station page is still at
+ * `/dashboard/stations/{slug}` — but it does add a segment boundary, which is
+ * all Next needs to stop handing this skeleton to the siblings. They carry
+ * their own now.
  */
 export default function StationDetailLoading() {
   const params = useParams<{ slug: string }>()

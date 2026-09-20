@@ -62,6 +62,41 @@ export interface StationEncoder {
   rotated_at: string | null
 }
 
+/**
+ * One AutoDJ programming slot: "play playlist P on these weekdays from
+ * start to end". NOT a StationSchedule — that is the advertised show time,
+ * a display claim. This one is read by the audio path.
+ */
+export interface AutodjSlot {
+  id: string
+  playlist_id: string
+  label: string | null
+  /** Weekdays the slot STARTS, 0 = Sunday. */
+  days: number[]
+  /** "HH:MM" in the station's timezone. */
+  start_time: string
+  /** "HH:MM"; at or before start means the slot runs past midnight. */
+  end_time: string
+  position: number
+}
+
+/**
+ * What AutoDJ is drawing from right now, resolved server-side from the slots
+ * and the station clock. `until` is when that answer changes.
+ */
+export interface Programme {
+  playlist: { id: string; name: string } | null
+  /** Null while the default plays. */
+  slot_id: string | null
+  until: string | null
+  next: {
+    slot_id: string
+    label: string | null
+    playlist: { id: string | null; name: string | null }
+    starts_at: string
+  } | null
+}
+
 export interface Station {
   id: string
   user_id: string
@@ -98,6 +133,12 @@ export interface Station {
    * endpoints; the directory listing omits the key entirely.
    */
   schedules?: StationSchedule[]
+  /**
+   * The AutoDJ programme. Present only on the owner's own station fetch and
+   * the slot save; absent from lists and public payloads.
+   */
+  autodj_slots?: AutodjSlot[]
+  programme?: Programme
   /** Track metadata pushed by Liquidsoap; null when nothing identifiable is playing. */
   now_playing: { title: string | null; artist: string | null } | null
   /** What the owner asked for. A station only holds a container while running. */
@@ -137,14 +178,6 @@ export interface Station {
    * an ingest router — see StationEncoder.
    */
   encoder?: StationEncoder
-  /**
-   * How the AutoDJ walks the rotation. "sequential" plays it in the order the
-   * drag handles set, looping at the end; "shuffle" plays a random permutation
-   * of the whole rotation, dealing a fresh one each time it is exhausted — so
-   * every track airs once before any airs twice, and the manual order is
-   * ignored.
-   */
-  autodj_order: "sequential" | "shuffle"
   /** Play station IDs between AutoDJ tracks. Off means the jingle list is stored but silent. */
   jingles_enabled: boolean
   /**

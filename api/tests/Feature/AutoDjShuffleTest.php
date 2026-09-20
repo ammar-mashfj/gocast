@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
@@ -20,10 +21,11 @@ function shuffledStation(int $trackCount): Station
 {
     // withAutoDj: a free owner gets null from AutoDjScheduler::next() whatever
     // is in the library, so a shuffle test on a default station tests nothing.
-    $station = Station::factory()->withAutoDj()->create([
-        'autodj_order' => Station::AUTODJ_ORDER_SHUFFLE,
-    ]);
+    $station = Station::factory()->withAutoDj()->create();
+    $station->defaultPlaylist->fill(['order' => Playlist::ORDER_SHUFFLE])->save();
 
+    // The factory attaches each music track to the default playlist, the
+    // way an upload does.
     collect(range(1, $trackCount))->each(fn (int $n) => Track::factory()->create([
         'station_id' => $station->id,
         'kind' => Track::KIND_MUSIC,
@@ -39,6 +41,9 @@ function shuffledStation(int $trackCount): Station
 function playTitles(Station $station, int $count): array
 {
     $scheduler = app(AutoDjScheduler::class);
+    // Fresh each call: the scheduler walks the playlist it is handed, and
+    // the test may have moved the deck or the order on since the last one.
+    $station = $station->fresh()->load('user.plan', 'defaultPlaylist');
 
     return collect(range(1, $count))->map(function () use ($scheduler, $station) {
         preg_match('/title="([^"]+)"/', (string) $scheduler->next($station), $matches);
@@ -84,7 +89,7 @@ it('keeps the deck as the unplayed remainder', function () {
 
     playTitles($station, 2);
 
-    expect($station->fresh()->autodj_deck)->toHaveCount(3);
+    expect($station->defaultPlaylist->fresh()->deck)->toHaveCount(3);
 });
 
 it('deals a fresh deck as soon as the last card is taken', function () {
@@ -94,19 +99,19 @@ it('deals a fresh deck as soon as the last card is taken', function () {
 
     playTitles($station, 4);
 
-    expect($station->fresh()->autodj_deck)->toHaveCount(4);
+    expect($station->defaultPlaylist->fresh()->deck)->toHaveCount(4);
 });
 
 it('stores the deck as json rather than a stringified array', function () {
-    // The deck is written with the query builder to keep StationObserver from
-    // restarting the container mid-track, and that bypasses the model's casts.
+    // The deck is written with the query builder so a track boundary never
+    // looks like an edit, and that bypasses the model's casts.
     // Encoding it by hand is therefore load-bearing: miss it and the column
     // quietly fills with "Array".
     $station = shuffledStation(3);
 
     playTitles($station, 1);
 
-    $raw = DB::table('stations')->where('id', $station->id)->value('autodj_deck');
+    $raw = DB::table('playlists')->where('id', $station->defaultPlaylist->id)->value('deck');
 
     expect(json_decode($raw, true))->toBeArray()->toHaveCount(2);
 });
@@ -128,7 +133,7 @@ it('skips a track deleted after the deck was dealt', function () {
     playTitles($station, 1);
 
     // Delete whatever is due next, so the dead ID sits at the head of the deck.
-    $doomed = Track::query()->whereKey($station->fresh()->autodj_deck[0])->firstOrFail();
+    $doomed = Track::query()->whereKey($station->defaultPlaylist->fresh()->deck[0])->firstOrFail();
     $doomedTitle = $doomed->title;
     $doomed->delete();
 
@@ -168,14 +173,15 @@ it('repeats the only track a one track rotation has', function () {
 it('answers with no track when the rotation is empty', function () {
     // Entitled, so the null below is genuinely about the empty library rather
     // than about the plan gate answering first.
-    $station = Station::factory()->withAutoDj()->create(['autodj_order' => Station::AUTODJ_ORDER_SHUFFLE]);
+    $station = Station::factory()->withAutoDj()->create();
+    $station->defaultPlaylist->fill(['order' => Playlist::ORDER_SHUFFLE])->save();
 
     expect(app(AutoDjScheduler::class)->next($station))->toBeNull();
 });
 
 it('leaves sequential stations walking the rotation in order', function () {
     $station = shuffledStation(3);
-    $station->update(['autodj_order' => Station::AUTODJ_ORDER_SEQUENTIAL]);
+    $station->defaultPlaylist->fill(['order' => Playlist::ORDER_SEQUENTIAL])->save();
 
     expect(playTitles($station, 4))->toBe(['Song 1', 'Song 2', 'Song 3', 'Song 1']);
 });
@@ -184,30 +190,30 @@ it('deals a deck when an existing station is switched to shuffle', function () {
     // Every row predating the feature has a null deck, and so does any station
     // whose owner has only ever used sequential.
     $station = shuffledStation(5);
-    $station->update(['autodj_deck' => null]);
+    $station->defaultPlaylist->forceFill(['deck' => null])->save();
 
     playTitles($station, 1);
 
-    expect($station->fresh()->autodj_deck)->toHaveCount(4);
+    expect($station->defaultPlaylist->fresh()->deck)->toHaveCount(4);
 });
 
 /**
- * The setting reaches the API the same way the jingle settings do — on the
- * ordinary station update endpoint. Not gated on the plan, matching how
- * UpdateStationRequest treats every other AutoDJ field: the gate is that a
- * free station's rotation never airs at all, so the ordering of a silent
- * rotation is not worth a second permission check.
+ * The setting is edited on the playlist it belongs to. Not gated on the plan,
+ * matching how every other AutoDJ setting is treated: the gate is that a free
+ * station's rotation never airs at all, so the ordering of a silent rotation
+ * is not worth a second permission check.
  */
-it('lets the owner switch the rotation to shuffle over the api', function () {
+it('lets the owner switch a playlist to shuffle over the api', function () {
     $owner = User::factory()->create();
     $station = Station::factory()->for($owner, 'user')->create();
+    $playlist = $station->defaultPlaylist;
 
     actingAs($owner)
-        ->patchJson("/api/stations/{$station->slug}", ['autodj_order' => 'shuffle'])
+        ->patchJson("/api/playlists/{$playlist->id}", ['order' => 'shuffle'])
         ->assertOk()
-        ->assertJsonPath('data.autodj_order', 'shuffle');
+        ->assertJsonPath('data.order', 'shuffle');
 
-    expect($station->fresh()->autodj_order)->toBe(Station::AUTODJ_ORDER_SHUFFLE);
+    expect($playlist->fresh()->order)->toBe(Playlist::ORDER_SHUFFLE);
 });
 
 it('rejects a play order it does not have', function () {
@@ -215,12 +221,12 @@ it('rejects a play order it does not have', function () {
     $station = Station::factory()->for($owner, 'user')->create();
 
     actingAs($owner)
-        ->patchJson("/api/stations/{$station->slug}", ['autodj_order' => 'random'])
+        ->patchJson("/api/playlists/{$station->defaultPlaylist->id}", ['order' => 'random'])
         ->assertStatus(422)
-        ->assertJsonValidationErrors('autodj_order');
+        ->assertJsonValidationErrors('order');
 });
 
 it('defaults new stations to sequential', function () {
-    expect(Station::factory()->create()->autodj_order)
-        ->toBe(Station::AUTODJ_ORDER_SEQUENTIAL);
+    expect(Station::factory()->create()->defaultPlaylist->order)
+        ->toBe(Playlist::ORDER_SEQUENTIAL);
 });

@@ -2,8 +2,10 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { IconArrowLeft } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
+import { AutoDjTabs } from "@/components/dashboard/AutoDjTabs"
 import { LibraryView } from "./LibraryView"
 
 export default async function LibraryPage({
@@ -16,15 +18,18 @@ export default async function LibraryPage({
   let station: Station
   let initialTracks: Track[]
   let meta: LibraryMeta
+  let playlists: Playlist[]
 
   try {
-    const [stationRes, tracksRes] = await Promise.all([
+    const [stationRes, tracksRes, playlistsRes] = await Promise.all([
       apiFetch<{ data: Station }>(`/stations/${slug}`),
       apiFetch<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`),
+      apiFetch<{ data: Playlist[] }>(`/stations/${slug}/playlists`),
     ])
     station = stationRes.data
     initialTracks = tracksRes.data
     meta = tracksRes.meta
+    playlists = playlistsRes.data
   } catch (err) {
     if (err instanceof ApiFetchError && err.status === 404) {
       notFound()
@@ -43,10 +48,17 @@ export default async function LibraryPage({
         Back to {station.name}
       </Link>
 
+      <AutoDjTabs slug={slug} />
+
       {/* Heading and the count/runtime/storage line live inside LibraryView:
           they change on every upload, delete and tag edit, so they have to be
           rendered from the same client state as the list itself. */}
-      <LibraryView station={station} initialTracks={initialTracks} initialMeta={meta} />
+      <LibraryView
+        station={station}
+        initialTracks={initialTracks}
+        initialMeta={meta}
+        initialPlaylists={playlists}
+      />
     </div>
   )
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AutodjSlot;
 use App\Models\Station;
 use App\Models\StationSchedule;
 use App\Models\User;
@@ -54,10 +55,38 @@ it('canonicalises the day list however the boxes were clicked', function () {
 
     actingAs($owner, 'sanctum')
         ->putJson("/api/stations/{$station->slug}/schedules", [
-            'schedules' => [['days' => [5, 1, 3], 'start_time' => '20:00']],
+            // The repeat is canonicalised rather than refused: a box cannot
+            // be ticked twice, so a duplicate here is a malformed client, and
+            // dropping it is a kinder answer than a 422 about `days.0`.
+            'schedules' => [['days' => [5, 1, 3, 1], 'start_time' => '20:00']],
         ])
         ->assertOk()
         ->assertJsonPath('data.schedules.0.days', [1, 3, 5]);
+});
+
+/**
+ * The bug this guards against: `distinct` on `schedules.*.days.*` compared
+ * day values across every row, not within one, so any two shows sharing any
+ * weekday were rejected as duplicates. Two weekday shows is the ordinary
+ * shape of a radio schedule, and every other multi-row test in this file
+ * happens to use disjoint days — which is why it went unnoticed.
+ */
+it('saves two show times that share weekdays', function () {
+    $owner = scheduleOwner();
+    $station = Station::factory()->for($owner, 'user')->create(['timezone' => 'UTC']);
+
+    actingAs($owner, 'sanctum')
+        ->putJson("/api/stations/{$station->slug}/schedules", [
+            'schedules' => [
+                ['label' => 'Breakfast', 'days' => [1, 2, 3, 4, 5], 'start_time' => '08:00'],
+                ['label' => 'Drivetime', 'days' => [1, 2, 3, 4, 5], 'start_time' => '17:00'],
+            ],
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.schedules.0.label', 'Breakfast')
+        ->assertJsonPath('data.schedules.1.label', 'Drivetime');
+
+    expect($station->schedules()->count())->toBe(2);
 });
 
 it('replaces the whole list, so removing a row deletes it', function () {
@@ -91,6 +120,24 @@ it('lets an owner clear every show time', function () {
         ->assertJsonPath('data.schedules', []);
 
     expect($station->schedules()->count())->toBe(0);
+});
+
+it('refuses to clear the timezone while AutoDJ slots still use it', function () {
+    // A slot with no zone is unresolvable and silently stops applying, so an
+    // empty show-times list sent with a null zone is refused.
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create(['timezone' => 'UTC']);
+    AutodjSlot::factory()->create([
+        'station_id' => $station->id,
+        'playlist_id' => $station->defaultPlaylist->id,
+    ]);
+
+    actingAs($owner, 'sanctum')
+        ->putJson("/api/stations/{$station->slug}/schedules", ['timezone' => null, 'schedules' => []])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('timezone');
+
+    expect($station->fresh()->timezone)->toBe('UTC');
 });
 
 it('saves the timezone and the rows in one request', function () {
@@ -214,7 +261,6 @@ it('rejects malformed rows', function (array $row, string $field) {
 })->with([
     'day out of range' => [['days' => [7], 'start_time' => '20:00'], 'days.0'],
     'no days at all' => [['days' => [], 'start_time' => '20:00'], 'days'],
-    'duplicate days' => [['days' => [1, 1], 'start_time' => '20:00'], 'days.0'],
     'impossible hour' => [['days' => [1], 'start_time' => '25:00'], 'start_time'],
     'seconds included' => [['days' => [1], 'start_time' => '20:00:00'], 'start_time'],
     'label too long' => [['label' => str_repeat('a', 61), 'days' => [1], 'start_time' => '20:00'], 'label'],

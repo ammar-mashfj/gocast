@@ -45,7 +45,7 @@ use App\Models\Station;
  *
  *   • the rotation, from the database — only to tell {@see StationAudioVerdict::Fault}
  *     from {@see StationAudioVerdict::Stop}. Silence with nothing to play is an
- *     idle station; silence with a library behind it is a bug.
+ *     idle station; silence with a playlist behind it is a bug.
  *
  * A NOTE ON EXTERNAL ENCODERS, because this is the one place they interact
  * with auto-stop. A DJ who switches their station on and then goes to open
@@ -67,6 +67,7 @@ class StationAudioPolicy
 {
     public function __construct(
         private readonly StationLifecycleService $lifecycle,
+        private readonly AutoDjProgramme $programme,
     ) {}
 
     /**
@@ -176,6 +177,13 @@ class StationAudioPolicy
      * not one; treating it as silence is what eventually powers the station
      * down. Jingles do not count: they are punctuation, and a library of
      * nothing but jingles has nothing to punctuate.
+     *
+     * "Has uploaded" means the playlist AutoDJ is drawing from RIGHT NOW has
+     * members — the same answer AutoDjScheduler::next() would give — not
+     * that the library holds music. A track in no playlist never plays, so
+     * a station whose library is full but whose resolved playlist is empty
+     * is idle, not faulty; reading the library here would report that
+     * station as a fault on every sweep and never let it power down.
      */
     private function hasPlayableRotation(Station $station): bool
     {
@@ -185,6 +193,8 @@ class StationAudioPolicy
             return false;
         }
 
-        return $station->musicTracks()->exists();
+        $playlist = $this->programme->resolve($station)['playlist'];
+
+        return $playlist !== null && $playlist->tracks()->exists();
     }
 }
