@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
-import Image from "next/image"
 import Link from "next/link"
+import { ZoomableImage } from "../ZoomableImage"
 import { notFound } from "next/navigation"
 import { ARTICLES, getArticle } from "../_content/articles"
 
@@ -127,13 +127,13 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
         </header>
 
         {image && (
-          <Image
+          <ZoomableImage
             src={image}
             alt={title}
             width={1200}
             height={630}
-            priority
-            className="w-full rounded-xl border border-white/[0.06] mb-10 md:mb-14"
+            preload
+            className="mt-0 mb-10 md:mb-14"
           />
         )}
 

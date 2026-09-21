@@ -3,6 +3,7 @@ import HowToStartBody from "./how-to-start-an-internet-radio-station-2026"
 import OnAir247Body from "./keep-your-radio-station-on-air-24-7"
 import CostsBody from "./how-much-does-it-cost-to-run-an-internet-radio-station"
 import HowItWorksBody from "./how-does-an-internet-radio-station-work"
+import SchedulingBody from "./how-to-schedule-playlists-on-your-radio-station"
 
 export interface FAQ {
   question: string
@@ -23,6 +24,53 @@ export interface Article {
 }
 
 export const ARTICLES: Article[] = [
+  {
+    slug: "how-to-schedule-playlists-on-your-radio-station",
+    title: "How to Schedule Playlists on Your Internet Radio Station",
+    description:
+      "Your station can now play different things at different times of the week — music blocks, a news bulletin at six, a podcast repeat on Wednesday. Playlists, weekly slots, and exactly how the switch behaves, with screenshots of the real thing.",
+    date: "2026-09-21",
+    readingTime: "~7 minutes",
+    image: "/blog/schedule/hero.webp",
+    Body: SchedulingBody,
+    faqs: [
+      {
+        question: "Can I schedule a news bulletin or a podcast instead of music?",
+        answer:
+          "Yes. A playlist holds audio files, not specifically songs, so recorded bulletins, podcast episodes, a syndicated show or a language programme all work the same way: put them in their own playlist and give it a slot. A station can run music most of the day, break for a fifteen-minute bulletin at six, and come back to music without anyone touching it.",
+      },
+      {
+        question: "Can I play different music at different times of day?",
+        answer:
+          "Yes. Build a playlist for each mood and give it a slot — the days it runs and the hours it covers. Outside every slot your default playlist plays, so the station is never left with nothing to do.",
+      },
+      {
+        question: "Does a scheduled playlist start exactly on time?",
+        answer:
+          "Close to it. A slot takes over at the next track boundary rather than cutting a song in half, so it can start a couple of minutes after the time you wrote. For something that has to begin on the minute, go live — that takes over instantly.",
+      },
+      {
+        question: "What happens if I go live during a scheduled slot?",
+        answer:
+          "You take over immediately, the same as always. When you finish, AutoDJ resumes with whichever playlist should be on air at that moment — not necessarily the one that was playing when you started.",
+      },
+      {
+        question: "Can a scheduled slot run past midnight?",
+        answer:
+          "Yes. Set an end time earlier than the start time and it carries into the next day. Tick the day it starts on — a Friday 23:00–02:00 slot is Friday's, even though most of it happens on Saturday.",
+      },
+      {
+        question: "Can the same track be in more than one playlist?",
+        answer:
+          "Yes, and it only takes up space once. Your 3 GB allowance is counted per file, not per playlist entry.",
+      },
+      {
+        question: "Is scheduling the same as the show times on my settings page?",
+        answer:
+          "No. Show times are what you advertise to listeners and change nothing about your audio. Slots are what your station actually plays and are never shown to listeners. They share a timezone and nothing else.",
+      },
+    ],
+  },
   {
     slug: "how-does-an-internet-radio-station-work",
     title: "How an Internet Radio Station Actually Works",
