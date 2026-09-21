@@ -6,6 +6,9 @@ interface Feature {
   icon: React.ReactNode
   tag: string
   accent: Accent
+  /** Renders the Pro pill. Set only where the WHOLE card is gated — a card
+      whose free half still works says so in its description instead. */
+  pro?: boolean
 }
 
 const ACCENTS: Record<Accent, {
@@ -60,7 +63,14 @@ const ACCENTS: Record<Accent, {
   },
 }
 
-const FEATURES: Feature[] = [
+/**
+ * Two groups, deliberately: the page used to list six studio features and
+ * stopped, which described the product as it was before AutoDJ. A visitor
+ * looking to START A STATION needs to see that it keeps running when they
+ * close the tab — that is the half that was missing, so it gets its own
+ * heading rather than being mixed in as two more cards.
+ */
+const ON_MIC: Feature[] = [
   {
     title: 'Talk over music like a DJ',
     description: 'Hold space to duck music under your voice. Release to fade it back up.',
@@ -75,21 +85,20 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    title: 'Live track metadata',
-    description: 'Titles and artists update on every listener as your queue advances.',
-    tag: 'Listeners',
-    accent: 'sky',
+    title: 'Keyboard-first controls',
+    description: 'Space to talk. K play/pause. N/P skip. R repeat. Your queue and playback position survive a refresh.',
+    tag: 'Studio',
+    accent: 'violet',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M9 18V5l12-2v13" />
-        <circle cx="6" cy="18" r="3" />
-        <circle cx="18" cy="16" r="3" />
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
       </svg>
     ),
   },
   {
     title: 'Seamless reconnect',
-    description: 'Close the tab by accident? The stream holds for 30 seconds while you come back.',
+    description: 'Close the tab by accident? The stream holds while you come back — and your listeners never hear silence.',
     tag: 'Reliability',
     accent: 'emerald',
     icon: (
@@ -100,45 +109,139 @@ const FEATURES: Feature[] = [
       </svg>
     ),
   },
+]
+
+const OFF_MIC: Feature[] = [
   {
-    title: 'Queue that remembers',
-    description: 'Files and playback position saved locally. Refresh and pick up where you left off.',
-    tag: 'Studio',
-    accent: 'violet',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Nothing to install',
-    description: 'MP3 encoding, mixing, streaming — all in the browser. Just open and broadcast.',
-    tag: 'Platform',
+    title: '24/7 AutoDJ',
+    description: 'Upload your library and the station never goes quiet. Step away from the mic and the music picks up where you left off.',
+    tag: 'AutoDJ',
     accent: 'amber',
+    pro: true,
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="2.5" />
+        <path d="M12 3v3M12 18v3" />
       </svg>
     ),
   },
   {
-    title: 'Keyboard-first controls',
-    description: 'Space to talk. K play/pause. N/P skip. R repeat. Built for speed.',
-    tag: 'Studio',
+    title: 'Programme your week',
+    description: 'Build playlists, then drop them on a weekly grid. Chill in the morning, hits at drivetime, a Friday-night special.',
+    tag: 'AutoDJ',
     accent: 'violet',
+    pro: true,
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <rect x="2" y="4" width="20" height="16" rx="2" />
-        <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10" />
+        <rect x="3" y="4" width="18" height="17" rx="2" />
+        <path d="M3 10h18M8 2v4M16 2v4" />
+        <rect x="6" y="13" width="5" height="3" rx="0.5" fill="currentColor" stroke="none" opacity="0.6" />
+        <rect x="13" y="13" width="4" height="3" rx="0.5" fill="currentColor" stroke="none" opacity="0.35" />
+      </svg>
+    ),
+  },
+  {
+    title: 'Broadcast from your own gear',
+    description: 'BUTT, Mixxx, or any Icecast source client connects straight to your station. Keep the rig you already know.',
+    tag: 'Encoders',
+    accent: 'sky',
+    pro: true,
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M9 2v6M15 2v6" />
+        <path d="M6 8h12v3a6 6 0 01-6 6 6 6 0 01-6-6V8z" />
+        <path d="M12 17v5" />
+      </svg>
+    ),
+  },
+  {
+    title: 'A stream URL of your own',
+    description: 'A public Icecast URL that works in TuneIn, Sonos, VLC and every directory that takes one.',
+    tag: 'Listeners',
+    accent: 'emerald',
+    pro: true,
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="5" cy="19" r="1.5" />
+        <path d="M4 11a9 9 0 019 9M4 4a16 16 0 0116 16" />
+      </svg>
+    ),
+  },
+  {
+    title: 'Your site, your domain',
+    description: 'Embed the player on your own page with one line of HTML, or point a DNS record at your station and it lives on your domain.',
+    tag: 'Listeners',
+    accent: 'violet',
+    pro: true,
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+        <line x1="13" y1="4" x2="11" y2="20" />
+      </svg>
+    ),
+  },
+  {
+    title: 'Know who is listening',
+    description: 'Live count and all-time peak on every plan. Pro adds 90 days of history, by country and by day.',
+    tag: 'Audience',
+    accent: 'sky',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M3 20h18" />
+        <rect x="5" y="12" width="3.5" height="6" rx="1" />
+        <rect x="10.25" y="8" width="3.5" height="10" rx="1" />
+        <rect x="15.5" y="4" width="3.5" height="14" rx="1" />
       </svg>
     ),
   },
 ]
+
+function ProPill() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[2px] text-amber-300">
+      Pro
+    </span>
+  )
+}
+
+function FeatureCard({ feature }: { feature: Feature }) {
+  const a = ACCENTS[feature.accent]
+  return (
+    <div
+      className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-7 py-6 md:py-7 transition-all ${a.hoverBg}`}
+    >
+      <div className="flex items-start justify-between gap-3 mb-5">
+        <div className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-colors ${a.iconBg} ${a.iconBorder} ${a.iconText} ${a.hoverBorder}`}>
+          {feature.icon}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {feature.pro && <ProPill />}
+          <span className={`text-[10px] tracking-[2px] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
+            {feature.tag}
+          </span>
+        </div>
+      </div>
+      <div className="text-[17px] font-medium text-text-secondary mb-1.5">
+        {feature.title}
+      </div>
+      <div className="text-sm text-text-muted leading-relaxed">
+        {feature.description}
+      </div>
+    </div>
+  )
+}
+
+function GroupHeading({ label, note }: { label: string; note?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-5">
+      <span className="text-xs tracking-[2px] uppercase text-text-secondary">{label}</span>
+      <div className="h-px flex-1 min-w-8 bg-white/[0.06]" />
+      {note && <span className="text-xs text-text-faint">{note}</span>}
+    </div>
+  )
+}
 
 export default function FeaturesSection() {
   return (
@@ -148,38 +251,32 @@ export default function FeaturesSection() {
           Built for broadcasters
         </div>
         <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
-          A studio in your browser.
+          A station, not just a stream.
         </h2>
         <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
-          Professional broadcasting tools that run entirely in your browser. No downloads, no complexity.
+          Everything you need at the microphone — and everything that keeps the
+          station on air the rest of the week.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-6xl mx-auto">
-        {FEATURES.map((feature) => {
-          const a = ACCENTS[feature.accent]
-          return (
-            <div
-              key={feature.title}
-              className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-7 py-6 md:py-7 transition-all ${a.hoverBg}`}
-            >
-              <div className="flex items-start justify-between mb-5">
-                <div className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-colors ${a.iconBg} ${a.iconBorder} ${a.iconText} ${a.hoverBorder}`}>
-                  {feature.icon}
-                </div>
-                <span className={`text-[10px] tracking-[2px] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
-                  {feature.tag}
-                </span>
-              </div>
-              <div className="text-[17px] font-medium text-text-secondary mb-1.5">
-                {feature.title}
-              </div>
-              <div className="text-sm text-text-muted leading-relaxed">
-                {feature.description}
-              </div>
-            </div>
-          )
-        })}
+      <div className="max-w-6xl mx-auto flex flex-col gap-10 md:gap-14">
+        <div>
+          <GroupHeading label="When you're on the mic" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {ON_MIC.map((feature) => (
+              <FeatureCard key={feature.title} feature={feature} />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <GroupHeading label="When you're not" note="Pro — free while it's in beta" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {OFF_MIC.map((feature) => (
+              <FeatureCard key={feature.title} feature={feature} />
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   )

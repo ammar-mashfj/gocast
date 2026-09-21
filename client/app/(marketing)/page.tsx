@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import HeroSection from "@/components/homepage/heroSection/HeroSection";
 import HowItWorks from "@/components/homepage/HowItWorks";
 import FeaturesSection from "@/components/homepage/FeaturesSection";
+import ProgrammeSection from "@/components/homepage/ProgrammeSection";
 import LiveNow from "@/components/homepage/LiveNow";
 import ListenerLibrary from "@/components/homepage/ListenerLibrary";
 import PricingSection from "@/components/homepage/PricingSection";
@@ -24,6 +25,7 @@ export default async function Home() {
       <HeroSection isAuthed={isAuthed} />
       <HowItWorks />
       <FeaturesSection />
+      <ProgrammeSection />
       <ListenerLibrary />
       <LiveNow />
       <PricingSection />

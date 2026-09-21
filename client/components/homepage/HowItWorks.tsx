@@ -33,9 +33,9 @@ const STEPS: Step[] = [
   },
   {
     num: '02',
-    title: 'Go live',
+    title: 'Go on air',
     description:
-      'Hit broadcast. Your browser captures audio and streams it to your audience in real-time.',
+      'Hit broadcast and your browser streams you in real time — or upload a library and let AutoDJ run the station for you.',
     time: '1 click',
     accent: 'sky',
     icon: (

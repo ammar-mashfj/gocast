@@ -33,7 +33,7 @@ export default function HeroSection({ isAuthed = false }: HeroSectionProps) {
           <p className="text-sm md:text-[17px] text-text-muted leading-relaxed mb-9 max-w-[400px] mx-auto md:mx-0">
             {isAuthed
               ? "Welcome back. Open your dashboard to manage stations or hit the studio and go live."
-              : "Sign up, hit go live. Listeners tune in from one shareable link — no app, no listener account."}
+              : "Go live from your browser whenever you want — and let AutoDJ hold the station the rest of the week. One shareable link, no app, no listener account."}
           </p>
 
           <div className="flex items-center justify-center md:justify-start gap-4">

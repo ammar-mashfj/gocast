@@ -8,8 +8,8 @@ import { env } from "@/lib/env";
 
 const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-sans' });
 
-const SITE_TITLE = "GoCast — Live Radio Streaming from Your Browser";
-const SITE_DESCRIPTION = "Your voice, on air in 60 seconds. Broadcast live internet radio from your browser — no servers, no downloads, just one shareable link.";
+const SITE_TITLE = "GoCast — Start an Internet Radio Station in Your Browser";
+const SITE_DESCRIPTION = "Go live in 60 seconds, then let AutoDJ keep your station on air 24/7. Browser broadcasting, scheduled playlists and one shareable link — no servers, no downloads.";
 
 export const metadata: Metadata = {
   metadataBase: env.appUrl ? new URL(env.appUrl) : undefined,

@@ -130,10 +130,12 @@ const nextConfig: NextConfig = {
       // for when we re-enable it. The `app/discover/*` files are left in
       // place so flipping this back on is a one-entry revert.
       { source: "/discover", destination: "/", permanent: false },
-      // Roadmap is hidden until it's rewritten against what actually shipped —
-      // it still listed AutoDJ as "coming soon". Same one-entry revert as
-      // discover; app/(marketing)/roadmap/page.tsx is the belt-and-braces stub.
-      { source: "/roadmap", destination: "/", permanent: false },
+      // Roadmap is gone for good — it described a product that has since
+      // shipped, and the homepage now carries what it was for. The page is
+      // deleted, so this redirect is the only thing answering the URL; it is
+      // permanent because there is nothing to come back to, and it keeps any
+      // existing inbound link landing somewhere useful instead of a 404.
+      { source: "/roadmap", destination: "/", permanent: true },
     ]
   },
   async headers() {

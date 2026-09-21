@@ -3,7 +3,7 @@ import { IconCheck } from "@tabler/icons-react"
 import WaitlistButton from "./WaitlistButton"
 import { PRO_PRICE_USD } from "@/interfaces/Plan"
 
-const LAST_UPDATED = "30 August 2026"
+const LAST_UPDATED = "21 September 2026"
 
 const FREE_FEATURES = [
   "100 concurrent listeners",
@@ -13,13 +13,15 @@ const FREE_FEATURES = [
   "Live listener count and all-time peak",
 ]
 
-// Condensed for the compact roadmap card — the full list lives in the docs.
+// Condensed for the compact card — the full list lives in the docs.
 const PRO_FEATURES = [
   "24/7 AutoDJ from your library (3 GB)",
+  "Playlists and a weekly schedule",
   "Broadcast from BUTT, Mixxx or any Icecast encoder",
   "Public stream URL for TuneIn & Sonos",
+  "Embed your player, on your own domain",
   "1,000 concurrent listeners",
-  "Custom domain + 90 days of listener analytics, by country",
+  "90 days of listener analytics, by country",
   "Priority support",
 ]
 
