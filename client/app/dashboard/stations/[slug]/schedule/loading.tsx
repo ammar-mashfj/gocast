@@ -41,7 +41,7 @@ export default function ScheduleLoading() {
       <AutoDjTabs slug={slug} />
 
       <div className="flex flex-col gap-2 mb-6">
-        <h1 className="text-2xl font-medium">Schedule</h1>
+        <h1 className="font-display text-2xl font-semibold">Schedule</h1>
         <p className="text-sm text-muted-foreground max-w-2xl">
           Play different playlists at different times of the week. This is separate from the show
           times on your settings page, which only tell listeners when you&apos;re live.

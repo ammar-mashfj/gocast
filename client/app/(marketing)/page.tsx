@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { isAuthenticated } from "@/lib/session";
 import HeroSection from "@/components/homepage/heroSection/HeroSection";
 import HowItWorks from "@/components/homepage/HowItWorks";
-import FeaturesSection from "@/components/homepage/FeaturesSection";
+import StudioSection from "@/components/homepage/StudioSection";
 import ProgrammeSection from "@/components/homepage/ProgrammeSection";
 import LiveNow from "@/components/homepage/LiveNow";
 import ListenerLibrary from "@/components/homepage/ListenerLibrary";
+import CapabilityStrip from "@/components/homepage/CapabilityStrip";
 import PricingSection from "@/components/homepage/PricingSection";
 import CtaSection from "@/components/homepage/CtaSection";
 
@@ -17,17 +18,17 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  const cookieStore = await cookies();
-  const isAuthed = !!cookieStore.get("token")?.value;
+  const isAuthed = await isAuthenticated();
 
   return (
     <>
       <HeroSection isAuthed={isAuthed} />
       <HowItWorks />
-      <FeaturesSection />
+      <StudioSection />
       <ProgrammeSection />
       <ListenerLibrary />
       <LiveNow />
+      <CapabilityStrip />
       <PricingSection />
       <CtaSection isAuthed={isAuthed} />
     </>

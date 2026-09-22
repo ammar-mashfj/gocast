@@ -26,7 +26,7 @@ const STREAM_FORMAT = "MP3 128 kbps, 44.1 kHz"
  * It exists mostly to be somewhere the danger zone can live. A delete button
  * has no business on the page you open every day to check what's playing, but
  * it cannot simply be removed either — so it needed a destination, and the
- * read-only stream facts below (mount, format, watermark) had nowhere to live
+ * read-only stream facts below (mount, format) had nowhere to live
  * at all and are genuinely asked about.
  */
 export default async function StationSettingsPage({
@@ -70,7 +70,7 @@ export default async function StationSettingsPage({
           <IconArrowLeft size={14} />
           Back to {station.name}
         </Link>
-        <h1 className="text-2xl font-medium">Station settings</h1>
+        <h1 className="font-display text-2xl font-semibold">Station settings</h1>
       </div>
 
       <Card>
@@ -155,19 +155,6 @@ export default async function StationSettingsPage({
               </div>
             </div>
           ))}
-
-          {/* Read-only and derived from the plan — there is no PATCH that turns
-              it off, so this states the fact rather than offering a switch. */}
-          {station.watermarked !== undefined && (
-            <div className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4 border-t border-border pt-4">
-              <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">Station ID</div>
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                {station.watermarked
-                  ? "Your stream carries a spoken “powered by GoCast” ID, ducked over the audio every few minutes."
-                  : "No GoCast ID is mixed into your stream."}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 

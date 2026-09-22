@@ -986,7 +986,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
               is, not another label about its content. Icon only — the meaning
               is carried by the tooltip for a mouse and by the sr-only text for
               everyone else, so the name keeps the line to itself. */}
-          <h1 className="m-0 text-[clamp(48px,7vw,96px)] font-semibold leading-[0.95] tracking-[-0.03em] text-balance @max-[900px]/player:text-[clamp(40px,11cqw,72px)] @max-[520px]/player:text-[40px]">
+          <h1 className="font-display m-0 text-[clamp(48px,7vw,96px)] font-semibold leading-[0.95] tracking-[-0.03em] text-balance @max-[900px]/player:text-[clamp(40px,11cqw,72px)] @max-[520px]/player:text-[40px]">
             {station.name}
             {station.featured && (
               <TooltipProvider delayDuration={300}>

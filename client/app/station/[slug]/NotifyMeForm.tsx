@@ -72,7 +72,7 @@ export function NotifyMeForm({ slug, stationName }: { slug: string; stationName:
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-1.5 mt-3 max-w-[300px] w-full">
-      <label htmlFor={`notify-${slug}`} className="text-xs tracking-[2px] uppercase text-muted-foreground flex items-center gap-1.5">
+      <label htmlFor={`notify-${slug}`} className="text-xs tracking-[0.2em] uppercase text-muted-foreground flex items-center gap-1.5">
         <IconBell size={14} />
         Notify me when live
       </label>

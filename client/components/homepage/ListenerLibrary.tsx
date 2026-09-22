@@ -74,7 +74,7 @@ export default function ListenerLibrary() {
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-4">
             <IconHeartFilled size={14} className="text-rose-400" />
-            <h3 className="text-sm tracking-[2px] uppercase text-violet-muted font-medium">
+            <h3 className="text-sm tracking-[0.2em] uppercase text-violet-muted font-medium">
               Your saved stations
             </h3>
           </div>
@@ -90,7 +90,7 @@ export default function ListenerLibrary() {
         <div>
           <div className="flex items-center gap-2 mb-4">
             <IconHistory size={14} className="text-text-muted" />
-            <h3 className="text-sm tracking-[2px] uppercase text-text-muted font-medium">
+            <h3 className="text-sm tracking-[0.2em] uppercase text-text-muted font-medium">
               Pick up where you left off
             </h3>
           </div>

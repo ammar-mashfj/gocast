@@ -42,7 +42,7 @@ export default function LibraryLoading() {
       <div className="flex flex-col gap-5">
         <header className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-[280px] flex flex-col gap-2">
-            <h1 className="text-2xl font-medium">Music</h1>
+            <h1 className="font-display text-2xl font-semibold">Music</h1>
             {/* The count · runtime · storage line: real work, real skeleton. */}
             <Skeleton className="h-4 w-64 max-w-full" />
           </div>

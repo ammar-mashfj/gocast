@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useCallback, useRef, useMemo } from "react"
+import { useEffect, useCallback, useRef, useMemo, type RefObject } from "react"
 import {
   IconMicrophone,
   IconPlayerPlayFilled,
@@ -28,6 +28,40 @@ function formatRemaining(seconds: number): string {
   return "under a minute"
 }
 
+type Engine = NonNullable<ReturnType<typeof useBroadcast>["engine"]>
+
+/**
+ * The deck's single rAF loop.
+ *
+ * Everything that follows the playhead runs off this one callback rather than
+ * starting a loop of its own, so the bar, the countdown and the loop-point
+ * label are always reading the same frame. `onFrame` is held in a ref so a
+ * re-render swaps the closure without tearing the loop down and rebuilding it.
+ *
+ * rAF stops in a hidden tab. That is fine here: nothing accumulates, every
+ * value is derived fresh from the engine on the next frame.
+ */
+function useEngineFrame(engine: Engine | null, onFrame: (engine: Engine) => void) {
+  const latest = useRef(onFrame)
+  // Intentionally dependency-free: every render swaps in the newest closure,
+  // which is what keeps the loop below reading current values without being
+  // rebuilt. Declared first, so it lands before the loop starts on mount.
+  useEffect(() => {
+    latest.current = onFrame
+  })
+
+  useEffect(() => {
+    if (!engine) return
+    let raf = 0
+    function tick() {
+      latest.current(engine!)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [engine])
+}
+
 /**
  * Read-only position display for the track on air.
  *
@@ -37,36 +71,21 @@ function formatRemaining(seconds: number): string {
  * broadcaster still needs to see how long is left before they talk, which is
  * all this shows.
  *
- * Driven by rAF straight into the DOM rather than React state: this ticks
- * sixty times a second and nothing else on the page needs to re-render for it.
+ * Pure markup: the deck owns these nodes and writes them straight from
+ * {@link useEngineFrame}, because this ticks sixty times a second and nothing
+ * on the page needs to re-render for it.
  */
-function ProgressRow({ ducked }: { ducked: boolean }) {
-  const { engine } = useBroadcast()
-  const barRef = useRef<HTMLDivElement>(null)
-  const elapsedRef = useRef<HTMLSpanElement>(null)
-  const remainingRef = useRef<HTMLSpanElement>(null)
-
-  useEffect(() => {
-    if (!engine) return
-    let raf = 0
-    function tick() {
-      const track = engine!.getCurrentTrack()
-      const elapsed = engine!.getElapsed()
-      const duration = track?.duration ?? 0
-      const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
-
-      if (barRef.current) barRef.current.style.width = `${pct}%`
-      if (elapsedRef.current) elapsedRef.current.textContent = formatTime(elapsed)
-      if (remainingRef.current) {
-        remainingRef.current.textContent =
-          duration > 0 ? `-${formatTime(Math.max(0, duration - elapsed))}` : "--:--"
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [engine])
-
+function ProgressRow({
+  ducked,
+  barRef,
+  elapsedRef,
+  remainingRef,
+}: {
+  ducked: boolean
+  barRef: RefObject<HTMLDivElement | null>
+  elapsedRef: RefObject<HTMLSpanElement | null>
+  remainingRef: RefObject<HTMLSpanElement | null>
+}) {
   return (
     <div className="flex items-center gap-3">
       <span ref={elapsedRef} className="text-xs text-muted-foreground tabular-nums shrink-0">
@@ -142,7 +161,15 @@ export function OnAirDeck({ elapsed, listeners }: OnAirDeckProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const queue = useMemo(() => engine?.getQueue() ?? [], [engine, version])
   const currentIndex = engine?.getCurrentIndex() ?? -1
+  const repeatMode = engine?.getRepeatMode() ?? "all"
   const reconnecting = state === "reconnecting"
+
+  // Written by the rAF loop below, not rendered by React.
+  const barRef = useRef<HTMLDivElement>(null)
+  const elapsedRef = useRef<HTMLSpanElement>(null)
+  const remainingRef = useRef<HTMLSpanElement>(null)
+  const loopInRef = useRef<HTMLSpanElement>(null)
+  const lastLoopLabel = useRef("")
 
   const activate = useCallback(() => {
     if (micDisabled) return
@@ -181,20 +208,59 @@ export function OnAirDeck({ elapsed, listeners }: OnAirDeckProps) {
 
   const micLevel = micActive ? Math.max(micLevels.left, micLevels.right) : 0
 
-  // What plays after this one, and how much audio stands between the
-  // broadcaster and dead air. The queue always wraps, so "next" is never
-  // undefined while anything is queued.
-  const nextTrack = queue.length > 1 && currentIndex >= 0
+  // Repeat has no 'off' mode, so the queue never runs out — there is no dead
+  // air to count down to, only a loop point. With 'one' the current track is
+  // also the next one, and under 'all' a single-track queue wraps onto itself;
+  // in both cases naming a "next" track would just repeat the title on air.
+  const nextTrack = repeatMode === "all" && queue.length > 1 && currentIndex >= 0
     ? queue[(currentIndex + 1) % queue.length]
     : null
-  const remainingSeconds = useMemo(() => {
-    if (!engine || currentIndex < 0) return 0
-    const rest = queue
-      .slice(currentIndex + 1)
-      .reduce((sum, t) => sum + t.duration, 0)
-    const current = Math.max(0, (track?.duration ?? 0) - engine.getElapsed())
-    return rest + current
-  }, [engine, queue, currentIndex, track])
+
+  // Everything queued after the current track. Only the queue can change this,
+  // so it stays memoised — but the engine mutates its array in place, so
+  // `version` is the real dependency, as with `queue` above.
+  const restSeconds = useMemo(
+    () =>
+      currentIndex < 0
+        ? 0
+        : queue.slice(currentIndex + 1).reduce((sum, t) => sum + t.duration, 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [queue, currentIndex, version],
+  )
+
+  // The playhead is read per frame, never memoised. Every dependency such a
+  // memo could take — the engine, its in-place queue array, the current track
+  // object — keeps a stable identity for the life of the deck, so it would
+  // compute once at mount and then freeze: that is how this line sat at
+  // "9m" for an hour while the track actually had 41m left.
+  useEngineFrame(engine, (eng) => {
+    const current = eng.getCurrentTrack()
+    const elapsed = eng.getElapsed()
+    const duration = current?.duration ?? 0
+    const left = Math.max(0, duration - elapsed)
+
+    if (barRef.current) {
+      const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
+      barRef.current.style.width = `${pct}%`
+    }
+    if (elapsedRef.current) elapsedRef.current.textContent = formatTime(elapsed)
+    if (remainingRef.current) {
+      remainingRef.current.textContent = duration > 0 ? `-${formatTime(left)}` : "--:--"
+    }
+
+    // 'one' never advances, so nothing but the current track stands between
+    // here and the loop point.
+    if (!loopInRef.current) return
+    const label = formatRemaining(repeatMode === "one" ? left : restSeconds + left)
+    // Unlike the tabular-nums readouts above, this one sits in a wrapping
+    // sentence and changes width ("9m" -> "1h 34m"), so writing it every frame
+    // would reflow the line sixty times a second for a value that moves once a
+    // minute.
+    if (label !== lastLoopLabel.current) {
+      lastLoopLabel.current = label
+      loopInRef.current.textContent = label
+    }
+  })
 
   const warning = micActive
     ? {
@@ -274,20 +340,42 @@ export function OnAirDeck({ elapsed, listeners }: OnAirDeckProps) {
             </span>
           </div>
 
-          {track && <ProgressRow ducked={micActive} />}
+          {track && (
+            <ProgressRow
+              ducked={micActive}
+              barRef={barRef}
+              elapsedRef={elapsedRef}
+              remainingRef={remainingRef}
+            />
+          )}
 
           <div className={cn("text-xs", micActive ? "text-sky-300" : "text-muted-foreground")}>
             {micActive ? (
               <>Music ducked under your mic</>
-            ) : nextTrack ? (
-              <>
-                Then: <span className="text-foreground">{nextTrack.title}</span>
-              </>
+            ) : queue.length === 0 ? (
+              <>Nothing queued</>
+            ) : currentIndex < 0 ? (
+              // Reachable: a queue restored from disk with no saved playhead
+              // never auto-starts, and there is a frame after the first add
+              // before playIndex(0) lands. Neither has a loop point yet.
+              <>Queue loaded — nothing on air yet</>
             ) : (
-              <>Nothing queued after this</>
-            )}
-            {queue.length > 0 && (
-              <> · queue ends in <span className="text-amber-400">{formatRemaining(remainingSeconds)}</span></>
+              <>
+                {repeatMode === "one" ? (
+                  <>Repeating this track</>
+                ) : nextTrack ? (
+                  <>
+                    Then: <span className="text-foreground">{nextTrack.title}</span>
+                  </>
+                ) : (
+                  <>Looping this track</>
+                )}
+                {" · "}
+                <span ref={loopInRef} className="text-amber-400 tabular-nums">
+                  —
+                </span>{" "}
+                {nextTrack ? "until the queue loops" : "until it restarts"}
+              </>
             )}
           </div>
         </div>

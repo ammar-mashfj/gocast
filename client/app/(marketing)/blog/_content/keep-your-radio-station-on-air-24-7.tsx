@@ -304,8 +304,8 @@ export default function Body() {
       <h3>Does my station keep playing if I close my laptop?</h3>
       <p>
         On Pro, yes. Your uploaded music keeps playing and the link keeps
-        working. On the free plan, broadcasting is live only &mdash; the
-        station goes quiet when you close the tab and switches itself off a few
+        working. On the free plan, broadcasting needs you at the
+        browser &mdash; the station goes quiet when you close the tab and switches itself off a few
         minutes later. Your page stays up either way, and anyone who lands on
         it can ask to be emailed the next time you&#39;re on.
       </p>

@@ -134,7 +134,7 @@ export default async function StationDetailPage({
         />
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-2xl font-medium truncate">{station.name}</h1>
+            <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
             {station.genre && (
               <Badge variant="secondary" className="shrink-0 text-sm" title="genre">{station.genre}</Badge>
             )}

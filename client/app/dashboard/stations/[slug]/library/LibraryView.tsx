@@ -41,6 +41,7 @@ import type { TrackEditFields } from "./TrackRow"
 import { AUDIO_ACCEPT } from "./upload"
 import { useTrackUpload } from "./useTrackUpload"
 import { UploadProgressBar } from "./UploadProgressBar"
+import { HelpLink } from "@/components/dashboard/HelpLink"
 
 interface Props {
   station: Station
@@ -608,7 +609,13 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
       <header className="flex flex-wrap items-end gap-4">
         <div className="flex-1 min-w-[280px] flex flex-col gap-2">
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-medium">Music</h1>
+            <h1 className="font-display flex items-center gap-2 text-2xl font-semibold">
+              Music
+              <HelpLink
+                article="upload-your-music"
+                label="file formats, size limits and where uploads land"
+              />
+            </h1>
             {locked && (
               <Badge
                 variant="outline"

@@ -35,7 +35,7 @@ export default function AudienceLoading() {
               {station ? station.name : "Back"}
             </Link>
           </Button>
-          <h1 className="text-2xl font-medium">Audience</h1>
+          <h1 className="font-display text-2xl font-semibold">Audience</h1>
           {/* The blurb below the heading differs between the locked and the
               full page, so it is the one piece of copy that stays a bar. */}
           <Skeleton className="mt-2 h-4 w-80 max-w-full" />

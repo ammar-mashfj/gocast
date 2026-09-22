@@ -29,6 +29,7 @@ import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { GoLiveTrigger } from "@/components/dashboard/GoLiveTrigger"
+import { HelpLink } from "@/components/dashboard/HelpLink"
 import { TrackProgress } from "@/components/dashboard/TrackProgress"
 
 interface StationPowerProps {
@@ -578,6 +579,14 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
                 >
                   {headline}
                 </span>
+                {/* Attached to the STATUS rather than to the card, because the
+                    question this answers is "what does this word mean?" —
+                    "Not reaching listeners" in particular is a sentence nobody
+                    can act on without the article behind it. */}
+                <HelpLink
+                  article="turning-your-station-on-and-off"
+                  label="what each station status means"
+                />
               </div>
 
               <span className="text-lg font-medium line-clamp-2">{powerDetail}</span>

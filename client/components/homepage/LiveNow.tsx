@@ -72,51 +72,32 @@ async function getFeaturedStations(): Promise<Station[]> {
 export default async function LiveNow() {
   const stations = await getFeaturedStations()
 
-  if (stations.length === 0) {
-    return (
-      <section className="px-4 md:px-10 py-12 md:py-24" id="live">
-        <div className="text-center mb-10 md:mb-16">
-          <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
-            Featured
-          </div>
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
-            Your station could be here.
-          </h2>
-          <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
-            Be one of the first stations to go live on GoCast.
-          </p>
-        </div>
-
-        <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 max-w-3xl mx-auto">
-          {[0, 1, 2].map((i) => (
-            <Link
-              key={i}
-              href="/auth/register"
-              className="group bg-white/[0.02] border border-dashed border-white/[0.08] rounded-xl p-5 cursor-pointer overflow-hidden transition-all hover:border-violet-border/50 hover:bg-violet-full/[0.03] no-underline flex flex-col items-center justify-center text-center min-h-[160px]"
-            >
-              <div className="size-12 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center text-2xl text-text-faint mb-3 group-hover:border-violet-border/50 group-hover:text-violet-muted transition-colors">
-                +
-              </div>
-              <div className="text-sm text-text-muted group-hover:text-white transition-colors">
-                Claim this slot
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-    )
-  }
+  /*
+   * Nothing to feature means no section at all.
+   *
+   * This used to render three dashed "Claim this slot" tiles under the heading
+   * "Your station could be here." Two problems with that: it tells a first-time
+   * visitor the directory is empty, on the page whose job is to argue the
+   * opposite — and it adds a third register CTA to a page that already has one
+   * in the hero, one in pricing and one in CtaSection. A missing section costs
+   * the reader nothing; an empty one costs credibility.
+   *
+   * Returning null is safe here because LiveNow renders its own <section>: the
+   * parent stacks siblings with no wrapper of its own, so the page simply
+   * closes up. The next section's own py-24 keeps the rhythm intact.
+   */
+  if (stations.length === 0) return null
 
   return (
     <section className="px-4 md:px-10 py-12 md:py-24" id="live">
       <div className="text-center mb-10 md:mb-16">
-        <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
+        <div className="text-xs tracking-[0.25em] uppercase text-violet-muted mb-4">
           Featured
         </div>
-        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
+        <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
           Discover what&apos;s on air.
         </h2>
-        <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
+        <p className="text-base text-text-secondary tracking-[0.01em] max-w-[480px] leading-relaxed mx-auto">
           Hand-picked stations, on air right now.
         </p>
       </div>

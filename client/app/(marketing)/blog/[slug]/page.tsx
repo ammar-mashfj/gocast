@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { ZoomableImage } from "../ZoomableImage"
+import { ZoomableImage } from "@/components/content/ZoomableImage"
+import { Prose } from "@/components/content/Prose"
 import { notFound } from "next/navigation"
 import { ARTICLES, getArticle } from "../_content/articles"
 
@@ -121,7 +122,7 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
             <span className="mx-2 text-white/20">·</span>
             {readingTime}
           </p>
-          <h1 className="text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight">
+          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight">
             {title}
           </h1>
         </header>
@@ -137,28 +138,9 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
           />
         )}
 
-        <article
-          className="
-            prose prose-invert max-w-none
-            prose-headings:text-white prose-headings:font-semibold prose-headings:-tracking-wide
-            prose-h2:text-2xl md:prose-h2:text-3xl prose-h2:mt-14 prose-h2:mb-5
-            prose-h3:text-xl md:prose-h3:text-2xl prose-h3:mt-10 prose-h3:mb-4
-            prose-p:text-zinc-300 prose-p:leading-[1.75]
-            prose-li:text-zinc-300 prose-li:leading-[1.75]
-            prose-strong:text-white
-            prose-a:text-violet-full prose-a:no-underline hover:prose-a:underline
-            prose-code:text-violet prose-code:bg-white/[0.04] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
-            prose-pre:bg-white/[0.04] prose-pre:border prose-pre:border-white/[0.06] prose-pre:rounded-xl
-            prose-blockquote:border-l-violet-full prose-blockquote:text-text-muted prose-blockquote:not-italic
-            prose-hr:border-white/[0.06]
-            prose-table:border prose-table:border-white/[0.06] prose-table:rounded-xl prose-table:overflow-hidden
-            prose-th:bg-white/[0.02] prose-th:text-white prose-th:border-white/[0.06]
-            prose-td:border-white/[0.06] prose-td:text-zinc-300
-            prose-img:rounded-xl prose-img:border prose-img:border-white/[0.06]
-          "
-        >
+        <Prose>
           <Body />
-        </article>
+        </Prose>
 
         <aside className="mt-10 bg-white/[0.02] border border-white/[0.06] rounded-xl px-6 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

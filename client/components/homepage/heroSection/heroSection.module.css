@@ -1,24 +1,8 @@
-@keyframes orbit-1 {
-    from { transform: rotate(0deg) translateX(180px) rotate(0deg); }
-    to { transform: rotate(360deg) translateX(180px) rotate(-360deg); }
-  }
-  @keyframes orbit-2 {
-    from { transform: rotate(120deg) translateX(140px) rotate(-120deg); }
-    to { transform: rotate(480deg) translateX(140px) rotate(-480deg); }
-  }
-  @keyframes orbit-3 {
-    from { transform: rotate(240deg) translateX(220px) rotate(-240deg); }
-    to { transform: rotate(600deg) translateX(220px) rotate(-600deg); }
-  }
+@keyframes live-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+}
 
-  @keyframes live-dot {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
-    70% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
-  }
-  
-.animate-orbit-1 { animation: orbit-1 32s linear infinite; }
-.animate-orbit-2 { animation: orbit-2 24s linear infinite; }
-.animate-orbit-3 { animation: orbit-3 40s linear infinite; }
 .liveDot { animation: live-dot 1.5s infinite; }
 
 @keyframes vinyl-spin {
@@ -28,6 +12,33 @@
 
 .vinylSpin { animation: vinyl-spin 14s linear infinite; }
 
+
+/* Level-meter bars for the hero player.
+   scaleY rather than height so the whole meter stays on the compositor —
+   48 elements animating `height` would relayout the row every frame.
+   Six durations, deliberately non-multiples of each other, so the phases
+   drift apart instead of marching in a visible repeating wave. */
+@keyframes hero-wave-1 { 0%, 100% { transform: scaleY(0.16); } 50% { transform: scaleY(0.80); } }
+@keyframes hero-wave-2 { 0%, 100% { transform: scaleY(0.62); } 50% { transform: scaleY(0.14); } }
+@keyframes hero-wave-3 { 0%, 100% { transform: scaleY(0.28); } 50% { transform: scaleY(1.00); } }
+@keyframes hero-wave-4 { 0%, 100% { transform: scaleY(0.88); } 50% { transform: scaleY(0.22); } }
+@keyframes hero-wave-5 { 0%, 100% { transform: scaleY(0.12); } 50% { transform: scaleY(0.66); } }
+@keyframes hero-wave-6 { 0%, 100% { transform: scaleY(0.48); } 50% { transform: scaleY(0.94); } }
+
+.wave1 { animation: hero-wave-1 1.13s ease-in-out infinite; }
+.wave2 { animation: hero-wave-2 0.79s ease-in-out infinite; }
+.wave3 { animation: hero-wave-3 1.47s ease-in-out infinite; }
+.wave4 { animation: hero-wave-4 0.91s ease-in-out infinite; }
+.wave5 { animation: hero-wave-5 1.31s ease-in-out infinite; }
+.wave6 { animation: hero-wave-6 1.03s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-orbit-1, .animate-orbit-2, .animate-orbit-3, .vinylSpin { animation: none; }
+  .vinylSpin,
+  .liveDot,
+  .wave1, .wave2, .wave3, .wave4, .wave5, .wave6 {
+    animation: none;
+  }
+  /* Frozen flat would read as "no signal", which is the opposite of the
+     claim. Hold them at a static mid-level instead. */
+  .wave1, .wave2, .wave3, .wave4, .wave5, .wave6 { transform: scaleY(0.45); }
 }

@@ -211,7 +211,7 @@ export default function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-medium">Settings</h1>
+        <h1 className="font-display text-xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your account.</p>
       </div>
 

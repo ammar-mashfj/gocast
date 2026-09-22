@@ -166,10 +166,12 @@ export interface Station {
    */
   hls_url: string | null
   /**
-   * This stream carries the audible "powered by GoCast" ID, ducked over the
-   * audio every few minutes. Read-only and derived from the owner's plan —
-   * there is no way to switch it off except upgrading. Present only on the
-   * owner's own stations, so it is absent from public/discover payloads.
+   * The audible "powered by GoCast" ID was built but never switched on, so this
+   * flag describes something that does not happen to the audio. It is kept only
+   * because the API still sends it; NOTHING should render it, and every place
+   * that did (station settings, the Free/Pro help article, the pricing card)
+   * was telling users about an ID their stream does not carry. Delete the field
+   * if the feature is dropped for good.
    */
   watermarked?: boolean
   /**

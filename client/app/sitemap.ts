@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { ARTICLES } from "./(marketing)/blog/_content/articles"
+import { HELP_ARTICLES } from "./(marketing)/help/_content/articles"
 
 export const revalidate = 3600
 
@@ -47,6 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
     { url: `${base}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
+    { url: `${base}/help`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ]
@@ -60,6 +62,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }))
 
+  // Same reasoning as the blog routes above, and the same registry shape.
+  // Help pages are indexed deliberately: "gocast encoder won't connect" is a
+  // search somebody makes, and the answer should be ours rather than a forum's.
+  const helpRoutes: MetadataRoute.Sitemap = HELP_ARTICLES.map((a) => ({
+    url: `${base}/help/${a.slug}`,
+    lastModified: new Date(a.updated),
+    changeFrequency: "monthly",
+    priority: 0.5,
+  }))
+
   const stations = await getAllPublicStations()
   const stationRoutes: MetadataRoute.Sitemap = stations.map((s) => ({
     url: `${base}/station/${s.slug}`,
@@ -68,5 +80,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }))
 
-  return [...staticRoutes, ...articleRoutes, ...stationRoutes]
+  return [...staticRoutes, ...articleRoutes, ...helpRoutes, ...stationRoutes]
 }

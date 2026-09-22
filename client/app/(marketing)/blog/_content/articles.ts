@@ -155,7 +155,7 @@ export const ARTICLES: Article[] = [
       {
         question: "Does my internet radio station keep playing if I close my laptop?",
         answer:
-          "On GoCast Pro, yes — your uploaded music keeps playing and the link listeners use keeps working. On the free plan broadcasting is live only, so the station goes quiet when you close the tab. Your player page stays up either way, and anyone who lands on it can ask to be emailed the next time you go live.",
+          "On GoCast Pro, yes — your uploaded music keeps playing and the link listeners use keeps working. On the free plan broadcasting needs you at the browser, so the station goes quiet when you close the tab. Your player page stays up either way, and anyone who lands on it can ask to be emailed the next time you go live.",
       },
       {
         question: "Do I need to pay to start an internet radio station on GoCast?",

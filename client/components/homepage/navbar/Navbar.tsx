@@ -1,7 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
-import { cookies } from "next/headers"
-import { User } from "@/interfaces/User"
+import { getSession } from "@/lib/session"
 import UserMenu from "./UserMenu"
 import MobileMenu from "./MobileMenu"
 
@@ -9,14 +8,12 @@ const NAV_LINKS = [
   { label: "How it works", href: "/#features" },
   { label: "Pricing", href: "/#pricing" },
   { label: "Blog", href: "/blog" },
+  { label: "Help", href: "/help" },
 ] as const
 
 export default async function Navbar() {
-  const cookieStore = await cookies()
-  const userCookie = cookieStore.get("user")?.value
-  const user: User | null = userCookie
-    ? JSON.parse(decodeURIComponent(userCookie))
-    : null
+  const session = await getSession()
+  const user = session?.user ?? null
 
   return (
     <nav className="flex items-center justify-between px-4 md:px-10 py-4 md:py-5 relative z-10">

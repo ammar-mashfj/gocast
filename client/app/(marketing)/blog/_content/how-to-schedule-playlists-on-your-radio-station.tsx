@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ZoomableImage } from "../ZoomableImage"
+import { ZoomableImage } from "@/components/content/ZoomableImage"
 
 /**
  * Launch post for AutoDJ playlists + weekly slots. The screenshots are real

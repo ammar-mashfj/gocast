@@ -200,7 +200,7 @@ const OFF_MIC: Feature[] = [
 
 function ProPill() {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[2px] text-amber-300">
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-amber-300">
       Pro
     </span>
   )
@@ -210,7 +210,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
   const a = ACCENTS[feature.accent]
   return (
     <div
-      className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-7 py-6 md:py-7 transition-all ${a.hoverBg}`}
+      className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-7 py-7 md:py-8 transition-all ${a.hoverBg}`}
     >
       <div className="flex items-start justify-between gap-3 mb-5">
         <div className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-colors ${a.iconBg} ${a.iconBorder} ${a.iconText} ${a.hoverBorder}`}>
@@ -218,15 +218,15 @@ function FeatureCard({ feature }: { feature: Feature }) {
         </div>
         <div className="flex items-center gap-1.5">
           {feature.pro && <ProPill />}
-          <span className={`text-[10px] tracking-[2px] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
+          <span className={`text-[10px] tracking-[0.2em] uppercase px-2.5 py-1 rounded-full border ${a.tagText} ${a.tagBorder} ${a.tagBg}`}>
             {feature.tag}
           </span>
         </div>
       </div>
-      <div className="text-[17px] font-medium text-text-secondary mb-1.5">
+      <h3 className="text-[18px] font-semibold text-white mb-3">
         {feature.title}
-      </div>
-      <div className="text-sm text-text-muted leading-relaxed">
+      </h3>
+      <div className="text-base text-text-secondary leading-[1.7] text-pretty tracking-[0.01em]">
         {feature.description}
       </div>
     </div>
@@ -236,7 +236,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
 function GroupHeading({ label, note }: { label: string; note?: string }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-5">
-      <span className="text-xs tracking-[2px] uppercase text-text-secondary">{label}</span>
+      <span className="text-xs tracking-[0.25em] uppercase text-text-secondary">{label}</span>
       <div className="h-px flex-1 min-w-8 bg-white/[0.06]" />
       {note && <span className="text-xs text-text-faint">{note}</span>}
     </div>
@@ -247,13 +247,13 @@ export default function FeaturesSection() {
   return (
     <section className="px-4 md:px-10 py-12 md:py-24">
       <div className="text-center mb-10 md:mb-16">
-        <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
+        <div className="text-xs tracking-[0.25em] uppercase text-violet-muted mb-4">
           Built for broadcasters
         </div>
-        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
+        <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
           A station, not just a stream.
         </h2>
-        <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
+        <p className="text-base text-text-secondary tracking-[0.01em] max-w-[480px] leading-relaxed mx-auto">
           Everything you need at the microphone — and everything that keeps the
           station on air the rest of the week.
         </p>

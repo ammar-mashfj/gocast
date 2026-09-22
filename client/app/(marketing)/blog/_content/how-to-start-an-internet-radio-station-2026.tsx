@@ -113,7 +113,8 @@ export default function Body() {
       </p>
       <p>
         Strongest point: going from zero to live in under a minute. Weakest point: the
-        free tier is deliberately live-only. Close the tab and the station goes quiet, so
+        free tier deliberately needs you at the browser. Close the tab and the station
+        goes quiet, so
         unattended round-the-clock programming means Pro.
       </p>
 

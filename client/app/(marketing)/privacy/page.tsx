@@ -8,14 +8,14 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main className="max-w-2xl mx-auto px-6 py-16">
-      <h1 className="text-3xl font-semibold mb-2">Privacy Policy</h1>
+      <h1 className="font-display text-3xl font-semibold mb-2">Privacy Policy</h1>
       <p className="text-sm text-text-muted mb-12">
         Last updated: September 8, 2026
       </p>
 
-      <div className="flex flex-col gap-10 text-sm leading-relaxed text-text-muted">
+      <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Overview</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Overview</h2>
             <p>
               GoCast is a live radio streaming platform. This policy explains what data we collect,
               why we collect it, and how we protect it. We believe in collecting the minimum data
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Data We Collect</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Data We Collect</h2>
 
             <h3 className="text-sm font-medium text-white mt-4 mb-2">Account Information</h3>
             <p>
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">How We Use Your Data</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">How We Use Your Data</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>To provide and maintain the streaming service</li>
               <li>To authenticate your account and authorize access to your stations</li>
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Third-Party Services</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Third-Party Services</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>
                 <strong className="text-white">Google OAuth</strong> — used for &ldquo;Sign in with Google.&rdquo;
@@ -132,7 +132,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Cookies</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Cookies</h2>
             <p>
               We use three cookies, all of them first-party:
             </p>
@@ -165,7 +165,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Data Retention</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Data Retention</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>
                 Account data is kept until you delete your account. Deleting it revokes your sessions
@@ -187,7 +187,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Your Rights</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Your Rights</h2>
             <p>You can:</p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5 mt-2">
               <li>View and update your account information from the dashboard.</li>
@@ -202,7 +202,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Security</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Security</h2>
             <p>
               We protect your data with HTTPS encryption in transit, hashed passwords (bcrypt),
               rate-limited API endpoints, and scoped authentication tokens. Internal relay communication
@@ -211,7 +211,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Changes to This Policy</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Changes to This Policy</h2>
             <p>
               We may update this policy as the service evolves. Significant changes will be communicated
               via email or an in-app notice. The &ldquo;last updated&rdquo; date at the top reflects the most recent revision.
@@ -219,7 +219,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">Contact</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">Contact</h2>
             <p>
               For questions about this policy or to exercise your data rights, contact us
               at{" "}

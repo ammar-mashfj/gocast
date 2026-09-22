@@ -75,13 +75,13 @@ export default function HowItWorks() {
   return (
     <section className="px-4 md:px-10 py-12 md:py-24" id="features">
       <div className="text-center mb-10 md:mb-16">
-        <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
+        <div className="text-xs tracking-[0.25em] uppercase text-violet-muted mb-4">
           How it works
         </div>
-        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
+        <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4">
           Three steps. Zero complexity.
         </h2>
-        <p className="text-sm md:text-base text-text-muted max-w-[480px] leading-relaxed mx-auto">
+        <p className="text-base text-text-secondary tracking-[0.01em] max-w-[480px] leading-relaxed mx-auto">
           Everything happens in your browser. No software to install, no servers
           to manage.
         </p>
@@ -93,21 +93,22 @@ export default function HowItWorks() {
           return (
             <div
               key={step.num}
-              className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-10 transition-all ${a.hoverBg}`}
+              className={`group bg-white/[0.02] border border-white/[0.06] rounded-xl px-5 md:px-8 py-7 md:py-10 text-center sm:text-left transition-all ${a.hoverBg}`}
             >
-              <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mb-6 transition-colors ${a.bg} ${a.border} ${a.text} ${a.hoverBorder}`}>
+              <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mb-6 mx-auto sm:mx-0 transition-colors ${a.bg} ${a.border} ${a.text} ${a.hoverBorder}`}>
                 {step.icon}
               </div>
               <div className="flex items-center gap-3 mb-3">
-                <span className={`text-xs tracking-[2px] font-medium ${a.text}`}>
+                <div className="h-px flex-1 bg-white/[0.06] sm:hidden" />
+                <span className={`text-xs tracking-[0.2em] font-medium whitespace-nowrap ${a.text}`}>
                   STEP {step.num}
                 </span>
                 <div className="h-px flex-1 bg-white/[0.06]" />
               </div>
-              <div className="text-lg font-medium text-text-secondary mb-2.5">
+              <h3 className="text-lg font-semibold text-white mb-2.5">
                 {step.title}
-              </div>
-              <div className="text-sm text-text-muted leading-relaxed mb-4">
+              </h3>
+              <div className="text-base text-text-secondary leading-[1.7] text-pretty tracking-[0.01em] mb-4">
                 {step.description}
               </div>
               <div className={`inline-flex items-center gap-1.5 text-xs tracking-wide ${a.text}`}>

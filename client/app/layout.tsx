@@ -1,12 +1,51 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Montserrat } from "next/font/google";
+import { Bricolage_Grotesque, JetBrains_Mono, Onest } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { env } from "@/lib/env";
 
-const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-sans' });
+/* The three CSS variables below are what the rest of the app binds to, so
+   changing a family here is the whole swap - no component or token touches it.
+   `body` sets everything readable, `display` only headings, `mono` only the
+   dashboard's keys and URLs.
+
+   Tried so far:
+     body:    Onest (active) | DM Sans | Albert Sans
+
+   Shortlisted by eye in /font-lab, then separated on metrics: all three set
+   within 1% of each other per character (~7.4px at 15px, near Inter's 7.6),
+   which is why they all read as open. Onest wins on x-height (0.530 against
+   0.510 and 0.500), so it holds apparent size at 16px where the other two
+   would want 17px.
+     display: Bricolage Grotesque (active) | Space Grotesk | Instrument Serif
+
+   Two metrics decide the body face, and they pull against each other:
+   x-height sets apparent size, per-character advance sets how open the text
+   feels. Inter is the benchmark on both. Plus Jakarta Sans sits 1.8% under
+   Inter's x-height and within 1.3% of its advance - Inter's readability with
+   different shapes. Inter Tight was a mistake here: it matches the x-height
+   but sets 10.4% tighter, which reads as crowded letters.
+   Swap by changing the import above and the two constructors below. */
+const body = Onest({
+  subsets: ['latin'],
+  variable: '--font-body',
+  display: 'swap',
+});
+const display = Bricolage_Grotesque({
+  subsets: ['latin'],
+  variable: '--font-display-face',
+  display: 'swap',
+});
+/* Mono is only reached in the dashboard (stream keys, ingest URLs), so it
+   loads on demand rather than preloading on every marketing page. */
+const mono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono-face',
+  display: 'swap',
+  preload: false,
+});
 
 const SITE_TITLE = "GoCast — Start an Internet Radio Station in Your Browser";
 const SITE_DESCRIPTION = "Go live in 60 seconds, then let AutoDJ keep your station on air 24/7. Browser broadcasting, scheduled playlists and one shareable link — no servers, no downloads.";
@@ -109,7 +148,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn("dark h-full", "antialiased", "font-sans", montserrat.variable)}
+      className={cn(
+        "dark h-full",
+        "antialiased",
+        "font-sans",
+        body.variable,
+        display.variable,
+        mono.variable,
+      )}
     >
       <head>
         {/* 

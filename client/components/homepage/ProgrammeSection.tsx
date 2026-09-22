@@ -1,4 +1,5 @@
 import { WeekGridMock } from "./WeekGridMock"
+import { PlanBadge } from "./PlanBadge"
 
 const POINTS = [
   {
@@ -29,13 +30,13 @@ export default function ProgrammeSection() {
         </div>
 
         <div className="order-1 md:order-2">
-          <div className="text-xs tracking-[3px] uppercase text-violet-muted mb-4">
-            AutoDJ scheduling
+          <div className="text-xs tracking-[0.25em] uppercase text-violet-muted mb-4">
+            AutoDJ scheduling <PlanBadge plan="pro" />
           </div>
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4 text-balance">
+          <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4 text-balance">
             Your week, on air.
           </h2>
-          <p className="text-sm md:text-base text-text-muted leading-relaxed mb-8 max-w-[46ch]">
+          <p className="text-base text-text-secondary tracking-[0.01em] leading-relaxed mb-8 max-w-[46ch]">
             Set it once and the station follows it — whether you are at the
             microphone, asleep, or on holiday. Go live at any point and your
             voice takes over; hang up and the schedule picks straight back up.
@@ -46,10 +47,10 @@ export default function ProgrammeSection() {
               <li key={point.title} className="flex gap-3.5">
                 <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-violet-muted" aria-hidden="true" />
                 <span>
-                  <span className="block text-[15px] font-medium text-text-secondary">
+                  <span className="block text-base font-semibold text-white">
                     {point.title}
                   </span>
-                  <span className="block text-sm text-text-muted leading-relaxed mt-0.5">
+                  <span className="block text-base text-text-secondary leading-[1.7] text-pretty tracking-[0.01em] mt-1.5">
                     {point.body}
                   </span>
                 </span>

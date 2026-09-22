@@ -15,6 +15,7 @@ import {
   IconChartBar,
   IconSparkles,
   IconCheck,
+  IconHelpCircle,
 } from "@tabler/icons-react"
 import { useSignOut } from "@/hooks/useSignOut"
 import {
@@ -270,6 +271,15 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   <Link href="/dashboard/settings">
                     <IconUserCircle />
                     Account
+                  </Link>
+                </DropdownMenuItem>
+                {/* New tab, like every other help link in the dashboard: a
+                    broadcast lives in its tab, so navigating away from a live
+                    show to read a help page would end it. See HelpLink. */}
+                <DropdownMenuItem asChild>
+                  <Link href="/help" target="_blank" rel="noopener noreferrer">
+                    <IconHelpCircle />
+                    Help
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={signingOut} onClick={() => signOut()}>

@@ -36,7 +36,11 @@ export interface Plan {
    * callback is what actually refuses a connection.
    */
   encoder_enabled: boolean
-  /** The audible "powered by GoCast" ID is mixed into this user's streams. */
+  /**
+   * Built, never switched on — no audio actually carries the ID. Kept because
+   * the API still returns it; do not render it or gate anything on it. See the
+   * same note on Station.watermarked.
+   */
   watermarked: boolean
   /**
    * ISO timestamp of when this plan ends and the account drops to Free, or

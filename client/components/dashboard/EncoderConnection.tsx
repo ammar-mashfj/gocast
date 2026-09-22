@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { toast } from "sonner"
 import { IconCheck, IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { StationEncoder } from "@/interfaces/Station"
 
@@ -183,6 +184,22 @@ export function EncoderConnection({
           ))}
         </div>
       </details>
+
+      {/* A worded link rather than the usual `?`, and this is the one place
+          that earns the exception: somebody reading this panel a second time
+          is reading it because a connection FAILED, and "Not connecting?" is
+          the question they already have. A bare question mark beside a list of
+          credentials reads as "what is a mount?" instead.
+
+          New tab for the same reason every help link is — see HelpLink. */}
+      <Link
+        href="/help/my-encoder-wont-connect"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+      >
+        Not connecting? Five things cause nearly all of it →
+      </Link>
     </>
   )
 }

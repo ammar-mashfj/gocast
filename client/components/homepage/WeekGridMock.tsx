@@ -68,9 +68,9 @@ export function WeekGridMock() {
           </div>
         </div>
 
-        <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+        <div className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-2.5 gap-y-2 sm:gap-y-1.5">
           <span />
-          <div className="relative h-4 text-[10px] text-text-faint tabular-nums" aria-hidden="true">
+          <div className="relative h-4 text-[11px] text-text-muted tabular-nums" aria-hidden="true">
             {[0, 6, 12, 18, 24].map((h) => (
               <span key={h} className="absolute -translate-x-1/2" style={{ left: `${(h / 24) * 100}%` }}>
                 {h === 24 ? "24" : String(h).padStart(2, "0")}
@@ -80,8 +80,8 @@ export function WeekGridMock() {
 
           {DAY_NAMES.map((name, day) => (
             <div key={name} className="contents">
-              <span className="text-[11px] text-text-faint self-center">{name}</span>
-              <div className="relative h-6 rounded bg-white/[0.04] overflow-hidden">
+              <span className="text-xs text-text-muted self-center tabular-nums">{name}</span>
+              <div className="relative h-8 sm:h-7 rounded bg-white/[0.04] overflow-hidden">
                 {[6, 12, 18].map((h) => (
                   <span
                     key={h}
@@ -104,7 +104,7 @@ export function WeekGridMock() {
           ))}
         </div>
 
-        <div className="mt-5 pt-4 border-t border-white/[0.05] flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-text-faint">
+        <div className="mt-6 pt-5 border-t border-white/[0.05] flex flex-wrap items-center gap-x-5 gap-y-2.5 text-[11px] text-text-muted">
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block size-2.5 rounded-sm bg-white/[0.08] border border-white/[0.12]" />
             All Tracks (default)

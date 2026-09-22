@@ -21,7 +21,7 @@ export default function BlogIndexPage() {
     <main className="px-4 md:px-10 pt-12 md:pt-20 pb-16 md:pb-24">
       <div className="max-w-[1024px] mx-auto">
         <header className="mb-12 md:mb-16">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight mb-4">
+          <h1 className="font-display text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight mb-4">
             Blog
           </h1>
           <p className="text-base md:text-lg text-text-muted leading-relaxed max-w-[520px]">
@@ -43,10 +43,10 @@ export default function BlogIndexPage() {
                   <span className="mx-2 text-white/20">·</span>
                   {article.readingTime}
                 </p>
-                <h2 className="text-2xl md:text-3xl font-semibold -tracking-wide text-white mb-3 group-hover:text-violet-full transition-colors">
+                <h2 className="font-display text-2xl md:text-3xl font-semibold -tracking-wide text-white mb-3 group-hover:text-violet-full transition-colors">
                   {article.title}
                 </h2>
-                <p className="text-sm md:text-base text-text-muted leading-relaxed max-w-[640px]">
+                <p className="text-base text-text-secondary tracking-[0.01em] leading-relaxed max-w-[640px]">
                   {article.description}
                 </p>
               </Link>

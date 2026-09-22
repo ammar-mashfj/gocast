@@ -9,14 +9,14 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <main className="max-w-2xl mx-auto px-6 py-16">
-      <h1 className="text-3xl font-semibold mb-2">Terms of Service</h1>
+      <h1 className="font-display text-3xl font-semibold mb-2">Terms of Service</h1>
       <p className="text-sm text-text-muted mb-12">
         Last updated: September 8, 2026
       </p>
 
-      <div className="flex flex-col gap-10 text-sm leading-relaxed text-text-muted">
+      <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">1. Acceptance</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">1. Acceptance</h2>
             <p>
               By creating an account or using GoCast, you agree to these terms. If you do not agree,
               do not use the service. We may update these terms from time to time — continued use after
@@ -25,7 +25,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">2. The Service</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">2. The Service</h2>
             <p>
               GoCast is a live radio streaming platform. Depending on your plan, you can go live
               from your browser, connect an external encoder such as BUTT or Mixxx over Icecast, or
@@ -35,7 +35,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">3. Your Account</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">3. Your Account</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>You must provide accurate information when registering.</li>
               <li>You are responsible for maintaining the security of your account credentials.</li>
@@ -49,15 +49,15 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">4. Content Guidelines</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">4. Content Guidelines</h2>
             <p className="mb-3">
               You retain ownership of all content you broadcast or upload. By using GoCast, you grant
               us a limited license to transmit, cache, and distribute your content for the purpose of
               operating and promoting the service. That includes listing your station in our public
               directory and featuring it on our homepage — every station on GoCast is public, and
-              there is no private or unlisted mode today. On free plans it also includes mixing a
-              short audible &ldquo;powered by GoCast&rdquo; identifier into your stream; paid plans
-              broadcast without it.
+              there is no private or unlisted mode today. That permission extends to mixing a short
+              audible &ldquo;powered by GoCast&rdquo; identifier into free-plan streams, which we do
+              not do today and would announce before starting.
             </p>
             <p className="mb-3">You agree not to broadcast or upload content that:</p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
@@ -81,7 +81,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">5. Fair Use</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">5. Fair Use</h2>
             <ul className="list-disc pl-5 flex flex-col gap-1.5">
               <li>Do not use the service to relay or rebroadcast content from other platforms without authorization.</li>
               <li>Do not use automated tools to create stations, inflate listener counts, or abuse the platform.</li>
@@ -91,7 +91,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">6. Free and Paid Plans</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">6. Free and Paid Plans</h2>
             <p>
               GoCast offers a free plan and a paid Pro plan. Free plans are subject to limits on the
               number of stations and concurrent listeners, do not include the AutoDJ library or
@@ -122,7 +122,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">7. Termination</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">7. Termination</h2>
             <p>
               We may suspend or terminate your account if you violate these terms, engage in abusive
               behavior, or if required by law. You may delete your account at any time from the
@@ -139,7 +139,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">8. Service Availability</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">8. Service Availability</h2>
             <p>
               We aim to keep GoCast available at all times but do not guarantee uninterrupted service.
               We may perform maintenance, updates, or experience outages. We are not liable for any
@@ -155,7 +155,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">9. Limitation of Liability</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">9. Limitation of Liability</h2>
             <p>
               GoCast is provided &ldquo;as is&rdquo; without warranties of any kind, express or implied. To the
               fullest extent permitted by law, we shall not be liable for any indirect, incidental,
@@ -165,7 +165,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">10. DMCA and Copyright</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">10. DMCA and Copyright</h2>
             <p>
               We respect intellectual property rights. If you believe content on GoCast infringes
               your copyright, please contact us with:
@@ -187,7 +187,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">11. Privacy</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">11. Privacy</h2>
             <p>
               Your use of GoCast is also governed by our{" "}
               <Link href="/privacy" className="text-violet-full no-underline hover:underline">
@@ -198,7 +198,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">12. Governing Law</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">12. Governing Law</h2>
             <p>
               These terms are governed by the laws of the jurisdiction in which GoCast operates.
               Any disputes arising from these terms or your use of the service shall be resolved
@@ -207,7 +207,7 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-medium text-white mb-3">13. Contact</h2>
+            <h2 className="font-display text-lg font-medium text-white mb-3">13. Contact</h2>
             <p>
               For questions about these terms, contact us at{" "}
               <a href="mailto:legal@gocast.fm" className="text-violet-full no-underline hover:underline">

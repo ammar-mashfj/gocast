@@ -44,7 +44,7 @@ export default async function BroadcastsPage() {
   if (finished.length === 0) {
     return (
       <div>
-        <h1 className="text-xl font-medium mb-6">Broadcasts</h1>
+        <h1 className="font-display text-xl font-semibold mb-6">Broadcasts</h1>
         <Empty className="py-16">
           <EmptyMedia variant="icon">
             <IconHistory size={48} />
@@ -67,7 +67,7 @@ export default async function BroadcastsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-medium mb-6">Broadcasts</h1>
+      <h1 className="font-display text-xl font-semibold mb-6">Broadcasts</h1>
 
       <Card>
         <CardHeader>

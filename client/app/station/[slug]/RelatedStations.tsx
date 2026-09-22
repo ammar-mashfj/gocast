@@ -47,7 +47,7 @@ export function RelatedStations({ excludeSlug }: { excludeSlug: string }) {
   if (loading) {
     return (
       <div className="mt-8 w-full max-w-sm md:w-auto md:min-w-[300px] md:max-w-md">
-        <div className="text-[10px] tracking-[2px] uppercase text-muted-foreground mb-2">
+        <div className="text-[10px] tracking-[0.2em] uppercase text-muted-foreground mb-2">
           More live now
         </div>
         <div className="flex flex-col gap-1.5">
@@ -72,7 +72,7 @@ export function RelatedStations({ excludeSlug }: { excludeSlug: string }) {
 
   return (
     <div className="mt-8 w-full max-w-sm md:w-auto md:min-w-[300px] md:max-w-md">
-      <div className="text-[10px] tracking-[2px] uppercase text-muted-foreground mb-2">
+      <div className="text-[10px] tracking-[0.2em] uppercase text-muted-foreground mb-2">
         More on GoCast
       </div>
       <div className="flex flex-col gap-1.5">

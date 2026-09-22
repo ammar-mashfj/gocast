@@ -36,7 +36,7 @@ export default function SettingsLoading() {
           <IconArrowLeft size={14} />
           {station ? `Back to ${station.name}` : "Back"}
         </Link>
-        <h1 className="text-2xl font-medium">Station settings</h1>
+        <h1 className="font-display text-2xl font-semibold">Station settings</h1>
       </div>
 
       <Card>
