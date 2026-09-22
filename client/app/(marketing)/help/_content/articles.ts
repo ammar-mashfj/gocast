@@ -141,7 +141,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "The page listeners land on, what it shows when you are off air, and the link you hand out.",
     category: "getting-started",
-    updated: "2026-09-21",
+    updated: "2026-09-23",
     Body: PlayerPageBody,
     related: ["share-your-station", "embed-the-player"],
   },
@@ -151,7 +151,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Every limit that differs between the two plans, and how to ask for Pro while it is in beta.",
     category: "getting-started",
-    updated: "2026-09-21",
+    updated: "2026-09-23",
     Body: FreeAndProBody,
     related: ["upload-your-music", "broadcast-from-butt-or-mixxx"],
   },

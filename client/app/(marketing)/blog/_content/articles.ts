@@ -18,6 +18,12 @@ export interface Article {
   /** Set when the body is revised; drives dateModified, not the visible byline. */
   updated?: string
   readingTime: string
+  /**
+   * The search-result snippet, when `description` is too long for one.
+   * Results cut at ~155 characters; `description` is also the standfirst on
+   * the page, where it can run longer, so the two are allowed to differ.
+   */
+  metaDescription?: string
   image?: string
   Body: ComponentType
   faqs?: FAQ[]
@@ -29,6 +35,8 @@ export const ARTICLES: Article[] = [
     title: "How to Schedule Playlists on Your Internet Radio Station",
     description:
       "Your station can now play different things at different times of the week — music blocks, a news bulletin at six, a podcast repeat on Wednesday. Playlists, weekly slots, and exactly how the switch behaves, with screenshots of the real thing.",
+    metaDescription:
+      "Music blocks, a bulletin at six, a podcast repeat on Wednesday: how to schedule playlists by time on your radio station, and how the switch behaves.",
     date: "2026-09-21",
     readingTime: "~7 minutes",
     image: "/blog/schedule/hero.webp",
@@ -76,6 +84,8 @@ export const ARTICLES: Article[] = [
     title: "How an Internet Radio Station Actually Works",
     description:
       "From a laptop that's never allowed to sleep to a proper streaming stack: the four jobs every station has to do, where the home-built version breaks, and how GoCast handles each one.",
+    metaDescription:
+      "From a laptop that's never allowed to sleep to a streaming stack: the four jobs a station does, where home-built setups break, and how GoCast handles each.",
     date: "2026-09-01",
     readingTime: "~8 minutes",
     Body: HowItWorksBody,

@@ -5,6 +5,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { env } from "@/lib/env";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo";
 
 /* The three CSS variables below are what the rest of the app binds to, so
    changing a family here is the whole swap - no component or token touches it.
@@ -78,7 +79,7 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "GoCast",
     locale: "en_US",
-    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "GoCast — Live radio from your browser" }],
+    images: [DEFAULT_OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
@@ -86,9 +87,12 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     site: "@gocastfm",
     creator: "@gocastfm",
-    images: ["/og-image.jpg"],
+    images: [DEFAULT_OG_IMAGE.url],
   },
-  alternates: { canonical: "/" },
+  // No `alternates` here on purpose. Every page that does not set its own
+  // inherits this object, so a canonical of "/" here told search engines
+  // that /privacy and /terms were duplicates of the homepage. The homepage
+  // pins its own.
 };
 
 export const viewport: Viewport = {

@@ -106,7 +106,10 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
       }
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 403) {
-        toast.error("You've reached your station limit. Upgrade to Pro for more stations.")
+        // No upsell: stations are not something a plan sells. An account has
+        // one station (see lib/station-server.ts), and a second would not
+        // even show up in the dashboard.
+        toast.error("Each account has one station, and yours already exists.")
       } else if (err instanceof AxiosError && err.response?.data?.errors) {
         setErrors(err.response.data.errors)
       } else if (err instanceof AxiosError) {

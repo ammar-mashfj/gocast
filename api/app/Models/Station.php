@@ -338,6 +338,60 @@ class Station extends Model
         ])->save();
     }
 
+    /**
+     * Stations whose public page is worth a search engine's time.
+     *
+     * The bar is "has ever made a sound": on air right now, or a past
+     * broadcast, or a past hour with listeners. `started_at` alone cannot
+     * answer the "ever" half — stopping a station clears it — so the history
+     * comes from the two tables that outlive a stop.
+     *
+     * What it keeps out is the station created, named and never switched on.
+     * Those are most of the rows, each one a page with a title and nothing
+     * else, and a site that is mostly thin pages is judged as a thin site —
+     * the stations that do broadcast pay for them in ranking.
+     *
+     * The sitemap lists this set and the player page marks everything outside
+     * it noindex, so the two answer from this one definition. The per-row
+     * form is {@see isIndexable()}.
+     *
+     * @param  Builder<Station>  $query
+     */
+    public function scopeIndexable($query): void
+    {
+        $query->where(fn ($q) => $q
+            ->where('desired_state', self::STATE_RUNNING)
+            ->orWhereHas('streamSessions')
+            ->orWhereHas('listenerStats'));
+    }
+
+    /**
+     * Load what {@see isIndexable()} needs as two EXISTS columns, so the
+     * public show endpoint answers it in the same query as the row.
+     *
+     * @param  Builder<Station>  $query
+     */
+    public function scopeWithIndexability($query): void
+    {
+        $query->withExists([
+            'streamSessions as has_broadcast_history',
+            'listenerStats as has_listener_history',
+        ]);
+    }
+
+    /** Single-row form of {@see scopeIndexable()}; keep the two in step. */
+    public function isIndexable(): bool
+    {
+        if ($this->isRunning()) {
+            return true;
+        }
+
+        $broadcast = $this->getAttribute('has_broadcast_history') ?? $this->streamSessions()->exists();
+        $listened = $this->getAttribute('has_listener_history') ?? $this->listenerStats()->exists();
+
+        return (bool) ($broadcast || $listened);
+    }
+
     public function getRouteKeyName(): string
     {
         return 'slug';

@@ -3,6 +3,8 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { IconArrowLeft, IconSparkles } from "@tabler/icons-react"
 import { Prose } from "@/components/content/Prose"
+import { env } from "@/lib/env"
+import { DEFAULT_OG_IMAGE } from "@/lib/seo"
 import {
   CATEGORIES,
   HELP_ARTICLES,
@@ -39,14 +41,14 @@ export async function generateMetadata({
       url: path,
       siteName: "GoCast",
       locale: "en_US",
-      images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: article.title }],
+      images: [{ ...DEFAULT_OG_IMAGE, alt: article.title }],
     },
     twitter: {
       card: "summary_large_image",
       title: article.title,
       description: article.description,
       site: "@gocastfm",
-      images: ["/og-image.jpg"],
+      images: [DEFAULT_OG_IMAGE.url],
     },
   }
 }
@@ -68,22 +70,37 @@ export default async function HelpArticlePage({ params }: { params: RouteParams 
    * `dateModified` alone is the honest pair — it says when this was last
    * checked without implying it has been rotting since it was written.
    */
+  const url = `${env.appUrl}/help/${slug}`
   const jsonLd = {
     "@context": "https://schema.org",
-    "@type": "TechArticle",
-    headline: title,
-    description,
-    dateModified: updated,
-    author: { "@type": "Organization", name: "GoCast" },
-    publisher: { "@type": "Organization", name: "GoCast", url: "https://gocast.fm" },
-    mainEntityOfPage: `https://gocast.fm/help/${slug}`,
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        headline: title,
+        description,
+        dateModified: updated,
+        author: { "@type": "Organization", name: "GoCast", url: env.appUrl },
+        publisher: { "@type": "Organization", name: "GoCast", url: env.appUrl, logo: `${env.appUrl}/logo.png` },
+        mainEntityOfPage: url,
+      },
+      // Home › Help › article. The section eyebrow on the page is left out:
+      // it has no URL of its own for a crumb to point at.
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${env.appUrl}/` },
+          { "@type": "ListItem", position: 2, name: "Help", item: `${env.appUrl}/help` },
+          { "@type": "ListItem", position: 3, name: title, item: url },
+        ],
+      },
+    ],
   }
 
   return (
     <main className="px-4 md:px-10 pt-10 md:pt-16 pb-16 md:pb-24">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <div className="max-w-3xl mx-auto">
         <Link

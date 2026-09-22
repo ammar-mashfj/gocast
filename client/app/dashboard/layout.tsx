@@ -14,9 +14,11 @@ import { apiFetch } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { User } from "@/interfaces/User"
 
-// Belt-and-suspenders with robots.txt — Google occasionally indexes
-// robots-disallowed URLs anyway (with a "no information" snippet) if it
-// finds inbound links. Per-page noindex closes that gap.
+// For anything that fetches this page anyway. Not a complement to the
+// robots.txt disallow for Google: a disallowed URL is never fetched, so this
+// tag is never seen by a crawler that obeys robots.txt. Harmless here only
+// because a signed-out visitor is redirected to /auth/login, which is
+// crawlable and noindex itself.
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }

@@ -112,6 +112,13 @@ export interface Station {
    * the "Featured" badge.
    */
   featured: boolean
+  /**
+   * Whether the public player page may be indexed: the station has made a
+   * sound at least once (on air now, a past broadcast, or past listeners).
+   * Present only on the public single-station endpoint; the sitemap lists the
+   * same set. Absent means "not asked", not false.
+   */
+  indexable?: boolean
   /** A human broadcaster is publishing right now (WHIP active). Drives the "LIVE" badge. */
   is_live: boolean
   /**

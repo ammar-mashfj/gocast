@@ -148,6 +148,14 @@ class StationResource extends JsonResource
             // and truncates to Station::FEATURED_RAIL_SIZE. This is the
             // editorial fact; the rail is the display of it.
             'featured' => (bool) $this->featured,
+            // Whether the player page may be indexed — see
+            // Station::scopeIndexable(). Only where the caller loaded
+            // withIndexability(), which today is the public show endpoint:
+            // computing it per row elsewhere would cost two queries a row.
+            'indexable' => $this->when(
+                array_key_exists('has_broadcast_history', $this->resource->getAttributes()),
+                fn () => $this->resource->isIndexable(),
+            ),
             'is_live' => $isLive,
             // is_on_air: the listener-facing "can I hear anything" flag — the
             // station's mount exists and a player that connects will stay

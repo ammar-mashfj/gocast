@@ -25,11 +25,6 @@ export default function Body() {
         </thead>
         <tbody>
           <tr>
-            <td>Stations</td>
-            <td>1</td>
-            <td>5</td>
-          </tr>
-          <tr>
             <td>Listeners at once</td>
             <td>100</td>
             <td>1,000</td>
@@ -47,7 +42,7 @@ export default function Body() {
           <tr>
             <td>AutoDJ &mdash; music that plays without you</td>
             <td>&mdash;</td>
-            <td>3 GB per station</td>
+            <td>3 GB of music</td>
           </tr>
           <tr>
             <td>Playlists and scheduling</td>

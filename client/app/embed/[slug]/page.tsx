@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
+import { publicApiHeaders } from "@/lib/public-api"
 import { EmbedPlayer } from "./EmbedPlayer"
 
 /**
@@ -25,7 +26,7 @@ async function getEmbeddableStation(slug: string): Promise<Station | null> {
   for (let i = 0; i < attempts; i++) {
     try {
       const res = await fetch(`${env.apiUrl}/public/stations/${slug}/embed`, {
-        headers: { Accept: "application/json" },
+        headers: publicApiHeaders(),
         signal: isDev ? AbortSignal.timeout(3000) : undefined,
         // A short window rather than the station page's 60s: a downgrade
         // is supposed to take embeds down promptly, and this payload is one

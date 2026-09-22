@@ -215,6 +215,9 @@ Route::middleware('throttle:public')->group(function () {
     Route::get('/public/featured', [PublicStationController::class, 'featured']);
     Route::get('/public/stations', [PublicStationController::class, 'index']);
     Route::get('/public/genres', [PublicStationController::class, 'genres']);
+    // Not under /public/stations/, where it would shadow a station slugged
+    // "sitemap".
+    Route::get('/public/sitemap/stations', [PublicStationController::class, 'sitemap']);
     Route::get('/public/stations/{slug}', [PublicStationController::class, 'show']);
     Route::get('/public/stations/{slug}/listeners', [ListenerCountController::class, 'show']);
     // The embeddable player's payload. Refuses (404) unless the owner's plan

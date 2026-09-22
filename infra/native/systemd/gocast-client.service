@@ -22,6 +22,11 @@ Environment=PORT=__CLIENT_PORT__
 # 0.0.0.0 would publish an untrusted-header HTTP server straight onto the
 # internet alongside the properly configured vhost.
 Environment=HOSTNAME=127.0.0.1
+# Runtime secrets for the server side of the app — today only RENDER_API_KEY,
+# which must equal the API's and lifts the public rate limit for SSR fetches.
+# Optional (`-`): without it the site works, but a fast crawl of station pages
+# gets 429s from the API and serves Googlebot error pages.
+EnvironmentFile=-/etc/gocast/client.env
 
 ExecStart=/usr/bin/node server.js
 

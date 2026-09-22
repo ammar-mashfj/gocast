@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { DEFAULT_OG_IMAGE } from "@/lib/seo"
 import { IconSparkles } from "@tabler/icons-react"
 import { CATEGORIES, articlesInCategory } from "./_content/articles"
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
     url: "/help",
     siteName: "GoCast",
     locale: "en_US",
-    images: [{ url: "/og-image.jpg", width: 1200, height: 630, alt: "GoCast Help" }],
+    images: [{ ...DEFAULT_OG_IMAGE, alt: "GoCast Help" }],
   },
 }
 

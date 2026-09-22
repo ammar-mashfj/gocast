@@ -61,8 +61,38 @@ class PublicStationController extends Controller
         return new StationResource(
             // `schedules` only here and on the owner's show endpoint — the
             // directory must not pay for 24 stations' worth of show times.
-            Station::where('slug', $slug)->with('schedules')->firstOrFail()
+            Station::where('slug', $slug)->with('schedules')->withIndexability()->firstOrFail()
         );
+    }
+
+    /**
+     * Every station the stations sitemap should list — slug and lastmod only.
+     *
+     * One unpaginated response rather than a walk of index(): that endpoint
+     * pages 24 at a time under a sort that moves as stations go on and off
+     * air, so a crawl of it skipped some stations and listed others twice, and
+     * the walk's hundred requests ran into the public limiter partway through.
+     *
+     * Capped at the sitemap protocol's 50,000 URLs per file. Past that the
+     * frontend has to split the file; truncating silently is the lesser evil
+     * until then.
+     *
+     * @return array{data: array<int, array{slug: string, updated_at: string|null}>}
+     */
+    public function sitemap(): array
+    {
+        $rows = Station::query()
+            ->indexable()
+            ->orderBy('slug')
+            ->limit(50_000)
+            ->get(['slug', 'updated_at']);
+
+        return [
+            'data' => $rows->map(fn (Station $station) => [
+                'slug' => $station->slug,
+                'updated_at' => $station->updated_at?->toIso8601String(),
+            ])->all(),
+        ];
     }
 
     /**

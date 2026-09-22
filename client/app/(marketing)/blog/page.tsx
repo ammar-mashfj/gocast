@@ -1,12 +1,13 @@
 import type { Metadata } from "next"
+import { pageMetadata } from "@/lib/seo"
 import Link from "next/link"
 import { ARTICLES } from "./_content/articles"
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Blog",
   description: "Guides, comparisons, and notes on internet radio.",
-  alternates: { canonical: "/blog" },
-}
+  path: "/blog",
+})
 
 const DATE_FMT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",

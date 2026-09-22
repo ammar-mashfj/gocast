@@ -39,6 +39,11 @@ return [
 
     'internal_api_key' => env('INTERNAL_API_KEY'),
 
+    // Lifts the `public` rate limit for the Next.js server's own rendering
+    // fetches (X-Render-Key). Deliberately not INTERNAL_API_KEY: that one
+    // opens the /internal routes, and the frontend has no business there.
+    'render_api_key' => env('RENDER_API_KEY'),
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),

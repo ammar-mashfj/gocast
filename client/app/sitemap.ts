@@ -1,56 +1,33 @@
 import type { MetadataRoute } from "next"
 import { env } from "@/lib/env"
-import { Station } from "@/interfaces/Station"
 import { ARTICLES } from "./(marketing)/blog/_content/articles"
 import { HELP_ARTICLES } from "./(marketing)/help/_content/articles"
 
-export const revalidate = 3600
-
-interface PaginatedStationsResponse {
-  data: Station[]
-  meta?: { current_page: number; last_page: number; total: number }
-}
-
 /**
- * Walk the paginated public-stations endpoint and return every station
- * so the sitemap covers the full catalog, not just the featured 4.
+ * The site's own pages: home, blog, help, legal.
  *
- * Caps at ~100 pages (≈2400 stations with page size 24) as a safety net
- * so a malformed API response can't spin forever.
+ * Stations live in their own file, app/station/sitemap.ts, served at
+ * /station/sitemap.xml and listed beside this one in robots.txt. They change
+ * on a different clock — an owner's edit, not a deploy — and keeping them
+ * apart means an API outage empties that file rather than this one.
  */
-async function getAllPublicStations(): Promise<Station[]> {
-  const all: Station[] = []
-  const PAGE_CAP = 100
-
-  for (let page = 1; page <= PAGE_CAP; page++) {
-    try {
-      const res = await fetch(`${env.apiUrl}/public/stations?page=${page}`, {
-        headers: { Accept: "application/json" },
-        next: { revalidate: 3600 },
-      })
-      if (!res.ok) break
-      const json: PaginatedStationsResponse = await res.json()
-      if (!json.data?.length) break
-      all.push(...json.data)
-      if (!json.meta || page >= json.meta.last_page) break
-    } catch {
-      break
-    }
-  }
-
-  return all
-}
-
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export default function sitemap(): MetadataRoute.Sitemap {
   const base = env.appUrl
-  const now = new Date()
+
+  // Real dates or none. `lastModified: now` stamped every page as changed on
+  // every build, and Google stops trusting a sitemap's lastmod once it notices
+  // the dates move without the pages doing so — which costs the articles
+  // below, whose dates are real, their fast re-crawl too.
+  const newestPost = latest(ARTICLES.map((a) => a.updated ?? a.date))
+  const newestHelp = latest(HELP_ARTICLES.map((a) => a.updated))
 
   const staticRoutes: MetadataRoute.Sitemap = [
-    { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
-    { url: `${base}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
-    { url: `${base}/help`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
-    { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
-    { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/`, changeFrequency: "weekly", priority: 1 },
+    { url: `${base}/blog`, lastModified: newestPost, changeFrequency: "weekly", priority: 0.6 },
+    { url: `${base}/help`, lastModified: newestHelp, changeFrequency: "weekly", priority: 0.6 },
+    // The "Last updated" line on each page — bump both together.
+    { url: `${base}/privacy`, lastModified: new Date("2026-09-08"), changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/terms`, lastModified: new Date("2026-09-08"), changeFrequency: "yearly", priority: 0.3 },
   ]
 
   // Derived from the article registry so publishing a post is a one-file
@@ -72,13 +49,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.5,
   }))
 
-  const stations = await getAllPublicStations()
-  const stationRoutes: MetadataRoute.Sitemap = stations.map((s) => ({
-    url: `${base}/station/${s.slug}`,
-    lastModified: s.updated_at ? new Date(s.updated_at) : now,
-    changeFrequency: "hourly",
-    priority: 0.8,
-  }))
+  return [...staticRoutes, ...articleRoutes, ...helpRoutes]
+}
 
-  return [...staticRoutes, ...articleRoutes, ...helpRoutes, ...stationRoutes]
+/** The most recent of a list of ISO dates, or undefined for an empty list. */
+function latest(dates: string[]): Date | undefined {
+  const sorted = [...dates].sort()
+  return sorted.length ? new Date(sorted[sorted.length - 1]) : undefined
 }

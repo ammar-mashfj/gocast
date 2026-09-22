@@ -1,39 +1,11 @@
 import type { Metadata } from "next"
 import { cookies } from "next/headers"
 import { notFound } from "next/navigation"
-import { Station } from "@/interfaces/Station"
 import { User } from "@/interfaces/User"
 import { env } from "@/lib/env"
-import PlayerViewClient from "@/app/station/[slug]/PlayerViewClient"
-
-async function getStation(slug: string): Promise<Station | null> {
-  // Dev: undici holds keep-alive sockets longer than FrankenPHP keeps them
-  // alive, so the first attempt after an idle window hits a half-closed
-  // socket and ConnectTimeouts at 10s. Second attempt opens a fresh socket
-  // and lands in <200ms. In prod a real LB in front of the api hides this.
-  const isDev = process.env.NODE_ENV === "development"
-  const attempts = isDev ? 2 : 1
-
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetch(`${env.apiUrl}/public/stations/${slug}`, {
-        headers: { Accept: "application/json" },
-        signal: isDev ? AbortSignal.timeout(3000) : undefined,
-        ...(isDev ? { cache: "no-store" as const } : { next: { revalidate: 60 } }),
-      })
-      if (!res.ok) return res.status === 404 ? null : null
-      const json = await res.json()
-      return json.data
-    } catch (err) {
-      // Last attempt — give up. Earlier attempts retry the stale-socket case.
-      if (i === attempts - 1) {
-        if (isDev) console.warn(`[getStation] fetch failed for ${slug}:`, err)
-        return null
-      }
-    }
-  }
-  return null
-}
+import { metaDescription } from "@/lib/seo"
+import { PlayerView } from "./PlayerView"
+import { getStation } from "./getStation"
 
 export async function generateMetadata({
   params,
@@ -52,29 +24,42 @@ export async function generateMetadata({
     }
   }
 
+  // `absolute`: the root template appends "— GoCast", and this title already
+  // names GoCast, so a plain string rendered "X — Live on GoCast — GoCast".
   const title = `${station.name} — Live on GoCast`
-  const description = station.description || `Tune in to ${station.name} live${station.genre ? ` (${station.genre})` : ""} on GoCast — your browser radio.`
-  const appUrl = env.appUrl
-  const url = `${appUrl}/station/${station.slug}`
-  const imageUrl = station.artwork_url || `${appUrl}/og-image.jpg`
+  // The owner's bio is free text — newlines, any length — so it is flattened
+  // and cut to snippet length rather than passed through.
+  const description = metaDescription(
+    station.description ||
+      `Tune in to ${station.name} live${station.genre ? ` (${station.genre})` : ""} on GoCast — your browser radio.`,
+  )
+  const url = `${env.appUrl}/station/${station.slug}`
 
   return {
-    title,
+    title: { absolute: title },
     description,
     alternates: { canonical: url },
+    // A station that has never made a sound is a page with a name on it and
+    // nothing else. It stays reachable — the owner shares it before the first
+    // broadcast — but is kept out of the index until it has something to
+    // offer. Same rule as the stations sitemap (Station::scopeIndexable).
+    ...(station.indexable === false ? { robots: { index: false, follow: true } } : {}),
+    // No `images` in either card: opengraph-image.tsx and twitter-image.tsx
+    // beside this file compose one from the artwork and the name, and a
+    // file-based image outranks anything set here.
     openGraph: {
       title,
       description,
       type: "music.radio_station",
       url,
       siteName: "GoCast",
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: station.artwork_url ? station.name : "GoCast — Live radio from your browser" }],
+      locale: "en_US",
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [imageUrl],
+      site: "@gocastfm",
     },
   }
 }
@@ -115,7 +100,7 @@ export default async function StationPage({
         name: station.name,
         url,
         description: station.description || `Listen to ${station.name} live on GoCast`,
-        ...(station.artwork_url ? { image: station.artwork_url } : {}),
+        ...(station.artwork_url ? { image: station.artwork_url, logo: station.artwork_url } : {}),
         ...(station.genre ? { genre: station.genre } : {}),
         broadcastService: {
           "@type": "BroadcastService",
@@ -145,7 +130,14 @@ export default async function StationPage({
           __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
         }}
       />
-      <PlayerViewClient station={station} isOwner={isOwner} />
+      {/* Server-rendered, not behind `dynamic(..., { ssr: false })` as it
+          used to be. That boundary meant the HTML a crawler or a link
+          unfurler received was a skeleton — no <h1>, no station name, no
+          description, only the meta tags. Nothing in PlayerView touches a
+          browser API during render (hls.js imports cleanly on the server;
+          every window/navigator/localStorage read is in an effect or a
+          handler), so the whole page now arrives as HTML and hydrates. */}
+      <PlayerView station={station} isOwner={isOwner} />
     </>
   )
 }

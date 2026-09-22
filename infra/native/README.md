@@ -257,7 +257,7 @@ php api/artisan key:generate
 
 `api/.env.example` is a complete, commented file for exactly this deployment
 — not a patch to merge. The defaults in `config/liquidsoap.php` already match
-it, so an unset key is correct rather than dangerous. Three still deserve a
+it, so an unset key is correct rather than dangerous. A few still deserve a
 second look, because a wrong value fails silently:
 
 - **`LIQUIDSOAP_TELNET_RESOLVE`.** Must stay `ip`. Docker's embedded DNS does
@@ -270,6 +270,12 @@ second look, because a wrong value fails silently:
   renders `password = null` into every `.liq` and every station crashes on
   start; a wrong internal key means broadcasters cannot go live and the
   studio does not say why.
+- **`RENDER_API_KEY`.** Optional, but set it before search engines find the
+  site. The Next server renders every station page from one address, and the
+  API's public limit is 60 requests a minute per address — a crawler walking
+  station pages trips it and gets error pages. Put the same value in
+  `api/.env` and in `/etc/gocast/client.env` (`RENDER_API_KEY=…`, mode 0600,
+  read by `gocast-client.service`), then restart both.
 - **`LIQUIDSOAP_INGEST_URL`.** Empty means Laravel hands the studio a raw
   `ws://<container-ip>:8090/{slug}` — plain text, and unreachable from
   anywhere but this host.

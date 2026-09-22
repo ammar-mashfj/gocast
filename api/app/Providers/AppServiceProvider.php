@@ -40,7 +40,20 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Standard limit for unauthenticated public endpoints (station pages, listener counts).
+        //
+        // The Next.js server is exempt when it proves itself with the render
+        // key. Every server-rendered station page, the homepage rail and the
+        // sitemap reach this API from that ONE address, so without the
+        // exemption a crawler walking sixty station pages in a minute got
+        // 429s — which the player page used to turn into 404s, telling Google
+        // the stations did not exist.
         RateLimiter::for('public', function (Request $request) {
+            $renderKey = (string) config('services.render_api_key');
+
+            if ($renderKey !== '' && hash_equals($renderKey, (string) $request->header('X-Render-Key'))) {
+                return Limit::none();
+            }
+
             return Limit::perMinute(60)->by($request->ip());
         });
 

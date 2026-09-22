@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 import { IconBell, IconCheck, IconLoader2 } from "@tabler/icons-react"
 import { env } from "@/lib/env"
@@ -35,7 +35,15 @@ function alreadySubscribed(slug: string): boolean {
 export function NotifyMeForm({ slug, stationName }: { slug: string; stationName: string }) {
   const [email, setEmail] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const [done, setDone] = useState(() => alreadySubscribed(slug))
+  const [done, setDone] = useState(false)
+
+  // Read after mount, not in the initializer: the player page is server
+  // rendered now, and the server has no localStorage — an initializer that
+  // reads it renders "subscribed" in the browser and "not" in the HTML,
+  // which is a hydration mismatch.
+  useEffect(() => {
+    if (alreadySubscribed(slug)) setDone(true)
+  }, [slug])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()

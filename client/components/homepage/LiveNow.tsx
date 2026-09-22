@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Station } from "@/interfaces/Station"
 import { StationArtwork } from "@/components/StationArtwork"
 import { env } from "@/lib/env"
+import { publicApiHeaders } from "@/lib/public-api"
 import styles from "./LiveNow.module.css"
 
 const EQ_CLASSES = [styles.eq1, styles.eq2, styles.eq3, styles.eq4, styles.eq5]
@@ -58,7 +59,7 @@ function StateBadge({ isLive }: { isLive: boolean }) {
 async function getFeaturedStations(): Promise<Station[]> {
   try {
     const res = await fetch(`${env.apiUrl}/public/featured`, {
-      headers: { Accept: "application/json" },
+      headers: publicApiHeaders(),
       next: { revalidate: 30 },
     })
     if (!res.ok) return []

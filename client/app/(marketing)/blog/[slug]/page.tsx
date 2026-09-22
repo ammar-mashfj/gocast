@@ -3,6 +3,8 @@ import Link from "next/link"
 import { ZoomableImage } from "@/components/content/ZoomableImage"
 import { Prose } from "@/components/content/Prose"
 import { notFound } from "next/navigation"
+import { env } from "@/lib/env"
+import { DEFAULT_OG_IMAGE } from "@/lib/seo"
 import { ARTICLES, getArticle } from "../_content/articles"
 
 type RouteParams = Promise<{ slug: string }>
@@ -23,26 +25,28 @@ export async function generateMetadata({
   const path = `/blog/${article.slug}`
   return {
     title: article.title,
-    description: article.description,
+    description: article.metaDescription ?? article.description,
     alternates: { canonical: path },
     openGraph: {
       type: "article",
       title: article.title,
-      description: article.description,
+      description: article.metaDescription ?? article.description,
       url: path,
       siteName: "GoCast",
       locale: "en_US",
       publishedTime: article.date,
       ...(article.updated && { modifiedTime: article.updated }),
-      images: [{ url: article.image ?? "/og-image.jpg", width: 1200, height: 630, alt: article.title }],
+      // An article's own hero is sized per article, so it is declared without
+      // dimensions rather than with made-up ones; the fallback knows its size.
+      images: [article.image ? { url: article.image, alt: article.title } : DEFAULT_OG_IMAGE],
     },
     twitter: {
       card: "summary_large_image",
       title: article.title,
-      description: article.description,
+      description: article.metaDescription ?? article.description,
       site: "@gocastfm",
       creator: "@gocastfm",
-      images: [article.image ?? "/og-image.jpg"],
+      images: [article.image ?? DEFAULT_OG_IMAGE.url],
     },
   }
 }
@@ -67,14 +71,10 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
     description,
     datePublished: date,
     ...(updated && { dateModified: updated }),
-    ...(image && { image: `https://gocast.fm${image}` }),
-    author: { "@type": "Organization", name: "GoCast" },
-    publisher: {
-      "@type": "Organization",
-      name: "GoCast",
-      url: "https://gocast.fm",
-    },
-    mainEntityOfPage: `https://gocast.fm/blog/${slug}`,
+    ...(image && { image: `${env.appUrl}${image}` }),
+    author: { "@type": "Organization", name: "GoCast", url: env.appUrl },
+    publisher: { "@type": "Organization", name: "GoCast", url: env.appUrl, logo: `${env.appUrl}/logo.png` },
+    mainEntityOfPage: `${env.appUrl}/blog/${slug}`,
   }
 
   const faqLd = faqs?.length
@@ -93,12 +93,12 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
     <main className="px-4 md:px-10 pt-10 md:pt-16 pb-16 md:pb-24">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       {faqLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd).replace(/</g, "\\u003c") }}
         />
       )}
       <div className="max-w-3xl mx-auto">

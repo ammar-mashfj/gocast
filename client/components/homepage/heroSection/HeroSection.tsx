@@ -4,6 +4,7 @@ import { TrustCues } from '@/components/common/TrustCues';
 import { OFFICIAL_SLUG } from './official';
 import { Station } from '@/interfaces/Station';
 import { env } from '@/lib/env';
+import { publicApiHeaders } from '@/lib/public-api';
 
 interface HeroSectionProps {
   isAuthed?: boolean
@@ -18,7 +19,7 @@ interface HeroSectionProps {
 async function getOfficialStation(): Promise<Station | null> {
   try {
     const res = await fetch(`${env.apiUrl}/public/stations/${OFFICIAL_SLUG}`, {
-      headers: { Accept: 'application/json' },
+      headers: publicApiHeaders(),
       next: { revalidate: 30 },
     })
     if (!res.ok) return null

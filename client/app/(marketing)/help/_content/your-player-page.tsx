@@ -31,10 +31,6 @@ export default function Body() {
           <strong>Share buttons and your own links</strong>{" "}&mdash; whatever
           socials you added in settings.
         </li>
-        <li>
-          <strong>Other stations on GoCast</strong>, at the foot, so a listener
-          who arrives at a quiet station has somewhere to go.
-        </li>
       </ul>
 
       <ZoomableImage

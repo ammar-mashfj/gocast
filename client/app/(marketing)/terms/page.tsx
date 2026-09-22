@@ -1,10 +1,12 @@
 import type { Metadata } from "next"
+import { pageMetadata } from "@/lib/seo"
 import Link from "next/link"
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Terms of Service",
   description: "Terms and conditions for using the GoCast live radio streaming platform.",
-}
+  path: "/terms",
+})
 
 export default function TermsPage() {
   return (
