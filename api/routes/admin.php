@@ -47,6 +47,9 @@ Route::middleware('auth:admin')->group(function () {
 
     // A plan change with no access request behind it — for an owner the admin
     // spotted rather than one who asked. Emails them the admin's own reason.
+    // Two POSTs, like announcements: the dialog posts to `preview`, and only
+    // the page that comes back can post to `upgrade`.
+    Route::post('stations/{station}/upgrade/preview', [StationController::class, 'previewUpgrade'])->name('stations.upgrade.preview');
     Route::post('stations/{station}/upgrade', [StationController::class, 'upgrade'])->name('stations.upgrade');
 
     Route::get('requests', [AccessRequestController::class, 'index'])->name('requests.index');

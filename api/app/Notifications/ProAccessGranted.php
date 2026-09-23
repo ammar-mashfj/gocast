@@ -40,8 +40,11 @@ use Illuminate\Support\Carbon;
  * stations list (StationController::upgrade). There is no request to approve
  * in that case, so the admin writes why in their own words — "you've been
  * pulling a crowd, have Pro on us" — and `$note` replaces the "your request
- * is approved" opener. Everything below the opener is identical, because what
- * the plan gives them does not depend on how they got it. That path can also
+ * is approved" opener. The length is then stated once, as a date, and left
+ * out of the subject — the note often mentions the offer itself, and a
+ * subject, a "for 3 months" line and a date beside it read as competing
+ * answers. Everything below that is identical, because what the plan gives
+ * them does not depend on how they got it. That path can also
  * grant with no end date (a deal, not a trial), which is what a null `$until`
  * means: no term in the copy, and nothing promising a return to Free.
  *
@@ -126,12 +129,22 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // The date is spelled out next to the term because the term is what
         // the email said and the date is what anyone actually needs two months
         // later, when this row is the only place either of them still exists.
-        $points = $this->until === null
-            ? ['On us — no card, nothing to pay.']
-            : [
+        //
+        // An admin upgrade names its length once, as a date: the admin's own
+        // note often talks about the offer too, and "3 months on us" beside a
+        // date beside the note reads as three competing answers to one
+        // question. A request grant keeps the term, which is what they asked
+        // for and what its email subject promises.
+        $points = match (true) {
+            $this->until === null => ['On us — no card, nothing to pay.'],
+            $this->note !== null => [
+                "On us until {$this->until->toFormattedDateString()} — no card, nothing to pay. Then your account goes back to Free on its own; nothing you have made is deleted.",
+            ],
+            default => [
                 "{$this->term} on us — no card, nothing to pay.",
                 "It runs until {$this->until->toFormattedDateString()}, then your account goes back to Free on its own. Nothing you have made is deleted.",
-            ];
+            ],
+        };
 
         // The admin's reason leads, as it leads the email: it is the only part
         // of an unprompted upgrade that says why it happened. Flattened to one
@@ -185,7 +198,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         $station = $notifiable->stations()->first();
 
         $message = (new MailMessage)
-            ->subject($this->term === null
+            // An admin upgrade leaves the length out of the subject: the body
+            // states it once, as a date, and a subject saying "3 months" over
+            // a note that says "a month" is the contradiction people notice.
+            ->subject($this->term === null || $this->note !== null
                 ? "You're on GoCast {$this->plan->name}"
                 : "You're on GoCast {$this->plan->name} — {$this->term} on us")
             ->greeting("Hey {$notifiable->name},");
@@ -197,15 +213,16 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             foreach (preg_split('/\R{2,}/', trim($this->note)) as $paragraph) {
                 $message->line(trim($paragraph));
             }
-        }
 
-        $grant = $this->term === null
-            ? "Your station is now on {$this->plan->name}, free of charge."
-            : "Your station is now on {$this->plan->name} for {$this->term}, free of charge.";
-
-        $message->line($this->note === null ? "Your request is approved. {$grant}" : $grant);
-
-        if ($this->until !== null) {
+            // One sentence carries the whole term — the date — rather than a
+            // "for 3 months" line followed by a "runs until" line.
+            $message->line($this->until === null
+                ? "Your station is now on {$this->plan->name}, free of charge."
+                : "Your station is now on {$this->plan->name} until **{$this->until->toFormattedDateString()}**, free of charge. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.");
+        } elseif ($this->until === null) {
+            $message->line("Your request is approved. Your station is now on {$this->plan->name}, free of charge.");
+        } else {
+            $message->line("Your request is approved. Your station is now on {$this->plan->name} for {$this->term}, free of charge.");
             // Said plainly rather than buried at the bottom. The account really
             // does drop back on this date with nobody touching it, and finding
             // that out from a 403 mid-upload is the outcome this line exists to

@@ -84,7 +84,11 @@ it('opens the email with the admin note instead of a request approval', function
         expect($mail->introLines[0])->toBe('We noticed Night Shift is getting a lot of listeners.')
             ->and($mail->introLines[1])->toBe('So here is Pro, on us.')
             ->and(implode(' ', $mail->introLines))->not->toContain('request')
-            ->and(implode(' ', $mail->introLines))->toContain('for 3 months');
+            // The length appears once, as a date — not in the subject, and not
+            // as "for 3 months" beside the date as well.
+            ->and($mail->subject)->toBe("You're on GoCast {$this->pro->name}")
+            ->and(implode(' ', $mail->introLines))->not->toContain('3 months')
+            ->and(implode(' ', $mail->introLines))->toContain('until **'.now()->addMonthsNoOverflow(3)->toFormattedDateString().'**');
 
         // The bell carries the same reason, not just the email.
         $bell = $notification->toDatabase($station->user);
@@ -150,7 +154,9 @@ it('shows an upgrade dialog on the stations list', function () {
 
     $this->get(route('admin.stations.index'))
         ->assertOk()
-        ->assertSee(route('admin.stations.upgrade', $station))
+        // The dialog only ever previews; sending is the preview page's job.
+        ->assertSee(route('admin.stations.upgrade.preview', $station))
+        ->assertDontSee('action="'.route('admin.stations.upgrade', $station).'"', false)
         ->assertSee('No end date');
 });
 
@@ -169,4 +175,65 @@ it('does not warn for a free account', function () {
     $this->get(route('admin.stations.index'))
         ->assertOk()
         ->assertDontSee('with no end date. Anything but', false);
+});
+
+describe('previewing', function () {
+    it('shows the email and the bell without changing or sending anything', function () {
+        $station = freeStation();
+
+        $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '2-months',
+            'note' => 'Way to go, Night Shift.',
+        ])
+            ->assertOk()
+            ->assertSee("You're on GoCast {$this->pro->name}")
+            ->assertSee('Way to go, Night Shift.')
+            ->assertSee(now()->addMonthsNoOverflow(2)->toFormattedDateString())
+            // The form carries the previewed values forward to the send.
+            ->assertSee('value="2-months" selected', false)
+            ->assertSee('action="'.route('admin.stations.upgrade', $station).'"', false);
+
+        expect($station->user->fresh()->plan_id)->toBe($this->free->id);
+        Notification::assertNothingSent();
+    });
+
+    it('keeps the rendered email inside the frame attribute', function () {
+        // render() hands back an HtmlString, which {{ }} would print raw and
+        // which would then end the srcdoc attribute at its first quote.
+        $station = freeStation();
+
+        $html = $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '1-month',
+            'note' => 'Hello.',
+        ])->getContent();
+
+        preg_match('/<iframe srcdoc="([^"]*)"/', $html, $frame);
+
+        expect($frame[1] ?? '')->toContain('&lt;html')->toContain('Hello.');
+    });
+
+    it('refuses to the stations list rather than back to a POST-only page', function () {
+        $station = freeStation();
+
+        $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '10-years',
+            'note' => 'Hello.',
+        ])
+            ->assertRedirect(route('admin.stations.index', ['search' => $station->slug]))
+            ->assertSessionHas('status');
+    });
+
+    it('warns when the preview would put an end date on a permanent plan', function () {
+        $user = User::factory()->create(['plan_id' => $this->pro->id, 'plan_expires_at' => null]);
+        $station = Station::factory()->for($user)->create();
+
+        $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '1-month',
+            'note' => 'Hello.',
+        ])->assertSee('This puts an end date on it');
+    });
 });

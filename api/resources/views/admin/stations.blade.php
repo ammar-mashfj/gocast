@@ -180,8 +180,7 @@
                                                         </div>
                                                     @endif
 
-                                                    <form method="POST" action="{{ route('admin.stations.upgrade', $station) }}" class="mt-4 space-y-3"
-                                                          onsubmit="this.querySelector('[type=submit]').disabled = true">
+                                                    <form method="POST" action="{{ route('admin.stations.upgrade.preview', $station) }}" class="mt-4 space-y-3">
                                                         @csrf
                                                         <div class="flex gap-3">
                                                             <label class="block w-1/2">
@@ -194,10 +193,15 @@
                                                             </label>
                                                             <label class="block w-1/2">
                                                                 <span class="mb-1 block text-sm">For</span>
-                                                                <select name="term" class="select select-sm w-full"
+                                                                {{-- No preselected term. A default here is a length nobody
+                                                                     chose, and a dropdown changes silently (typing "2" lands
+                                                                     on "2 weeks"); the preview page is where the result is
+                                                                     read back before anything is sent. --}}
+                                                                <select name="term" class="select select-sm w-full" required
                                                                         title="A fixed term returns them to Free on its own when it ends">
+                                                                    <option value="" disabled selected>Pick a length…</option>
                                                                     @foreach ($terms as $value => $label)
-                                                                        <option value="{{ $value }}" @selected($value === $defaultTerm)>{{ $label }}</option>
+                                                                        <option value="{{ $value }}">{{ $label }}</option>
                                                                     @endforeach
                                                                 </select>
                                                             </label>
@@ -209,14 +213,14 @@
                                                                       class="textarea w-full text-sm"
                                                                       placeholder="We noticed {{ $station->name }} has been pulling in a lot of listeners, so we'd like to offer you Pro on us."></textarea>
                                                             <span class="mt-1 block text-xs opacity-60">
-                                                                A blank line starts a new paragraph. The plan, the end date and how to use AutoDJ follow it automatically.
+                                                                Leave the length out — the email states the end date right after your note. A blank line starts a new paragraph.
                                                             </span>
                                                         </label>
 
                                                         <div class="modal-action">
                                                             <button type="button" class="btn btn-ghost btn-sm"
                                                                     onclick="this.closest('dialog').close()">Cancel</button>
-                                                            <button type="submit" class="btn btn-primary btn-sm">Upgrade and email</button>
+                                                            <button type="submit" class="btn btn-primary btn-sm" title="Nothing is changed or sent until you confirm on the next page">Preview email</button>
                                                         </div>
                                                     </form>
                                                 </div>

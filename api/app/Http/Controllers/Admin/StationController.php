@@ -78,7 +78,6 @@ class StationController extends Controller
             'railSize' => Station::FEATURED_RAIL_SIZE,
             'upgradePlans' => Plan::where('slug', '!=', 'free')->orderBy('id')->get(['id', 'name']),
             'terms' => [...array_map(fn ($term) => $term['label'], AccessRequestController::TERMS), self::NO_END => 'No end date'],
-            'defaultTerm' => AccessRequestController::DEFAULT_TERM,
         ]);
     }
 
@@ -225,59 +224,69 @@ class StationController extends Controller
     }
 
     /**
-     * Put a station's owner onto a paid plan without an access request, and
-     * email them why.
+     * Step one of an upgrade: show exactly what the owner will get, and change
+     * nothing.
+     *
+     * Same two-POST shape as announcements and one-off emails, for the same
+     * reason: mail does not come back. The first upgrade sent from this page
+     * went out with a length the admin had not meant to pick — a dropdown
+     * changes silently — and the only place that was visible was the owner's
+     * inbox. The preview is rendered by the notification that will send it,
+     * from the same resolved values, so what is on screen is what they get.
+     */
+    public function previewUpgrade(Request $request, Station $station): View|RedirectResponse
+    {
+        $upgrade = $this->resolveUpgrade($request, $station);
+
+        if ($upgrade instanceof RedirectResponse) {
+            return $upgrade;
+        }
+
+        $user = $upgrade['user'];
+        $notification = $upgrade['notification'];
+        $user->loadMissing('plan');
+        $mail = $notification->toMail($user);
+
+        return view('admin.upgrade-preview', [
+            'station' => $station,
+            'user' => $user,
+            'plan' => $upgrade['plan'],
+            'endsAt' => $upgrade['endsAt'],
+            'termKey' => $upgrade['termKey'],
+            'note' => $upgrade['note'],
+            // Split rather than passing the MailMessage: it is Renderable,
+            // and a view renders every Renderable it is handed before the
+            // template runs, so `$mail->subject` would be read off a string.
+            'subject' => $mail->subject,
+            'emailHtml' => (string) $mail->render(),
+            'bell' => $notification->toDatabase($user),
+            'upgradePlans' => Plan::where('slug', '!=', 'free')->orderBy('id')->get(['id', 'name']),
+            'terms' => [...array_map(fn ($term) => $term['label'], AccessRequestController::TERMS), self::NO_END => 'No end date'],
+        ]);
+    }
+
+    /**
+     * Step two: put a station's owner onto a paid plan without an access
+     * request, and email them why.
      *
      * The plan is the account's, not the station's — the station is only how
      * the admin found them, usually by its listener numbers. The write is the
      * same one AccessRequestController::approve makes, so UserObserver pushes
      * the new entitlements into running containers, and plans:expire ends a
-     * fixed term. The note is required because it is the whole email opener:
-     * with no request behind the upgrade, "your request is approved" would be
-     * a lie, and a Pro plan arriving with no explanation reads like a mistake.
+     * fixed term. Only the preview page posts here.
      */
     public function upgrade(Request $request, Station $station): RedirectResponse
     {
-        // Checked by hand and refused through `status` like everything else
-        // here, not with validate(): the admin layout renders the flash and
-        // not the error bag, so a failed validate() is a silent reload. The
-        // realistic trigger is a note of only spaces, which the textarea's
-        // `required` lets through and TrimStrings then turns into nothing.
-        $note = trim((string) $request->input('note'));
+        $upgrade = $this->resolveUpgrade($request, $station);
 
-        if ($note === '' || mb_strlen($note) > 2000) {
-            return back()->with('status', 'Write a note of up to 2,000 characters — it is the opening of the email, so nothing was changed or sent.');
+        if ($upgrade instanceof RedirectResponse) {
+            return $upgrade;
         }
 
-        $user = $station->user;
-
-        if (! $user) {
-            return back()->with('status', "{$station->name} has no owner account to upgrade.");
-        }
-
-        $plan = Plan::where('slug', '!=', 'free')->find((int) $request->input('plan_id'));
-
-        if (! $plan) {
-            return back()->with('status', 'That is not a plan we upgrade to. Reload the page and pick one from the list.');
-        }
-
-        $termKey = (string) $request->input('term');
-        $term = $termKey === self::NO_END
-            ? null
-            : (AccessRequestController::TERMS[$termKey] ?? false);
-
-        if ($term === false) {
-            return back()->with('status', 'That is not a term we grant. Reload the page and pick one from the list.');
-        }
-
-        // NoOverflow for the same reason as approve(): the date written here
-        // and the date the email names have to be the same day.
-        $endsAt = $term === null
-            ? null
-            : now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
+        ['user' => $user, 'plan' => $plan, 'endsAt' => $endsAt] = $upgrade;
 
         $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
-        $user->notify(new ProAccessGranted($plan, $endsAt, $term['label'] ?? null, $note));
+        $user->notify($upgrade['notification']);
 
         // Same reason as feature(): LogsActivity on User records the plan_id
         // change, but with no causer, because the admin guard is not default.
@@ -289,8 +298,81 @@ class StationController extends Controller
 
         $until = $endsAt === null
             ? 'with no end date'
-            : "for {$term['label']}, until {$endsAt->toFormattedDateString()}";
+            : "until {$endsAt->toFormattedDateString()}";
 
-        return back()->with('status', "{$user->email} is on {$plan->name} {$until}, and has been emailed.");
+        return $this->backToStation($station, "{$user->email} is on {$plan->name} {$until}, and has been emailed.");
+    }
+
+    /**
+     * Read and check an upgrade form, shared by the preview and the send so
+     * the two cannot disagree about what a given post means.
+     *
+     * Checked by hand and refused through `status` like everything else here,
+     * not with validate(): the admin layout renders the flash and not the
+     * error bag, so a failed validate() is a silent reload. The realistic
+     * trigger is a note of only spaces, which the textarea's `required` lets
+     * through and TrimStrings then turns into nothing.
+     *
+     * The note is required because it is the whole email opener: with no
+     * request behind the upgrade, "your request is approved" would be a lie,
+     * and a Pro plan arriving with no explanation reads like a mistake.
+     *
+     * @return RedirectResponse|array{user: User, plan: Plan, endsAt: Carbon|null, termKey: string, note: string, notification: ProAccessGranted}
+     */
+    private function resolveUpgrade(Request $request, Station $station): RedirectResponse|array
+    {
+        $note = trim((string) $request->input('note'));
+
+        if ($note === '' || mb_strlen($note) > 2000) {
+            return $this->backToStation($station, 'Write a note of up to 2,000 characters — it is the opening of the email, so nothing was changed or sent.');
+        }
+
+        $user = $station->user;
+
+        if (! $user) {
+            return $this->backToStation($station, "{$station->name} has no owner account to upgrade.");
+        }
+
+        $plan = Plan::where('slug', '!=', 'free')->find((int) $request->input('plan_id'));
+
+        if (! $plan) {
+            return $this->backToStation($station, 'That is not a plan we upgrade to. Pick one from the list.');
+        }
+
+        $termKey = (string) $request->input('term');
+        $term = $termKey === self::NO_END
+            ? null
+            : (AccessRequestController::TERMS[$termKey] ?? false);
+
+        if ($term === false) {
+            return $this->backToStation($station, 'That is not a term we grant. Pick one from the list.');
+        }
+
+        // NoOverflow for the same reason as approve(): the date written here
+        // and the date the email names have to be the same day.
+        $endsAt = $term === null
+            ? null
+            : now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
+
+        return [
+            'user' => $user,
+            'plan' => $plan,
+            'endsAt' => $endsAt,
+            'termKey' => $termKey,
+            'note' => $note,
+            'notification' => new ProAccessGranted($plan, $endsAt, $term['label'] ?? null, $note),
+        ];
+    }
+
+    /**
+     * To the stations list, narrowed to this station — never back(). The
+     * preview page is the answer to a POST, so "back" from it is a URL that
+     * only accepts POST, and a redirect there is a 405.
+     */
+    private function backToStation(Station $station, string $status): RedirectResponse
+    {
+        return redirect()
+            ->route('admin.stations.index', ['search' => $station->slug])
+            ->with('status', $status);
     }
 }
