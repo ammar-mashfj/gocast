@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Plan;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use App\Notifications\ProAccessGranted;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -13,8 +15,9 @@ use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 /**
- * The station overview, and the one thing an admin can change from it:
- * whether a station appears in the curated rail on the homepage.
+ * The station overview, and the two things an admin can change from it:
+ * whether a station appears in the curated rail on the homepage, and which
+ * plan its owner is on.
  *
  * Deliberately queries the models directly rather than going through the API
  * resources: those are shaped for a station's own owner, and this view needs
@@ -22,6 +25,14 @@ use Illuminate\View\View;
  */
 class StationController extends Controller
 {
+    /**
+     * The term value for an upgrade that nothing ends. Offered here and not on
+     * the request queue: a request is a trial, whereas an upgrade from this
+     * page is as often a deal agreed by email, and that one should not quietly
+     * lapse.
+     */
+    private const NO_END = 'none';
+
     public function index(Request $request): View
     {
         $search = trim((string) $request->query('search', ''));
@@ -32,7 +43,7 @@ class StationController extends Controller
         $featuredOnly = $request->query('featured') === '1';
 
         $stations = Station::query()
-            ->with(['user:id,email,plan_id', 'user.plan:id,name'])
+            ->with(['user:id,email,plan_id,plan_expires_at', 'user.plan:id,name,slug'])
             ->withCount('tracks')
             // Live-ness is derived from an open StreamSession, so calling
             // isLive() per row would be one query per station. This resolves
@@ -65,6 +76,9 @@ class StationController extends Controller
             'featuredStations' => Station::featured()->count(),
             'featuredOnAir' => Station::featured()->running()->count(),
             'railSize' => Station::FEATURED_RAIL_SIZE,
+            'upgradePlans' => Plan::where('slug', '!=', 'free')->orderBy('id')->get(['id', 'name']),
+            'terms' => [...array_map(fn ($term) => $term['label'], AccessRequestController::TERMS), self::NO_END => 'No end date'],
+            'defaultTerm' => AccessRequestController::DEFAULT_TERM,
         ]);
     }
 
@@ -208,5 +222,75 @@ class StationController extends Controller
         }
 
         return back()->with('status', "{$station->name} is featured.");
+    }
+
+    /**
+     * Put a station's owner onto a paid plan without an access request, and
+     * email them why.
+     *
+     * The plan is the account's, not the station's — the station is only how
+     * the admin found them, usually by its listener numbers. The write is the
+     * same one AccessRequestController::approve makes, so UserObserver pushes
+     * the new entitlements into running containers, and plans:expire ends a
+     * fixed term. The note is required because it is the whole email opener:
+     * with no request behind the upgrade, "your request is approved" would be
+     * a lie, and a Pro plan arriving with no explanation reads like a mistake.
+     */
+    public function upgrade(Request $request, Station $station): RedirectResponse
+    {
+        // Checked by hand and refused through `status` like everything else
+        // here, not with validate(): the admin layout renders the flash and
+        // not the error bag, so a failed validate() is a silent reload. The
+        // realistic trigger is a note of only spaces, which the textarea's
+        // `required` lets through and TrimStrings then turns into nothing.
+        $note = trim((string) $request->input('note'));
+
+        if ($note === '' || mb_strlen($note) > 2000) {
+            return back()->with('status', 'Write a note of up to 2,000 characters — it is the opening of the email, so nothing was changed or sent.');
+        }
+
+        $user = $station->user;
+
+        if (! $user) {
+            return back()->with('status', "{$station->name} has no owner account to upgrade.");
+        }
+
+        $plan = Plan::where('slug', '!=', 'free')->find((int) $request->input('plan_id'));
+
+        if (! $plan) {
+            return back()->with('status', 'That is not a plan we upgrade to. Reload the page and pick one from the list.');
+        }
+
+        $termKey = (string) $request->input('term');
+        $term = $termKey === self::NO_END
+            ? null
+            : (AccessRequestController::TERMS[$termKey] ?? false);
+
+        if ($term === false) {
+            return back()->with('status', 'That is not a term we grant. Reload the page and pick one from the list.');
+        }
+
+        // NoOverflow for the same reason as approve(): the date written here
+        // and the date the email names have to be the same day.
+        $endsAt = $term === null
+            ? null
+            : now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
+
+        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
+        $user->notify(new ProAccessGranted($plan, $endsAt, $term['label'] ?? null, $note));
+
+        // Same reason as feature(): LogsActivity on User records the plan_id
+        // change, but with no causer, because the admin guard is not default.
+        activity()
+            ->causedBy($request->user('admin'))
+            ->performedOn($user)
+            ->withProperties(['plan' => $plan->slug, 'expires_at' => $endsAt?->toIso8601String(), 'station' => $station->slug])
+            ->log('upgraded account');
+
+        $until = $endsAt === null
+            ? 'with no end date'
+            : "for {$term['label']}, until {$endsAt->toFormattedDateString()}";
+
+        return back()->with('status', "{$user->email} is on {$plan->name} {$until}, and has been emailed.");
     }
 }

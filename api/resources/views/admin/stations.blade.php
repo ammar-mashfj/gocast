@@ -149,6 +149,80 @@
                                                 {{ $station->featured ? 'Unfeature' : 'Feature' }}
                                             </button>
                                         </form>
+
+                                        @if ($station->user)
+                                            <button type="button" class="btn btn-outline btn-xs"
+                                                    onclick="document.getElementById('upgrade-{{ $station->id }}').showModal()"
+                                                    title="Move the owner onto a paid plan and email them why">
+                                                Upgrade
+                                            </button>
+
+                                            {{-- One dialog per row rather than a shared one filled in by
+                                                 script: it keeps this page script-free, and a page is
+                                                 only 25 rows. showModal() lifts it into the top layer,
+                                                 so the table's overflow does not clip it. --}}
+                                            <dialog id="upgrade-{{ $station->id }}" class="modal">
+                                                <div class="modal-box text-left">
+                                                    <h3 class="text-lg font-semibold">Upgrade {{ $station->user->email }}</h3>
+                                                    <p class="mt-1 text-sm opacity-70">
+                                                        Owner of {{ $station->name }}, currently on
+                                                        {{ $station->user->plan?->name ?? 'no plan' }}{{ $station->user->plan_expires_at ? ' until '.$station->user->plan_expires_at->toFormattedDateString() : '' }}.
+                                                        The plan is the account's, so it covers every station they own.
+                                                    </p>
+
+                                                    {{-- The trap this dialog can spring: every term but the last
+                                                         one puts an end date on the account, and the default is
+                                                         a term. On an account that already has a paid plan for
+                                                         good, that silently turns a deal into a trial. --}}
+                                                    @if ($station->user->plan && ! $station->user->plan->isFree() && $station->user->plan_expires_at === null)
+                                                        <div class="alert alert-warning mt-3 py-2 text-sm">
+                                                            They already have {{ $station->user->plan->name }} with no end date. Anything but "No end date" will send them back to Free when it runs out.
+                                                        </div>
+                                                    @endif
+
+                                                    <form method="POST" action="{{ route('admin.stations.upgrade', $station) }}" class="mt-4 space-y-3"
+                                                          onsubmit="this.querySelector('[type=submit]').disabled = true">
+                                                        @csrf
+                                                        <div class="flex gap-3">
+                                                            <label class="block w-1/2">
+                                                                <span class="mb-1 block text-sm">Plan</span>
+                                                                <select name="plan_id" class="select select-sm w-full">
+                                                                    @foreach ($upgradePlans as $plan)
+                                                                        <option value="{{ $plan->id }}">{{ $plan->name }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </label>
+                                                            <label class="block w-1/2">
+                                                                <span class="mb-1 block text-sm">For</span>
+                                                                <select name="term" class="select select-sm w-full"
+                                                                        title="A fixed term returns them to Free on its own when it ends">
+                                                                    @foreach ($terms as $value => $label)
+                                                                        <option value="{{ $value }}" @selected($value === $defaultTerm)>{{ $label }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </label>
+                                                        </div>
+
+                                                        <label class="block">
+                                                            <span class="mb-1 block text-sm">Why — opens the email, in your words</span>
+                                                            <textarea name="note" rows="5" required maxlength="2000"
+                                                                      class="textarea w-full text-sm"
+                                                                      placeholder="We noticed {{ $station->name }} has been pulling in a lot of listeners, so we'd like to offer you Pro on us."></textarea>
+                                                            <span class="mt-1 block text-xs opacity-60">
+                                                                A blank line starts a new paragraph. The plan, the end date and how to use AutoDJ follow it automatically.
+                                                            </span>
+                                                        </label>
+
+                                                        <div class="modal-action">
+                                                            <button type="button" class="btn btn-ghost btn-sm"
+                                                                    onclick="this.closest('dialog').close()">Cancel</button>
+                                                            <button type="submit" class="btn btn-primary btn-sm">Upgrade and email</button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                                <form method="dialog" class="modal-backdrop"><button>close</button></form>
+                                            </dialog>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>

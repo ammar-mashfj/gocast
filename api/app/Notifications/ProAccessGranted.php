@@ -36,6 +36,15 @@ use Illuminate\Support\Carbon;
  * admin picked and passes both in — so the phrase in the copy and the date the
  * account actually flips on are the same decision, and plans:expire keeps it.
  *
+ * The same email also carries an upgrade an admin makes unprompted from the
+ * stations list (StationController::upgrade). There is no request to approve
+ * in that case, so the admin writes why in their own words — "you've been
+ * pulling a crowd, have Pro on us" — and `$note` replaces the "your request
+ * is approved" opener. Everything below the opener is identical, because what
+ * the plan gives them does not depend on how they got it. That path can also
+ * grant with no end date (a deal, not a trial), which is what a null `$until`
+ * means: no term in the copy, and nothing promising a return to Free.
+ *
  * Queued because it is dispatched from the admin request that records the
  * grant, and a slow or unreachable mail host must not make approving somebody
  * look like it failed — the plan change is already committed by then.
@@ -51,16 +60,21 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
     ];
 
     /**
-     * @param  Carbon  $until  When plans:expire moves them back to Free.
-     * @param  string  $term  How long that is in words ("3 months"), exactly as
-     *                        the admin picked it. Passed rather than derived
-     *                        from `$until` so the email cannot round "2 months"
-     *                        into "61 days" or similar.
+     * @param  Carbon|null  $until  When plans:expire moves them back to Free,
+     *                              or null for a grant with no end.
+     * @param  string|null  $term  How long that is in words ("3 months"), exactly
+     *                             as the admin picked it. Passed rather than
+     *                             derived from `$until` so the email cannot round
+     *                             "2 months" into "61 days" or similar. Null
+     *                             exactly when `$until` is.
+     * @param  string|null  $note  The admin's own reason for an unprompted
+     *                             upgrade. Null for an approved request.
      */
     public function __construct(
         private readonly Plan $plan,
-        private readonly Carbon $until,
-        private readonly string $term,
+        private readonly ?Carbon $until,
+        private readonly ?string $term,
+        private readonly ?string $note = null,
     ) {}
 
     /**
@@ -91,8 +105,8 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // it has built anything does get AutoDJ, so the sentence still names
         // it — but "keeps your station playing" is a promise about a station
         // that does not exist yet, and the button would have nowhere to go.
-        $body = 'Your request was approved — up to '
-            .number_format($this->plan->max_listeners).' listeners at once';
+        $body = ($this->note === null ? 'Your request was approved' : "We've upgraded your account")
+            .' — up to '.number_format($this->plan->max_listeners).' listeners at once';
 
         if ($this->plan->autodj_enabled) {
             $body .= $station !== null
@@ -112,10 +126,19 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // The date is spelled out next to the term because the term is what
         // the email said and the date is what anyone actually needs two months
         // later, when this row is the only place either of them still exists.
-        $points = [
-            "{$this->term} on us — no card, nothing to pay.",
-            "It runs until {$this->until->toFormattedDateString()}, then your account goes back to Free on its own. Nothing you have made is deleted.",
-        ];
+        $points = $this->until === null
+            ? ['On us — no card, nothing to pay.']
+            : [
+                "{$this->term} on us — no card, nothing to pay.",
+                "It runs until {$this->until->toFormattedDateString()}, then your account goes back to Free on its own. Nothing you have made is deleted.",
+            ];
+
+        // The admin's reason leads, as it leads the email: it is the only part
+        // of an unprompted upgrade that says why it happened. Flattened to one
+        // line because a point is a single list item, not a set of paragraphs.
+        if ($this->note !== null) {
+            array_unshift($points, preg_replace('/\s+/', ' ', trim($this->note)));
+        }
 
         if ($autoDj) {
             $points[] = 'Upload audio to your library and AutoDJ starts playing it straight away.';
@@ -146,7 +169,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             detailPoints: $points,
             meta: [
                 'plan' => $this->plan->slug,
-                'expires_at' => $this->until->toIso8601String(),
+                'expires_at' => $this->until?->toIso8601String(),
             ],
         );
     }
@@ -162,14 +185,35 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         $station = $notifiable->stations()->first();
 
         $message = (new MailMessage)
-            ->subject("You're on GoCast {$this->plan->name} — {$this->term} on us")
-            ->greeting("Hey {$notifiable->name},")
-            ->line("Your request is approved. Your station is now on {$this->plan->name} for {$this->term}, free of charge.")
+            ->subject($this->term === null
+                ? "You're on GoCast {$this->plan->name}"
+                : "You're on GoCast {$this->plan->name} — {$this->term} on us")
+            ->greeting("Hey {$notifiable->name},");
+
+        if ($this->note !== null) {
+            // One line per paragraph the admin typed, so a blank line in the
+            // textarea is a paragraph break in the email rather than being
+            // folded into a single run-on line.
+            foreach (preg_split('/\R{2,}/', trim($this->note)) as $paragraph) {
+                $message->line(trim($paragraph));
+            }
+        }
+
+        $grant = $this->term === null
+            ? "Your station is now on {$this->plan->name}, free of charge."
+            : "Your station is now on {$this->plan->name} for {$this->term}, free of charge.";
+
+        $message->line($this->note === null ? "Your request is approved. {$grant}" : $grant);
+
+        if ($this->until !== null) {
             // Said plainly rather than buried at the bottom. The account really
             // does drop back on this date with nobody touching it, and finding
             // that out from a 403 mid-upload is the outcome this line exists to
             // prevent. PlanExpired mails them again on the day.
-            ->line("It runs until **{$this->until->toFormattedDateString()}**. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.")
+            $message->line("It runs until **{$this->until->toFormattedDateString()}**. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.");
+        }
+
+        $message
             ->line('If you already have the dashboard open, refresh the page to see the change.')
             ->line('**What you get**')
             ->line('- Up to '.number_format($this->plan->max_listeners).' listeners at once.');

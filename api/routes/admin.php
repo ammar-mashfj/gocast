@@ -45,6 +45,10 @@ Route::middleware('auth:admin')->group(function () {
     // because the button's label already tells you which way it goes.
     Route::post('stations/{station}/feature', [StationController::class, 'feature'])->name('stations.feature');
 
+    // A plan change with no access request behind it — for an owner the admin
+    // spotted rather than one who asked. Emails them the admin's own reason.
+    Route::post('stations/{station}/upgrade', [StationController::class, 'upgrade'])->name('stations.upgrade');
+
     Route::get('requests', [AccessRequestController::class, 'index'])->name('requests.index');
 
     // Hand-provisioning. Creates an account and its first station outright,
