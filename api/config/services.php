@@ -35,6 +35,14 @@ return [
         ],
     ],
 
+    // Operator alerts (sign-ups, access requests, new stations, broadcasts)
+    // sent to one admin Telegram chat. Blank token = alerts off. See
+    // App\Services\AdminTelegram.
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
+    ],
+
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
 
     'internal_api_key' => env('INTERNAL_API_KEY'),

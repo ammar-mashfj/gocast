@@ -50,6 +50,9 @@
              leaks into tests, where it makes LiquidsoapSupervisor::containerHost
              shell out to `docker inspect` for stations that never existed.
              Pin the name-based path; the supervisor also guards on test mode. -->
+        <!-- Never let a test run message the real admin Telegram chat, even
+             when api/.env carries a live bot token. -->
+        <env name="TELEGRAM_BOT_TOKEN" value="" force="true"/>
         <env name="LIQUIDSOAP_TELNET_RESOLVE" value="name" force="true"/>
         <env name="LIQUIDSOAP_LIQ_DIR" value="/tmp/gocast-test/liq" force="true"/>
         <env name="LIQUIDSOAP_PLAYLISTS_DIR" value="/tmp/gocast-test/playlists" force="true"/>

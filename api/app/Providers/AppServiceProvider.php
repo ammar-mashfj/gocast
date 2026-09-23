@@ -6,11 +6,14 @@ use App\Models\Admin;
 use App\Models\Invite;
 use App\Models\Plan;
 use App\Models\Station;
+use App\Models\StreamSession;
 use App\Models\User;
+use App\Models\WaitlistEntry;
 use App\Notifications\InviteRedeemed;
 use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
 use App\Observers\UserObserver;
+use App\Services\AdminTelegram;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -122,6 +125,15 @@ class AppServiceProvider extends ServiceProvider
         // free-tier watermark, which must stop the moment someone upgrades
         // rather than at their next restart.
         User::observe(UserObserver::class);
+
+        // Operator alerts to the admin's Telegram chat. Hooked on the models,
+        // not the controllers, so every path that creates the row is covered.
+        // Inert until TELEGRAM_BOT_TOKEN is set — see AdminTelegram.
+        User::created(fn (User $user) => app(AdminTelegram::class)->userRegistered($user));
+        WaitlistEntry::created(fn (WaitlistEntry $entry) => app(AdminTelegram::class)->accessRequested($entry, isNew: true));
+        WaitlistEntry::updated(fn (WaitlistEntry $entry) => app(AdminTelegram::class)->accessRequested($entry, isNew: false));
+        Station::created(fn (Station $station) => app(AdminTelegram::class)->stationCreated($station));
+        StreamSession::created(fn (StreamSession $session) => app(AdminTelegram::class)->broadcastStarted($session));
 
         // Send the welcome email the moment a user verifies. Anchored on
         // verification (not registration) so the email is reachable, and so

@@ -30,15 +30,32 @@ Build notes: Liquidsoap can already write the live arm to a file, so the work is
 storage, a list UI and a player. **Risk:** disk space is already the tightest limit on
 the VPS (~130 GB usable), so retention limits are needed from day one.
 
-### 2. Turn the player page into a sign-up funnel (~1–2 days)
+### 2. Measure the player-page funnel, then reward it (~0.5 day + optional reward)
 
-Right now every listener is a dead end. Cheap changes:
+**Already built; don't redo:**
+- Every station page ends with "Powered by GoCast" and a **"Launch your own station →"**
+  button (`client/app/station/[slug]/PlayerView.tsx:1182-1193`). The embed has an
+  "on GoCast" link back to the station page (`EmbedPlayer.tsx:141`).
+- Per-station share image: artwork + name + genre (`app/station/[slug]/opengraph-image.tsx`).
+  Don't add LIVE / current track to it. Facebook, X and WhatsApp cache the image, so a
+  stale "LIVE" would stay on shares for days.
+- Genre pages: skip. `/discover` is deliberately hidden (redirects to `/`) until there are
+  enough stations, and genre pages would have the same problem: near-empty pages don't
+  rank and look bad.
 
-- A "Start your own station, free" link on every `/station/[slug]` page and inside
-  the Pro embed.
-- Per-station share images: artwork + LIVE state + current track.
-  `client/app/opengraph-image.tsx` exists at the app root only, not per station.
-- Genre landing pages under `/discover` (e.g. "Lo-fi radio stations") for search traffic.
+**What's missing: we can't tell if any of it works.** The button links to plain
+`/auth/register`, so there's no way to know whether a sign-up came from a station page,
+or which station sent it.
+
+1. **Attribution (~0.5 day).** Button → `/auth/register?ref=<station-slug>` (Google OAuth
+   has to carry it through too); the new user is saved with the station that referred them.
+   Admin panel shows "sign-ups from station pages" per station.
+2. **Referral reward (optional, after 1).** Once we can see who brought whom, give the
+   broadcaster something for it, e.g. a free month of Pro after 3 sign-ups from their page.
+   That gives broadcasters a reason to share their page more, which grows the funnel more
+   than any button change would. Builds on the existing plan-granting invite links; with no
+   billing yet, the free month has to be a plan that expires automatically, which
+   `plans:expire` already handles.
 
 ### 3. Automatic listing on Radio Browser (<1 day)
 
@@ -51,13 +68,53 @@ strong pricing-page line: "get listed in 1000+ radio apps".
 
 ## Also strong
 
-### 4. Live chat on the player page (~2–3 days)
+### 4. Listener reactions (~1–1.5 days)
 
-laravel-echo and pusher-js are already in the client, so real-time messaging is partly
-in place. Chat makes listeners come back and makes a small station feel alive. Needs
-moderation from day one: the owner can delete messages and ban users, plus rate limits.
+Most of what chat offers (a station that feels alive) with none of the moderation. A
+fixed set (🔥 ❤️ 👏 😂 🎶) means there's nothing to moderate: no text, no bans, no nicknames.
 
-### 5. Calendar button for scheduled shows (~0.5 day)
+- Listener taps a reaction on the player page. No account; tied to the listener token
+  already issued by `POST /stations/{slug}/listen`.
+- **Owner sees reactions live** in the dashboard/studio, e.g. "🔥 x12" the moment a
+  track lands. That's the real value: live feedback broadcasters don't have today.
+- **Per-station on/off switch** in settings. When off, the buttons are hidden and the
+  API rejects reactions.
+- Only abuse case is repeated tapping: per-token cap (~1/sec, ~20/min).
+- **Owner-only first.** The dashboard already has a live connection
+  (`StationStateChanged` over Pusher, `client/lib/echo.ts`). Showing reactions to all
+  listeners (floating emojis) sends every reaction to every listener and eats the Pusher
+  message quota. If done later, batch it: one "🔥 x7" every ~2s per station.
+- **Bonus:** store each reaction against the current track (the API already gets
+  `/internal/now-playing`) → a **"most loved tracks"** list on the Audience page. The first
+  data about which songs listeners actually like; most useful to AutoDJ owners.
+
+### 5. Live chat on the player page — small v1 (~2 days)
+
+Ranked below reactions: bigger and riskier for similar value. Doesn't need listener
+registration, which would leave the chat empty.
+
+**v1 scope:**
+- Guest nickname (the browser remembers it) + a server-signed guest ID, same idea as the
+  listener token. No email, no password.
+- Owner messages get an "owner" badge; signed-in GoCast users show their real name.
+- Rate limit (1 message per 3s), length limit, no links from guests.
+- Owner can delete a message and ban a guest ID.
+- Per-station switch to turn chat off.
+
+**Later, only once someone actually abuses it** (a 15-listener station isn't a target):
+- **Shadow-mute** instead of a visible ban: the banned guest still sees their own messages,
+  nobody else does, so there's no reason to come back under a new ID.
+- **Never ban an IP.** Mobile carriers (CGNAT), schools and offices put thousands of people
+  behind one IP. Use the IP only as a hint: a *new* guest ID on an IP where a guest was banned
+  in the last ~24h must pass Turnstile or wait for approval before its messages show. For
+  IPv6, use the /64 prefix.
+- Cloudflare Turnstile on first message (needs the site behind Cloudflare).
+- Per-station mode: off / guests allowed / **signed-in only** (the fallback for a
+  coordinated attack).
+
+Until then, if a banned user gets around the ban, the owner turns chat off for the evening.
+
+### 6. Calendar button for scheduled shows (~0.5 day)
 
 "Notify me when live" already exists (`StationNotifyController`) and show times already
 exist. An "Add to calendar" link (.ics) plus a follow button would bring listeners back
@@ -78,7 +135,8 @@ each week.
 
 ## Recommended order
 
-1. #2 and #3 first, since they're cheap and every existing station starts bringing
-   in users.
+1. #2 attribution and #3 first. Both are under a day; attribution comes first because
+   without it we can't tell whether anything else on this list brings in users.
 2. Then #1 (replays), the feature most likely to get people to sign up and upgrade.
-3. Self-serve billing alongside, before any real traffic push.
+3. #4 reactions next, since they're cheap and make stations feel alive; chat (#5) only after them.
+4. Self-serve billing alongside, before any real traffic push.
