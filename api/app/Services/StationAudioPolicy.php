@@ -86,6 +86,16 @@ class StationAudioPolicy
     }
 
     /**
+     * How long after a web studio broadcast ends before a silent station with
+     * nothing to fall back to is taken off air, regardless of the silence
+     * window. 0 turns the shortcut off and leaves such stations on the window.
+     */
+    public function studioGoneSeconds(): int
+    {
+        return max(0, (int) config('liquidsoap.studio_gone_stop_seconds', 150));
+    }
+
+    /**
      * Output level at or below which the station counts as producing nothing.
      *
      * Not hardcoded to exactly 0.0: digital silence is 0.0, but an encoder's
@@ -157,6 +167,10 @@ class StationAudioPolicy
             return StationAudioVerdict::Fault;
         }
 
+        if ($this->studioHasGoneForGood($station)) {
+            return StationAudioVerdict::Stop;
+        }
+
         if ($station->silent_since === null) {
             return StationAudioVerdict::Silent;
         }
@@ -164,6 +178,54 @@ class StationAudioPolicy
         return $station->silent_since->copy()->addSeconds($this->windowSeconds())->isPast()
             ? StationAudioVerdict::Stop
             : StationAudioVerdict::Silent;
+    }
+
+    /**
+     * Did this run's broadcaster leave from the web studio, long enough ago
+     * that the studio has stopped trying to come back?
+     *
+     * The silence window is sized for somebody who switched a station on and
+     * is still opening BUTT. It is far too long for a studio tab that has been
+     * closed: the studio gives up reconnecting after RECONNECT_BUDGET_MS
+     * (client/lib/broadcast.ts), so once that has passed nothing will ever
+     * reattach on its own, and holding the container is ten minutes of dead
+     * air on a station that still reads as on air. The config value must stay
+     * above that budget, or a studio mid-reconnect would lose its container.
+     *
+     * Deliberately narrow:
+     *
+     *   • Browser only. Encoders reconnect on their own schedule, often
+     *     indefinitely, and a DJ whose uplink died for three minutes must not
+     *     come back to a station that was switched off under them.
+     *
+     *   • This run only. A studio session that started before the current
+     *     power-on says nothing about now — without this, a DJ who broadcast
+     *     from the studio this morning and switched on tonight to connect an
+     *     encoder would be stopped on the first sweep.
+     *
+     *   • Closed sessions only. An open row with nobody attached is drift (a
+     *     lost disconnect callback), and drift falls back to the window.
+     *
+     * Only reached for a silent station with no rotation, so AutoDJ stations
+     * are never affected: their broadcaster leaving is a handover, not an end.
+     */
+    private function studioHasGoneForGood(Station $station): bool
+    {
+        $grace = $this->studioGoneSeconds();
+
+        if ($grace === 0 || $station->started_at === null) {
+            return false;
+        }
+
+        $last = $station->streamSessions()
+            ->latest('started_at')
+            ->first(['source_type', 'started_at', 'ended_at']);
+
+        return $last !== null
+            && $last->source_type === 'browser'
+            && $last->ended_at !== null
+            && $last->started_at->gte($station->started_at)
+            && $last->ended_at->copy()->addSeconds($grace)->isPast();
     }
 
     /**

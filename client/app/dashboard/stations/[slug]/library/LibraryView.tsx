@@ -672,7 +672,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               ) : (
                 <IconSparkles size={16} data-icon="inline-start" />
               )}
-              {proRequest.requested ? "Request sent" : "Upgrade to enable AutoDJ"}
+              <span>{proRequest.requested ? "Request sent" : "Upgrade to enable AutoDJ"}</span>
             </Button>
           ) : (
             <Button

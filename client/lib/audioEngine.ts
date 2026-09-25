@@ -169,6 +169,7 @@ export class AudioEngine {
   private currentIndex = -1
   private playing = false
   private progressTimer: ReturnType<typeof setInterval> | null = null
+  private pageHideHandler: (() => void) | null = null
 
   // Reactive state: listeners are notified on any engine state change.
   // `version` is a monotonic counter that React's `useSyncExternalStore`
@@ -226,12 +227,18 @@ export class AudioEngine {
     // nothing downstream of here is audible, which is what we want.
     this.analyser.connect(this.workletNode)
 
-    // Save playback progress every 5 seconds
-    this.progressTimer = setInterval(() => {
-      if (this.playing && this.currentIndex >= 0 && this.currentAudio) {
-        savePlayback({ currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
-      }
-    }, 5000)
+    // Save playback progress every 5 seconds, and once more as the page goes
+    // away — without the last save, a refresh replays up to 5s of the track
+    // when the broadcaster goes live again.
+    this.progressTimer = setInterval(() => this.saveProgress(), 5000)
+    this.pageHideHandler = () => this.saveProgress()
+    window.addEventListener('pagehide', this.pageHideHandler)
+  }
+
+  private saveProgress() {
+    if (this.playing && this.currentIndex >= 0 && this.currentAudio) {
+      savePlayback({ currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
+    }
   }
 
   /**
@@ -734,6 +741,7 @@ export class AudioEngine {
   /** Tear down the audio graph and close the AudioContext. */
   async destroy(): Promise<void> {
     if (this.progressTimer) clearInterval(this.progressTimer)
+    if (this.pageHideHandler) window.removeEventListener('pagehide', this.pageHideHandler)
     this.stopCurrent()
     this.micSource?.disconnect()
     this.monitorGain.disconnect()

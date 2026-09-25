@@ -49,8 +49,9 @@ export default function Body() {
           broadcast lives in the tab, so closing it ends the show.
         </li>
         <li>
-          <strong>Refreshing is survivable.</strong>{" "}An accidental reload picks
-          the broadcast back up rather than dropping you.
+          <strong>Refreshing the page.</strong>{" "}A reload ends the broadcast
+          the same way. Go live again and your queue picks up where it left
+          off, on the same track.
         </li>
         <li>
           <strong>A wifi hiccup is survivable.</strong>{" "}A dropped connection

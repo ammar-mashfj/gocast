@@ -145,7 +145,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
     if (Hls.isSupported()) {
       // A live audio stream is never seeked backwards, so holding decoded
       // audio behind the playhead only costs memory on long listens.
-      const hls = new Hls({ backBufferLength: 30 })
+      const hls = new Hls({ backBufferLength: 30, liveSyncDurationCount: 2 })
       hlsRef.current = hls
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {

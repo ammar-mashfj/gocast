@@ -112,8 +112,8 @@ export default function Body() {
       </p>
       <p>
         If a station ends up on air making no sound at all, with nobody
-        broadcasting and nothing queued to play, it switches itself off after a
-        minute or two. A station playing music to an empty room is left alone;
+        broadcasting and nothing queued to play, it switches itself off. A
+        station playing music to an empty room is left alone;
         that&#39;s the feature working, not something to clean up.
       </p>
 

@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { IconLoader2 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { LiveBanner } from "@/components/dashboard/LiveBanner"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useBroadcastStats } from "@/hooks/useBroadcastStats"
 import api from "@/lib/axios"
@@ -130,15 +130,6 @@ export default function StudioPage() {
   }, [state, slug, router])
 
   useEffect(() => {
-    if (!isLive) return
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-    }
-    window.addEventListener("beforeunload", handleBeforeUnload)
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
-  }, [isLive])
-
-  useEffect(() => {
     if (!engine) return
     const resume = () => { engine.resume() }
     window.addEventListener("pointerdown", resume, { once: true })
@@ -177,13 +168,8 @@ export default function StudioPage() {
   if (!isLive) return null
 
   return (
-    <div className="w-[calc(100%+3rem)] h-[calc(100vh-3.5rem)] flex flex-col lg:grid lg:grid-cols-[1fr_320px] min-h-0 -m-6 overflow-hidden">
-      {state === "reconnecting" && (
-        <div className="lg:col-span-2 flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 text-amber-500 text-xs border-b border-amber-500/20">
-          <IconLoader2 size={14} className="animate-spin" />
-          Reconnecting to stream server…
-        </div>
-      )}
+    <div className="w-[calc(100%+3rem)] h-[calc(100vh-3.5rem)] flex flex-col lg:grid lg:grid-cols-[1fr_320px] lg:grid-rows-[auto_1fr] min-h-0 -m-6 overflow-hidden">
+      <LiveBanner inStudio />
 
       {/* Mobile: compact bar + dedicated mobile layout */}
       <MobileStreamBar stationId={slug} />

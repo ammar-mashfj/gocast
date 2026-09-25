@@ -233,6 +233,17 @@ end
 # momentary network hiccup on the broadcaster's side doesn't underrun the
 # output. 2s nominal, 10s before samples are dropped.
 #
+# `buffer` is how much of the broadcaster's audio harbor holds before it plays
+# any, and it is the single biggest term in the live arm's latency. Liquidsoap
+# defaults it to 12s, which put a person on air ~30s behind their own voice
+# once HLS was added on top — long enough that people who opened their own
+# station page to check assumed it was broken. The default exists so crossfade
+# can wrap a harbor source; ours only wraps the AutoDJ arm, so all a smaller
+# value gives up is tolerance for a stalling uplink. 5s (plus the 2s below)
+# still rides out a wifi hiccup; a longer stall drops listeners to AutoDJ until
+# the buffer refills. `max` caps how far a sender whose clock runs slightly
+# fast can drift the lag upwards over a long show (Liquidsoap's default is 20).
+#
 # `timeout` is how long a stalled source is kept before harbor declares it gone,
 # and it is deliberately below Liquidsoap's default of 30. A broadcaster whose
 # connection dies without a clean close — a sleeping laptop, a wifi handover —
@@ -258,6 +269,8 @@ live_in = input.harbor(
   {!! json_encode($station->slug) !!},
   port={{ $harborInputPort }},
   auth=harbor_auth,
+  buffer=5.,
+  max=10.,
   timeout={{ number_format($harborInputTimeout, 1, '.', '') }},
   icy=true,
   icy_metadata_charset={!! json_encode($metadataCharset) !!},
@@ -378,9 +391,9 @@ end)
 # `live_connected` ALONE. This was `live_connected() or live_in.is_ready()`,
 # ORed to fail safe, and the OR was the bug. It reads as harmless belt and
 # braces, but `is_ready()` stays true for as long as the live arm still has
-# buffered audio to play out — measured at 12.4s on 2.4.5, because
-# input.harbor's own `buffer` defaults to 12s and this script does not
-# override it. So the field invented to answer "is a person on air" WITHOUT
+# buffered audio to play out — measured at 12.4s on 2.4.5 when input.harbor's
+# own `buffer` was left at its 12s default (it is 5s now; the lag shrinks, the
+# reasoning does not). So the field invented to answer "is a person on air" WITHOUT
 # the buffer lag carried that lag anyway, on the way out: a DJ who pressed
 # Stop was reported as a broadcaster for another twelve seconds, and since
 # their StreamSession had already closed, the dashboard phrased it as "Live

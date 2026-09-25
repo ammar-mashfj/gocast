@@ -26,8 +26,6 @@ export default function Body() {
         These files never leave your computer except as the audio going out on
         air &mdash; nothing is uploaded, and nothing here counts against your
         AutoDJ storage. It is a stack of records beside the desk, not a library.
-        Which also means the queue is gone when you close the tab: it is for
-        this show.
       </p>
 
       <h2>Push-to-Talk</h2>

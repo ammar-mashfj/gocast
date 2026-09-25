@@ -177,11 +177,12 @@ export function StationPower({ station, compact = false }: StationPowerProps) {
    * gone?
    *
    * `broadcaster` drops the instant harbor lets go, but the live arm keeps
-   * playing out what it had buffered — ~12s of harbor pre-buffer plus the 2s
-   * `buffer()` — so `source` says "live" for a good while afterwards. Those
+   * playing out what it had buffered — ~5s of harbor pre-buffer plus the 2s
+   * `buffer()`, or ~12s + 2s on a container rendered before that was lowered —
+   * so `source` says "live" for a good while afterwards. Those
    * seconds are real: listeners are still hearing the broadcast.
    *
-   * Without this the chip blinked out for twelve seconds and came back, which
+   * Without this the chip blinked out for those seconds and came back, which
    * reads as a glitch rather than as a handover. It is deliberately NOT
    * attributed — `liveFrom()` would name a session that has already closed,
    * which is the "Live from another source" wrongness this whole axis was

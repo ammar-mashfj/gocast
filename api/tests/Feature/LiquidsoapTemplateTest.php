@@ -170,6 +170,15 @@ it('opens a harbor ingest on the station mount', function () {
         ->and($script)->toContain('auth=harbor_auth');
 });
 
+it('holds 5s of broadcaster audio in harbor rather than the 12s default', function () {
+    // harbor's `buffer` is the biggest term in live latency. Left at the
+    // default it put listeners ~30s behind the broadcaster, long enough that
+    // people checking their own player link assumed the station was broken.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain("buffer=5.,\n  max=10.,\n  timeout=");
+});
+
 it('authenticates broadcasters against laravel and fails closed', function () {
     $script = renderStationScript($this->station, ['apiUrl' => 'http://api']);
 

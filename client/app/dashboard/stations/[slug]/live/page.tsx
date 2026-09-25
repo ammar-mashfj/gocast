@@ -9,7 +9,6 @@ import {
   IconLoader2,
   IconCircleDot,
   IconShare,
-  IconRefresh,
   IconMicrophoneOff,
   IconMicrophone,
   IconMusic,
@@ -17,7 +16,7 @@ import {
   IconLink,
   IconSettings,
 } from "@tabler/icons-react"
-import { useBroadcast, readBroadcastRecovery, clearBroadcastRecovery } from "@/contexts/BroadcastContext"
+import { useBroadcast } from "@/contexts/BroadcastContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,10 +26,6 @@ import type { Station } from "@/interfaces/Station"
 import type { StationStatus } from "@/interfaces/StationStatus"
 import type { BroadcastStepInfo, StepStatus } from "@/lib/broadcast"
 import { env } from "@/lib/env"
-
-// If a refresh happens within this window of the last broadcast, we treat it
-// as accidental and offer to resume rather than auto-restarting.
-const RECOVERY_WINDOW_MS = 60_000
 
 function StepIcon({ status }: { status: StepStatus }) {
   const base = "size-5 rounded-full flex items-center justify-center shrink-0"
@@ -264,8 +259,6 @@ export default function GoLivePage() {
    */
   const [liveSource, setLiveSource] = useState<StationStatus["live_source"] | null>(null)
   const [micDisabled, setMicDisabled] = useState(false)
-  // `prompting` blocks the auto-start until the user resolves the recovery prompt.
-  const [prompting, setPrompting] = useState<null | "recover">(null)
   // Explicit user confirmation from the pre-flight screen. Keeps "I landed on
   // this page" from ever meaning "mic is now hot."
   const [preflightApproved, setPreflightApproved] = useState(false)
@@ -276,21 +269,6 @@ export default function GoLivePage() {
       setMicDisabled(localStorage.getItem(`broadcast:micDisabled:${slug}`) === "true")
     } catch {
       // localStorage blocked (private mode, quota) — default to mic enabled.
-    }
-  }, [slug])
-
-  // If we just survived a refresh while broadcasting, surface a recovery card
-  // instead of silently restarting the broadcast.
-  useEffect(() => {
-    const record = readBroadcastRecovery()
-    if (record && record.stationSlug === slug && Date.now() - record.startedAt < RECOVERY_WINDOW_MS) {
-      setPrompting("recover")
-      // The record's micDisabled is the user's previous preference; honor it.
-      setMicDisabled(record.micDisabled)
-      // Block auto-start until they choose.
-      startedRef.current = true
-    } else if (record) {
-      clearBroadcastRecovery()
     }
   }, [slug])
 
@@ -308,8 +286,8 @@ export default function GoLivePage() {
 
   useEffect(() => {
     // Pre-flight gate: only start the broadcast once the user has explicitly
-    // approved on the pre-flight screen. Recovery uses its own button and
-    // also sets startedRef, so this effect won't double-fire.
+    // approved on the pre-flight screen. startedRef keeps this effect from
+    // firing twice for one approval.
     if (!station || state !== "idle" || startedRef.current || !preflightApproved) return
     startedRef.current = true
     start(station.slug, { skipMic: micDisabled })
@@ -333,51 +311,6 @@ export default function GoLivePage() {
               <Skeleton className="h-5 w-full" />
               <Skeleton className="h-5 w-full" />
               <Skeleton className="h-5 w-full" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  // Recovery card — shown when sessionStorage indicates a broadcast was active just before the page loaded.
-  if (prompting === "recover" && state === "idle") {
-    return (
-      <div className="max-w-xl mx-auto flex flex-col gap-6">
-        <div className="text-xs tracking-widest uppercase text-muted-foreground">
-          {station.name} — Recover broadcast
-        </div>
-        <Card className="border-amber-500/20 bg-amber-500/[0.03]">
-          <CardContent className="flex flex-col items-center text-center py-10">
-            <div className="size-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
-              <IconRefresh size={18} className="text-amber-400" />
-            </div>
-            <h2 className="text-base font-medium mb-2">You were broadcasting before this page reloaded</h2>
-            <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-              The connection dropped during the refresh. Resume to start a fresh broadcast for this station, or end the session.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  clearBroadcastRecovery()
-                  setPrompting(null)
-                  startedRef.current = false
-                  start(station.slug, { skipMic: micDisabled })
-                }}
-              >
-                Resume broadcast
-              </Button>
-              <Button
-                className="w-full sm:w-auto"
-                variant="outline"
-                onClick={() => {
-                  clearBroadcastRecovery()
-                  router.push(`/dashboard/stations/${slug}`)
-                }}
-              >
-                End session
-              </Button>
             </div>
           </CardContent>
         </Card>

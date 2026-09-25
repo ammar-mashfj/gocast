@@ -64,6 +64,10 @@ const STATION_READY_POLL_MS = 1000
  * therefore give up at precisely the moment reconnecting starts working, which
  * is the worst possible behaviour. Two minutes clears it several times over and
  * also covers the ordinary case of a phone moving between networks.
+ *
+ * Must stay below the API's `studio_gone_stop_seconds` (150s): past that, a
+ * station with no AutoDJ is taken off air on the assumption that this loop
+ * has given up.
  */
 const RECONNECT_BUDGET_MS = 120000
 /**
@@ -514,9 +518,11 @@ export class BroadcastManager {
    * rather than replaying a backlog into a live show.
    *
    * The station itself is re-checked on every attempt, because a station with
-   * no AutoDJ rotation is taken off air a minute or two after its broadcaster
-   * disconnects (see StationAudioPolicy on the API). A reconnect inside that
-   * window keeps the container; one that lands after it starts it again.
+   * no AutoDJ rotation is taken off air about 2.5 minutes after a studio
+   * broadcaster disconnects (studio_gone_stop_seconds, StationAudioPolicy on
+   * the API). That grace is sized to outlast RECONNECT_BUDGET_MS, so a
+   * reconnect normally lands inside it and keeps the container; one that
+   * lands after it starts the station again.
    *
    * That window is only reached by a DROPPED socket. Pressing End releases
    * such a station immediately — see releaseStation in BroadcastContext.

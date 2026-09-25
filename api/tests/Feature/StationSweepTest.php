@@ -218,6 +218,106 @@ it('treats a jingle-only library as nothing to play', function () {
     expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Stop);
 });
 
+// ── A studio that has gone for good ──
+
+/**
+ * A station switched on $poweredOnAgo seconds ago, with the window set far
+ * longer than the studio grace so that any Stop below can only have come from
+ * the studio shortcut.
+ */
+function studioStation(int $poweredOnAgo = 3600, bool $autoDj = false): Station
+{
+    config([
+        'liquidsoap.silent_stop_seconds' => 600,
+        'liquidsoap.studio_gone_stop_seconds' => 150,
+    ]);
+
+    $station = sweptStation($autoDj);
+    $station->forceFill(['started_at' => now()->subSeconds($poweredOnAgo)])->save();
+
+    return $station;
+}
+
+function broadcastEnded(Station $station, string $via, int $startedAgo, ?int $endedAgo): void
+{
+    $station->streamSessions()->create([
+        'started_at' => now()->subSeconds($startedAgo),
+        'ended_at' => $endedAgo === null ? null : now()->subSeconds($endedAgo),
+        'source_type' => $via,
+    ]);
+}
+
+it('stops a silent station soon after its studio broadcast ends, without waiting out the window', function () {
+    // The closed-tab case: nothing to fall back to, and the studio stopped
+    // reconnecting long ago. The silence clock has not even started.
+    $station = studioStation();
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: 200);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Stop);
+});
+
+it('keeps the container while the studio may still be reconnecting', function () {
+    // Inside the grace the studio's reconnect loop is still running, and it
+    // needs this container to reconnect into.
+    $station = studioStation();
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: 60);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
+it('leaves an encoder broadcast on the full window', function () {
+    // BUTT and Mixxx retry on their own schedule; a DJ whose uplink died for
+    // a few minutes must not come back to a station switched off under them.
+    $station = studioStation();
+    broadcastEnded($station, 'external', startedAgo: 1800, endedAgo: 200);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
+it('ignores a studio broadcast from before the current power-on', function () {
+    // Studio this morning, switched on tonight to connect an encoder: this
+    // run has had no studio broadcast, so it is the window that applies.
+    $station = studioStation(poweredOnAgo: 120);
+    broadcastEnded($station, 'browser', startedAgo: 36000, endedAgo: 32400);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
+it('judges by the latest broadcast when an encoder took over from the studio', function () {
+    $station = studioStation();
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: 1200);
+    broadcastEnded($station, 'external', startedAgo: 1100, endedAgo: 200);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
+it('falls back to the window when the session was never closed', function () {
+    // Nobody attached but an open row: a lost disconnect callback. Drift is
+    // not evidence of anything, so the shortcut stays out of it.
+    $station = studioStation();
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: null);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
+it('never stops an AutoDJ station when its studio broadcaster leaves', function () {
+    // Leaving is a handover to the rotation, which is making the sound.
+    $station = studioStation(autoDj: true);
+    Track::factory()->for($station)->create(['kind' => Track::KIND_MUSIC]);
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: 200);
+
+    expect(verdictFor($station, status(['source' => 'autodj', 'rms' => 0.2])))
+        ->toBe(StationAudioVerdict::InUse);
+});
+
+it('can be switched off, leaving studio stations on the window', function () {
+    $station = studioStation();
+    config(['liquidsoap.studio_gone_stop_seconds' => 0]);
+    broadcastEnded($station, 'browser', startedAgo: 1800, endedAgo: 200);
+
+    expect(verdictFor($station, status()))->toBe(StationAudioVerdict::Silent);
+});
+
 // ── The command ──
 
 it('dispatches a stop for a station past its window', function () {

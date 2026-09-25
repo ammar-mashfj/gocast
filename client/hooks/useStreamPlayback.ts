@@ -190,6 +190,10 @@ export function useStreamPlayback({ hlsUrl, icecastUrl }: Options) {
         // A live audio stream is never seeked backwards, so holding decoded
         // audio behind the playhead only costs memory on long listens.
         backBufferLength: 30,
+        // Start two segments behind the live edge instead of hls.js's three.
+        // At 4s segments that is ~4s closer to the broadcaster, for 8s rather
+        // than 12s of headroom against a late segment on a slow connection.
+        liveSyncDurationCount: 2,
       })
       hlsRef.current = hls
 

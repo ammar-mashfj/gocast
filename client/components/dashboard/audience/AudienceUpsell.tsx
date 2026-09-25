@@ -90,7 +90,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
             className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
           >
             {request.requested ? <IconCheck size={14} /> : <IconSparkles size={14} />}
-            {request.requested ? "Requested" : "Upgrade to Pro"}
+            <span>{request.requested ? "Requested" : "Upgrade to Pro"}</span>
           </button>
         </div>
       </div>

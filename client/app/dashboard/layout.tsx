@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/AppSidebar"
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader"
 import { BroadcastMiniController } from "@/components/dashboard/BroadcastMiniController"
+import { LiveBanner } from "@/components/dashboard/LiveBanner"
 import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { AccountProvider, type Account } from "@/contexts/AccountContext"
 import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
@@ -107,6 +108,7 @@ export default async function DashboardLayout({
                 <AppSidebar user={user} />
                 <SidebarInset>
                   <DashboardHeader />
+                  <LiveBanner />
                   <main className="flex-1 p-6">
                     {children}
                   </main>

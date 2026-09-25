@@ -229,7 +229,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
               >
                 {proRequest.requested ? <IconCheck size={11} /> : <IconSparkles size={11} />}
-                {proRequest.requested ? "Requested" : "Upgrade"}
+                <span>{proRequest.requested ? "Requested" : "Upgrade"}</span>
               </button>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">

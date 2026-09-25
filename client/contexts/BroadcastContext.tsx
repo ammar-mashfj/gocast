@@ -1,13 +1,11 @@
 "use client"
 
-import { createContext, useContext, useRef, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { BroadcastManager, type BroadcastState, type BroadcastStepInfo, type TransportStats } from '@/lib/broadcast'
 import type { AudioEngine } from '@/lib/audioEngine'
 import { fireOnce } from '@/lib/milestones'
 import api from '@/lib/axios'
-
-const RECOVERY_KEY = 'broadcast:active'
 
 /**
  * How long to keep asking the API to take a station off air after the socket
@@ -29,8 +27,8 @@ const RELEASE_RETRY_DELAYS_MS = [0, 400, 800, 1500, 2500]
  * rotation, ending a broadcast means handing the station back to AutoDJ and
  * the container has to stay up. Without one, the fallback arm is a silence
  * bed: leaving the container running parks the station on "On air — silence"
- * until `stations:sweep` reclaims it a minute or two later, which reads as a
- * stop button that didn't work.
+ * until `stations:sweep` reclaims it about 2.5 minutes later, which reads as
+ * a stop button that didn't work.
  *
  * Deliberately not moved server-side onto `live_disconnected`. That event
  * cannot tell "I'm done" from "my wifi dropped", and tearing the container
@@ -59,41 +57,6 @@ async function releaseStation(slug: string): Promise<void> {
       if (status !== 409) return
     }
   }
-}
-
-export interface BroadcastRecoveryRecord {
-  stationSlug: string
-  micDisabled: boolean
-  startedAt: number
-}
-
-/**
- * Read the per-tab recovery record. Returns null if there's no active
- * broadcast intent or the record is malformed. Survives page refreshes
- * (sessionStorage), dies with the tab — exactly the lifetime we want.
- */
-export function readBroadcastRecovery(): BroadcastRecoveryRecord | null {
-  if (typeof sessionStorage === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(RECOVERY_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (
-      typeof parsed?.stationSlug === 'string' &&
-      typeof parsed?.micDisabled === 'boolean' &&
-      typeof parsed?.startedAt === 'number'
-    ) {
-      return parsed as BroadcastRecoveryRecord
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-export function clearBroadcastRecovery() {
-  if (typeof sessionStorage === 'undefined') return
-  try { sessionStorage.removeItem(RECOVERY_KEY) } catch {}
 }
 
 interface BroadcastContextValue {
@@ -165,18 +128,6 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           if (s === 'live') {
             setMicStream(manager.getMicStream())
             setEngine(manager.getEngine())
-            // Persist a per-tab recovery record so an accidental refresh can
-            // resume from the right station with the right mic preference.
-            try {
-              sessionStorage.setItem(
-                RECOVERY_KEY,
-                JSON.stringify({
-                  stationSlug: stationId,
-                  micDisabled: !!options?.skipMic,
-                  startedAt: Date.now(),
-                } satisfies BroadcastRecoveryRecord),
-              )
-            } catch {}
             // First-ever broadcast celebration. Subsequent milestones
             // (cumulative airtime / sessions count) live on the dashboard
             // where we have access to the stats endpoint.
@@ -186,7 +137,6 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           } else if (s === 'idle') {
             setMicStream(null)
             setEngine(null)
-            clearBroadcastRecovery()
           }
         },
         onError: setError,
@@ -218,7 +168,6 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       try { localStorage.removeItem(`broadcast:micDisabled:${stationIdRef.current}`) } catch {}
       stationIdRef.current = null
     }
-    clearBroadcastRecovery()
     setStationSlug(null)
     setMicStream(null)
     setMicDisabled(false)
@@ -232,6 +181,20 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       await releaseStation(slug)
     }
   }, [])
+
+  // Warn before a refresh or tab close takes the broadcast down. Lives here,
+  // not in the studio, because the socket belongs to this provider and stays
+  // open on every dashboard page — leaving from the library ends the show
+  // just as surely as leaving from the studio.
+  const onAir = state === 'live' || state === 'reconnecting'
+  useEffect(() => {
+    if (!onAir) return
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [onAir])
 
   return (
     <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, getTransportStats, start, stop }}>

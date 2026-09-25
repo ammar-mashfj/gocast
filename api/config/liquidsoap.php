@@ -681,6 +681,23 @@ return [
     'silent_stop_seconds' => (int) env('LIQUIDSOAP_SILENT_STOP_SECONDS', 600),
 
     /*
+    | Seconds after a WEB STUDIO broadcast ends before a silent station with no
+    | AutoDJ rotation is taken off air, instead of waiting out the whole window
+    | above. 0 disables the shortcut.
+    |
+    | The window is sized for someone still opening an encoder. A closed studio
+    | tab needs none of it: the studio stops reconnecting after two minutes
+    | (RECONNECT_BUDGET_MS in client/lib/broadcast.ts), and after that nothing
+    | will reattach on its own. MUST stay above that budget — below it, a studio
+    | that is still reconnecting loses its container. Encoder broadcasts are
+    | never on this clock; see StationAudioPolicy::studioHasGoneForGood().
+    |
+    | Effective time to stop is this plus up to one sweep pass (~2.5-3.5 min).
+    */
+
+    'studio_gone_stop_seconds' => (int) env('LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS', 150),
+
+    /*
     | Output level (0.0–1.0, from the rms() meter on the station's output) at or
     | below which a station counts as producing nothing.
     |
