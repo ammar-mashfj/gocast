@@ -13,9 +13,15 @@ import type { Notification, NotificationLevel } from "@/interfaces/Notification"
  */
 const LEVEL_CLASSES: Record<NotificationLevel, string> = {
   info: "text-muted-foreground",
-  success: "text-emerald-600 dark:text-emerald-400",
-  warning: "text-amber-600 dark:text-amber-400",
-  error: "text-destructive",
+  // None of these may borrow a state colour (see DESIGN.md, One Meaning
+  // Rule). Emerald means someone is broadcasting and amber means Pro, so an
+  // emerald "success" glyph looked like a live signal and an amber "warning"
+  // read as a plan badge in a feed that also carries plan notifications.
+  // Warnings are not faults — "your plan ended" is news, not breakage — so
+  // they stay neutral and let the icon carry the tone; only errors take red.
+  success: "text-violet-muted",
+  warning: "text-foreground",
+  error: "text-fault-text",
 }
 
 export function notificationLevelClass(level: string): string {

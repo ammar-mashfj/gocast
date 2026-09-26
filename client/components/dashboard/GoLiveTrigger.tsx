@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -184,14 +185,15 @@ export function GoLiveTrigger({
             <>
               <DialogHeader>
                 <DialogTitle>How do you want to broadcast?</DialogTitle>
-                <DialogDescription className="mt-2 text-sm">
-                  Pick how you want to go on air for {station.name}.
+                <DialogDescription className="mt-1 text-sm">
+                  Either way {station.name} goes on air. The difference is where
+                  the audio comes from.
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 <ModeButton
-                  icon={<IconMusic size={18} className="text-primary" />}
+                  icon={<IconMusic size={18} className="text-violet-muted" />}
                   iconClass="bg-primary/10"
                   title="Go live from this browser"
                   // The second sentence is doing real work: it is the answer
@@ -203,16 +205,13 @@ export function GoLiveTrigger({
 
                 {showEncoder && (
                   <ModeButton
-                    className="mt-2"
                     icon={<IconPlugConnected size={18} className="text-muted-foreground" />}
                     iconClass="bg-muted"
                     title={
                       <>
                         From a broadcast app
                         {encoderLocked && (
-                          <Badge variant="secondary" className="ml-2 text-[9px] align-middle">
-                            PRO
-                          </Badge>
+                          <Badge variant="pro" className="ml-2 align-middle">Pro</Badge>
                         )}
                       </>
                     }
@@ -249,7 +248,13 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={cn("flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent bg-transparent cursor-pointer", className)}
+      // The ring matches every other focusable control in the dashboard;
+      // a bare <button> gets none from the design system on its own.
+      className={cn(
+        "flex items-start gap-3 rounded-lg border border-border bg-transparent p-3 text-left transition-colors cursor-pointer outline-none",
+        "hover:bg-accent focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+        className,
+      )}
     >
       <div
         className={cn(
@@ -260,8 +265,8 @@ function ModeButton({
         {icon}
       </div>
       <div>
-        <div className="text-sm font-bold">{title}</div>
-        <div className="text-sm text-muted-foreground mt-2">{description}</div>
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-sm text-muted-foreground mt-1">{description}</div>
       </div>
     </button>
   )
@@ -344,8 +349,8 @@ function EncoderView({
   }
 
   const back = (
-    <Button variant="ghost" size="sm" className="-ml-2 w-fit" onClick={onBack}>
-      <IconArrowLeft size={14} data-icon="inline-start" />
+    <Button variant="ghost" className="-ml-2 w-fit" onClick={onBack}>
+      <IconArrowLeft data-icon="inline-start" />
       Back
     </Button>
   )
@@ -357,7 +362,7 @@ function EncoderView({
           {back}
           <DialogTitle>
             Broadcast from your own software
-            <Badge variant="secondary" className="ml-2 text-[9px] align-middle">PRO</Badge>
+            <Badge variant="pro" className="ml-2 align-middle">Pro</Badge>
           </DialogTitle>
           <DialogDescription>
             Go live from BUTT, Mixxx, RadioDJ, Audio Hijack — anything that speaks
@@ -366,12 +371,13 @@ function EncoderView({
             keep broadcasting with the tools you already know.
           </DialogDescription>
         </DialogHeader>
-        <div>
-          <Button variant="outline" onClick={onRequestPro}>
-            <IconSparkles size={16} data-icon="inline-start" />
+        {/* Filled: asking for Pro is the only thing this view is for. */}
+        <DialogFooter>
+          <Button onClick={onRequestPro} className="w-full sm:w-auto">
+            <IconSparkles data-icon="inline-start" />
             {proRequested ? "Request sent" : "Request access"}
           </Button>
-        </div>
+        </DialogFooter>
       </>
     )
   }
@@ -444,9 +450,9 @@ function EncoderView({
           and it belongs on a page that can be linked to and returned to —
           not behind a dialog that has to be opened from a button labelled
           "Go live". */}
-      <Button variant="ghost" size="sm" className="w-fit -ml-2" asChild>
+      <Button variant="ghost" className="w-fit -ml-2" asChild>
         <Link href={`/dashboard/stations/${station.slug}/settings#encoder`}>
-          <IconSettings size={14} data-icon="inline-start" />
+          <IconSettings data-icon="inline-start" />
           Manage your stream key
         </Link>
       </Button>
@@ -526,8 +532,8 @@ function ConnectionWatcher({
 
   if (connected) {
     return (
-      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-3">
-        <IconCircleCheck size={15} className="text-emerald-400 shrink-0 mt-px" />
+      <div className="flex items-start gap-2 rounded-lg border border-live/25 bg-live/[0.04] p-3">
+        <IconCircleCheck size={15} className="text-live-text shrink-0 mt-px" />
         <div className="text-xs leading-relaxed">
           <span className="text-foreground font-medium">
             {/* Naming the software is the difference between "something
@@ -546,7 +552,7 @@ function ConnectionWatcher({
 
   if (otherLive) {
     return (
-      <div className="flex flex-col gap-1 rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3 text-xs leading-relaxed">
+      <div className="flex flex-col gap-1 rounded-lg border border-live/25 bg-live/[0.04] p-3 text-xs leading-relaxed">
         <span className="text-foreground font-medium">
           Something else is already broadcasting.
         </span>
@@ -567,19 +573,19 @@ function ConnectionWatcher({
     // without it the panel snaps back to "off air" right after the click.
     return startRequested ? (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="size-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+        <span className="size-1.5 rounded-full bg-foreground/60 shrink-0 animate-pulse motion-reduce:animate-none" />
         Starting {stationName} — give it a few seconds, then connect.
       </div>
     ) : (
-      <div className="flex flex-col gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.03] p-3">
+      <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-3">
         <div className="text-xs text-muted-foreground leading-relaxed">
           <span className="text-foreground font-medium">{stationName} is off air.</span>{" "}
           Your encoder connects to the station itself, so there is nothing
           listening until it is on.
         </div>
-        <Button size="sm" className="w-fit" disabled={starting} onClick={onPowerOn}>
+        <Button className="w-fit" disabled={starting} onClick={onPowerOn}>
           {starting && (
-            <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
+            <IconLoader2 className="animate-spin" data-icon="inline-start" />
           )}
           Put it on air
         </Button>
@@ -595,7 +601,7 @@ function ConnectionWatcher({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="size-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+        <span className="size-1.5 rounded-full bg-foreground/60 shrink-0 animate-pulse motion-reduce:animate-none" />
         {settling
           ? `Starting ${stationName} — give it a few seconds, then connect.`
           : `${stationName} is on air. Waiting for your encoder…`}
@@ -610,7 +616,8 @@ function ConnectionWatcher({
         role="progressbar"
         aria-label={`Waiting for an encoder to connect to ${stationName}`}
       >
-        <div className="h-full w-1/3 rounded-full bg-primary animate-indeterminate" />
+        {/* Reduced motion: a still, dimmed full bar — "waiting", not "33% done". */}
+        <div className="h-full w-1/3 rounded-full bg-primary animate-indeterminate motion-reduce:w-full motion-reduce:animate-none motion-reduce:bg-primary/40" />
       </div>
     </div>
   )

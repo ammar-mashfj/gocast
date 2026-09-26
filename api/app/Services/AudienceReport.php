@@ -55,11 +55,11 @@ class AudienceReport
         $start = now()->startOfDay()->subDays($days - 1);
 
         $samples = $this->dailySamples($station, $start);
-        $visitors = $this->dailyVisitors($station, $start);
+        $sessionDays = $this->dailySessions($station, $start);
         $countries = $this->countries($station, $start);
         $sessions = $this->sessionTotals($station, $start);
 
-        $daily = $this->buckets($start, $days, $samples, $visitors);
+        $daily = $this->buckets($start, $days, $samples, $sessionDays);
 
         return [
             'range_days' => $days,
@@ -77,6 +77,11 @@ class AudienceReport
                 // deliberately made ourselves unable to compute.
                 'listeners' => array_sum(array_column($daily, 'listeners')),
                 'avg_listen_seconds' => $sessions['avg_seconds'],
+                // The average's own denominator, so the screen can say what
+                // it was taken over. `qualified_listens` is a different, smaller
+                // set (finished AND over a minute) and captioning the average
+                // with it described a figure the average was not computed from.
+                'finished_listens' => $sessions['finished'],
                 'qualified_listens' => $sessions['qualified'],
             ],
             'daily' => $daily,
@@ -112,10 +117,13 @@ class AudienceReport
     }
 
     /**
-     * Listening time, concurrency and arrivals per day, from the sampled
-     * rollup — the half of the audience picture that includes Icecast.
+     * Listening time and concurrency per day, from the sampled rollup — the
+     * half of the audience picture that includes Icecast.
      *
-     * @return array<string, array{listener_minutes: int, peak: int, sessions: int}>
+     * `sessions_started` is deliberately NOT read from here any more; see
+     * {@see self::dailySessions()} for why arrivals come from the raw rows.
+     *
+     * @return array<string, array{listener_minutes: int, peak: int}>
      */
     private function dailySamples(Station $station, Carbon $start): array
     {
@@ -125,7 +133,6 @@ class AudienceReport
             // MAX, never SUM: two listeners in one hour and two in the next is
             // a peak of two, not four.
             ->selectRaw('MAX(peak_listeners) as peak')
-            ->selectRaw('SUM(sessions_started) as sessions')
             ->where('station_id', $station->id)
             ->where('hour', '>=', $start)
             ->groupBy('day')
@@ -134,29 +141,47 @@ class AudienceReport
             ->map(fn ($row) => [
                 'listener_minutes' => (int) $row->listener_minutes,
                 'peak' => (int) $row->peak,
-                'sessions' => (int) $row->sessions,
             ])
             ->all();
     }
 
     /**
-     * Distinct listeners per day, counted from the raw rows rather than summed
-     * out of `listener_stats_hourly.unique_listeners` — that column is
+     * Arrivals and distinct listeners per day, both counted from the raw rows.
+     *
+     * Distinct listeners can't be summed out of
+     * `listener_stats_hourly.unique_listeners` — that column is
      * distinct-per-HOUR, so someone listening from 14:00 to 16:00 would be
      * three people by teatime.
      *
-     * @return array<string, int>
+     * Arrivals used to come from `listener_stats_hourly.sessions_started`, and
+     * that put two clocks on one screen. That column is only written by
+     * `listeners:rollup`, hourly at :05, while devices, browsers, referrers
+     * and distinct listeners are all read live from `listener_sessions`. For up
+     * to an hour after every new listen — and permanently on any host whose
+     * scheduler isn't running — the screen showed "7 listeners" and a 100%
+     * device split beside "Nobody has pressed play in this window yet",
+     * because that empty state keys off this total. The rollup column is the
+     * same COUNT(*) over the same rows, just late; the window is already
+     * capped at retention (see clampWindow), so the raw rows are always there
+     * to count and nothing is gained by reading the stale copy.
+     *
+     * @return array<string, array{sessions: int, listeners: int}>
      */
-    private function dailyVisitors(Station $station, Carbon $start): array
+    private function dailySessions(Station $station, Carbon $start): array
     {
         return DB::table('listener_sessions')
             ->selectRaw('DATE(started_at) as day')
+            ->selectRaw('COUNT(*) as sessions')
             ->selectRaw('COUNT(DISTINCT visitor_hash) as listeners')
             ->where('station_id', $station->id)
             ->where('started_at', '>=', $start)
             ->groupBy('day')
-            ->pluck('listeners', 'day')
-            ->map(fn ($count) => (int) $count)
+            ->get()
+            ->keyBy('day')
+            ->map(fn ($row) => [
+                'sessions' => (int) $row->sessions,
+                'listeners' => (int) $row->listeners,
+            ])
             ->all();
     }
 
@@ -168,24 +193,25 @@ class AudienceReport
      * fortnight as a narrower busy one. Filling the gaps here rather than in
      * the client means there is one place that knows the window's shape.
      *
-     * @param  array<string, array{listener_minutes: int, peak: int, sessions: int}>  $samples
-     * @param  array<string, int>  $visitors
+     * @param  array<string, array{listener_minutes: int, peak: int}>  $samples
+     * @param  array<string, array{sessions: int, listeners: int}>  $sessionDays
      * @return list<array<string, mixed>>
      */
-    private function buckets(Carbon $start, int $days, array $samples, array $visitors): array
+    private function buckets(Carbon $start, int $days, array $samples, array $sessionDays): array
     {
         $buckets = [];
 
         for ($i = 0; $i < $days; $i++) {
             $day = $start->copy()->addDays($i)->toDateString();
-            $sample = $samples[$day] ?? ['listener_minutes' => 0, 'peak' => 0, 'sessions' => 0];
+            $sample = $samples[$day] ?? ['listener_minutes' => 0, 'peak' => 0];
+            $arrivals = $sessionDays[$day] ?? ['sessions' => 0, 'listeners' => 0];
 
             $buckets[] = [
                 'day' => $day,
                 'listener_minutes' => $sample['listener_minutes'],
                 'peak' => $sample['peak'],
-                'sessions' => $sample['sessions'],
-                'listeners' => $visitors[$day] ?? 0,
+                'sessions' => $arrivals['sessions'],
+                'listeners' => $arrivals['listeners'],
             ];
         }
 
@@ -271,7 +297,7 @@ class AudienceReport
      * closes them — averaging them in would drag the figure down in exact
      * proportion to how many people are listening right now.
      *
-     * @return array{avg_seconds: int, qualified: int}
+     * @return array{avg_seconds: int, finished: int, qualified: int}
      */
     private function sessionTotals(Station $station, Carbon $start): array
     {
@@ -279,6 +305,7 @@ class AudienceReport
 
         $row = DB::table('listener_sessions')
             ->selectRaw('AVG(seconds) as avg_seconds')
+            ->selectRaw('COUNT(*) as finished')
             ->selectRaw('SUM(CASE WHEN seconds >= ? THEN 1 ELSE 0 END) as qualified', [$minimum])
             ->where('station_id', $station->id)
             ->where('started_at', '>=', $start)
@@ -287,6 +314,7 @@ class AudienceReport
 
         return [
             'avg_seconds' => (int) round((float) ($row->avg_seconds ?? 0)),
+            'finished' => (int) ($row->finished ?? 0),
             'qualified' => (int) ($row->qualified ?? 0),
         ];
     }

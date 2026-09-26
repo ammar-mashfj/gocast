@@ -44,9 +44,13 @@ export function useSignOut() {
     return () => { subscribers.delete(setLocal) }
   }, [])
 
-  const signOut = useCallback(async (redirectTo: string = "/") => {
+  /**
+   * `confirmed` is for callers that asked with their own dialog first; the
+   * native confirm below is only the fallback for ones that didn't.
+   */
+  const signOut = useCallback(async (redirectTo: string = "/", options?: { confirmed?: boolean }) => {
     if (isSigningOutGlobal) return
-    if (isBroadcasting) {
+    if (isBroadcasting && !options?.confirmed) {
       const confirmed = window.confirm(
         "You're broadcasting right now. Sign out will end your broadcast. Continue?",
       )
@@ -69,5 +73,5 @@ export function useSignOut() {
     setSigningOut(false)
   }, [isBroadcasting, router])
 
-  return { signOut, signingOut }
+  return { signOut, signingOut, isBroadcasting }
 }

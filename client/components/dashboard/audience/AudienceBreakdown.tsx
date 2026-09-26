@@ -1,5 +1,3 @@
-import { cn } from "@/lib/utils"
-
 /**
  * One dimension of the audience as a share-of-known list — countries, devices,
  * browsers, referrers.
@@ -50,10 +48,10 @@ export function AudienceBreakdown({
 
   return (
     <div className="flex flex-col gap-3 min-w-0">
-      <h3 className="text-sm font-medium">{title}</h3>
+      <h2 className="text-sm font-medium">{title}</h2>
 
       {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground leading-relaxed">{empty}</p>
+        <p className="text-sm text-muted-foreground leading-relaxed">{empty}</p>
       ) : (
         <ul className="flex flex-col gap-2 list-none p-0 m-0">
           {items.map((item) => {
@@ -68,12 +66,12 @@ export function AudienceBreakdown({
                     {share}%
                   </span>
                 </div>
-                {/* The bar is the same single hue as the chart above it: one
-                    series per figure, so colour never has to carry identity
-                    and no palette can be misread as a category. */}
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                {/* A lit white bar on an unlit track, like a meter held at
+                    level. Neutral on purpose: no hue here names a state
+                    (DESIGN.md, the One Meaning Rule). */}
+                <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                   <div
-                    className={cn("h-full rounded-full bg-primary/70")}
+                    className="h-full rounded-full bg-white/45"
                     style={{ width: `${Math.max(share, 2)}%` }}
                   />
                 </div>
@@ -92,7 +90,7 @@ export function AudienceBreakdown({
       )}
 
       {footnote && items.length > 0 && (
-        <p className="text-[11px] text-muted-foreground leading-relaxed">{footnote}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{footnote}</p>
       )}
     </div>
   )

@@ -229,12 +229,13 @@ export default function Body() {
         different jobs.
       </p>
       <p>
-        <strong>Show times</strong>, on your settings page, are the claim you
+        <strong>Show times</strong>, in the &ldquo;When you&#39;re live&rdquo;
+        section of the same schedule page, are the claim you
         make to listeners: &ldquo;Thursdays at 8&rdquo;. They&#39;re display
         only. Nothing about them reaches your audio.
       </p>
       <p>
-        <strong>Slots</strong>, on the schedule page, are what your station
+        <strong>Slots</strong>, under &ldquo;What AutoDJ plays&rdquo;, are what your station
         actually plays. Listeners never see them.
       </p>
       <p>
@@ -325,7 +326,7 @@ export default function Body() {
         can&#39;t be deleted.
       </p>
 
-      <h3>Is this the same as the show times on my settings page?</h3>
+      <h3>Is this the same as my show times?</h3>
       <p>
         No. Show times are what you advertise to listeners and change nothing
         about your audio. Slots are what your station plays and are never shown

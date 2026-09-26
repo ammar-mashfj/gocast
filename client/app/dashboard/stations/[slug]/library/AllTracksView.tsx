@@ -1,21 +1,35 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { IconMusic, IconPlaylistAdd, IconSearch, IconTrash, IconX } from "@tabler/icons-react"
+import { useConfirm } from "@/components/ui/use-confirm"
+import {
+  IconDotsVertical,
+  IconMusic,
+  IconPlaylistAdd,
+  IconSearch,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react"
 import { DndContext } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import type { Track } from "@/interfaces/Track"
 import { cn } from "@/lib/utils"
 import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
 
 type SortKey = "added" | "title" | "length"
 
-const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: "added", label: "Added" },
-  { key: "title", label: "Title" },
-  { key: "length", label: "Longest" },
+const SORTS: Array<{ value: SortKey; label: string }> = [
+  { value: "added", label: "Recently added" },
+  { value: "title", label: "Title" },
+  { value: "length", label: "Longest" },
 ]
 
 /**
@@ -30,9 +44,7 @@ interface Props {
   /** id → name, for the chips. */
   playlistNames: Map<string, string>
   locked: boolean
-  uploading: boolean
   nowPlayingId: string | null
-  onPickFiles: () => void
   onEdit: (id: string, fields: TrackEditFields) => void
   onDelete: (id: string) => void
   /** Delete every selected file. Resolves once the server has confirmed. */
@@ -41,6 +53,8 @@ interface Props {
   onBulkAdd: (ids: string[]) => void
   /** Storage meter and the tag banner, owned by the shell, shown under the toolbar. */
   belowToolbar?: React.ReactNode
+  /** Library-wide items (Jingles, Fix tags) for this view's ⋯ menu. */
+  menuItems?: React.ReactNode
 }
 
 /**
@@ -54,15 +68,15 @@ export function AllTracksView({
   tracks,
   playlistNames,
   locked,
-  uploading,
   nowPlayingId,
-  onPickFiles,
   onEdit,
   onDelete,
   onBulkDelete,
   onBulkAdd,
   belowToolbar,
+  menuItems,
 }: Props) {
+  const [confirm, confirmDialog] = useConfirm()
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortKey>("added")
   const [limit, setLimit] = useState(INITIAL_LIMIT)
@@ -137,12 +151,13 @@ export function AllTracksView({
   async function deletePicked() {
     const ids = pickedInOrder()
     if (ids.length === 0 || deleting) return
-    // TODO: replace with shadcn AlertDialog, as the single-row delete does.
-    const question =
-      ids.length === 1
-        ? "Delete this track? It leaves every playlist too. This can't be undone."
-        : `Delete ${ids.length} tracks? They leave every playlist too. This can't be undone.`
-    if (!window.confirm(question)) return
+    const ok = await confirm({
+      title: ids.length === 1 ? "Delete this track?" : `Delete ${ids.length} tracks?`,
+      description: `${ids.length === 1 ? "It leaves" : "They leave"} every playlist too. This can't be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete track" : `Delete ${ids.length} tracks`,
+      destructive: true,
+    })
+    if (!ok) return
 
     setDeleting(true)
     try {
@@ -176,30 +191,30 @@ export function AllTracksView({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {SORTS.map((s) => (
-            <Button
-              key={s.key}
-              size="sm"
-              variant={sort === s.key ? "secondary" : "ghost"}
-              onClick={() => setSort(s.key)}
-              className={sort === s.key ? undefined : "text-muted-foreground"}
-            >
-              {s.label}
-            </Button>
-          ))}
-        </div>
+        {/* Same shape as the playlist toolbar: search, one sort control and
+            a ⋯. Uploading is the header's "Add tracks" or a drop anywhere on
+            this panel; the dashed "Drop files or browse" button that sat
+            here was a second copy of the same action. */}
+        <Select
+          aria-label="Sort tracks"
+          value={sort}
+          onChange={setSort}
+          options={SORTS}
+          className="w-40 [&>button]:h-9"
+        />
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-dashed"
-          onClick={onPickFiles}
-          disabled={uploading || locked}
-          title={locked ? "AutoDJ is not included in your plan." : "Uploads from here join the default playlist."}
-        >
-          {locked ? "Uploading needs Pro" : "Drop files or browse"}
-        </Button>
+        {menuItems && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Library actions">
+                <IconDotsVertical size={16} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {menuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {/* The selection bar. It replaces nothing and pushes nothing around —
@@ -215,7 +230,6 @@ export function AllTracksView({
           <span className="flex-1" />
 
           <Button
-            size="sm"
             variant="outline"
             onClick={() => onBulkAdd(pickedInOrder())}
             disabled={locked || deleting}
@@ -228,13 +242,13 @@ export function AllTracksView({
           {/* Deleting stays available on every plan — the same rule the
               per-row button and the API already follow. A downgrade must
               never trap someone's files behind a paywall. */}
-          <Button size="sm" variant="outline" onClick={() => void deletePicked()} disabled={deleting}>
-            <IconTrash size={15} data-icon="inline-start" className="text-destructive" />
+          <Button variant="outline" onClick={() => void deletePicked()} disabled={deleting}>
+            <IconTrash size={15} data-icon="inline-start" className="text-fault-text" />
             {deleting ? "Deleting…" : `Delete ${selected.size}`}
           </Button>
 
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
             className="text-muted-foreground"
             onClick={() => setPicked(new Set())}
@@ -254,7 +268,7 @@ export function AllTracksView({
           <div className="text-sm font-medium">No tracks yet</div>
           <p className="text-xs text-muted-foreground">
             {locked
-              ? "This is where your music lives. Upgrade to start filling it."
+              ? "This is where your music lives once Pro is on."
               : "Drag audio files anywhere onto this panel to start the AutoDJ."}
           </p>
         </div>
@@ -295,7 +309,7 @@ export function AllTracksView({
                 ? `Showing ${shown.length} of ${visible.length} matches`
                 : `Showing ${shown.length} of ${tracks.length}`}
               {orphans > 0 && (
-                <span className="ml-2 text-destructive/80">
+                <span className="ml-2 font-medium text-foreground">
                   · {orphans} in no playlist — {orphans === 1 ? "it" : "they"} never play
                 </span>
               )}
@@ -317,6 +331,7 @@ export function AllTracksView({
           </div>
         </>
       )}
+      {confirmDialog}
     </>
   )
 }

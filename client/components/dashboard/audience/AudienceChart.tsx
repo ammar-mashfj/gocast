@@ -23,12 +23,20 @@ import { cn } from "@/lib/utils"
 interface AudienceChartProps {
   daily: AudienceDay[]
   rangeDays: number
+  /**
+   * Shown when no day has any listening time. Supplied by the page because
+   * the right sentence depends on what the OTHER cards know: "nobody
+   * listened" is false when player-page listens exist that the minute
+   * sampler simply hasn't caught, and the page is the one place that holds
+   * both figures.
+   */
+  empty: string
 }
 
 /** Bars get thinner as the window widens; below this they stop being readable. */
 const MIN_BAR_PX = 2
 
-export function AudienceChart({ daily, rangeDays }: AudienceChartProps) {
+export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
   const [hovered, setHovered] = useState<number | null>(null)
 
   // Never zero, so an empty window divides cleanly and draws a flat floor
@@ -49,9 +57,9 @@ export function AudienceChart({ daily, rangeDays }: AudienceChartProps) {
     })
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="relative flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-4">
-        <h3 className="text-sm font-medium">Listening time</h3>
+        <h2 className="text-sm font-medium">Listening time</h2>
         {/* The hovered day replaces the range caption rather than floating
             over the bars: at 90 bars a positioned tooltip spends most of its
             life covering the data it describes. */}
@@ -90,8 +98,8 @@ export function AudienceChart({ daily, rangeDays }: AudienceChartProps) {
                 "w-full rounded-t-sm transition-colors",
                 d.listener_minutes > 0
                   ? hovered === i
-                    ? "bg-primary"
-                    : "bg-primary/70"
+                    ? "bg-white/70"
+                    : "bg-white/45"
                   : "bg-muted",
               )}
               style={{
@@ -111,34 +119,37 @@ export function AudienceChart({ daily, rangeDays }: AudienceChartProps) {
       </div>
 
       {!hasData && (
-        <p className="text-xs text-muted-foreground">
-          No listening recorded in this window yet.
-        </p>
+        <p className="text-xs text-muted-foreground">{empty}</p>
       )}
 
       {/* Identity is never colour-alone, and a bar chart is not readable by a
           screen reader. Same numbers, same order, no visual weight. */}
-      <table className="sr-only">
-        <caption>Listening time per day</caption>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            <th scope="col">Listening time</th>
-            <th scope="col">Peak listeners</th>
-            <th scope="col">Listeners</th>
-          </tr>
-        </thead>
-        <tbody>
-          {daily.map((d) => (
-            <tr key={d.day}>
-              <th scope="row">{label(d.day)}</th>
-              <td>{formatAirtime(d.listener_minutes * 60)}</td>
-              <td>{d.peak}</td>
-              <td>{d.listeners}</td>
+      {/* sr-only on a wrapper, never on the <table>: a table ignores the 1px
+          height and grows to fit its rows, so an sr-only table still pushed
+          the document ~1,200px taller. */}
+      <div className="sr-only">
+        <table>
+          <caption>Listening time per day</caption>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">Listening time</th>
+              <th scope="col">Peak listeners</th>
+              <th scope="col">Listeners</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {daily.map((d) => (
+              <tr key={d.day}>
+                <th scope="row">{label(d.day)}</th>
+                <td>{formatAirtime(d.listener_minutes * 60)}</td>
+                <td>{d.peak}</td>
+                <td>{d.listeners}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

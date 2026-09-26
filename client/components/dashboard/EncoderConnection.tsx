@@ -83,34 +83,43 @@ export function EncoderConnection({
   // self-evident: BUTT calls the key a password, Mixxx calls it a login, and
   // Mixxx's Server field wants the hostname WITHOUT a scheme, which is the
   // single most common way a first connection fails.
-  const clients: Array<{ name: string; steps: string[] }> = [
+  //
+  // Each step is prose with the actual values set apart: prose reads in the
+  // body face, and only the strings somebody types or pastes (host, port,
+  // mount, username, key) are mono. A menu path or an option to pick is a
+  // `{ ui }` segment — it names something on their screen, so it stands out
+  // without pretending to be a machine string.
+  type Segment = string | { value: string } | { ui: string }
+  const v = (value: string): Segment => ({ value })
+  const ui = (label: string): Segment => ({ ui: label })
+  const clients: Array<{ name: string; steps: Segment[][]; command?: string }> = [
     {
       name: "BUTT",
       steps: [
-        "Settings → Main → Server → Add",
-        "Type: Icecast",
-        `Address: ${encoder.host}   Port: ${encoder.port}`,
-        `Mountpoint: ${encoder.mount.replace(/^\//, "")}   (BUTT adds the slash itself)`,
-        "User: source   Password: your stream key",
+        ["Open ", ui("Settings → Main → Server → Add"), "."],
+        ["Set the type to ", ui("Icecast"), "."],
+        ["Address ", v(encoder.host), ", port ", v(String(encoder.port)), "."],
+        ["Mountpoint ", v(encoder.mount.replace(/^\//, "")), " — without the slash, because BUTT adds it."],
+        ["User ", v(encoder.username), ", and your stream key as the password."],
       ],
     },
     {
       name: "Mixxx",
       steps: [
-        "Preferences → Live Broadcasting → Server connection",
-        "Type: Icecast 2",
-        `Host: ${encoder.host}   Port: ${encoder.port}   (host only — no http:// )`,
-        `Mount: ${encoder.mount}`,
-        "Login: source   Password: your stream key",
-        "Then Options → Enable Live Broadcasting to connect",
+        ["Open ", ui("Preferences → Live Broadcasting → Server connection"), "."],
+        ["Set the type to ", ui("Icecast 2"), "."],
+        ["Host ", v(encoder.host), " — the name only, no http:// in front — and port ", v(String(encoder.port)), "."],
+        ["Mount ", v(encoder.mount), "."],
+        ["Login ", v(encoder.username), ", and your stream key as the password."],
+        ["Then turn on ", ui("Options → Enable Live Broadcasting"), " to connect."],
       ],
     },
     {
       name: "ffmpeg",
-      steps: [
-        `ffmpeg -re -i input.mp3 -c:a libmp3lame -b:a 128k -content_type audio/mpeg \\`,
-        `  -f mp3 icecast://source:KEY@${encoder.host}:${encoder.port}${encoder.mount}`,
-      ],
+      steps: [["Paste this into a terminal, with ", v("KEY"), " swapped for your stream key."]],
+      command:
+        `ffmpeg -re -i input.mp3 -c:a libmp3lame -b:a 128k -content_type audio/mpeg \\\n` +
+        `  -f mp3 icecast://${encoder.username}:KEY@${encoder.host}:${encoder.port}${encoder.mount}`,
     },
   ]
 
@@ -173,13 +182,26 @@ export function EncoderConnection({
           {clients.map((client) => (
             <div key={client.name}>
               <div className="text-xs font-medium">{client.name}</div>
-              <ul className="mt-1 flex flex-col gap-0.5 list-none p-0 m-0">
-                {client.steps.map((step) => (
-                  <li key={step} className="text-xs text-muted-foreground font-mono break-all">
-                    {step}
+              <ol className="mt-1 flex flex-col gap-1 list-none p-0 m-0">
+                {client.steps.map((step, i) => (
+                  <li key={i} className="text-xs leading-relaxed text-muted-foreground">
+                    {step.map((seg, j) =>
+                      typeof seg === "string" ? (
+                        seg
+                      ) : "value" in seg ? (
+                        <code key={j} className="font-mono break-all text-foreground">{seg.value}</code>
+                      ) : (
+                        <span key={j} className="font-medium text-foreground">{seg.ui}</span>
+                      ),
+                    )}
                   </li>
                 ))}
-              </ul>
+              </ol>
+              {client.command && (
+                <pre className="mt-1.5 overflow-x-auto rounded-md bg-background/60 px-2.5 py-2 font-mono text-xs leading-relaxed text-foreground whitespace-pre">
+                  {client.command}
+                </pre>
+              )}
             </div>
           ))}
         </div>

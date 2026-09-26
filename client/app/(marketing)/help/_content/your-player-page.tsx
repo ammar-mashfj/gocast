@@ -22,8 +22,8 @@ export default function Body() {
           fill those in: this is where a stranger decides whether to stay.
         </li>
         <li>
-          <strong>Your show times</strong>, if you have set any on your settings
-          page &mdash; &ldquo;Mon&ndash;Fri, 7&ndash;9pm&rdquo; and the like.
+          <strong>Your show times</strong>, if you have set any under{" "}
+          <strong>When you&rsquo;re live</strong>{" "}on the Schedule page &mdash; &ldquo;Mon&ndash;Fri, 7&ndash;9pm&rdquo; and the like.
           These are advertising, not automation: they tell listeners when to
           come back and change nothing about what your station plays.
         </li>
@@ -63,11 +63,12 @@ export default function Body() {
 
       <h2>Show Times Are Not the Schedule</h2>
       <p>
-        Two different things share a word. Show times, on your settings page,
-        are text for listeners. The{" "}
-        <Link href="/help/schedule-playlists-by-time">AutoDJ schedule</Link>{" "}is
-        what your station actually plays, and listeners never see it. They share
-        a timezone and nothing else.
+        The Schedule page has two lanes. Show times, under{" "}
+        <strong>When you&rsquo;re live</strong>, are text for listeners. The{" "}
+        <Link href="/help/schedule-playlists-by-time">AutoDJ slots</Link>{" "}under{" "}
+        <strong>What AutoDJ plays</strong>{" "}decide what your station actually
+        plays, and listeners never see them. They share a timezone and nothing
+        else.
       </p>
     </>
   )

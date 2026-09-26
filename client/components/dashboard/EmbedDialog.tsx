@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -62,9 +63,14 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
         </DialogHeader>
 
         {/* Preview: the real thing, so what they see is what they get. Only
-            mounted while open so a closed dialog is not holding a player. */}
+            mounted while open so a closed dialog is not holding a player. The
+            well holds the snippet's height before the iframe paints, so the
+            snippet below does not jump when the player loads. */}
         {open && (
-          <div className="rounded-xl overflow-hidden border border-border bg-background">
+          <div
+            className="overflow-hidden rounded-lg border border-border bg-background"
+            style={{ height: EMBED_HEIGHT }}
+          >
             <iframe
               src={embedUrl(slug)}
               title={`${stationName} on GoCast`}
@@ -76,20 +82,33 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
           </div>
         )}
 
-        <div className="relative">
-          <pre className="rounded-lg border border-border bg-muted/40 p-3 pr-24 text-[11px] leading-relaxed text-muted-foreground overflow-x-auto whitespace-pre">
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
+          {/* Mono because it is markup to be pasted verbatim. The copy button
+              used to float over the top-right of this block, which hid the end
+              of the first line on a phone; it lives in the footer now. */}
+          <pre
+            aria-label="Embed code"
+            className="overflow-x-auto whitespace-pre rounded-lg border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed text-text-secondary"
+          >
             <code>{snippet}</code>
           </pre>
-          <Button size="sm" variant="secondary" className="absolute top-2 right-2" onClick={copy}>
-            {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
-            {copied ? "Copied" : "Copy"}
-          </Button>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            The width stretches to fit its container. Change{" "}
+            <code className="font-mono text-foreground/80">height</code> for more
+            room. The embed goes offline if the station leaves Pro.
+          </p>
         </div>
 
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Width stretches to its container; change <code className="text-foreground/80">height</code> if
-          you want more room. The embed goes offline if the station leaves Pro.
-        </p>
+        <DialogFooter>
+          <Button onClick={copy} className="w-full sm:w-auto">
+            {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
+            {copied ? "Copied" : "Copy code"}
+          </Button>
+        </DialogFooter>
+        {/* The button's label changes silently for a screen reader; this says it. */}
+        <span className="sr-only" aria-live="polite">
+          {copied ? "Embed code copied" : ""}
+        </span>
       </DialogContent>
     </Dialog>
   )

@@ -35,6 +35,25 @@
   --color-text-faint: #7d7d87;
   --color-border-subtle: #27272a;
   --color-dark: #08080d;
+
+  /* Station-state vocabulary (PRODUCT.md, DESIGN.md "The One Meaning Rule").
+     Every hue in the dashboard answers one question and nothing else:
+       live   — a person is on the mic / broadcasting (emerald)
+       on-air — AutoDJ is playing (violet)
+       mic    — the studio mic is open, your voice is going out (sky)
+       fault  — listeners are not hearing what you think (red)
+       pro    — a Pro plan capability (amber)
+     Red is reserved for faults. A healthy broadcast is never drawn in it. */
+  --color-live: #34d399;
+  --color-live-text: #6ee7b7;
+  --color-on-air: #a78bfa;
+  --color-mic: #38bdf8;
+  --color-mic-text: #7dd3fc;
+  --color-fault: var(--destructive);
+  --color-fault-text: #fca5a5;
+  --color-pro: #f59e0b;
+  --color-pro-text: #fcd34d;
+  --color-panel: #101018;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -136,37 +155,43 @@
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: #8b5cf6;
+  /* The dashboard shares the marketing site's ground: a near-black room with
+     opaque desk panels one step above it (DESIGN.md). Neutrals carry a trace
+     of the violet so panels and ground read as one material. */
+  --background: #08080d;
+  --foreground: #fafafa;
+  --card: #101018;
+  --card-foreground: #fafafa;
+  --popover: #13131d;
+  --popover-foreground: #fafafa;
+  /* #8b5cf6 with white text is 4.2:1 and fails AA at button size. This is
+     the same violet a step deeper (4.9:1). Violet TEXT uses violet-muted,
+     never this token — see text-violet-muted across the dashboard. */
+  --primary: #7f4ff0;
   --primary-foreground: #ffffff;
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --secondary: #1b1b26;
+  --secondary-foreground: #fafafa;
+  --muted: #181822;
+  --muted-foreground: #a1a1aa;
+  --accent: #1d1d29;
+  --accent-foreground: #fafafa;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: rgb(255 255 255 / 9%);
+  --input: rgb(255 255 255 / 13%);
+  --ring: #c4b5fd;
   --chart-1: oklch(0.785 0.115 274.713);
   --chart-2: oklch(0.585 0.233 277.117);
   --chart-3: oklch(0.511 0.262 276.966);
   --chart-4: oklch(0.457 0.24 277.023);
   --chart-5: oklch(0.398 0.195 277.366);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.585 0.233 277.117);
-  --sidebar-primary-foreground: oklch(0.962 0.018 272.314);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: #0b0b12;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #7f4ff0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #17171f;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: rgb(255 255 255 / 7%);
+  --sidebar-ring: #c4b5fd;
 }
 
 @layer base {
@@ -188,4 +213,104 @@
 html, body, #root {
   background: #08080d;
   min-height: 100vh;
+}
+
+/* The parts of the page no component draws still belong to the system. */
+.dark ::selection {
+  background: rgb(139 92 246 / 0.35);
+  color: #fafafa;
+}
+.dark {
+  caret-color: #c4b5fd;
+  scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+}
+.dark :focus-visible {
+  outline-color: #c4b5fd;
+}
+
+/* ── Motion grammar ───────────────────────────────────────────────────────
+   One curve for the whole dashboard: exponential ease-out, 200–500ms, and
+   only on a change of state. Nothing enters on page load. */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Running-order rows glide to their new places on remove, clear and undo
+   (FileQueue wraps those in a view transition; rows carry their own names). */
+::view-transition-group(*) {
+  animation-duration: 260ms;
+  animation-timing-function: var(--ease-out-expo);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* A state chip that has just changed settles into place. */
+@keyframes lamp-settle {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+.lamp-settle {
+  animation: lamp-settle 220ms var(--ease-out-expo);
+}
+
+/* The end-of-show card: the panel rises, then its numbers land in turn. */
+@keyframes signoff-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.signoff-rise {
+  animation: signoff-rise 500ms var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp-settle,
+  .signoff-rise {
+    animation: none;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* ── The sheet ────────────────────────────────────────────────────────────
+   DESIGN.md: pages read as one continuous sheet, divided by hairline rules,
+   not stacked boxes. Inside `.sheet`, a standard Card drops its fill, ring,
+   radius and padding and sits on the ground; the page's own rules do the
+   separating. The one raised panel per page (the overview's control strip,
+   the AutoDJ track table) is not a Card, so it keeps its edge and reads as
+   the instrument everything else describes. Unlayered on purpose: it has to
+   beat the Card's utility classes. Dialogs portal out of the sheet, so their
+   cards keep their chrome. */
+.sheet [data-slot="card"] {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding-block: 0;
+  overflow: visible;
+}
+.sheet [data-slot="card-header"],
+.sheet [data-slot="card-content"],
+.sheet [data-slot="card-footer"] {
+  padding-inline: 0;
+}
+
+/* A stack of sections on the sheet: each card after the first is opened by
+   a hairline rule, so un-boxed sections still read as separate. Direct
+   children only: a card nested inside a section never draws one. */
+.sheet-rules > [data-slot="card"]:not(:first-child) {
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+  padding-top: 1.5rem;
+}
+
+/* Toasts clear the broadcast mini controller (BroadcastMiniController), which
+   sits in the same bottom-right corner: 64px tall, 20px up on desktop and
+   12px + the safe area on phones, plus a 12px gap. !important because sonner
+   writes these offsets as inline custom properties on the toaster itself. */
+html[data-mini-controller] [data-sonner-toaster] {
+  --offset-bottom: 96px !important;
+  --mobile-offset-bottom: calc(88px + env(safe-area-inset-bottom)) !important;
 }

@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dialog"
 import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
 import type { User } from "@/interfaces/User"
+import { usePlan, useAutoDjLocked } from "@/contexts/AccountContext"
+import { useProRequest } from "@/contexts/ProRequestContext"
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -165,9 +167,9 @@ export default function SettingsPage() {
 
   if (!user) {
     return (
-      <div className="max-w-2xl mx-auto flex flex-col gap-6">
+      <div className="max-w-3xl flex flex-col gap-6">
         <div className="flex flex-col gap-1">
-          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-8 w-28" />
           <Skeleton className="h-4 w-40" />
         </div>
         {[0, 1].map((i) => (
@@ -190,7 +192,7 @@ export default function SettingsPage() {
           </Card>
         ))}
         <Separator />
-        <Card className="border-destructive/30 bg-destructive/[0.03]">
+        <Card className="border-fault/30 bg-fault/[0.03]">
           <CardHeader className="flex flex-col gap-1.5">
             <Skeleton className="h-5 w-28" />
             <Skeleton className="h-4 w-72 max-w-full" />
@@ -209,16 +211,19 @@ export default function SettingsPage() {
   const confirmMatches = deleteConfirm.trim().toLowerCase() === user.email.toLowerCase()
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col gap-6">
+    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-xl font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your account.</p>
+        {/* "Account", not "Settings": the station has its own "Station
+            settings" page one click away in the same sidebar, and two pages
+            titled Settings left nobody sure which one they were on. */}
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Account</h1>
       </div>
+
+      <PlanCard />
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Profile</CardTitle>
-          <CardDescription>Your name and email.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleProfileSubmit} className="flex flex-col gap-4">
@@ -250,7 +255,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Confirm your password to change the email on your account.
                 </p>
-                {profileError && <p className="text-xs text-destructive">{profileError}</p>}
+                {profileError && <p className="text-xs text-fault-text">{profileError}</p>}
               </div>
             )}
 
@@ -286,18 +291,18 @@ export default function SettingsPage() {
               <Label htmlFor="new-password-confirmation">Confirm new password</Label>
               <Input id="new-password-confirmation" type="password" value={newPasswordConfirmation} onChange={(e) => setNewPasswordConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" />
             </div>
-            <Button type="submit" disabled={passwordLoading} className="self-start">
+            {/* Outline: Profile's "Save changes" is this view's one filled
+                button (DESIGN.md). */}
+            <Button type="submit" variant="outline" disabled={passwordLoading} className="self-start">
               {passwordLoading ? "Updating…" : hasPassword ? "Update password" : "Set password"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      <Separator />
-
-      <Card className="border-destructive/30 bg-destructive/[0.03]">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-base text-destructive flex items-center gap-2">
+          <CardTitle className="text-base text-fault-text flex items-center gap-2">
             <IconAlertTriangle size={16} />
             Danger zone
           </CardTitle>
@@ -306,7 +311,9 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+          {/* Outline, not red: this opens the confirm. The only red button in
+              the flow is the one that actually deletes. */}
+          <Button variant="outline" onClick={() => setDeleteOpen(true)}>
             Delete account
           </Button>
         </CardContent>
@@ -318,23 +325,34 @@ export default function SettingsPage() {
         onCancel={() => setVerifyOpen(false)}
       />
 
-      <Dialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); if (!o) setDeleteConfirm("") }}>
-        <DialogContent>
+      {/* Not dismissable mid-delete: the request is in flight and success
+          signs the account out underneath the dialog. */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(o) => {
+          if (deleteLoading) return
+          setDeleteOpen(o)
+          if (!o) setDeleteConfirm("")
+        }}
+      >
+        <DialogContent showCloseButton={!deleteLoading}>
           <DialogHeader>
             <DialogTitle>Delete your account?</DialogTitle>
             <DialogDescription>
-              This is permanent and cannot be undone.
+              This is permanent and can&apos;t be undone.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleDelete} className="flex flex-col gap-3">
+          <form onSubmit={handleDelete} className="flex flex-col gap-4">
             {/* Spell out the consequences rather than saying "your data" — the
                 dead embed links and the unrecoverable stations are the parts
                 people don't think of until after. Deliberately says "lose
                 access to" rather than "erase": deletion soft-deletes these
                 rows, so claiming erasure here would be a promise the API
                 doesn't keep. */}
-            <div className="rounded-md border border-destructive/30 bg-destructive/[0.04] px-3 py-2.5 text-sm">
-              <p className="font-medium text-destructive">This will immediately:</p>
+            {/* Plain text, not a red box: the consequences are information,
+                and the red belongs to the confirm alone. */}
+            <div className="text-sm">
+              <p className="font-medium">This will immediately:</p>
               <ul className="mt-1.5 list-disc pl-4 text-muted-foreground space-y-0.5">
                 <li>Take every station you own off air, for good — you won&apos;t be able to bring them back</li>
                 <li>Break every stream URL and embed you&apos;ve shared</li>
@@ -344,8 +362,8 @@ export default function SettingsPage() {
             {/* Typed confirmation instead of a password: Google accounts have
                 no password to type, and the server accepts this same value for
                 every account. */}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="delete-confirm">
+            <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+              <Label htmlFor="delete-confirm" className="block leading-relaxed">
                 Type <span className="font-mono font-semibold text-foreground break-all">{user.email}</span> to confirm
               </Label>
               <Input
@@ -361,7 +379,7 @@ export default function SettingsPage() {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" disabled={deleteLoading} onClick={() => setDeleteOpen(false)}>Cancel</Button>
               <Button type="submit" variant="destructive" disabled={deleteLoading || !confirmMatches}>
                 {deleteLoading ? "Deleting…" : "Delete forever"}
               </Button>
@@ -370,5 +388,46 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/**
+ * Which plan this account is on, and the one thing it gates that people ask
+ * about. Nothing on the Account page used to say, so a Pro owner had no way
+ * to confirm they were on Pro. Renders nothing until the plan is known,
+ * rather than guessing Free at a paying customer.
+ */
+function PlanCard() {
+  const plan = usePlan()
+  const locked = useAutoDjLocked()
+  const proRequest = useProRequest()
+  if (!plan) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Plan</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{plan.name}</span>
+          <p className="text-sm text-muted-foreground">
+            {locked
+              ? `Up to ${plan.max_listeners.toLocaleString()} listeners at once. Your station plays only while you're broadcasting.`
+              : `Up to ${plan.max_listeners.toLocaleString()} listeners at once, with AutoDJ keeping your station on air when you're not live.`}
+          </p>
+        </div>
+        {locked && (
+          <Button
+            variant="outline"
+            className="self-start sm:self-auto"
+            onClick={proRequest.open}
+            disabled={proRequest.requested}
+          >
+            {proRequest.requested ? "Request sent" : "Request Pro"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   )
 }

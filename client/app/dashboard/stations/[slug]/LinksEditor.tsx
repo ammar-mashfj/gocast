@@ -176,7 +176,7 @@ export function LinksEditor({ station }: { station: Station }) {
           <IconPlus data-icon="inline-start" />
           Add link
         </Button>
-        <Button type="button" onClick={save} disabled={saving}>
+        <Button type="button" variant="outline" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save links"}
         </Button>
       </div>

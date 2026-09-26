@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
+import { useConfirm } from "@/components/ui/use-confirm"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
@@ -61,6 +62,7 @@ interface Props {
 }
 
 export function JinglesDialog({ open, onClose, station, onStorageChange }: Props) {
+  const [confirm, confirmDialog] = useConfirm()
   const router = useRouter()
   const [enabled, setEnabled] = useState(station.jingles_enabled)
   const [mode, setMode] = useState(station.jingle_mode)
@@ -70,6 +72,10 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   const [everyTracks, setEveryTracks] = useState(station.jingle_every_tracks)
   const [jingles, setJingles] = useState<Track[]>([])
   const [loading, setLoading] = useState(true)
+  // Inline rather than a toast alone: with the list empty, a failed load
+  // looked exactly like "No jingles yet" once the toast had gone.
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -82,6 +88,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
 
     let cancelled = false
     setLoading(true)
+    setLoadError(false)
     api
       .get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${station.slug}/tracks`, {
         params: { kind: "jingle" },
@@ -90,7 +97,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         if (!cancelled) setJingles(data.data)
       })
       .catch(() => {
-        if (!cancelled) toast.error("Couldn't load your jingles.")
+        if (!cancelled) setLoadError(true)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -99,7 +106,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     return () => {
       cancelled = true
     }
-  }, [open, station.slug])
+  }, [open, station.slug, reloadKey])
 
   // Re-sync when the dialog is reopened after a save elsewhere (router.refresh
   // gives us a fresh station prop, but this component stays mounted).
@@ -136,8 +143,13 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
 
   const handleDelete = useCallback(
     async (track: Track) => {
-      // TODO: replace with shadcn AlertDialog (same as the rotation list)
-      if (!window.confirm(`Delete "${track.title}"? This can't be undone.`)) return
+      const ok = await confirm({
+        title: `Delete “${track.title}”?`,
+        description: "It stops playing between tracks straight away. This can't be undone.",
+        confirmLabel: "Delete jingle",
+        destructive: true,
+      })
+      if (!ok) return
 
       setJingles((prev) => prev.filter((t) => t.id !== track.id))
       onStorageChange(-track.file_size_bytes)
@@ -146,13 +158,13 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         await api.delete(`/tracks/${track.id}`)
       } catch {
         toast.error("Delete failed. Refreshing…")
-        const { data } = await api.get<{ data: Track[] }>(`/stations/${station.slug}/tracks`, {
-          params: { kind: "jingle" },
-        })
-        setJingles(data.data)
+        // Back to the server's list, through the same load as opening does,
+        // so a refetch that also fails lands on the inline error rather than
+        // an unhandled rejection.
+        setReloadKey((k) => k + 1)
       }
     },
-    [station.slug, onStorageChange],
+    [onStorageChange, confirm],
   )
 
   async function handleSave() {
@@ -189,7 +201,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   // Turning jingles on with an empty list is a setting that does nothing, and
   // the station gets restarted for it. Say so rather than letting the owner
   // discover the silence.
-  const enabledButEmpty = enabled && !loading && jingles.length === 0
+  const enabledButEmpty = enabled && !loading && !loadError && jingles.length === 0
 
   const settingsChanged =
     enabled !== station.jingles_enabled ||
@@ -203,8 +215,10 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         <DialogHeader>
           <DialogTitle>Jingles</DialogTitle>
           <DialogDescription>
-            Station IDs and liners, played between AutoDJ tracks. They never cut into a
-            song — the next one waits for the current track to finish.
+            Short clips that play between AutoDJ songs, like &ldquo;You&apos;re
+            listening to&hellip;&rdquo;. Radio calls them station IDs
+            and liners. They never cut into a song: each waits for the current
+            track to finish.
           </DialogDescription>
         </DialogHeader>
 
@@ -292,112 +306,139 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         </FieldGroup>
 
         {enabledButEmpty && (
-          <p className="text-xs text-destructive">
+          <p role="status" className="text-xs text-fault-text">
             You haven&apos;t uploaded any jingles yet, so nothing will play.
           </p>
         )}
 
-        {/* Drop zone */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            if (!locked) setDragOver(true)
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragOver(false)
-            if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
-          }}
-          className={`flex flex-col items-center gap-2 rounded-lg border border-dashed py-6 text-center transition-colors ${
-            dragOver ? "border-primary bg-primary/5" : "border-border"
-          }`}
-        >
-          {/* While files are moving the meter replaces the icon and the
-              headline outright — the spinner said nothing the bar doesn't say
-              better, and stacking both left the zone twice as tall. */}
-          {progress ? (
-            <UploadProgressBar progress={progress} className="w-full px-4 text-left" />
-          ) : (
-            <>
-              <IconUpload size={22} className="text-muted-foreground" />
-              <div className="text-sm font-medium">
-                {locked
-                  ? "Jingles need Pro"
-                  : dragOver
-                    ? "Drop to upload"
-                    : "Drag jingles here"}
-              </div>
-            </>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading || locked}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Browse files
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={AUDIO_ACCEPT}
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files) void upload(e.target.files)
-              e.target.value = ""
-            }}
-          />
-        </div>
+        {/* The library half, split from the settings by a hairline rather
+            than boxed: the dialog is already the panel. */}
+        <section aria-labelledby="jingles-list-heading" className="flex flex-col gap-3 border-t border-border pt-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 id="jingles-list-heading" className="text-sm font-medium">
+              Your jingles
+            </h3>
+            {!loading && !loadError && jingles.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {jingles.length} {jingles.length === 1 ? "jingle" : "jingles"}
+              </span>
+            )}
+          </div>
 
-        {/* Jingle list. No drag handles: Liquidsoap plays these in random
-            order, so an ordering control here would be a lie. */}
-        <div className="max-h-56 overflow-y-auto">
-          {loading ? (
-            <div className="flex justify-center py-6">
-              <IconLoader2 size={18} className="animate-spin text-muted-foreground" />
-            </div>
-          ) : jingles.length === 0 ? (
-            <div className="flex flex-col items-center gap-1 py-6 text-center">
-              <IconMicrophone size={22} className="text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">
-                No jingles yet. A station ID is usually 5–15 seconds.
-              </p>
-            </div>
-          ) : (
-            jingles.map((jingle) => (
-              <div
-                key={jingle.id}
-                className="flex items-center gap-2 border-b border-border px-1 py-2 last:border-b-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{jingle.title}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {jingle.original_filename}
-                  </div>
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              if (!locked) setDragOver(true)
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragOver(false)
+              if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
+            }}
+            className={`flex flex-col items-center gap-2 rounded-lg border border-dashed py-5 text-center transition-colors ${
+              dragOver ? "border-violet/60 bg-violet-full/[0.06]" : "border-white/[0.12]"
+            }`}
+          >
+            {/* While files are moving the meter replaces the icon and the
+                headline outright — the spinner said nothing the bar doesn't say
+                better, and stacking both left the zone twice as tall. */}
+            {progress ? (
+              <UploadProgressBar progress={progress} className="w-full px-4 text-left" />
+            ) : (
+              <>
+                <IconUpload size={22} className="text-muted-foreground" />
+                <div className="text-sm font-medium">
+                  {locked
+                    ? "Jingles need Pro"
+                    : dragOver
+                      ? "Drop to upload"
+                      : "Drag jingles here"}
                 </div>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {jingle.duration_seconds > 0
-                    ? formatDuration(Math.round(jingle.duration_seconds))
-                    : "—"}
-                </span>
-                <span className="hidden shrink-0 text-xs text-muted-foreground tabular-nums sm:inline">
-                  {formatBytes(jingle.file_size_bytes)}
-                </span>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={`Delete ${jingle.title}`}
-                  onClick={() => void handleDelete(jingle)}
-                >
-                  <IconTrash size={16} className="text-destructive" />
+              </>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={uploading || locked}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Browse files
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={AUDIO_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) void upload(e.target.files)
+                e.target.value = ""
+              }}
+            />
+          </div>
+
+          {/* Jingle list. No drag handles: Liquidsoap plays these in random
+              order, so an ordering control here would be a lie. The floor
+              height is the empty state's, so the loading → loaded swap does
+              not move the footer. */}
+          <div className="max-h-56 min-h-24 overflow-y-auto">
+            {loading ? (
+              <div role="status" className="flex min-h-24 items-center justify-center">
+                <IconLoader2 size={18} className="animate-spin text-muted-foreground" />
+                <span className="sr-only">Loading jingles</span>
+              </div>
+            ) : loadError ? (
+              <div role="alert" className="flex min-h-24 flex-col items-center justify-center gap-2 text-center">
+                <p className="text-xs text-fault-text">Couldn&apos;t load your jingles.</p>
+                <Button type="button" variant="outline" onClick={() => setReloadKey((k) => k + 1)}>
+                  Try again
                 </Button>
               </div>
-            ))
-          )}
-        </div>
+            ) : jingles.length === 0 ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-1 text-center">
+                <IconMicrophone size={22} className="text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  No jingles yet. A station ID is usually 5–15 seconds.
+                </p>
+              </div>
+            ) : (
+              jingles.map((jingle) => (
+                <div
+                  key={jingle.id}
+                  className="flex items-center gap-2 border-b border-border px-1 py-2 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{jingle.title}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {jingle.original_filename}
+                    </div>
+                  </div>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                    {jingle.duration_seconds > 0
+                      ? formatDuration(Math.round(jingle.duration_seconds))
+                      : "—"}
+                  </span>
+                  <span className="hidden shrink-0 font-mono text-xs text-muted-foreground tabular-nums sm:inline">
+                    {formatBytes(jingle.file_size_bytes)}
+                  </span>
+                  {/* Neutral: it only opens a confirm. A red icon on every row
+                      made a healthy list look like a list of faults. */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Delete ${jingle.title}`}
+                    onClick={() => void handleDelete(jingle)}
+                  >
+                    <IconTrash size={16} />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
@@ -408,6 +449,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
           </Button>
         </DialogFooter>
       </DialogContent>
+      {confirmDialog}
     </Dialog>
   )
 }

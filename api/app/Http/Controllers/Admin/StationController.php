@@ -42,6 +42,12 @@ class StationController extends Controller
         // checkbox in the form, and an absent checkbox posts nothing.
         $featuredOnly = $request->query('featured') === '1';
 
+        // Set by the Powered on / Live now tiles. Combines with `featured` and
+        // the search; anything unrecognised means no state filter.
+        $state = in_array($request->query('state'), ['running', 'live'], true)
+            ? (string) $request->query('state')
+            : null;
+
         $stations = Station::query()
             ->with(['user:id,email,plan_id,plan_expires_at', 'user.plan:id,name,slug'])
             ->withCount('tracks')
@@ -56,6 +62,8 @@ class StationController extends Controller
                     ->orWhereHas('user', fn ($owner) => $owner->where('email', 'like', "%{$search}%"))
             ))
             ->when($featuredOnly, fn ($query) => $query->featured())
+            ->when($state === 'running', fn ($query) => $query->running())
+            ->when($state === 'live', fn ($query) => $query->live())
             ->latest()
             ->paginate(25)
             ->withQueryString();
@@ -64,6 +72,7 @@ class StationController extends Controller
             'stations' => $stations,
             'search' => $search,
             'featuredOnly' => $featuredOnly,
+            'state' => $state,
             'totalStations' => Station::count(),
             'runningStations' => Station::running()->count(),
             'liveStations' => Station::live()->count(),

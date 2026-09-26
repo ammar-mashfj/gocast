@@ -82,7 +82,7 @@ export function NotificationItem({
           </p>
         )}
 
-        <p className="mt-1 text-[0.6875rem] text-muted-foreground/80">
+        <p className="mt-1 text-[0.6875rem] text-muted-foreground">
           {formatDate(notification.created_at, "relative")}
         </p>
       </div>

@@ -98,35 +98,45 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto -mx-1 px-1">
-          {tracks.map((track) => (
-            <div key={track.id} className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm truncate">{track.title}</div>
-                {/* The filename is often the only clue to what an untagged
-                    file actually is — the title may just be the filename
-                    stem the importer fell back to. */}
-                <div className="text-xs text-muted-foreground truncate">
-                  {track.original_filename}
+        {tracks.length === 0 ? (
+          // The caller only offers this with untagged rows, but the list is
+          // live — it shrinks as saves land — so an empty one gets a sentence
+          // rather than a blank gap between the header and the buttons.
+          <p role="status" className="border-t border-border py-6 text-center text-xs text-muted-foreground">
+            Every track in view has an artist now.
+          </p>
+        ) : (
+          <div className="-mx-1 flex max-h-[50vh] flex-col divide-y divide-border overflow-y-auto border-y border-border px-1">
+            {tracks.map((track) => (
+              <div key={track.id} className="flex items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm truncate">{track.title}</div>
+                  {/* The filename is often the only clue to what an untagged
+                      file actually is — the title may just be the filename
+                      stem the importer fell back to. */}
+                  <div className="text-xs text-muted-foreground truncate">
+                    {track.original_filename}
+                  </div>
                 </div>
+                <Input
+                  value={values[track.id] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [track.id]: e.target.value }))}
+                  placeholder="Artist"
+                  aria-label={`Artist for ${track.title}`}
+                  className="h-9 w-36 shrink-0 text-sm sm:w-44"
+                  disabled={saving}
+                />
               </div>
-              <Input
-                value={values[track.id] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [track.id]: e.target.value }))}
-                placeholder="Artist"
-                className="h-8 w-40 shrink-0 text-sm"
-                disabled={saving}
-              />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={save} disabled={filled.length === 0 || saving}>
-            {saving && <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />}
+            {saving && <IconLoader2 className="animate-spin" data-icon="inline-start" />}
             {saving
               ? "Saving…"
               : filled.length === 0

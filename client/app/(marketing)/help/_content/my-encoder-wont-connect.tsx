@@ -28,7 +28,7 @@ export default function Body() {
       <h2>3. The Station Is Off Air</h2>
       <p>
         Unlike the browser studio, an encoder does not switch your station on.
-        Put it on air from the dashboard first, then connect.
+        Press Start AutoDJ on the dashboard first, then connect.
       </p>
       <p>
         There is a related trap: a station that is on air with nothing attached

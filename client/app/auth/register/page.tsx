@@ -408,7 +408,7 @@ function RegisterForm() {
           Already have an account?{" "}
           <Link
             href="/auth/login"
-            className="text-primary underline-offset-4 hover:underline text-sm"
+            className="text-violet-muted underline-offset-4 hover:underline text-sm"
           >
             Sign in
           </Link>

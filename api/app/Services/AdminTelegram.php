@@ -10,7 +10,8 @@ use App\Models\WaitlistEntry;
 
 /**
  * Operator alerts to a single admin Telegram chat: new registrations, access
- * requests, new stations and every broadcast start.
+ * requests, new stations, every broadcast start, and inbound email (from the
+ * Resend webhook, see App\Webhooks\Resend\EmailReceived).
  *
  * Wired to model `created` / `saved` hooks in AppServiceProvider rather than
  * to controllers, so every path that creates the row is covered — email and
@@ -94,6 +95,74 @@ class AdminTelegram
             .'<a href="'.$this->e($this->stationUrl($station)).'">Listen</a>'
             .' · <a href="'.$this->e(route('admin.stations.show', $station)).'">Admin</a>'
         );
+    }
+
+    /**
+     * An inbound email, from the Resend `email.received` webhook. `$email` is
+     * the Received Emails API object (or, failing that, the webhook metadata).
+     *
+     * @param  array<string, mixed>  $email
+     */
+    public function emailReceived(array $email): void
+    {
+        $to = implode(', ', array_map('strval', (array) ($email['to'] ?? [])));
+        $subject = trim((string) ($email['subject'] ?? '')) ?: '(no subject)';
+        $body = $this->emailBodyText($email);
+
+        // Telegram caps a message at 4096 characters after entity parsing;
+        // 3000 of body leaves room for the header lines around it.
+        $limit = 3000;
+        $truncated = mb_strlen($body) > $limit;
+        $body = $truncated ? rtrim(mb_substr($body, 0, $limit)) : $body;
+
+        $attachments = collect((array) ($email['attachments'] ?? []))
+            ->map(fn ($a) => is_array($a) ? (string) ($a['filename'] ?? '') : '')
+            ->filter()
+            ->values();
+
+        $failedAuth = collect((array) ($email['authentication'] ?? []))
+            ->filter(fn ($result) => is_string($result) && $result !== 'pass')
+            ->keys()
+            ->map(fn ($check) => strtoupper((string) $check));
+
+        $this->send(
+            "📨 <b>Email received</b>\n"
+            .'From: '.$this->e((string) ($email['from'] ?? 'unknown'))."\n"
+            .($to !== '' ? 'To: '.$this->e($to)."\n" : '')
+            .'Subject: <b>'.$this->e($subject)."</b>\n"
+            .($failedAuth->isNotEmpty() ? '⚠️ Failed '.$this->e($failedAuth->implode('/'))."\n" : '')
+            .($attachments->isNotEmpty() ? '📎 '.$this->e($attachments->implode(', '))."\n" : '')
+            .($body !== '' ? "\n".$this->e($body).($truncated ? "\n\n<i>… truncated</i>" : '') : '')
+        );
+    }
+
+    /**
+     * Plain text for an inbound email: `text` when the sender included one,
+     * else the HTML part stripped down. Resend may return `html` as a data URI
+     * (`html_format: data_uri`), so that is unwrapped first.
+     *
+     * @param  array<string, mixed>  $email
+     */
+    private function emailBodyText(array $email): string
+    {
+        $text = trim((string) ($email['text'] ?? ''));
+
+        if ($text === '') {
+            $html = (string) ($email['html'] ?? '');
+
+            if (preg_match('/^data:[^,]*?(;base64)?,(.*)$/s', $html, $m)) {
+                $html = $m[1] !== '' ? (string) base64_decode($m[2]) : rawurldecode($m[2]);
+            }
+
+            $html = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', '', $html) ?? $html;
+            $html = preg_replace('#<br\s*/?>|</(p|div|li|tr|h[1-6])>#i', "\n", $html) ?? $html;
+            $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        $text = preg_replace("/[ \t\x{00A0}]+/u", ' ', $text) ?? $text;
+        $text = preg_replace("/\s*\n\s*\n\s*/", "\n\n", $text) ?? $text;
+
+        return trim($text);
     }
 
     private function send(string $html): void

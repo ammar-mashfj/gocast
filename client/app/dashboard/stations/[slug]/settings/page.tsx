@@ -1,6 +1,5 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import Link from "next/link"
-import { IconArrowLeft } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
@@ -9,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StationArtwork } from "@/components/StationArtwork"
 import { StationActions } from "../StationActions"
 import { DeleteStation } from "../DeleteStation"
-import { ScheduleEditor } from "../ScheduleEditor"
 import { LinksEditor } from "../LinksEditor"
 import { EncoderSection } from "./EncoderSection"
 
@@ -26,9 +24,13 @@ const STREAM_FORMAT = "MP3 128 kbps, 44.1 kHz"
  * It exists mostly to be somewhere the danger zone can live. A delete button
  * has no business on the page you open every day to check what's playing, but
  * it cannot simply be removed either — so it needed a destination, and the
- * read-only stream facts below (mount, format) had nowhere to live
+ * read-only stream facts below (stream path, format) had nowhere to live
  * at all and are genuinely asked about.
  */
+// Its own tab title: every dashboard tab used to read the marketing title,
+// so history and open tabs were indistinguishable.
+export const metadata: Metadata = { title: "Station settings" }
+
 export default async function StationSettingsPage({
   params,
 }: {
@@ -51,27 +53,26 @@ export default async function StationSettingsPage({
   const playerUrl = `${env.appUrl}/station/${station.slug}`
 
   const streamFacts: Array<{ label: string; value: string; hint?: string }> = [
-    { label: "Player URL", value: playerUrl },
+    { label: "Player URL", value: playerUrl, hint: "The link to share. Listeners press play here." },
     {
-      label: "Icecast mount",
+      label: "Stream path",
       value: station.icecast_mount,
-      hint: "Only exists while the station is on air.",
+      hint: "The raw audio feed, for radio apps and smart speakers. Only exists while the station is on air.",
     },
-    { label: "Format", value: STREAM_FORMAT, hint: "The same for every station." },
+    {
+      label: "Format",
+      value: STREAM_FORMAT,
+      hint: "The audio quality listeners get. The same for every station.",
+    },
   ]
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col gap-6">
-      <div>
-        <Link
-          href={`/dashboard/stations/${station.slug}`}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground no-underline hover:text-foreground transition-colors mb-3"
-        >
-          <IconArrowLeft size={14} />
-          Back to {station.name}
-        </Link>
-        <h1 className="font-display text-2xl font-semibold">Station settings</h1>
-      </div>
+    // Left-aligned with a reading-width cap, like every other dashboard page.
+    // It used to be a centred max-w-2xl column, the only page in the shell
+    // that moved its left edge away from the sidebar. No back link either:
+    // the sidebar and breadcrumb already name the station.
+    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Station settings</h1>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -90,7 +91,7 @@ export default async function StationSettingsPage({
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-medium truncate">{station.name}</span>
               {station.genre && (
-                <Badge variant="secondary" className="shrink-0">{station.genre}</Badge>
+                <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
               )}
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
@@ -104,30 +105,7 @@ export default async function StationSettingsPage({
         </CardContent>
       </Card>
 
-      {/* Schedule — a claim, not a control. Nothing here starts a station or
-          changes what plays; it is the only way the product can tell a
-          listener when to come back.
-
-          The id is a deep-link target for the setup checklist on the station
-          page; scroll-mt keeps the heading off the top edge on arrival. */}
-      <Card id="schedule" className="scroll-mt-6">
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Show times</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            The times you tell listeners you&apos;re live. To change what AutoDJ plays by time of
-            day, use{" "}
-            <Link href={`/dashboard/stations/${station.slug}/schedule`} className="text-primary hover:underline">
-              Schedule
-            </Link>{" "}
-            under AutoDJ.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <ScheduleEditor station={station} />
-        </CardContent>
-      </Card>
-
-      {/* Links — like the schedule, a claim rather than a control. Nothing
+      {/* Links — a claim rather than a control. Nothing
           here touches the audio path; it is the only way a listener gets from
           the player to anywhere else the station exists. */}
       <Card id="links" className="scroll-mt-6">
@@ -162,7 +140,7 @@ export default async function StationSettingsPage({
           Stream is where listeners come OUT, this is how audio gets IN. */}
       <EncoderSection station={station} />
 
-      <DeleteStation slug={station.slug} />
+      <DeleteStation slug={station.slug} name={station.name} />
     </div>
   )
 }

@@ -13,10 +13,22 @@ import {
   IconLoader2,
   IconPlaylist,
   IconChartBar,
-  IconSparkles,
   IconCheck,
   IconHelpCircle,
+  IconMicrophone2,
+  IconCalendarTime,
 } from "@tabler/icons-react"
+import { useState } from "react"
+import { useBroadcast } from "@/contexts/BroadcastContext"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useSignOut } from "@/hooks/useSignOut"
 import {
   Sidebar,
@@ -100,21 +112,40 @@ const NAV_ITEMS: NavItem[] = [
     icon: IconRadio,
     // Every sub-page URL is also a /dashboard/stations/{slug} URL, so a plain
     // prefix match lights this up while the user is somewhere else. Each
-    // segment that has its own nav item has to be subtracted by name — /live
-    // and /studio are deliberately absent, they belong to this item.
+    // segment that has its own nav item has to be subtracted by name,
+    // including /live and /studio now that the Studio item owns them.
     isActive: (p) =>
       p === "/dashboard" ||
       (/^\/dashboard\/stations\/[^/]+/.test(p) &&
-        !/^\/dashboard\/stations\/[^/]+\/(library|schedule|audience|settings)/.test(p)),
+        !/^\/dashboard\/stations\/[^/]+\/(library|schedule|audience|settings|live|studio)/.test(p)),
+  },
+  {
+    // The product's core screen had no way in from the nav: going live meant
+    // finding the button on the overview. Idle, this opens pre-flight; while
+    // a broadcast runs it goes straight to the studio (see stationHref use).
+    title: "Studio",
+    href: "/dashboard",
+    stationHref: (slug) => `/dashboard/stations/${slug}/live`,
+    icon: IconMicrophone2,
+    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/(live|studio)/.test(p),
   },
   {
     title: "AutoDJ",
     href: "/dashboard/library",
     stationHref: (slug) => `/dashboard/stations/${slug}/library`,
     icon: IconPlaylist,
-    isActive: (p) =>
-      p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/(library|schedule)/.test(p),
+    isActive: (p) => p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/library/.test(p),
     lock: "autodj",
+  },
+  {
+    // Its own item, not a tab under AutoDJ: it carries show times too, which
+    // every plan has, and it answers the one question a volunteer arrives
+    // with — "what's on this week?" — without knowing which feature owns it.
+    title: "Schedule",
+    href: "/dashboard",
+    stationHref: (slug) => `/dashboard/stations/${slug}/schedule`,
+    icon: IconCalendarTime,
+    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/schedule/.test(p),
   },
   {
     title: "Audience",
@@ -147,7 +178,8 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname()
-  const { signOut, signingOut } = useSignOut()
+  const { signOut, signingOut, isBroadcasting } = useSignOut()
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   const plan = usePlan()
   const station = useCurrentStation()
 
@@ -157,6 +189,8 @@ export function AppSidebar({ user }: AppSidebarProps) {
   const locked = useAutoDjLocked()
   const audienceLocked = useAudienceLocked()
   const proRequest = useProRequest()
+  const { state: broadcastState, stationSlug: liveSlug } = useBroadcast()
+  const broadcasting = broadcastState === "live" || broadcastState === "reconnecting"
 
   return (
     <Sidebar>
@@ -174,12 +208,15 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Menu</SidebarGroupLabel>
+          <SidebarGroupLabel className="sr-only">Station</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ITEMS.map((item) => {
                 const active = item.isActive ? item.isActive(pathname) : pathname.startsWith(item.href)
-                const href = station && item.stationHref ? item.stationHref(station.slug) : item.href
+                const studioLive = item.title === "Studio" && broadcasting && !!liveSlug
+                const href = studioLive
+                  ? `/dashboard/stations/${liveSlug}/studio`
+                  : station && item.stationHref ? item.stationHref(station.slug) : item.href
                 return (
                   // Keyed by title, not href: several items share a slugless
                   // fallback destination (Overview, Audience and Settings all
@@ -189,12 +226,15 @@ export function AppSidebar({ user }: AppSidebarProps) {
                       <Link href={href} className="cursor-pointer">
                         <item.icon size={18} />
                         <span className="text-sm">{item.title}</span>
+                        {studioLive && (
+                          <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-live-text">
+                            <span className="size-1.5 rounded-full bg-live animate-pulse motion-reduce:animate-none" />
+                            Live
+                          </span>
+                        )}
                         {item.lock &&
                           (item.lock === "autodj" ? locked : audienceLocked) && (
-                          <Badge
-                            variant="outline"
-                            className="ml-auto border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"
-                          >
+                          <Badge variant="pro" className="ml-auto">
                             Pro
                           </Badge>
                         )}
@@ -226,10 +266,24 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 type="button"
                 onClick={proRequest.open}
                 disabled={proRequest.requested}
-                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
+                className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-input bg-input/30 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-input/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring disabled:opacity-60 disabled:hover:bg-input/30"
               >
-                {proRequest.requested ? <IconCheck size={11} /> : <IconSparkles size={11} />}
-                <span>{proRequest.requested ? "Requested" : "Upgrade"}</span>
+                {proRequest.requested ? (
+                  <>
+                    <IconCheck size={12} aria-hidden />
+                    <span>Requested</span>
+                  </>
+                ) : (
+                  <>
+                    {/* Pro is granted by hand, not bought, so the verb is
+                        "Request". The amber tag names the plan per DESIGN.md
+                        instead of a second filled violet button. */}
+                    <span>Request</span>
+                    <Badge variant="pro">
+                      Pro
+                    </Badge>
+                  </>
+                )}
               </button>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -251,7 +305,16 @@ export function AppSidebar({ user }: AppSidebarProps) {
                     </AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">{user.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-medium">{user.name}</span>
+                      {/* Free accounts have the plan card above; a paid one had
+                          nothing anywhere saying which plan it was on. */}
+                      {plan && !locked && (
+                        <Badge variant="pro" className="shrink-0">
+                          {plan.name}
+                        </Badge>
+                      )}
+                    </span>
                     <span className="truncate text-xs text-muted-foreground">{user.email}</span>
                   </div>
                   <IconChevronUp className="ml-auto" />
@@ -282,7 +345,10 @@ export function AppSidebar({ user }: AppSidebarProps) {
                     Help
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={signingOut} onClick={() => signOut()}>
+                <DropdownMenuItem
+                  disabled={signingOut}
+                  onClick={() => (isBroadcasting ? setConfirmSignOut(true) : signOut())}
+                >
                   {signingOut
                     ? <IconLoader2 className="animate-spin" />
                     : <IconLogout />}
@@ -293,6 +359,24 @@ export function AppSidebar({ user }: AppSidebarProps) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      <Dialog open={confirmSignOut} onOpenChange={(next) => !signingOut && setConfirmSignOut(next)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Sign out and end your broadcast?</DialogTitle>
+            <DialogDescription>
+              The broadcast runs in this tab, so signing out cuts off everyone listening.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" className="h-11" onClick={() => setConfirmSignOut(false)}>
+              Stay signed in
+            </Button>
+            <Button variant="destructive" className="h-11" disabled={signingOut} onClick={() => signOut("/", { confirmed: true })}>
+              {signingOut ? "Signing out…" : "End and sign out"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   )
 }

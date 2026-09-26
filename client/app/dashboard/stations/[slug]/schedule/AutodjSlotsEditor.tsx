@@ -1,30 +1,23 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState, type Dispatch, type SetStateAction } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { IconClockPlay, IconPlus, IconTrash } from "@tabler/icons-react"
+import { IconPlus, IconTrash } from "@tabler/icons-react"
 import axios from "axios"
 import api from "@/lib/axios"
-import { useMounted } from "@/hooks/useMounted"
-import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { cn } from "@/lib/utils"
-import { describeProgramme } from "@/lib/programme"
 import type { Playlist } from "@/interfaces/Playlist"
-import type { AutodjSlot, Programme, Station } from "@/interfaces/Station"
-import { TimezoneCombobox } from "../TimezoneCombobox"
-import { WeekStrip, type StripSlot } from "./WeekStrip"
+import type { AutodjSlot, Station } from "@/interfaces/Station"
+import { DayChip } from "./DayChip"
+import { DAY_INITIALS, DAY_NAMES } from "./days"
 
-const DAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"]
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MINUTES_PER_DAY = 24 * 60
 const MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
 
-interface Row {
+export interface SlotRow {
   key: string
   label: string
   playlistId: string
@@ -33,7 +26,7 @@ interface Row {
   end_time: string
 }
 
-function toRow(slot: AutodjSlot): Row {
+export function toSlotRow(slot: AutodjSlot): SlotRow {
   return {
     key: slot.id,
     label: slot.label ?? "",
@@ -53,7 +46,7 @@ function minutes(time: string): number {
  * The same overlap check the API runs, so the owner sees the clash before
  * saving rather than in a 422. Returns the keys of every row involved.
  */
-function findConflicts(rows: Row[]): Set<string> {
+export function findConflicts(rows: SlotRow[]): Set<string> {
   const windows: Array<{ from: number; to: number; key: string }> = []
   for (const row of rows) {
     if (row.start_time === "" || row.end_time === "") continue
@@ -83,37 +76,35 @@ function findConflicts(rows: Row[]): Set<string> {
 }
 
 interface Props {
-  station: Station
+  slug: string
   playlists: Playlist[]
+  /** Owned by the Schedule page, which shares one clock between both editors. */
+  timezone: string
+  rows: SlotRow[]
+  setRows: Dispatch<SetStateAction<SlotRow[]>>
+  conflicts: Set<string>
+  /** Rows or timezone differ from what was last saved. */
+  dirty: boolean
+  /** The saved station, so the page can refresh its "On now" line. */
+  onSaved: (station: Station) => void
 }
 
 /**
  * The owner's AutoDJ programme: which playlist plays when.
  *
- * One full-list PUT, like the show times — and, like them, its own editor.
+ * One full-list PUT, like the show times — and, like them, its own save.
  * Nothing here turns the station on or off; a slot changes what AutoDJ
- * plays, and a live broadcast always takes over.
+ * plays, and a live broadcast always takes over. Rows are held by the
+ * Schedule page so the week strip above draws them as they are edited.
  */
-export function AutodjSlotsEditor({ station, playlists }: Props) {
+export function AutodjSlotsEditor({ slug, playlists, timezone, rows, setRows, conflicts, dirty, onSaved }: Props) {
   const router = useRouter()
-  const locked = useAutoDjLocked()
-
-  // Server-rendered page: the viewer's zone cannot be read while deciding
-  // the first frame — see ScheduleEditor for the hydration reasoning.
-  const mounted = useMounted()
-  const [chosen, setChosen] = useState<string | null>(station.timezone)
-  const timezone = chosen ?? (mounted ? Intl.DateTimeFormat().resolvedOptions().timeZone : "")
-
-  const [rows, setRows] = useState<Row[]>((station.autodj_slots ?? []).map(toRow))
-  const [programme, setProgramme] = useState<Programme | null>(station.programme ?? null)
   const [saving, setSaving] = useState(false)
 
   const defaultPlaylist = playlists.find((p) => p.is_default) ?? null
   const playlistOptions = playlists.map((p) => ({ value: p.id, label: p.is_default ? `${p.name} (default)` : p.name }))
 
-  const conflicts = useMemo(() => findConflicts(rows), [rows])
-
-  function update(key: string, patch: Partial<Row>) {
+  function update(key: string, patch: Partial<SlotRow>) {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
@@ -162,7 +153,7 @@ export function AutodjSlotsEditor({ station, playlists }: Props) {
 
     setSaving(true)
     try {
-      const { data } = await api.put<{ data: Station }>(`/stations/${station.slug}/autodj-slots`, {
+      const { data } = await api.put<{ data: Station }>(`/stations/${slug}/autodj-slots`, {
         timezone: timezone === "" ? null : timezone,
         slots: rows.map((row) => ({
           label: row.label.trim() === "" ? null : row.label.trim(),
@@ -172,145 +163,121 @@ export function AutodjSlotsEditor({ station, playlists }: Props) {
           end_time: row.end_time,
         })),
       })
-      setRows((data.data.autodj_slots ?? []).map(toRow))
-      setProgramme(data.data.programme ?? null)
-      toast.success("Schedule saved", {
-        description: "Takes effect at the next track boundary — nothing restarts.",
+      setRows((data.data.autodj_slots ?? []).map(toSlotRow))
+      onSaved(data.data)
+      toast.success("AutoDJ slots saved", {
+        description: "Takes effect when the current song ends. Nothing restarts.",
       })
       router.refresh()
     } catch (error) {
       const errors = axios.isAxiosError(error)
         ? (error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined)
         : undefined
-      toast.error(Object.values(errors?.errors ?? {})[0]?.[0] ?? errors?.message ?? "Couldn't save the schedule")
+      toast.error(Object.values(errors?.errors ?? {})[0]?.[0] ?? errors?.message ?? "Couldn't save the slots")
     } finally {
       setSaving(false)
     }
   }
 
-  const onNow = programme ? describeProgramme(programme, timezone || null, defaultPlaylist?.name ?? null) : null
-
-  const stripSlots: StripSlot[] = rows.map((row) => ({
-    key: row.key,
-    playlistId: row.playlistId,
-    label: row.label === "" ? null : row.label,
-    days: row.days,
-    start_time: row.start_time,
-    end_time: row.end_time,
-  }))
-
   return (
-    <div className="flex flex-col gap-6">
-      {onNow && (
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
-          <span className="size-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <IconClockPlay size={18} />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">On now</div>
-            <div className="text-sm">
-              <span className="font-medium">{onNow.now}</span>
-              {onNow.detail && <span className="text-muted-foreground"> · {onNow.detail}</span>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Field>
-        <FieldLabel htmlFor="autodj-timezone">Timezone</FieldLabel>
-        <TimezoneCombobox id="autodj-timezone" value={timezone} onChange={setChosen} />
-        <FieldDescription>
-          The clock your slots are written in. Shared with your show times.
-        </FieldDescription>
-      </Field>
-
-      <div className="flex flex-col gap-4">
-        {rows.map((row) => {
-          const clashing = conflicts.has(row.key)
-          const overnight = row.start_time !== "" && row.end_time !== "" && minutes(row.end_time) <= minutes(row.start_time)
-          return (
-            <div
-              key={row.key}
-              className={cn(
-                "flex flex-col gap-2.5 rounded-lg border p-3",
-                clashing ? "border-destructive/60" : "border-border/60",
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={row.label}
-                  onChange={(e) => update(row.key, { label: e.target.value })}
-                  placeholder="Label (optional)"
-                  maxLength={60}
-                  className="flex-1 min-w-[160px]"
-                />
-                <Select
-                  aria-label="Playlist"
-                  value={row.playlistId}
-                  onChange={(value) => update(row.key, { playlistId: value })}
-                  options={playlistOptions}
-                  className="w-48"
-                />
-                <div className="flex items-center gap-1.5">
+    <div className="flex flex-col gap-5">
+      {rows.length > 0 && (
+        // A ledger of rows split by hairlines, not tinted boxes inside the
+        // page: the violet day chips and the "AutoDJ plays" label already say
+        // whose time this is, and a clash is carried by the red time fields
+        // and the red segment on the week above.
+        <ul className="m-0 flex list-none flex-col divide-y divide-white/[0.06] border-y border-white/[0.06] p-0">
+          {rows.map((row) => {
+            const clashing = conflicts.has(row.key)
+            const overnight = row.start_time !== "" && row.end_time !== "" && minutes(row.end_time) <= minutes(row.start_time)
+            return (
+              <li key={row.key} className="flex flex-col gap-3 py-4">
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
-                    type="time"
-                    value={row.start_time}
-                    onChange={(e) => update(row.key, { start_time: e.target.value })}
-                    className="w-28 shrink-0"
-                    aria-label="Start time"
+                    value={row.label}
+                    onChange={(e) => update(row.key, { label: e.target.value })}
+                    placeholder="Slot name, e.g. Breakfast (optional)"
+                    aria-label="Slot name (optional)"
+                    maxLength={60}
+                    className="flex-1 min-w-[160px]"
                   />
-                  <span className="text-muted-foreground text-xs">→</span>
-                  <Input
-                    type="time"
-                    value={row.end_time}
-                    onChange={(e) => update(row.key, { end_time: e.target.value })}
-                    className="w-28 shrink-0"
-                    aria-label="End time"
+                  <Select
+                    aria-label="Playlist"
+                    value={row.playlistId}
+                    onChange={(value) => update(row.key, { playlistId: value })}
+                    options={playlistOptions}
+                    className="w-48 [&>button]:h-9"
                   />
-                  {overnight && (
-                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">next day</span>
-                  )}
+                  {/* w-36, not w-28: in a 12-hour locale the native field
+                      renders "12:26 AM" plus the picker icon, and 112px cut
+                      it to "12:26 AI". Wraps as a group on a phone, so
+                      "next day" drops under the times instead of pushing
+                      the second field off the row. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Input
+                      type="time"
+                      value={row.start_time}
+                      onChange={(e) => update(row.key, { start_time: e.target.value })}
+                      className="w-36 shrink-0 font-mono tabular-nums"
+                      aria-label="Start time"
+                      aria-invalid={clashing || undefined}
+                    />
+                    <span className="text-muted-foreground text-xs" aria-hidden="true">→</span>
+                    <Input
+                      type="time"
+                      value={row.end_time}
+                      onChange={(e) => update(row.key, { end_time: e.target.value })}
+                      className="w-36 shrink-0 font-mono tabular-nums"
+                      aria-label="End time"
+                      aria-invalid={clashing || undefined}
+                    />
+                    {overnight && (
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">next day</span>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
+                    aria-label="Remove slot"
+                  >
+                    <IconTrash size={16} />
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
-                  aria-label="Remove slot"
-                >
-                  <IconTrash size={16} />
-                </Button>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-1.5">
-                {DAY_INITIALS.map((initial, day) => {
-                  const on = row.days.includes(day)
-                  return (
-                    <button
+                <div
+                  role="group"
+                  aria-label="Days AutoDJ plays this slot"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  {/* Same days-and-hours shape as the show times above; the
+                      label and the violet say this one is AutoDJ. */}
+                  <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="size-1.5 rounded-full bg-on-air" aria-hidden="true" />
+                    AutoDJ plays
+                  </span>
+                  {DAY_INITIALS.map((initial, day) => (
+                    <DayChip
                       key={day}
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={DAY_NAMES[day]}
-                      onClick={() => toggleDay(row.key, day)}
-                      className={`size-8 cursor-pointer rounded-full border text-xs transition-colors ${
-                        on
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border/60 bg-transparent text-muted-foreground hover:text-foreground"
-                      }`}
+                      tone="autodj"
+                      on={row.days.includes(day)}
+                      label={DAY_NAMES[day]}
+                      onToggle={() => toggleDay(row.key, day)}
                     >
                       {initial}
-                    </button>
-                  )
-                })}
-                {clashing && (
-                  <span className="ml-2 text-xs text-destructive">Overlaps another slot.</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                    </DayChip>
+                  ))}
+                  {clashing && (
+                    <span className="ml-1 text-xs text-fault-text">Overlaps another slot.</span>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
       {rows.length === 0 && (
         <p className="text-sm text-muted-foreground">
@@ -324,32 +291,23 @@ export function AutodjSlotsEditor({ station, playlists }: Props) {
           type="button"
           variant="outline"
           onClick={addRow}
-          disabled={locked || playlists.length === 0}
-          title={locked ? "Scheduling is part of AutoDJ, which isn't in your plan." : undefined}
+          disabled={playlists.length === 0}
         >
           <IconPlus data-icon="inline-start" />
           Add slot
         </Button>
         <Button type="button" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save schedule"}
+          {saving ? "Saving…" : "Save AutoDJ slots"}
         </Button>
+        {dirty && !saving && (
+          <span role="status" className="text-xs text-muted-foreground">Unsaved changes</span>
+        )}
       </div>
 
-      <div className="rounded-lg border border-border/60 p-4">
-        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">This week</div>
-        <WeekStrip
-          slots={stripSlots}
-          playlists={playlists.map((p) => ({ id: p.id, name: p.name }))}
-          defaultName={defaultPlaylist?.name ?? "Default"}
-          conflicts={conflicts}
-        />
-      </div>
-
-      <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
-        Slots change what AutoDJ plays. They don&apos;t turn the station on or off, and a live broadcast
-        always takes over. Outside every slot, {defaultPlaylist?.name ?? "the default playlist"} plays. A
-        slot switches at the next track boundary, never mid-song, so it can start a few minutes late.
-        Days are when the slot starts — a Friday 22:00–02:00 slot stays under Friday.
+      <p className="text-sm text-muted-foreground leading-relaxed max-w-[62ch]">
+        Outside every slot, {defaultPlaylist?.name ?? "the default playlist"} plays. A slot
+        switches when the current song ends, so it can start a few minutes late. It belongs to
+        the day it starts: Friday 22:00–02:00 stays under Friday.
       </p>
     </div>
   )

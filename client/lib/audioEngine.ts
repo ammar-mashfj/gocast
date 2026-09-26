@@ -1,4 +1,5 @@
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback } from './queueStore'
+import { DUCK_GAIN, FADE_TIME_CONSTANT, loadMicPrefs, saveMicPrefs, type MicPrefs } from './micPrefs'
 
 export interface QueueTrack {
   id: string
@@ -89,11 +90,39 @@ export interface AddFilesResult {
 }
 
 /** Read a file's duration from its container header without decoding PCM. Cheap. */
+/**
+ * A metadata read that never answers is not hypothetical: Chrome defers media
+ * loading in a background tab, so `loadedmetadata` simply does not fire until
+ * the tab is shown again. Anything awaiting this on the way to going live
+ * hung on "Setting up audio engine" for as long as the broadcaster was in
+ * another tab. After this long we give up and report 0 — the play path reads
+ * the real duration off the element when the track actually starts.
+ */
+const METADATA_TIMEOUT_MS = 4000
+
+/** Resolves at once if the tab is showing, otherwise when it is next shown. */
+function whenTabVisible(): Promise<void> {
+  if (typeof document === 'undefined' || document.visibilityState === 'visible') return Promise.resolve()
+  return new Promise((resolve) => {
+    const onChange = () => {
+      if (document.visibilityState !== 'visible') return
+      document.removeEventListener('visibilitychange', onChange)
+      resolve()
+    }
+    document.addEventListener('visibilitychange', onChange)
+  })
+}
+
 function readDurationFromFile(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const audio = new Audio()
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve(0)
+    }, METADATA_TIMEOUT_MS)
     const cleanup = () => {
+      clearTimeout(timer)
       audio.removeEventListener('loadedmetadata', onLoad)
       audio.removeEventListener('error', onError)
       URL.revokeObjectURL(url)
@@ -121,13 +150,14 @@ function readDurationFromFile(file: File): Promise<number> {
  * frames go out as binary webcast frames to Liquidsoap's harbor input.
  *
  * Chain:
- *   fileSource → fileGain ─┐
- *                           ├→ analyser → workletNode ──port──► Worker (lamejs)
- *   micSource  → micGain  ─┘                                        │
- *                                                                   ▼
- *                                                          onChunk(ArrayBuffer)
+ *   fileSource → fileGain ───────────────────────┐
+ *                                                ├→ mixer → limiter → analyser → workletNode ──port──► Worker (lamejs)
+ *   micSource ─┬→ micDry ─────────────→ micGain ─┘                                                         │
+ *              └→ highpass → presence → voiceComp → micWet ─┘                                              ▼
+ *                                                                                               onChunk(ArrayBuffer)
  *
- * PTT: micGain 0→MIC_BOOST, fileGain 1→0.2. Release: reverse.
+ * PTT: micGain 0→MIC_BOOST, fileGain 1→the chosen duck level, at the chosen
+ * fade speed. Release: reverse. See `micPrefs.ts`.
  *
  * NOTE: the mixer is *not* connected to ctx.destination — broadcasters
  * shouldn't hear their own queue out of their speakers (would feed back
@@ -139,6 +169,10 @@ export class AudioEngine {
   private fileGain: GainNode
   private micGain: GainNode
   private mixer: GainNode
+  private limiter: DynamicsCompressorNode
+  private micDry: GainNode
+  private micWet: GainNode
+  private micPrefs: MicPrefs = loadMicPrefs()
   private workletNode: AudioWorkletNode
   private encoderWorker: Worker
 
@@ -190,12 +224,31 @@ export class AudioEngine {
     this.workletNode = workletNode
     this.encoderWorker = encoderWorker
 
+    // A suspended context encodes silence: the worklet sees no frames, so the
+    // stream stays connected and listeners hear nothing. Browsers suspend it
+    // without asking (Safari after a navigation, any browser without a user
+    // gesture), so the studio has to be told the moment it happens.
+    this.ctx.addEventListener('statechange', () => this.notify())
+
     this.encoderWorker.addEventListener('message', (e: MessageEvent) => {
       if (e.data?.type === 'chunk') onChunk(e.data.data as ArrayBuffer)
     })
 
     this.mixer = this.ctx.createGain()
     this.mixer.gain.value = 1
+
+    // Master limiter, the last stage before the encoder. Without it a loud
+    // voice over the bed sums past full scale and the MP3 carries hard
+    // clipping. Near-brickwall settings: it should do nothing at all until a
+    // peak would clip. The threshold sits at −2 rather than −1 because the
+    // spec'd compressor adds a little automatic makeup gain on top.
+    this.limiter = this.ctx.createDynamicsCompressor()
+    this.limiter.threshold.value = -2
+    this.limiter.knee.value = 0
+    this.limiter.ratio.value = 20
+    this.limiter.attack.value = 0.001
+    this.limiter.release.value = 0.1
+    this.mixer.connect(this.limiter)
 
     this.fileGain = this.ctx.createGain()
     this.fileGain.gain.value = 1
@@ -206,9 +259,46 @@ export class AudioEngine {
     this.micGain.gain.value = 0
     this.micGain.connect(this.mixer)
 
+    // "Broadcast voice": two parallel mic paths into micGain, one raw and one
+    // processed, crossfaded by the toggle. Switching a gain is click-free;
+    // rewiring a live graph is not.
+    this.micDry = this.ctx.createGain()
+    this.micWet = this.ctx.createGain()
+    this.micDry.connect(this.micGain)
+    this.micWet.connect(this.micGain)
+    this.micDry.gain.value = this.micPrefs.broadcastVoice ? 0 : 1
+    this.micWet.gain.value = this.micPrefs.broadcastVoice ? 1 : 0
+
     if (micStream) {
       this.micSource = this.ctx.createMediaStreamSource(micStream)
-      this.micSource.connect(this.micGain)
+      this.micSource.connect(this.micDry)
+
+      // Desk thumps, handling noise and room rumble live below ~80Hz; a voice
+      // has almost nothing there.
+      const highpass = this.ctx.createBiquadFilter()
+      highpass.type = 'highpass'
+      highpass.frequency.value = 80
+      highpass.Q.value = 0.707
+
+      // A small lift where consonants live, so words cut through the bed.
+      const presence = this.ctx.createBiquadFilter()
+      presence.type = 'peaking'
+      presence.frequency.value = 3000
+      presence.Q.value = 1
+      presence.gain.value = 3
+
+      // Gentle levelling: brings loud and quiet words closer together.
+      const comp = this.ctx.createDynamicsCompressor()
+      comp.threshold.value = -20
+      comp.knee.value = 6
+      comp.ratio.value = 3
+      comp.attack.value = 0.005
+      comp.release.value = 0.15
+
+      this.micSource.connect(highpass)
+      highpass.connect(presence)
+      presence.connect(comp)
+      comp.connect(this.micWet)
     }
 
     // Speaker monitor tap. Parallel to the mixer, so nothing here reaches
@@ -221,7 +311,7 @@ export class AudioEngine {
     // Analyser for level metering
     this.analyser = this.ctx.createAnalyser()
     this.analyser.fftSize = 2048
-    this.mixer.connect(this.analyser)
+    this.limiter.connect(this.analyser)
 
     // Capture tap. The worklet only reads frames — it produces no output — so
     // nothing downstream of here is audible, which is what we want.
@@ -319,17 +409,17 @@ export class AudioEngine {
 
   // ── PTT ──
 
-  /** Activate push-to-talk: boost mic gain and duck file playback to 20%. */
+  /** Activate push-to-talk: open the mic and duck the music to the chosen level. */
   pttDown() {
     if (this.isTalking) return
     this.isTalking = true
-    this.fileGain.gain.setTargetAtTime(0.2, this.ctx.currentTime, 0.05)
+    this.applyFileGain()
     this.micGain.gain.setTargetAtTime(MIC_BOOST, this.ctx.currentTime, 0.02)
     this.notify()
   }
 
   /**
-   * Release push-to-talk: mute the mic and restore file playback to 100%.
+   * Release push-to-talk: mute the mic and bring the music back to full.
    *
    * A no-op while the mic is latched — that is the whole point of latching,
    * and it keeps a stray keyup or a mouse leaving the button from cutting
@@ -339,8 +429,48 @@ export class AudioEngine {
     if (this.micLatched) return
     if (!this.isTalking) return
     this.isTalking = false
-    this.fileGain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.05)
+    this.applyFileGain()
     this.micGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02)
+    this.notify()
+  }
+
+  /**
+   * Move the music to where the mic state says it should be. Only the music
+   * follows the fade speed — the mic itself always opens and closes fast, so
+   * a slow fade never swallows the first word or leaves a breath on air.
+   */
+  private applyFileGain() {
+    const target = this.isTalking ? DUCK_GAIN[this.micPrefs.duck] : 1
+    const param = this.fileGain.gain
+    const now = this.ctx.currentTime
+    // Re-anchor from the current value so a press mid-fade continues from
+    // where the music actually is instead of jumping.
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(param.value, now)
+    param.setTargetAtTime(target, now, FADE_TIME_CONSTANT[this.micPrefs.fade])
+  }
+
+  // ── Mic settings ──
+
+  getMicPrefs(): MicPrefs { return this.micPrefs }
+
+  /** Takes effect at once, even mid-talk, and is remembered in this browser. */
+  setMicPrefs(patch: Partial<MicPrefs>) {
+    const next = { ...this.micPrefs, ...patch }
+    if (
+      next.duck === this.micPrefs.duck &&
+      next.fade === this.micPrefs.fade &&
+      next.broadcastVoice === this.micPrefs.broadcastVoice
+    ) return
+    const voiceChanged = next.broadcastVoice !== this.micPrefs.broadcastVoice
+    this.micPrefs = next
+    saveMicPrefs(next)
+    if (this.isTalking) this.applyFileGain()
+    if (voiceChanged) {
+      const now = this.ctx.currentTime
+      this.micWet.gain.setTargetAtTime(next.broadcastVoice ? 1 : 0, now, 0.02)
+      this.micDry.gain.setTargetAtTime(next.broadcastVoice ? 0 : 1, now, 0.02)
+    }
     this.notify()
   }
 
@@ -459,29 +589,63 @@ export class AudioEngine {
   async restoreQueue(): Promise<void> {
     const stored = await loadQueue()
     if (stored.length === 0) return
-    for (const track of stored) {
-      const duration = await readDurationFromFile(track.file).catch(() => 0)
-      this.queue.push({
-        id: track.id,
-        file: track.file,
-        title: track.title,
-        artist: track.artist,
-        duration,
-      })
-    }
+    // The queue is back at once; durations fill in behind it. Awaiting each
+    // one here put every restored file's metadata read on the critical path
+    // to going live — see METADATA_TIMEOUT_MS for why that could be forever.
+    const restored = stored.map((track) => ({
+      id: track.id,
+      file: track.file,
+      title: track.title,
+      artist: track.artist,
+      duration: 0,
+    }))
+    this.queue.push(...restored)
     this.notify()
+    void this.fillDurations(restored)
+  }
+
+  /**
+   * Read durations for tracks that came back without one, in the background.
+   *
+   * One notify per pass, not per track: every notify re-renders the studio and
+   * used to send harbor a metadata frame. A read that timed out because the
+   * tab was hidden (see METADATA_TIMEOUT_MS) is tried once more when the tab
+   * is shown — otherwise the running order's air times and totals stayed
+   * wrong until each track actually played.
+   */
+  private async fillDurations(tracks: QueueTrack[]): Promise<void> {
+    let pending = tracks
+    for (let pass = 0; pass < 2 && pending.length > 0; pass++) {
+      if (pass > 0) await whenTabVisible()
+      let changed = false
+      for (const track of pending) {
+        if (track.duration || !this.queue.includes(track)) continue
+        const duration = await readDurationFromFile(track.file).catch(() => 0)
+        if (duration > 0 && !track.duration) {
+          track.duration = duration
+          changed = true
+        }
+      }
+      if (changed) this.notify()
+      pending = pending.filter((t) => !t.duration && this.queue.includes(t))
+    }
   }
 
   /**
    * Resume playback at the saved position, if any. Pairs with
    * {@link restoreQueue}; call only after the webcast socket is live.
+   *
+   * @param fromStart Cue the same song but from 0:00 — the broadcaster's
+   *   choice on the Go Live page, for a show that shouldn't open mid-song.
    */
-  async resumePlayback(): Promise<void> {
+  async resumePlayback(options?: { fromStart?: boolean }): Promise<void> {
     const playback = await loadPlayback()
     if (!playback) return
     if (playback.currentIndex < 0 || playback.currentIndex >= this.queue.length) return
-    const track = this.queue[playback.currentIndex]
-    const offset = Math.min(playback.offset, Math.max(0, track.duration - 0.5))
+    // No clamp against track.duration here: restoreQueue fills durations in
+    // behind the queue, so it is usually still 0 at this point and would send
+    // every resume back to 0:00. playIndexAtOffset clamps to the real length.
+    const offset = options?.fromStart ? 0 : Math.max(0, playback.offset)
     if (offset > 0) {
       await this.playIndexAtOffset(playback.currentIndex, offset)
     } else {
@@ -565,6 +729,48 @@ export class AudioEngine {
 
     this.persistQueue()
     this.notify()
+  }
+
+  /**
+   * Remove every track except the one on air, and return what was removed.
+   *
+   * The studio's "Clear" used to be {@link clearQueue}, which also stops the
+   * track playing — one click put dead air on a live station. Clearing what
+   * is UP NEXT is what the button was for; the track on air is left alone.
+   */
+  clearUpcoming(): QueueTrack[] {
+    const current = this.queue[this.currentIndex] ?? null
+    const removed = this.queue.filter((t) => t !== current)
+    if (removed.length === 0) return []
+    this.queue = current ? [current] : []
+    this.currentIndex = current ? 0 : -1
+    this.persistQueue()
+    this.notify()
+    return removed
+  }
+
+  /**
+   * Put tracks back after an undo, in the order given by `order` (the queue's
+   * track ids as they stood before the removal). Tracks already in the queue
+   * are not duplicated; ids the order doesn't know go to the end.
+   */
+  restoreTracks(tracks: QueueTrack[], order: string[]) {
+    const present = new Set(this.queue.map((t) => t.id))
+    const incoming = tracks.filter((t) => !present.has(t.id))
+    if (incoming.length === 0) return
+    const current = this.queue[this.currentIndex] ?? null
+    const rank = new Map(order.map((id, i) => [id, i]))
+    const merged = [...this.queue, ...incoming]
+    merged.sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity))
+    this.queue = merged
+    this.currentIndex = current ? this.queue.indexOf(current) : -1
+    this.persistQueue()
+    this.notify()
+  }
+
+  /** True while the browser has the audio context suspended — see the constructor. */
+  isSuspended(): boolean {
+    return this.ctx.state === 'suspended'
   }
 
   clearQueue() {
@@ -747,6 +953,9 @@ export class AudioEngine {
     this.monitorGain.disconnect()
     this.analyser.disconnect()
     this.mixer.disconnect()
+    this.limiter.disconnect()
+    this.micDry.disconnect()
+    this.micWet.disconnect()
     this.fileGain.disconnect()
     this.micGain.disconnect()
     this.workletNode.disconnect()

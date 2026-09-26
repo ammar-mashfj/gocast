@@ -101,10 +101,10 @@ export function StationShare({ url, stationName, slug }: StationShareProps) {
           <CardTitle className="text-base font-medium">Share your station</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+          <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
             Anyone with this link can tune in from a browser — no app, no signup.
           </p>
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 rounded-[10px] bg-background/60 py-1.5 pl-3 pr-1.5">
             <code className="text-xs text-muted-foreground truncate">{url}</code>
             <CopyButton text={url} title={stationName} />
           </div>
@@ -125,7 +125,7 @@ export function StationShare({ url, stationName, slug }: StationShareProps) {
               <IconCode data-icon="inline-start" />
               Embed
               {embedLocked && (
-                <Badge variant="secondary" className="ml-1 text-[9px]">PRO</Badge>
+                <Badge variant="pro" className="ml-1">Pro</Badge>
               )}
             </Button>
           </div>

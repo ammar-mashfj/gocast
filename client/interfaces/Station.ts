@@ -218,5 +218,7 @@ export interface Station {
     sessions: number
     total_airtime_seconds: number
     peak_listeners: number
+    /** True once anyone has ever pressed play — see StationResource. */
+    has_listeners?: boolean
   }
 }

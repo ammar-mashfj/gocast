@@ -167,32 +167,44 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
                 setCode(digits)
                 if (error) setError(null)
               }}
-              className="tracking-[0.5em] text-center text-lg"
+              // Mono: it is a code, read and typed digit by digit. The indent
+              // matches the tracking, which otherwise trails after the last
+              // digit and pulls the centred code off centre.
+              className="h-11 indent-[0.5em] font-mono tracking-[0.5em] text-center text-lg tabular-nums"
               aria-invalid={!!error}
+              aria-describedby={error ? "verify-code-error" : undefined}
             />
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            {error && (
+              <p id="verify-code-error" role="alert" className="text-xs text-fault-text">
+                {error}
+              </p>
+            )}
           </div>
 
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button type="submit" disabled={submitting || code.length !== 6} className="w-full">
+            <Button type="submit" disabled={submitting || code.length !== 6} className="h-11 w-full">
               {submitting ? "Verifying…" : "Verify email"}
             </Button>
-            <div className="flex items-center justify-between w-full pt-1">
-              <button
+            {/* Ghost buttons rather than bare text: the same 36px target and
+                focus ring as every other control, at one shared size. */}
+            <div className="flex items-center justify-between w-full gap-2">
+              <Button
                 type="button"
+                variant="ghost"
+                className="-ml-2 text-muted-foreground"
                 onClick={resend}
                 disabled={resending}
-                className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline disabled:opacity-60"
               >
                 {resending ? "Sending new code…" : "Resend code"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                className="-mr-2 text-muted-foreground"
                 onClick={dismiss}
-                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
               >
                 Use a different account
-              </button>
+              </Button>
             </div>
           </DialogFooter>
         </form>

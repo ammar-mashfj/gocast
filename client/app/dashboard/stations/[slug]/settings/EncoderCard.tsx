@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useConfirm } from "@/components/ui/use-confirm"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { IconLoader2, IconRefresh, IconSparkles } from "@tabler/icons-react"
+import { IconCheck, IconLoader2, IconRefresh } from "@tabler/icons-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -40,6 +41,7 @@ interface EncoderCardProps {
  * is switched off, and a rotation that did not kick the person who was on air.
  */
 export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardProps) {
+  const [confirm, confirmDialog] = useConfirm()
   const router = useRouter()
   const proRequest = useProRequest()
   const [revealed, setRevealed] = useState(false)
@@ -82,13 +84,12 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
 
   async function rotate() {
     if (rotating) return
-    if (
-      !confirm(
-        "Generate a new stream key?\n\nYour encoders will keep working until they next reconnect, and then they'll need the new key.",
-      )
-    ) {
-      return
-    }
+    const ok = await confirm({
+      title: "Generate a new stream key?",
+      description: "Your encoders keep working until they next reconnect, and then they need the new key.",
+      confirmLabel: "Generate new key",
+    })
+    if (!ok) return
 
     setRotating(true)
     try {
@@ -123,20 +124,22 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base font-medium">
             Broadcast from your own software
-            <Badge variant="secondary" className="ml-2 text-[9px] align-middle">PRO</Badge>
+            <Badge variant="pro" className="ml-2 align-middle">Pro</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Go live from BUTT, Mixxx, RadioDJ, Audio Hijack — anything that speaks
-            the Icecast 2 source protocol — instead of the browser studio. Your
+            Go live from BUTT, Mixxx, RadioDJ, Audio Hijack — any encoder that can
+            send to an Icecast server — instead of the browser studio. Your
             station gets its own server address and stream key, and you can keep
             broadcasting with the tools you already know.
           </p>
           <div>
-            <Button variant="outline" onClick={proRequest.open}>
-              <IconSparkles size={16} data-icon="inline-start" />
-              {proRequest.requested ? "Request sent" : "Request access"}
+            {/* Outline: on this page the section saves are the filled ones.
+                "Request", not "Upgrade" — Pro is granted by hand. */}
+            <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
+              {proRequest.requested && <IconCheck size={16} data-icon="inline-start" />}
+              {proRequest.requested ? "Request sent" : "Request Pro"}
             </Button>
           </div>
         </CardContent>
@@ -193,11 +196,18 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {/* Said first so that someone who opened Settings for something else
+            knows they can scroll past five server fields: most stations never
+            need them. */}
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Optional, for desktop DJ apps. If you go live from the browser studio,
+          you can skip this.
+        </p>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Set your encoder&apos;s server type to{" "}
           <span className="text-foreground font-medium">Icecast 2</span> and fill in
           these five values. Works with BUTT, Mixxx, RadioDJ, Audio Hijack, ffmpeg —
-          anything that speaks the Icecast source protocol.
+          any encoder that can send to an Icecast server.
         </p>
 
         <EncoderConnection
@@ -208,32 +218,34 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
         />
 
         {/* Each of these is a support conversation that happens without it. */}
-        <ul className="border-t border-border pt-4 flex flex-col gap-2 list-none p-0 m-0 text-xs text-muted-foreground leading-relaxed">
+        <ul className="border-t border-border pt-4 flex flex-col gap-2 list-none p-0 m-0 text-sm text-muted-foreground leading-relaxed">
           <li>
             <span className="text-foreground">Switch {stationName} on first.</span>{" "}
-            Your encoder connects to the station itself, so there is nothing
-            listening while it is off air.
+            Press Start AutoDJ on the station page, then connect. Your encoder
+            connects to the station itself, so there is nothing listening while
+            it is off air.
           </li>
           <li>
-            <span className="text-foreground">Not Shoutcast.</span> The Shoutcast
-            handshake has no room for a mount, so it cannot be routed to your
+            <span className="text-foreground">Not Shoutcast.</span> Shoutcast
+            can&apos;t send the Mount value above, so it never reaches your
             station. Pick Icecast 2 even if your encoder defaults to the other.
           </li>
           <li>
             <span className="text-foreground">A new key doesn&apos;t kick anyone off.</span>{" "}
             A broadcast already on air keeps running; the new key applies the next
-            time an encoder connects. To cut one off now, take the station off
-            air and confirm — then come back here for a new key so whoever was
-            broadcasting cannot reconnect.
+            time an encoder connects. To cut one off now, press Turn station off on
+            the station page and confirm, then come back here for a new key so
+            whoever was broadcasting cannot reconnect.
           </li>
           <li>
             <span className="text-foreground">This connection isn&apos;t encrypted.</span>{" "}
-            The Icecast source protocol sends your key as plain HTTP basic auth
-            over a plain TCP connection. Treat it like a password on a shared
-            network, and generate a new one if you ever paste it somewhere public.
+            Your encoder sends the key as plain text. Treat it like a password on
+            a shared network, and generate a new one if you ever paste it
+            somewhere public.
           </li>
         </ul>
       </CardContent>
+      {confirmDialog}
     </Card>
   )
 }

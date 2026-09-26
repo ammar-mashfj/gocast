@@ -91,7 +91,7 @@ export function TrackListHeader({
     <div
       className={cn(
         ROW_GRID,
-        "py-2 border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground",
+        "py-2 border-b border-border text-xs text-muted-foreground",
       )}
     >
       {selectable && onToggleAll ? (
@@ -263,7 +263,7 @@ export function TrackRow({
         "py-2 border-b border-border last:border-b-0 group",
         // On air wins: it is the one fact about a row that is not the user's
         // own doing, and losing it under a selection tint would be worse.
-        onAir ? "bg-primary/10" : selected ? "bg-primary/5" : "hover:bg-muted/40",
+        onAir ? "bg-on-air/10" : selected ? "bg-primary/5" : "hover:bg-muted/40",
       )}
     >
       {selectable && onSelectChange ? (
@@ -290,7 +290,7 @@ export function TrackRow({
       <span
         className={cn(
           "text-xs tabular-nums text-right",
-          onAir ? "text-primary font-medium" : "text-muted-foreground",
+          onAir ? "text-on-air font-medium" : "text-muted-foreground",
         )}
       >
         {number}
@@ -307,7 +307,7 @@ export function TrackRow({
           <div className="flex flex-wrap gap-1 mt-1">
             {chips.length === 0 ? (
               <span
-                className="rounded-full border border-dashed border-destructive/40 px-1.5 py-px text-[10px] text-destructive/80"
+                className="rounded-full border border-dashed border-white/25 px-1.5 py-px text-[11px] text-foreground"
                 title="A track in no playlist never plays."
               >
                 not in any playlist
@@ -316,7 +316,7 @@ export function TrackRow({
               chips.map((name) => (
                 <span
                   key={name}
-                  className="rounded-full bg-muted px-1.5 py-px text-[10px] text-muted-foreground truncate max-w-[10rem]"
+                  className="rounded-full bg-muted px-1.5 py-px text-[11px] text-muted-foreground truncate max-w-[10rem]"
                 >
                   {name}
                 </span>
@@ -329,17 +329,17 @@ export function TrackRow({
       <div
         className={cn(
           "hidden md:block text-xs truncate",
-          track.artist ? "text-muted-foreground" : "text-muted-foreground/60 italic",
+          track.artist ? "text-muted-foreground" : "text-text-faint italic",
         )}
       >
         {track.artist ?? "Unknown artist"}
       </div>
 
-      <span className="hidden md:block text-xs text-muted-foreground tabular-nums text-right">
+      <span className="hidden md:block font-mono text-xs text-muted-foreground tabular-nums text-right">
         {track.duration_seconds > 0 ? formatDuration(Math.round(track.duration_seconds)) : "—"}
       </span>
 
-      <span className="hidden md:block text-xs text-muted-foreground tabular-nums text-right">
+      <span className="hidden md:block font-mono text-xs text-muted-foreground tabular-nums text-right">
         {formatBytes(track.file_size_bytes)}
       </span>
 

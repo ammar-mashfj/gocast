@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
@@ -348,7 +349,17 @@ class StationResource extends JsonResource
                     // reads 0 when someone forgets to load a relation is the
                     // exact failure being fixed here. This resource renders
                     // `stats` for a single station on a single endpoint.
-                    'peak_listeners' => (int) $this->listenerStats()->max('peak_listeners'),
+                    'peak_listeners' => $peak = (int) $this->listenerStats()->max('peak_listeners'),
+
+                    // "Has anyone ever listened?" — asked by the setup
+                    // checklist. The peak alone can't answer it: it comes from
+                    // the hourly rollup, which lags the raw listener_sessions
+                    // the Audience page counts, so a station could show "7
+                    // listeners" there while the checklist still said "nobody
+                    // has tuned in yet". Either source saying yes is a yes;
+                    // the peak covers raw rows that retention has pruned.
+                    'has_listeners' => $peak > 0
+                        || DB::table('listener_sessions')->where('station_id', $this->id)->exists(),
                 ];
             }),
         ];

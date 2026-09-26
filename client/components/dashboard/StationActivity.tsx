@@ -88,7 +88,10 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
         : delta === 0
           ? "same as the prior 14 days"
           : `${delta > 0 ? "+" : "−"}${formatAirtime(Math.abs(delta))} vs prior 14d`,
-      hintClass: truncated || delta === 0 ? undefined : delta > 0 ? "text-emerald-400" : "text-muted-foreground",
+      // Neutral foreground for "up", not emerald: emerald means a person is
+      // broadcasting right now, and a green hint read as a live indicator on
+      // a station that was off air.
+      hintClass: truncated || delta === 0 ? undefined : delta > 0 ? "text-foreground" : "text-muted-foreground",
     },
     {
       label: "Broadcasts",
@@ -98,7 +101,13 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
     {
       label: "Peak listeners",
       value: String(stats?.peak_listeners ?? 0),
-      hint: (stats?.peak_listeners ?? 0) > 0 ? "concurrent, all time" : "share your link to grow",
+      // Plain words for "concurrent": the number a novice misreads as a total.
+      hint:
+        (stats?.peak_listeners ?? 0) > 0
+          ? "most at the same moment, ever"
+          : stats?.has_listeners
+            ? "not measured yet, see Audience"
+            : "nobody has tuned in yet",
     },
     {
       label: "Total airtime",
@@ -122,7 +131,7 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
           {metrics.map((m) => (
             <div key={m.label} className="flex flex-col gap-1">
               <div className="text-xs text-muted-foreground">{m.label}</div>
-              <div className="text-2xl font-medium tracking-tight">{m.value}</div>
+              <div className="text-2xl font-medium tracking-tight tabular-nums">{m.value}</div>
               <div className={cn("text-xs text-muted-foreground", m.hintClass)}>{m.hint}</div>
             </div>
           ))}
@@ -135,7 +144,9 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
               title={`${axis(b.date)} — ${b.seconds > 0 ? formatAirtime(b.seconds) : "no live airtime"}`}
               className={cn(
                 "flex-1 rounded-sm",
-                b.seconds > 0 ? "bg-gradient-to-b from-primary to-primary/50" : "bg-muted",
+                // Flat emerald, not a violet gradient: every bar is LIVE
+                // airtime (a person broadcasting), and violet is AutoDJ's.
+                b.seconds > 0 ? "bg-live/60" : "bg-muted",
               )}
               style={{ height: `${Math.max(4, Math.round((b.seconds / peak) * 80))}px` }}
             />
@@ -148,7 +159,7 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
           <span>Today</span>
         </div>
 
-        <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
+        <p className="text-sm text-muted-foreground mt-4 leading-relaxed">
           Live broadcasts only — time on air with the AutoDJ rotation isn&apos;t recorded
           as a session, so it doesn&apos;t appear here.
         </p>

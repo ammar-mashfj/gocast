@@ -5,10 +5,10 @@ export default function Body() {
   return (
     <>
       <p>
-        Your station page has one control that decides whether anybody can hear
-        anything: the power button. Everything else &mdash; going live,
-        skipping a track, going off air &mdash; lives beside it in the same
-        place, so there is never a second button that also means
+        Your station page has one panel that decides whether anybody can hear
+        anything. Everything that changes the answer &mdash; going live,
+        starting AutoDJ, turning the station off &mdash; lives in that one
+        place, so there is never a second button somewhere else that also means
         &ldquo;begin&rdquo;.
       </p>
 
@@ -60,8 +60,23 @@ export default function Body() {
             <td>The server is coming up. A few seconds, normally.</td>
           </tr>
           <tr>
+            <td><strong>Live</strong></td>
+            <td>A person is broadcasting, from the studio or an encoder.</td>
+          </tr>
+          <tr>
             <td><strong>On air</strong></td>
-            <td>Listeners can hear you. The source chip beside it says what from.</td>
+            <td>
+              The station is running with nobody live. On Pro, that is AutoDJ
+              playing your library. The line under Now playing says what from.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Checking&hellip;</strong> / <strong>Status unknown</strong></td>
+            <td>
+              The dashboard hasn&rsquo;t heard back from the station yet. This
+              says nothing about what listeners hear; it clears on the next
+              answer.
+            </td>
           </tr>
           <tr>
             <td><strong>Not reaching listeners</strong></td>
@@ -73,6 +88,28 @@ export default function Body() {
           </tr>
         </tbody>
       </table>
+
+      <h2>The Buttons</h2>
+      <ul>
+        <li>
+          <strong>Go live</strong>{" "}opens the studio so you can broadcast from
+          your browser. If AutoDJ is playing, it pauses until you finish.
+        </li>
+        <li>
+          <strong>Start AutoDJ</strong>{" "}(Pro) switches the station on and
+          plays your music with nobody live.
+        </li>
+        <li>
+          <strong>Turn station off</strong>{" "}stops everything. Anyone listening
+          is cut off, and the player page shows the station as off air.
+        </li>
+      </ul>
+      <p>
+        If you are live from another browser or computer, the dashboard shows{" "}
+        <strong>Live from another browser</strong>{" "}and no stop button. End the
+        show from the studio in that browser: stopping it from here would only
+        make that studio reconnect and start the station again.
+      </p>
 
       <h2>Going Live Switches It On For You</h2>
       <p>

@@ -82,10 +82,12 @@ export function NotificationDetailDialog({
             )}
           </DialogHeader>
 
+          {/* A hairline section, not a tinted box: the dialog is already the
+              panel, and a card inside it is one surface too many. */}
           {detail && (
-            <div className="rounded-lg bg-muted/50 p-3">
+            <div className="border-t border-border pt-4">
               {detail.heading && (
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                <p className="text-xs font-medium text-muted-foreground">
                   {detail.heading}
                 </p>
               )}
@@ -98,7 +100,7 @@ export function NotificationDetailDialog({
                   <li key={point} className="flex gap-2 text-sm leading-relaxed">
                     <IconCheck
                       size={15}
-                      className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      className="mt-0.5 shrink-0 text-violet-muted"
                     />
                     <span>{point}</span>
                   </li>

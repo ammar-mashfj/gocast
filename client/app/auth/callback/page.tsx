@@ -12,7 +12,7 @@ function CallbackFallback() {
   return (
     <Card className="w-full max-w-sm">
       <CardContent className="flex flex-col items-center text-center py-10 gap-3">
-        <IconLoader2 size={24} className="text-primary animate-spin" />
+        <IconLoader2 size={24} className="text-violet-muted animate-spin" />
         <p className="text-sm text-muted-foreground">Signing you in…</p>
       </CardContent>
     </Card>

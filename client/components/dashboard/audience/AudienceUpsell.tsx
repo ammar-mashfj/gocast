@@ -32,8 +32,8 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
   const request = useProRequest()
 
   return (
-    <div className="rounded-xl border border-primary/20 bg-primary/[0.06] overflow-hidden">
-      <div className="relative">
+    <div className="rounded-xl border border-white/[0.09] bg-panel overflow-hidden">
+      <div>
         {/* Decorative: the real message is the copy below, and a screen reader
             reading out twenty invented numbers would be actively misleading. */}
         <div className="flex items-end gap-1.5 h-24 px-5 pt-6 opacity-30" aria-hidden="true">
@@ -45,13 +45,12 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
             />
           ))}
         </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-primary/[0.06] via-primary/[0.03] to-transparent" />
       </div>
 
       <div className="flex flex-col gap-6 p-5 md:flex-row md:items-center md:gap-8 md:p-6">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <IconLock size={15} className="text-primary shrink-0" />
+            <IconLock size={15} className="text-pro-text shrink-0" />
             <h2 className="text-lg font-medium">See who&apos;s listening to {stationName}</h2>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
@@ -73,7 +72,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           </p>
         </div>
 
-        <div className="shrink-0 md:w-56 md:border-l md:border-primary/15 md:pl-8">
+        <div className="shrink-0 md:w-56 md:border-l md:border-white/[0.06] md:pl-8">
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-semibold">${PRO_PRICE_USD}</span>
             <span className="text-sm text-muted-foreground">/ month</span>

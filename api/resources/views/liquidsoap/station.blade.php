@@ -1378,6 +1378,18 @@ end)
 # `segments_overhead` keeps segments around past the playlist window so a
 # client that fell behind still finds the segment it asked for rather than
 # a 404.
+#
+# `segment_name` carries a per-boot token because segments are served
+# `immutable` (nginx, and the dev /hls-proxy route), and the default name —
+# `aac_<position>.aac` — is NOT unique over time: position starts again at 0
+# whenever the container boots. A browser or CDN that cached `aac_522.aac`
+# during one run plays that audio back when the next run reaches 522, and it
+# never re-asks, because it was told the file cannot change. Seen 2026-09-26:
+# a listener heard a song that had been removed and skipped past, while every
+# server-side check (status, queue, the segments on disk) said otherwise.
+# Seconds since the epoch at boot is enough: two boots of one station cannot
+# land in the same second, and the name only has to differ from past runs.
+hls_boot = string(int(time()))
 output.file.hls(
   "/data/hls",
   segment_duration = 4.,
@@ -1385,6 +1397,7 @@ output.file.hls(
   segments_overhead = 5,
   persist_at = "/data/hls/state.json",
   playlist = "playlist.m3u8",
+  segment_name = fun (m) -> "#{m.stream_name}_#{hls_boot}_#{m.position}.#{m.extname}",
   [("{{ $hlsVariant }}", %ffmpeg(format="adts", %audio(codec="aac", b="128k")))],
   broadcast_out
 )

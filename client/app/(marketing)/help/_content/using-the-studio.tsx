@@ -19,13 +19,22 @@ export default function Body() {
       <h2>The File Queue</h2>
       <p>
         Drag audio files in from your computer and they play in order. You can
-        reorder them by dragging, remove them, and set the queue to repeat the
-        whole list or the current track.
+        reorder them by dragging, remove them, and set the queue to{" "}
+        <strong>Repeat list</strong>{" "}or <strong>Repeat track</strong>. The studio
+        calls this queue your <em>running order</em>, the radio word for a
+        show&rsquo;s playlist.
       </p>
       <p>
         These files never leave your computer except as the audio going out on
         air &mdash; nothing is uploaded, and nothing here counts against your
         AutoDJ storage. It is a stack of records beside the desk, not a library.
+      </p>
+      <p>
+        The running order stays saved in this browser between shows, along
+        with the song that was playing when you went off air. The Go Live page
+        shows what is waiting and lets you choose to{" "}
+        <strong>pick up</strong>{" "}that song where it stopped or{" "}
+        <strong>start it over</strong>{" "}from the beginning.
       </p>
 
       <h2>Push-to-Talk</h2>
@@ -33,7 +42,13 @@ export default function Body() {
         Hold it and your microphone comes up while the music drops to a fifth of
         its volume underneath you. Let go and the music comes back. This is how
         you talk over a bed without touching two faders, and it is the control
-        worth learning first.
+        worth learning first. Radio people call the music dipping
+        &ldquo;ducking&rdquo;.
+      </p>
+      <p>
+        To talk for longer without holding anything, press{" "}
+        <strong>Keep mic on</strong>{" "}(or <kbd>L</kbd>). The mic stays open until
+        you press <strong>Mic off</strong>.
       </p>
 
       <h2>Monitoring</h2>

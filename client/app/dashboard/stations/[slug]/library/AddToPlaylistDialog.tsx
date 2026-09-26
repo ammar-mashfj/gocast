@@ -79,15 +79,16 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
                 type="button"
                 disabled={saving !== null}
                 onClick={() => void pick(playlist.id)}
+                aria-busy={saving === playlist.id}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm cursor-pointer transition-colors",
-                  "hover:bg-muted/60 disabled:opacity-60 disabled:cursor-default",
+                  "flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm cursor-pointer transition-colors outline-none",
+                  "hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60 disabled:cursor-default",
                   saving === playlist.id && "bg-muted",
                 )}
               >
                 <span className="shrink-0 inline-flex text-muted-foreground">
                   {playlist.is_default ? (
-                    <IconStarFilled size={13} className="text-primary" />
+                    <IconStarFilled size={13} className="text-violet-muted" />
                   ) : (
                     <IconPlaylist size={15} />
                   )}

@@ -24,6 +24,12 @@ interface Props {
   candidates: Track[]
   /** Resolves once the server has them; the dialog closes on success. */
   onAdd: (ids: string[]) => Promise<void>
+  /**
+   * The library itself has nothing in it. Separate from `candidates` being
+   * empty, which otherwise reads as "everything is already in here" — untrue,
+   * and a dead end, on a brand-new station.
+   */
+  libraryEmpty?: boolean
 }
 
 /**
@@ -31,7 +37,7 @@ interface Props {
  * because the realistic case is "the forty calm ones out of three hundred", not
  * one at a time.
  */
-export function TrackPicker({ open, onClose, playlistName, candidates, onAdd }: Props) {
+export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, libraryEmpty = false }: Props) {
   const [query, setQuery] = useState("")
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const [saving, setSaving] = useState(false)
@@ -95,9 +101,11 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd }: 
         <DialogHeader>
           <DialogTitle>Add to {playlistName}</DialogTitle>
           <DialogDescription>
-            {candidates.length === 0
-              ? "Every track in your library is already in this playlist."
-              : "Pick from your library. A track can be in as many playlists as you like."}
+            {libraryEmpty
+              ? "Your library is empty. Drop audio files onto the playlist to upload straight into it."
+              : candidates.length === 0
+                ? "Every track in your library is already in this playlist."
+                : "Pick from your library. A track can be in as many playlists as you like."}
           </DialogDescription>
         </DialogHeader>
 
@@ -113,18 +121,21 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd }: 
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search title or artist"
+                  aria-label="Search your library"
                   className="h-9 pl-9 text-sm"
                   autoFocus
                 />
               </div>
-              <Button variant="ghost" size="sm" onClick={toggleAllVisible} disabled={visible.length === 0}>
+              <Button variant="ghost" onClick={toggleAllVisible} disabled={visible.length === 0}>
                 {visible.every((t) => picked.has(t.id)) && visible.length > 0 ? "Clear" : "Select all"}
               </Button>
             </div>
 
             <div className="max-h-[50vh] overflow-y-auto rounded-md border border-border">
               {visible.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">No matches.</div>
+                <div role="status" className="py-8 text-center text-xs text-muted-foreground">
+                  No tracks match &ldquo;{query.trim()}&rdquo;.
+                </div>
               ) : (
                 visible.map((track) => {
                   const on = picked.has(track.id)
@@ -135,8 +146,11 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd }: 
                       onClick={() => toggle(track.id)}
                       aria-pressed={on}
                       className={cn(
-                        "w-full grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left text-sm border-b border-border last:border-b-0 cursor-pointer",
-                        on ? "bg-primary/10" : "hover:bg-muted/40",
+                        "w-full grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left text-sm border-b border-border last:border-b-0 cursor-pointer outline-none",
+                        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
+                        // The accent surface, which is what a selected item
+                        // sits on everywhere else; the check carries the fill.
+                        on ? "bg-accent" : "hover:bg-muted/40",
                       )}
                     >
                       <span
@@ -153,7 +167,7 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd }: 
                           {track.artist ?? "Unknown artist"}
                         </span>
                       </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
+                      <span className="font-mono text-xs text-muted-foreground tabular-nums">
                         {track.duration_seconds > 0 ? formatDuration(Math.round(track.duration_seconds)) : "—"}
                       </span>
                     </button>

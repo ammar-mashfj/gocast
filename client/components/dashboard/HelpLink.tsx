@@ -41,7 +41,7 @@ export function HelpLink({ article, label, className }: HelpLinkProps) {
       aria-label={`Help: ${label}`}
       title={`Help: ${label}`}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className
       )}
     >

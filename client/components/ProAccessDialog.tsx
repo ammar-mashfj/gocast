@@ -2,6 +2,10 @@
 
 import { useId, useState } from "react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -11,11 +15,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import api from "@/lib/axios"
-
-const FIELD_CLASS =
-  "bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:outline-none focus:border-violet-border/70"
-
-const LABEL_CLASS = "text-sm font-medium text-text-secondary"
 
 /**
  * Defaults describe the Pro request. The Custom card on the pricing page
@@ -161,94 +160,98 @@ export function ProAccessDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg p-6 text-sm">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         {submitted ? (
-          <div className="py-4 text-sm text-text-muted leading-relaxed">
-            {confirmation}
-          </div>
+          <>
+            <p role="status" className="text-sm leading-relaxed text-muted-foreground">
+              {confirmation}
+            </p>
+            <DialogFooter showCloseButton />
+          </>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5 pt-2">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             {authed ? (
-              <div className="flex flex-col gap-1.5">
-                <span className={LABEL_CLASS}>Requesting as</span>
-                <div className={`${FIELD_CLASS} opacity-70`}>
+              // Plain text rather than a disabled field: nothing here can be
+              // edited (see accountEmail), and a greyed-out input invites a
+              // click that does nothing.
+              <p className="text-sm text-muted-foreground">
+                Requesting as{" "}
+                <span className="font-medium text-foreground break-all">
                   {accountEmail ?? "your account"}
-                </div>
-              </div>
+                </span>
+              </p>
             ) : (
               <div className="flex flex-col gap-1.5">
-                <label htmlFor={`${fieldId}-email`} className={LABEL_CLASS}>
-                  Email address
-                </label>
-                <input
+                <Label htmlFor={`${fieldId}-email`}>Email address</Label>
+                <Input
                   id={`${fieldId}-email`}
                   type="email"
                   required
                   autoFocus
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={FIELD_CLASS}
                   disabled={submitting}
                 />
               </div>
             )}
 
             <div className="flex flex-col gap-1.5">
-              <label htmlFor={`${fieldId}-social`} className={LABEL_CLASS}>
-                Link to your public page
-              </label>
-              <p className="text-xs text-text-faint leading-relaxed">
-                Instagram, Facebook, TikTok, YouTube — anywhere we can see your
-                audience. Paste the full link, not just a handle.
-              </p>
-              <input
+              <Label htmlFor={`${fieldId}-social`}>Link to your public page</Label>
+              <Input
                 id={`${fieldId}-social`}
                 type="text"
                 required
                 autoFocus={authed}
+                inputMode="url"
                 placeholder="instagram.com/yourshow"
                 value={social}
                 onChange={(e) => setSocial(e.target.value)}
-                className={FIELD_CLASS}
                 disabled={submitting}
                 maxLength={255}
+                aria-describedby={`${fieldId}-social-hint`}
               />
+              <p id={`${fieldId}-social-hint`} className="text-xs leading-relaxed text-text-faint">
+                Instagram, Facebook, TikTok, YouTube — anywhere we can see your
+                audience. Paste the full link, not just a handle.
+              </p>
             </div>
 
             <div className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-3">
-                <label htmlFor={`${fieldId}-message`} className={LABEL_CLASS}>
-                  Tell us about your station
-                </label>
+                <Label htmlFor={`${fieldId}-message`}>Tell us about your station</Label>
                 <span className="text-xs text-text-faint">Optional</span>
               </div>
-              <p className="text-xs text-text-faint leading-relaxed">
-                What you broadcast, how often, and what you need from Pro.
-              </p>
-              <textarea
+              <Textarea
                 id={`${fieldId}-message`}
                 rows={4}
+                className="min-h-24"
+                aria-describedby={`${fieldId}-message-hint`}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                className={`${FIELD_CLASS} resize-none`}
                 disabled={submitting}
                 maxLength={2000}
               />
+              <p id={`${fieldId}-message-hint`} className="text-xs leading-relaxed text-text-faint">
+                What you broadcast, how often, and what you need from Pro.
+              </p>
             </div>
 
-            {error && <div className="text-xs text-red-400">{error}</div>}
+            {error && (
+              <p role="alert" className="text-xs text-fault-text">
+                {error}
+              </p>
+            )}
+            {/* The form's one filled button. It used to carry a violet glow
+                shadow of its own; surfaces here are solid and unlit. */}
             <DialogFooter>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-3 rounded-lg text-sm font-medium bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {submitting ? "Submitting…" : submitLabel}
-              </button>
+              <Button type="submit" disabled={submitting} className="h-11 w-full">
+                {submitting ? "Sending…" : submitLabel}
+              </Button>
             </DialogFooter>
           </form>
         )}

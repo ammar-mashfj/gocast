@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { IconExternalLink, IconSettings } from "@tabler/icons-react"
@@ -19,6 +20,7 @@ import { StationShare } from "@/components/dashboard/StationShare"
 import { LiveListeners } from "@/components/dashboard/LiveListeners"
 import { formatDate } from "@/lib/format"
 import { StationActions } from "../StationActions"
+import { ShowSignOff } from "@/components/dashboard/ShowSignOff"
 
 /**
  * Every station encodes identically — it is hardcoded in the Liquidsoap
@@ -27,7 +29,11 @@ import { StationActions } from "../StationActions"
  * do my listeners get?" is a question the page should answer without anyone
  * having to ask support.
  */
-const STREAM_FORMAT = "MP3 128 kbps"
+const STREAM_FORMAT = "Streams in MP3, 128 kbps"
+
+// Its own tab title: every dashboard tab used to read the marketing title,
+// so history and open tabs were indistinguishable.
+export const metadata: Metadata = { title: "Overview" }
 
 export default async function StationDetailPage({
   params,
@@ -108,19 +114,25 @@ export default async function StationDetailPage({
 
   // Header meta line. Each part is dropped rather than shown empty, so a brand
   // new station gets a short honest line instead of a row of dashes.
+  //
+  // Identity only. It used to carry a broadcast count and "Live now", and both
+  // contradicted the page below them: the count included the show in
+  // progress while Broadcast activity counts finished shows (89 over 88), and
+  // "Live now" came from the owner's intent while the control strip polls the
+  // container — so the header could say Live over a strip saying "Status
+  // unknown". The strip owns the state and Broadcast activity owns the count.
   const meta = [
     `Created ${formatDate(station.created_at)}`,
     STREAM_FORMAT,
-    sessionTotal > 0 ? `${sessionTotal} broadcast${sessionTotal === 1 ? "" : "s"}` : null,
-    station.state !== "offline"
-      ? "On air now"
-      : lastEnded
-        ? `Last on air ${formatDate(lastEnded, "relative")}`
-        : null,
+    station.state === "offline" && lastEnded
+      ? `Last live ${formatDate(lastEnded, "relative")}`
+      : null,
   ].filter(Boolean) as string[]
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="sheet flex flex-col gap-8">
+      <ShowSignOff slug={station.slug} />
+
       {/* Header — identity and low-risk actions only. Anything that changes
           what listeners hear lives in the status panel below, so there is one
           place to look rather than two buttons that both mean "begin". */}
@@ -128,26 +140,27 @@ export default async function StationDetailPage({
         <StationArtwork
           src={station.artwork_url}
           alt={station.name}
-          className="size-16 md:size-[144px] rounded-2xl shrink-0"
+          className="size-16 md:size-24 rounded-2xl shrink-0"
           iconSize={24}
-          sizes="144px"
+          sizes="96px"
+          priority
         />
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
             {station.genre && (
-              <Badge variant="secondary" className="shrink-0 text-sm" title="genre">{station.genre}</Badge>
+              <Badge variant="secondary" className="shrink-0 text-[11px]" title="genre">{station.genre}</Badge>
             )}
           </div>
           {station.description && (
-            <p className="text-sm text-muted-foreground  line-clamp-2">
+            <p className="max-w-[70ch] text-sm text-muted-foreground line-clamp-2">
               {station.description}
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             {meta.map((part, i) => (
-              <span key={part} className="inline-flex items-center gap-2 text-sm">
-                {i > 0 && <span className="text-border">•</span>}
+              <span key={part} className="inline-flex items-center gap-2">
+                {i > 0 && <span className="text-muted-foreground/60" aria-hidden="true">·</span>}
                 {part}
               </span>
             ))}
@@ -171,52 +184,62 @@ export default async function StationDetailPage({
         </div>
       </header>
 
-      <div className="grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="flex flex-col gap-6 min-w-0">
-          {/* Two cards from one poll, side by side where the column is wide
-              enough: "is this station on air?" with every control that changes
-              the answer, and "what is on air?" with the source, the track and
-              the skip. Off air the second is absent and the first spans. */}
-          <StationPower station={station} />
-
-          <StationActivity
-            sessions={sessions}
-            stats={station.stats}
-            truncated={sessionTotal > sessions.length}
-          />
-
-          <AutoDjRotation
-            slug={station.slug}
-            tracks={tracks}
-            playlistName={playlist?.name ?? null}
-            programme={station.programme ?? null}
-            timezone={station.timezone}
-            defaultName={defaultName}
-            unavailable={tracksUnavailable}
-          />
-
-          <RecentBroadcasts sessions={sessions} />
+      {/* The control room: one continuous sheet in three groups — what is on
+          air now, how the shows went, getting it heard — divided by hairline
+          rules like the homepage, not stacked under kicker labels. */}
+      <section aria-label="On air now" className="flex flex-col gap-6">
+        {/* One poll, one strip: can anyone hear this station, what are they
+            hearing, and how many of them are there. */}
+        <StationPower
+          station={station}
+          aside={
+            <LiveListeners
+              slug={station.slug}
+              isOnAir={station.state !== "offline"}
+              peakListeners={station.stats?.peak_listeners ?? 0}
+              bare
+            />
+          }
+        />
+        <div className="border-t border-white/[0.07] pt-6">
+        <AutoDjRotation
+          slug={station.slug}
+          tracks={tracks}
+          playlistName={playlist?.name ?? null}
+          programme={station.programme ?? null}
+          timezone={station.timezone}
+          defaultName={defaultName}
+          unavailable={tracksUnavailable}
+        />
         </div>
+      </section>
 
-        <aside className="flex flex-col gap-6 min-w-0">
-          {/* Above the share card on purpose: the audience is the reason the
-              link exists, and seeing an empty room is what sends anyone to
-              the share card underneath it. */}
-          <LiveListeners
-            slug={station.slug}
-            isOnAir={station.state !== "offline"}
-            peakListeners={station.stats?.peak_listeners ?? 0}
-          />
+      <section
+        aria-label="Your shows"
+        // Two columns split by a vertical rule instead of two boxes.
+        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
+      >
+        <StationActivity
+          sessions={sessions}
+          stats={station.stats}
+          truncated={sessionTotal > sessions.length}
+        />
+        <RecentBroadcasts sessions={sessions} />
+      </section>
 
-          <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
-
-          <StationChecklist
-            station={station}
-            trackCount={tracks.length}
-            peakListeners={station.stats?.peak_listeners ?? 0}
-          />
-        </aside>
-      </div>
+      <section
+        aria-label="Share"
+        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
+      >
+        <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
+        <StationChecklist
+          station={station}
+          trackCount={tracks.length}
+          hasListeners={
+            station.stats?.has_listeners ?? (station.stats?.peak_listeners ?? 0) > 0
+          }
+        />
+      </section>
     </div>
   )
 }

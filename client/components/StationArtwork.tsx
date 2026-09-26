@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import Image from "next/image"
 import { IconMusic } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
@@ -39,6 +39,16 @@ export function StationArtwork({
 }: StationArtworkProps) {
   const [loaded, setLoaded] = useState(false)
 
+  // A cached image can finish loading before React hydrates, and a `load`
+  // event that fired before the listener was attached never fires again —
+  // the artwork then sat at opacity 0 forever, an empty gradient where the
+  // station's picture should be. Checking the element once it mounts catches
+  // that case; `naturalWidth > 0` excludes a broken image, which also reports
+  // `complete`. `onLoad` below still drives the fade for uncached loads.
+  const checkCached = useCallback((img: HTMLImageElement | null) => {
+    if (img?.complete && img.naturalWidth > 0) setLoaded(true)
+  }, [])
+
   if (!src) {
     return (
       <div
@@ -61,6 +71,7 @@ export function StationArtwork({
         fill
         sizes={sizes}
         priority={priority}
+        ref={checkCached}
         className={cn("object-cover transition-opacity duration-300", loaded ? "opacity-100" : "opacity-0")}
         onLoad={() => setLoaded(true)}
       />

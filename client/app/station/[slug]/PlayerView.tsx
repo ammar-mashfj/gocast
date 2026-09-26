@@ -572,6 +572,32 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     )
   }, [applyMetadata])
 
+  const teardown = useCallback(() => {
+    hlsRef.current?.destroy()
+    hlsRef.current = null
+
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      // Both must go. Clearing only `src` leaves a native HLS load in flight,
+      // and removing only the attribute leaves the element holding the last
+      // buffer — either way the next play starts from stale state.
+      audio.removeAttribute("src")
+      audio.load()
+    }
+
+    hasInbandMetadataRef.current = false
+    setTransport(null)
+    setPlaying(false)
+    setLoading(false)
+    // The ref has to go with the state it mirrors. `applyMetadata` drops an
+    // update that matches it, so leaving the last track behind here would make
+    // pressing play again on that same track a no-op: the card would sit empty
+    // until the station moved on.
+    prevNowPlayingRef.current = { title: null, artist: null }
+    setNowPlaying({ title: null, artist: null })
+  }, [])
+
   // Listener count + live status + now-playing, from the SHARED feed: one
   // timer and one request per station however many components ask, and paused
   // while the tab is hidden.
@@ -599,6 +625,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       is_on_air: stats.is_on_air ?? prev.is_on_air,
     }))
 
+    // Off air while we are waiting for audio: see `onWaiting` below.
+    if (stats.is_on_air === false && loading) teardown()
+
     if (!hasInbandMetadataRef.current) applyMetadata(stats.now_playing)
   })
 
@@ -612,32 +641,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // back to the Icecast mount is already inside the number the admin poll
   // returns, and counting them here as well would report them twice.
   useListenerSession(station.slug, playing, transport)
-
-  const teardown = useCallback(() => {
-    hlsRef.current?.destroy()
-    hlsRef.current = null
-
-    const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      // Both must go. Clearing only `src` leaves a native HLS load in flight,
-      // and removing only the attribute leaves the element holding the last
-      // buffer — either way the next play starts from stale state.
-      audio.removeAttribute("src")
-      audio.load()
-    }
-
-    hasInbandMetadataRef.current = false
-    setTransport(null)
-    setPlaying(false)
-    setLoading(false)
-    // The ref has to go with the state it mirrors. `applyMetadata` drops an
-    // update that matches it, so leaving the last track behind here would make
-    // pressing play again on that same track a no-op: the card would sit empty
-    // until the station moved on.
-    prevNowPlayingRef.current = { title: null, artist: null }
-    setNowPlaying({ title: null, artist: null })
-  }, [])
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current
@@ -915,7 +918,16 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           setPlaying(true)
           setLoading(false)
         }}
-        onWaiting={() => setLoading(true)}
+        onWaiting={() => {
+          // A station turned off under a listener never says so on the
+          // stream: the manifest stops moving (or 404s), hls.js retries it
+          // forever, and once the buffer runs dry this fires with nothing
+          // left to clear it — a spinner that never ends. The feed knows,
+          // so stop instead. Checked here and on each feed tick, whichever
+          // learns second, so the buffered tail still plays out first.
+          if (!station.is_on_air) teardown()
+          else setLoading(true)
+        }}
         onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false)
@@ -980,7 +992,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
         <div className="flex min-w-0 flex-col gap-5 @max-[900px]/player:items-center @max-[520px]/player:gap-3.5">
           {station.genre && (
-            <p className={`${MICRO} m-0 max-w-[46ch] leading-[1.7] text-primary/90 text-pretty`}>
+            <p className={`${MICRO} m-0 max-w-[46ch] leading-[1.7] text-violet-muted/90 text-pretty`}>
               {station.genre}
             </p>
           )}
@@ -996,7 +1008,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
               <TooltipProvider delayDuration={300}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="ml-2 inline-flex align-middle text-primary">
+                    <span className="ml-2 inline-flex align-middle text-violet-muted">
                       <IconRosetteDiscountCheckFilled className="size-5 @min-[900px]/player:size-8" />
                       <span className="sr-only">Featured station</span>
                     </span>

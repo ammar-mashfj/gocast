@@ -91,3 +91,45 @@ it('searches by station name and owner email', function () {
         ->assertSee('Needle FM')
         ->assertDontSee('Haystack FM');
 });
+
+it('filters down to powered-on stations from the tile', function () {
+    Station::factory()->running()->create(['name' => 'Awake FM']);
+    Station::factory()->create(['name' => 'Asleep FM', 'desired_state' => Station::STATE_STOPPED]);
+
+    $this->get(route('admin.stations.index', ['state' => 'running']))
+        ->assertOk()
+        ->assertSee('Awake FM')
+        ->assertDontSee('Asleep FM');
+});
+
+it('filters down to live stations from the tile', function () {
+    Station::factory()->live()->create(['name' => 'Live One']);
+    Station::factory()->running()->create(['name' => 'Quiet One']);
+
+    $this->get(route('admin.stations.index', ['state' => 'live']))
+        ->assertOk()
+        ->assertSee('Live One')
+        ->assertDontSee('Quiet One');
+});
+
+it('combines the state filter with featured and search, and links each tile back off', function () {
+    Station::factory()->featured()->live()->create(['name' => 'Picked Live FM']);
+    Station::factory()->live()->create(['name' => 'Unpicked Live FM']);
+    Station::factory()->featured()->running()->create(['name' => 'Picked Quiet FM']);
+
+    $this->get(route('admin.stations.index', ['state' => 'live', 'featured' => '1', 'search' => 'Picked']))
+        ->assertOk()
+        ->assertSee('Picked Live FM')
+        ->assertDontSee('Unpicked Live FM')
+        ->assertDontSee('Picked Quiet FM')
+        // Clicking the active Live now tile clears only that filter.
+        ->assertSee(e(route('admin.stations.index', ['search' => 'Picked', 'featured' => '1'])), false);
+});
+
+it('ignores an unknown state value', function () {
+    Station::factory()->create(['name' => 'Any FM', 'desired_state' => Station::STATE_STOPPED]);
+
+    $this->get(route('admin.stations.index', ['state' => 'bogus']))
+        ->assertOk()
+        ->assertSee('Any FM');
+});

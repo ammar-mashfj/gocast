@@ -46,7 +46,7 @@ export function PlaylistRail({
   return (
     <nav
       aria-label="Music"
-      className="flex md:flex-col gap-1 md:w-56 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0"
+      className="flex min-w-0 max-w-full md:flex-col gap-1 md:w-56 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0"
     >
       <RailLabel>Library</RailLabel>
 
@@ -55,7 +55,7 @@ export function PlaylistRail({
         onClick={() => onSelect(LIBRARY_KEY)}
         icon={<IconMusic size={15} />}
         label="All tracks"
-        detail={`${libraryCount}`}
+        detail={`${libraryCount} track${libraryCount === 1 ? "" : "s"}`}
         title="Every file you own. Upload, delete and fix tags here."
       />
 
@@ -68,7 +68,7 @@ export function PlaylistRail({
           onClick={() => onSelect(playlist.id)}
           icon={
             playlist.is_default ? (
-              <IconStarFilled size={13} className="text-primary" />
+              <IconStarFilled size={13} className="text-violet-muted" />
             ) : (
               <IconPlaylist size={15} />
             )
@@ -85,7 +85,7 @@ export function PlaylistRail({
         onClick={onCreate}
         disabled={locked}
         title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-        className="justify-start text-muted-foreground shrink-0"
+        className="h-9 justify-start text-muted-foreground shrink-0"
       >
         <IconPlus size={15} data-icon="inline-start" />
         New playlist
@@ -99,7 +99,7 @@ function RailLabel({ children, className }: { children: React.ReactNode; classNa
   return (
     <span
       className={cn(
-        "hidden md:block px-2.5 pb-1 text-[11px] uppercase tracking-wider text-muted-foreground/70 select-none",
+        "hidden md:block px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none",
         className,
       )}
     >
@@ -111,7 +111,10 @@ function RailLabel({ children, className }: { children: React.ReactNode; classNa
 function railDetail(playlist: Playlist): string {
   const count = playlist.track_count ?? 0
   const seconds = playlist.duration_seconds ?? 0
-  return seconds > 0 ? `${count} · ${formatAirtime(seconds)}` : `${count}`
+  // Words, not a bare "1 · 1h 17m": the number alone didn't say what it
+  // counted. The rail is narrow, so "tracks" rather than a longer phrase.
+  const tracks = `${count} track${count === 1 ? "" : "s"}`
+  return seconds > 0 ? `${tracks} · ${formatAirtime(seconds)}` : tracks
 }
 
 interface RailItemProps {
@@ -131,14 +134,14 @@ function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps
       title={title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
+        "flex min-h-9 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
         "min-w-0 max-w-[14rem] md:max-w-none",
         active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
     >
       <span className="shrink-0 inline-flex">{icon}</span>
       <span className="truncate flex-1">{label}</span>
-      <span className="text-[11px] tabular-nums text-muted-foreground/80 shrink-0">{detail}</span>
+      <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">{detail}</span>
     </button>
   )
 }

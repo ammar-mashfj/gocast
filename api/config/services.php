@@ -20,6 +20,10 @@ return [
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+
+        // Signing secret (whsec_…) of the webhook pointed at
+        // /api/webhooks/resend. Blank = the endpoint refuses every event.
+        'webhook_secret' => env('RESEND_WEBHOOK_SECRET'),
     ],
 
     'ses' => [

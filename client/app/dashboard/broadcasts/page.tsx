@@ -1,38 +1,50 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { IconHistory } from "@tabler/icons-react"
 import { apiFetch } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty"
+import { Card, CardContent } from "@/components/ui/card"
+import { SOURCE_LABEL } from "@/components/dashboard/RecentBroadcasts"
 import { Button } from "@/components/ui/button"
-import { formatDate, formatDateRange } from "@/lib/format"
+import { StationActions } from "../stations/[slug]/StationActions"
+import { formatAirtime, formatDateRange, formatDateTime } from "@/lib/format"
 
 /**
- * Every finished broadcast on the user's station, newest first.
+ * Shared by the head row and every body row (and by loading.tsx's copy), so
+ * the columns line up. On a phone the source column drops out and the
+ * duration cell stacks its figure over its bar.
+ */
+const ROW =
+  "grid grid-cols-[8.5rem_minmax(0,1fr)_2.5rem] md:grid-cols-[11rem_6rem_minmax(0,1fr)_7rem] gap-3 px-3"
+
+/**
+ * The latest finished broadcasts on the user's station (one API page), newest first.
  *
  * This used to fan out across all of the user's stations and tag each row
  * with the station it belonged to. With one station per user both the
  * fan-out and the column are noise — every row would carry the same name.
  */
+// Its own tab title: every dashboard tab used to read the marketing title,
+// so history and open tabs were indistinguishable.
+export const metadata: Metadata = { title: "Broadcasts" }
+
 export default async function BroadcastsPage() {
   let station: Station | null
   let sessions: StreamSession[]
+  // The endpoint pages at 20, so the list is the latest shows, not all of
+  // them. `total` is what lets the summary say so instead of passing a page
+  // off as the station's history (it read "19 shows" beside "88 all time").
+  let total = 0
 
   try {
     station = await getMyStation()
-    sessions = station
-      ? (await apiFetch<{ data: StreamSession[] }>(`/stations/${station.slug}/sessions`)).data
-      : []
+    const res = station
+      ? await apiFetch<{ data: StreamSession[]; total?: number }>(`/stations/${station.slug}/sessions`)
+      : { data: [] as StreamSession[], total: 0 }
+    sessions = res.data
+    total = res.total ?? res.data.length
   } catch {
     notFound()
   }
@@ -41,58 +53,102 @@ export default async function BroadcastsPage() {
     .filter((s) => s.ended_at)
     .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
 
+  // No stock empty state: a left-aligned page in the dashboard's own shape,
+  // like the create-your-station page, with the one action that fills it.
   if (finished.length === 0) {
     return (
-      <div>
-        <h1 className="font-display text-xl font-semibold mb-6">Broadcasts</h1>
-        <Empty className="py-16">
-          <EmptyMedia variant="icon">
-            <IconHistory size={48} />
-          </EmptyMedia>
-          <EmptyHeader>
-            <EmptyTitle className="text-lg">No broadcasts yet</EmptyTitle>
-            <EmptyDescription className="text-sm">
-              Once you go live, every session shows up here with its duration and peak audience.
-            </EmptyDescription>
-          </EmptyHeader>
+      <div className="flex max-w-2xl flex-col items-start gap-5">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Broadcasts</h1>
+          <p className="mt-1 max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
+            Nothing on the log yet. Every time you go live, the show lands here with
+            how long you were on and the most people listening at once.
+          </p>
+        </div>
+        {station ? (
+          <StationActions station={station} mode="live" />
+        ) : (
           <Button asChild>
-            <Link href="/dashboard">
-              {station ? "Go to your station" : "Create your station"}
-            </Link>
+            <Link href="/dashboard">Create your station</Link>
           </Button>
-        </Empty>
+        )}
       </div>
     )
   }
 
+  // Every row is a person on the mic — a session is only written for a human
+  // broadcaster (see StreamSession) — so each duration is drawn as an
+  // emerald bar, the same live bar as Broadcast activity on the overview,
+  // scaled to the longest show on the list — but never to more than three
+  // hours, so one forgotten all-day tab can't flatten every real show into a
+  // sliver. Anything longer simply fills the track.
+  const seconds = (s: StreamSession) =>
+    Math.max(0, (new Date(s.ended_at!).getTime() - new Date(s.started_at).getTime()) / 1000)
+  const longest = Math.min(3 * 3600, Math.max(1, ...finished.map(seconds)))
+  const totalLive = finished.reduce((sum, s) => sum + seconds(s), 0)
+
   return (
-    <div>
-      <h1 className="font-display text-xl font-semibold mb-6">Broadcasts</h1>
+    <div className="sheet">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Broadcasts</h1>
+        <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+          {total > sessions.length ? (
+            <>
+              Your latest {finished.length} shows · {formatAirtime(Math.floor(totalLive))} live across them
+            </>
+          ) : (
+            <>
+              {finished.length} {finished.length === 1 ? "show" : "shows"} · {formatAirtime(Math.floor(totalLive))} live in total
+            </>
+          )}
+        </p>
+      </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">
-            All broadcast sessions
-          </CardTitle>
-        </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-[1fr_140px_80px] px-3 py-2 text-xs text-muted-foreground tracking-wide uppercase">
-            <span>Date</span>
-            <span>Duration</span>
-            <span className="text-right">Peak</span>
+          {/* Sentence-case column heads, not tracked caps: the design system
+              keeps uppercase for the ON AIR / LIVE state words alone. The
+              rows below carry their own top hairline, so no Separator — the
+              two stacked drew a double rule under the header. Start time and
+              source, like the overview's Recent broadcasts: a date alone left
+              four identical "Sep 26" rows nobody could tell apart. */}
+          <div className={`${ROW} py-2 text-xs text-muted-foreground`}>
+            <span>Started</span>
+            <span className="hidden md:block">Source</span>
+            <span>On air</span>
+            <span className="text-right">
+              <span className="md:hidden">Peak</span>
+              <span className="hidden md:inline">Peak listeners</span>
+            </span>
           </div>
-          <Separator />
 
-          {finished.map((s) => (
-            <div
-              key={s.id}
-              className="grid grid-cols-[1fr_140px_80px] px-3 py-2.5 border-t border-border text-sm"
-            >
-              <span className="text-muted-foreground">{formatDate(s.started_at, "short")}</span>
-              <span className="text-muted-foreground">{formatDateRange(s.started_at, s.ended_at!)}</span>
-              <span className="text-right text-muted-foreground">{s.peak_listeners}</span>
-            </div>
-          ))}
+          {finished.map((s) => {
+            const share = Math.min(100, (seconds(s) / longest) * 100)
+            return (
+              <div
+                key={s.id}
+                className={`${ROW} items-center py-2.5 border-t border-white/[0.06] text-sm`}
+              >
+                <span className="truncate font-mono tabular-nums">{formatDateTime(s.started_at)}</span>
+                <span className="hidden text-muted-foreground md:block" title={s.client ?? undefined}>
+                  {SOURCE_LABEL[s.source_type] ?? s.source_type}
+                </span>
+                <span className="flex min-w-0 flex-col gap-1 md:flex-row-reverse md:items-center md:gap-3">
+                  <span className="font-mono tabular-nums text-muted-foreground md:w-16 md:shrink-0">
+                    {formatDateRange(s.started_at, s.ended_at!)}
+                  </span>
+                  <span className="block h-1.5 w-full rounded-full bg-white/[0.06]" aria-hidden="true">
+                    <span
+                      className="block h-full rounded-full bg-live/60"
+                      style={{ width: `${Math.max(share, 2)}%` }}
+                    />
+                  </span>
+                </span>
+                {/* Onest, not mono: a count of people is not a machine value. */}
+                <span className="text-right tabular-nums text-muted-foreground">{s.peak_listeners}</span>
+              </div>
+            )
+          })}
         </CardContent>
       </Card>
     </div>

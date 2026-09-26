@@ -1,121 +1,97 @@
-"use client"
-
-import Link from "next/link"
-import { useParams } from "next/navigation"
-import { IconArrowLeft } from "@tabler/icons-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AutoDjTabs } from "@/components/dashboard/AutoDjTabs"
-import { useStationBySlug } from "@/contexts/StationContext"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 
-/** Mon…Sun, matching WeekStrip's row labels. */
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+/** Sun…Sat, matching WeekStrip's row labels — its week starts on Sunday. */
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+/** The hour ticks over the week strip; fixed, so drawn as text. */
+const HOURS = [0, 6, 12, 18, 24]
 
 /**
  * The Schedule page while the station and its playlists are in flight.
  *
- * Paired with `../library/loading.tsx`: the back link, the tab strip and the
- * heading are identical in both, so switching between the two tabs moves
- * nothing above the fold — only the body swaps. Without this file the tab
- * switch fell back to the station overview's skeleton and the whole page
- * appeared to change into something else and back again.
+ * Copies SchedulePlanner's shape rather than suggesting it: the heading, the
+ * week strip (Sunday first), the timezone field, then the two lanes — "When
+ * you're live" and "What AutoDJ plays" — each opened by a hairline. Static
+ * copy is text; what is pending is the strip's bars and each lane's rows.
  *
- * The heading and its description are static copy, so they are rendered for
- * real rather than as grey bars. What is pending is the on-now line, the
- * timezone, the slot rows and the week strip.
+ * No "On now" line: it only renders for AutoDJ plans, and a placeholder for
+ * it would make every Free station's page jump up on arrival.
  */
 export default function ScheduleLoading() {
-  const params = useParams<{ slug: string }>()
-  const slug = params?.slug ?? ""
-  const station = useStationBySlug(slug)
-
   return (
-    <div>
-      <Link
-        href={`/dashboard/stations/${slug}`}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
-      >
-        <IconArrowLeft size={14} />
-        {station ? `Back to ${station.name}` : "Back"}
-      </Link>
-
-      <AutoDjTabs slug={slug} />
-
-      <div className="flex flex-col gap-2 mb-6">
-        <h1 className="font-display text-2xl font-semibold">Schedule</h1>
-        <p className="text-sm text-muted-foreground max-w-2xl">
-          Play different playlists at different times of the week. This is separate from the show
-          times on your settings page, which only tell listeners when you&apos;re live.
+    // The Skeleton primitive pulses unconditionally; stopping it here keeps
+    // the page still for anyone who asked for reduced motion.
+    <div className="sheet max-w-4xl motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+      <div className="mb-8 flex flex-col gap-1.5">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Schedule</h1>
+        <p className="text-sm text-muted-foreground max-w-[62ch]">
+          Your station&apos;s week: when you go live, and what AutoDJ plays the rest of the time.
         </p>
       </div>
 
-      <div className="flex flex-col gap-6">
-        {/* On now */}
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
-          <Skeleton className="size-9 rounded-md shrink-0" />
-          <div className="min-w-0 flex flex-col gap-1.5">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-4 w-56 max-w-full" />
+      <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium">This week</h2>
+          <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+            <span />
+            <div className="relative h-4 text-[11px] text-muted-foreground tabular-nums">
+              {HOURS.map((h) => (
+                <span
+                  key={h}
+                  className="absolute -translate-x-1/2"
+                  style={{ left: `${(h / 24) * 100}%` }}
+                >
+                  {String(h).padStart(2, "0")}
+                </span>
+              ))}
+            </div>
+            {DAYS.map((day) => (
+              <div key={day} className="contents">
+                <span className="text-xs text-muted-foreground self-center">{day}</span>
+                <Skeleton className="h-6 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-24" />
           </div>
         </div>
 
-        {/* Timezone field */}
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-9 w-full max-w-sm" />
-          <Skeleton className="h-3 w-72 max-w-full" />
-        </div>
+        <Field className="max-w-md">
+          <FieldLabel>Timezone</FieldLabel>
+          <Skeleton className="h-9 w-full" />
+          <FieldDescription>
+            The clock everything on this page is written in. Listeners see your show times in
+            their own.
+          </FieldDescription>
+        </Field>
 
-        {/* Slot rows */}
-        <div className="flex flex-col gap-4">
-          {[0, 1].map((i) => (
-            <div key={i} className="flex flex-col gap-2.5 rounded-lg border border-border/60 p-3">
+        {[
+          { title: "When you’re live", dot: "bg-live" },
+          { title: "What AutoDJ plays", dot: "bg-on-air" },
+        ].map((lane) => (
+          <div key={lane.title} className="flex flex-col gap-4 border-t border-white/[0.07] pt-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <span className={`size-2 rounded-full ${lane.dot}`} aria-hidden="true" />
+              {lane.title}
+            </h2>
+            <Skeleton className="h-4 w-full max-w-[40rem]" />
+            <div className="flex flex-col gap-3 border-y border-white/[0.06] py-4">
+              <Skeleton className="h-9 w-full" />
               <div className="flex flex-wrap items-center gap-2">
-                <Skeleton className="h-9 flex-1 min-w-[160px]" />
-                <Skeleton className="h-9 w-48" />
-                <div className="flex items-center gap-1.5">
-                  <Skeleton className="h-9 w-28 shrink-0" />
-                  <span className="text-muted-foreground text-xs">→</span>
-                  <Skeleton className="h-9 w-28 shrink-0" />
-                </div>
-                <Skeleton className="size-9 shrink-0" />
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
                 {DAYS.map((day) => (
-                  <Skeleton key={day} className="size-8 rounded-full" />
+                  <Skeleton key={day} className="size-9 rounded-full" />
                 ))}
               </div>
             </div>
-          ))}
-        </div>
-
-        {/* Add slot · Save schedule */}
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-28" />
-          <Skeleton className="h-9 w-32" />
-        </div>
-
-        {/* This week */}
-        <div className="rounded-lg border border-border/60 p-4">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-            This week
-          </div>
-          <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-2 gap-y-1">
-              <span />
-              <Skeleton className="h-3 w-full" />
-              {DAYS.map((day) => (
-                <div key={day} className="contents">
-                  <span className="text-xs text-muted-foreground self-center">{day}</span>
-                  <Skeleton className="h-6 rounded" />
-                </div>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-3 w-24" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-9 w-32" />
+              <Skeleton className="h-9 w-36" />
             </div>
           </div>
-        </div>
+        ))}
       </div>
     </div>
   )

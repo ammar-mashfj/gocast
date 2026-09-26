@@ -12,7 +12,7 @@ const LIMIT = 5
  * `browser` is the in-app studio; `external` is anything speaking the Icecast
  * source protocol at harbor directly.
  */
-const SOURCE_LABEL: Record<StreamSessionSource, string> = {
+export const SOURCE_LABEL: Record<StreamSessionSource, string> = {
   browser: "Studio",
   electron: "Desktop",
   external: "Encoder",
@@ -63,7 +63,7 @@ export function RecentBroadcasts({ sessions }: RecentBroadcastsProps) {
               key={s.id}
               className="grid grid-cols-[minmax(0,1fr)_4.5rem_3rem] md:grid-cols-[minmax(0,1fr)_6rem_6rem_3.5rem] gap-3 items-center px-3 py-2.5 border-t border-border text-sm"
             >
-              <span className="truncate">{formatDateTime(s.started_at)}</span>
+              <span className="truncate font-mono tabular-nums">{formatDateTime(s.started_at)}</span>
               {/* The software goes in the tooltip rather than the cell: the
                   column is six characters wide and "Encoder" is the answer to
                   the question being asked here. `client` is null for every
@@ -80,12 +80,12 @@ export function RecentBroadcasts({ sessions }: RecentBroadcastsProps) {
                 </Badge>
               </span>
               {s.ended_at ? (
-                <span className="text-muted-foreground tabular-nums">
+                <span className="font-mono text-muted-foreground tabular-nums">
                   {formatDateRange(s.started_at, s.ended_at)}
                 </span>
               ) : (
-                <span className="text-emerald-400 inline-flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-live-text inline-flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-live animate-pulse motion-reduce:animate-none" />
                   Now
                 </span>
               )}

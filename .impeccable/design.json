@@ -1,0 +1,764 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T00:43:20.902983+00:00",
+  "title": "Design System: GoCast",
+  "extensions": {
+    "colorMeta": {
+      "dark": {
+        "role": "neutral",
+        "displayName": "Studio Black",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Desk Panel",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "violet-fill": {
+        "role": "primary",
+        "displayName": "Station Violet Fill",
+        "tonalRamp": [
+          "#2e1065",
+          "#4c1d95",
+          "#6d28d9",
+          "#7c3aed",
+          "#8b5cf6",
+          "#a78bfa",
+          "#c4b5fd",
+          "#ede9fe"
+        ],
+        "canonical": "#7f4ff0"
+      },
+      "violet-full": {
+        "role": "primary",
+        "displayName": "Station Violet (tint)",
+        "tonalRamp": [
+          "#2e1065",
+          "#4c1d95",
+          "#6d28d9",
+          "#7c3aed",
+          "#8b5cf6",
+          "#a78bfa",
+          "#c4b5fd",
+          "#ede9fe"
+        ]
+      },
+      "violet-muted": {
+        "role": "primary",
+        "displayName": "Soft Violet",
+        "tonalRamp": [
+          "#2e1065",
+          "#4c1d95",
+          "#6d28d9",
+          "#7c3aed",
+          "#8b5cf6",
+          "#a78bfa",
+          "#c4b5fd",
+          "#ede9fe"
+        ]
+      },
+      "violet": {
+        "role": "primary",
+        "displayName": "Pale Violet",
+        "tonalRamp": [
+          "#2e1065",
+          "#4c1d95",
+          "#6d28d9",
+          "#7c3aed",
+          "#8b5cf6",
+          "#a78bfa",
+          "#c4b5fd",
+          "#ede9fe"
+        ]
+      },
+      "violet-subtle": {
+        "role": "primary",
+        "displayName": "Deep Violet",
+        "tonalRamp": [
+          "#2e1065",
+          "#4c1d95",
+          "#6d28d9",
+          "#7c3aed",
+          "#8b5cf6",
+          "#a78bfa",
+          "#c4b5fd",
+          "#ede9fe"
+        ]
+      },
+      "emerald-live": {
+        "role": "secondary",
+        "displayName": "Live Emerald",
+        "tonalRamp": [
+          "#022c22",
+          "#064e3b",
+          "#047857",
+          "#059669",
+          "#10b981",
+          "#34d399",
+          "#6ee7b7",
+          "#d1fae5"
+        ]
+      },
+      "emerald-signal": {
+        "role": "secondary",
+        "displayName": "Live Emerald (signal)",
+        "tonalRamp": [
+          "#022c22",
+          "#064e3b",
+          "#047857",
+          "#059669",
+          "#10b981",
+          "#34d399",
+          "#6ee7b7",
+          "#d1fae5"
+        ]
+      },
+      "emerald-text": {
+        "role": "secondary",
+        "displayName": "Live Emerald (text)",
+        "tonalRamp": [
+          "#022c22",
+          "#064e3b",
+          "#047857",
+          "#059669",
+          "#10b981",
+          "#34d399",
+          "#6ee7b7",
+          "#d1fae5"
+        ]
+      },
+      "sky-mic-signal": {
+        "role": "secondary",
+        "displayName": "Mic Sky",
+        "tonalRamp": [
+          "#082f49",
+          "#0c4a6e",
+          "#0369a1",
+          "#0284c7",
+          "#0ea5e9",
+          "#38bdf8",
+          "#7dd3fc",
+          "#e0f2fe"
+        ]
+      },
+      "sky-mic": {
+        "role": "secondary",
+        "displayName": "Mic Sky (text)",
+        "tonalRamp": [
+          "#082f49",
+          "#0c4a6e",
+          "#0369a1",
+          "#0284c7",
+          "#0ea5e9",
+          "#38bdf8",
+          "#7dd3fc",
+          "#e0f2fe"
+        ]
+      },
+      "fault-red": {
+        "role": "tertiary",
+        "displayName": "Fault Red",
+        "tonalRamp": [
+          "#460809",
+          "#82181a",
+          "#c10007",
+          "#e7000b",
+          "#fb2c36",
+          "#ff6467",
+          "#fca5a5",
+          "#ffe2e2"
+        ],
+        "canonical": "oklch(0.704 0.191 22.216)"
+      },
+      "fault-text": {
+        "role": "tertiary",
+        "displayName": "Fault Red (text)",
+        "tonalRamp": [
+          "#460809",
+          "#82181a",
+          "#c10007",
+          "#e7000b",
+          "#fb2c36",
+          "#ff6467",
+          "#fca5a5",
+          "#ffe2e2"
+        ]
+      },
+      "amber-pro": {
+        "role": "tertiary",
+        "displayName": "Pro Amber",
+        "tonalRamp": [
+          "#451a03",
+          "#78350f",
+          "#b45309",
+          "#d97706",
+          "#f59e0b",
+          "#fbbf24",
+          "#fcd34d",
+          "#fef3c7"
+        ]
+      },
+      "amber-pro-text": {
+        "role": "tertiary",
+        "displayName": "Pro Amber (text)",
+        "tonalRamp": [
+          "#451a03",
+          "#78350f",
+          "#b45309",
+          "#d97706",
+          "#f59e0b",
+          "#fbbf24",
+          "#fcd34d",
+          "#fef3c7"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Text Primary",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Text Secondary",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Text Muted",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "text-faint": {
+        "role": "neutral",
+        "displayName": "Text Faint",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Zinc Line",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ],
+        "canonical": "rgb(255 255 255 / 9%)"
+      },
+      "input-line": {
+        "role": "neutral",
+        "displayName": "Input Line",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ],
+        "canonical": "rgb(255 255 255 / 13%)"
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Sidebar Black",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "popover": {
+        "role": "neutral",
+        "displayName": "Popover",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "muted-surface": {
+        "role": "neutral",
+        "displayName": "Muted Surface",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "secondary-surface": {
+        "role": "neutral",
+        "displayName": "Secondary Surface",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      },
+      "accent-surface": {
+        "role": "neutral",
+        "displayName": "Accent Surface",
+        "tonalRamp": [
+          "#08080d",
+          "#101018",
+          "#18181b",
+          "#27272a",
+          "#52525b",
+          "#7d7d87",
+          "#a1a1aa",
+          "#fafafa"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero H1 only; second line in Pale Violet. Sign-off one step smaller."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Homepage section H2s; balanced, max 22ch; Pro tag may sit inline inside the h2."
+      },
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "Every dashboard page H1 (font-display text-2xl semibold, tracking tight)."
+      },
+      "listener-count": {
+        "displayName": "Listener Count",
+        "purpose": "The studio rail's Listening now number (48px)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Studio note titles and plan names."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All prose; lead paragraphs 1.125rem on desktop, 30rem-58ch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Homepage state pills (uppercase)."
+      },
+      "lamp-chip": {
+        "displayName": "Lamp Chip",
+        "purpose": "The state word in the OnAirLamp chip; 12px in the banner, 11px in the mini controller."
+      },
+      "pro-tag": {
+        "displayName": "Pro Tag",
+        "purpose": "The dashboard's amber Pro marker."
+      },
+      "plan-tag": {
+        "displayName": "Plan Tag",
+        "purpose": "Homepage Free/Pro tags and pricing status tags (uppercase, 0.2em)."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Links, slugs, keys, times, durations, kbps and data values; tabular numerals."
+      },
+      "console-clock": {
+        "displayName": "Console Clock",
+        "purpose": "Time left on the track inside the hot clock; 22px compact."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel-drop",
+        "value": "0 24px 48px -24px rgba(0,0,0,0.9)",
+        "purpose": "Console deck, control strip, sign-off card, mini controller, name preview, players, mocks, the Free pricing card."
+      },
+      {
+        "name": "artwork-drop",
+        "value": "0 18px 40px -12px rgba(0,0,0,0.7)",
+        "purpose": "Station artwork inside a panel."
+      },
+      {
+        "name": "button-drop",
+        "value": "0 8px 18px -8px rgba(0,0,0,0.8)",
+        "purpose": "Filled violet buttons, the play button and the studio's 56px play."
+      },
+      {
+        "name": "meter-glow",
+        "value": "canvas shadowBlur 6px in the segment's own colour",
+        "purpose": "Hot (-6..-1 dBFS) and clipping mic-meter segments while the mic is open. Indicator light only; never on a surface."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The one dashboard curve (--ease-out-expo). 200-500ms, only on a change of state."
+      },
+      {
+        "name": "state-colour",
+        "value": "background-color, border-color, color 200ms",
+        "purpose": "Lamp strip, mic band and push-to-talk recolouring."
+      },
+      {
+        "name": "control-strip-edge",
+        "value": "border-color 300ms",
+        "purpose": "StationPower edge taking the on-air colour."
+      },
+      {
+        "name": "lamp-settle",
+        "value": "220ms var(--ease-out-expo); opacity 0 + scale(0.92) to 1",
+        "purpose": "A healthy lamp or banner chip that has just changed state."
+      },
+      {
+        "name": "fault-blink",
+        "value": "pulse 0.7s ease-in-out x3",
+        "purpose": "A fault chip; deliberately not the settle, so a fault never looks healthy."
+      },
+      {
+        "name": "queue-reflow",
+        "value": "::view-transition-group(*) 260ms var(--ease-out-expo)",
+        "purpose": "Running-order rows gliding on remove, clear and undo."
+      },
+      {
+        "name": "talk-up-cue",
+        "value": "520ms cubic-bezier(0.16,1,0.3,1); scale 1.06, brightness 1.6",
+        "purpose": "Hot clock pulse at 20s and 10s left."
+      },
+      {
+        "name": "signoff-rise",
+        "value": "500ms var(--ease-out-expo) both; translateY(12px) to 0; facts delayed 180ms + 70ms each",
+        "purpose": "The show sign-off card."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation: none",
+        "purpose": "Settle, rise, blink, pulses and view transitions all hold still; cues are still announced."
+      },
+      {
+        "name": "preview-power-on",
+        "value": "color, background-color, border-color 500ms",
+        "purpose": "Name preview flipping from unlit to lit on the first keystroke."
+      },
+      {
+        "name": "level-meter",
+        "value": "scaleY keyframes, six durations 0.79s-1.47s ease-in-out infinite",
+        "purpose": "Lit meter bars; held at scaleY(0.45) under reduced motion."
+      },
+      {
+        "name": "button-lift",
+        "value": "all 150ms; hover brightness(1.1) translateY(-1px)",
+        "purpose": "Primary button hover."
+      },
+      {
+        "name": "live-dot-pulse",
+        "value": "box-shadow ring 0 to 6px, 1.5s infinite",
+        "purpose": "Only on a genuinely live signal; off under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "studio-rail",
+        "value": "1024px (console + 340px rail)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single filled action per view. Violet Fill #7f4ff0 for AA with white text.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Create a free station</a>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;min-height:48px;padding:14px 32px;border-radius:10px;background:#7f4ff0;color:#fff;font-family:Onest,ui-sans-serif,sans-serif;font-size:1rem;font-weight:600;text-decoration:none;box-shadow:0 8px 18px -8px rgba(0,0,0,0.8);transition:all 150ms;} .ds-btn-primary:hover{filter:brightness(1.1);transform:translateY(-1px);} .ds-btn-primary:focus-visible{outline:2px solid var(--color-violet, #c4b5fd);outline-offset:2px;}"
+    },
+    {
+      "name": "Dashboard Buttons",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Filled primary, neutral outline, and the tinted destructive confirm (dashboard, 8px radius, 44px in the studio).",
+      "html": "<div class=\"ds-dbtns\"><button class=\"ds-db ds-db-primary\">Take over live</button><button class=\"ds-db ds-db-outline\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"2\"/></svg>End broadcast</button><button class=\"ds-db ds-db-destructive\">End broadcast now</button></div>",
+      "css": ".ds-dbtns{display:flex;gap:8px;flex-wrap:wrap;background:#08080d;padding:16px;font-family:Onest,ui-sans-serif,sans-serif;} .ds-db{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 16px;border-radius:8px;border:1px solid transparent;font:500 0.875rem Onest,sans-serif;cursor:pointer;transition:all 150ms;} .ds-db:active{transform:translateY(1px);} .ds-db:focus-visible{outline:none;border-color:#c4b5fd;box-shadow:0 0 0 2px rgba(196,181,253,0.3);} .ds-db-primary{background:#7f4ff0;color:#fff;} .ds-db-primary:hover{background:rgba(127,79,240,0.8);} .ds-db-outline{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.13);color:#fafafa;} .ds-db-outline:hover{background:rgba(255,255,255,0.065);} .ds-db-destructive{background:rgba(255,100,103,0.2);color:#ff6467;} .ds-db-destructive:hover{background:rgba(255,100,103,0.3);}"
+    },
+    {
+      "name": "Nav Sign-up Button",
+      "kind": "button",
+      "refersTo": "button-nav-signup",
+      "description": "Tinted secondary action closing the nav row.",
+      "html": "<a class=\"ds-btn-nav\" href=\"#\">Sign up</a>",
+      "css": ".ds-btn-nav{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border-radius:10px;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.5);color:#fff;font-family:Onest,ui-sans-serif,sans-serif;font-size:0.875rem;letter-spacing:0.025em;text-decoration:none;transition:all 150ms;} .ds-btn-nav:hover{background:rgba(139,92,246,0.25);border-color:#8b5cf6;} .ds-btn-nav:focus-visible{outline:2px solid var(--color-violet, #c4b5fd);outline-offset:2px;}"
+    },
+    {
+      "name": "Station Name Input",
+      "kind": "input",
+      "refersTo": "input-station-name",
+      "description": "The hero's one field, labelled, beside its button.",
+      "html": "<form class=\"ds-namer\"><label for=\"ds-n\">Name your station</label><div class=\"ds-namer-row\"><input id=\"ds-n\" placeholder=\"Late Night Lagos\"><button type=\"button\">Create a free station</button></div><p>You can rename it later. The link is set when you create the station.</p></form>",
+      "css": ".ds-namer{background:#08080d;padding:20px;font-family:Onest,ui-sans-serif,sans-serif;max-width:560px;} .ds-namer label{display:block;font-size:0.875rem;font-weight:500;color:#d4d4d8;margin-bottom:8px;} .ds-namer-row{display:flex;gap:10px;flex-wrap:wrap;} .ds-namer input{flex:1;min-width:0;min-height:48px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:#101018;padding:0 16px;color:#fff;font:inherit;font-size:1rem;caret-color:#c4b5fd;transition:border-color 150ms;} .ds-namer input::placeholder{color:#7d7d87;} .ds-namer input:hover{border-color:rgba(255,255,255,0.2);} .ds-namer input:focus{outline:none;border-color:#8b5cf6;} .ds-namer input:focus-visible{outline:2px solid #c4b5fd;outline-offset:2px;} .ds-namer button{min-height:48px;padding:0 24px;border:0;border-radius:10px;background:#8b5cf6;color:#fff;font:600 1rem Onest,sans-serif;box-shadow:0 8px 18px -8px rgba(0,0,0,0.8);cursor:pointer;transition:all 150ms;} .ds-namer button:hover{filter:brightness(1.1);transform:translateY(-1px);} .ds-namer button:focus-visible{outline:2px solid #c4b5fd;outline-offset:2px;} .ds-namer p{margin:8px 0 0;font-size:0.75rem;color:#7d7d87;}"
+    },
+    {
+      "name": "State Badges",
+      "kind": "chip",
+      "refersTo": "state-badge-live",
+      "description": "LIVE emerald, ON AIR violet, OFF AIR grey; one look per state.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-state ds-live\"><i class=\"ds-dot ds-pulse\"></i>Live</span><span class=\"ds-state ds-onair\"><i class=\"ds-dot\"></i>On air · Morning Coffee</span><span class=\"ds-state ds-off\"><i class=\"ds-dot\"></i>Off air</span></div>",
+      "css": ".ds-row{display:flex;gap:8px;flex-wrap:wrap;background:#08080d;padding:16px;} .ds-state{display:inline-flex;align-items:center;gap:6px;border:1px solid;border-radius:9999px;padding:2px 8px;font:500 11px/1.5 Onest,ui-sans-serif,sans-serif;text-transform:uppercase;letter-spacing:0.025em;} .ds-dot{width:6px;height:6px;border-radius:9999px;display:inline-block;} .ds-live{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25);color:#6ee7b7;} .ds-live .ds-dot{background:#34d399;} .ds-onair{background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.3);color:#a78bfa;} .ds-onair .ds-dot{background:#a78bfa;} .ds-off{border-color:rgba(255,255,255,0.1);color:#7d7d87;} .ds-off .ds-dot{background:#7d7d87;} @keyframes ds-live-dot{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,0.5);}70%{box-shadow:0 0 0 6px rgba(52,211,153,0);}} .ds-pulse{animation:ds-live-dot 1.5s infinite;} @media (prefers-reduced-motion:reduce){.ds-pulse{animation:none;}}"
+    },
+    {
+      "name": "Plan Tags",
+      "kind": "chip",
+      "refersTo": "plan-badge-free",
+      "description": "Homepage Free violet, Pro amber; tinted footnotes, never solid.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-plan ds-free\">Free</span><span class=\"ds-plan ds-pro\">Pro</span></div>",
+      "css": ".ds-row{display:flex;gap:8px;background:#08080d;padding:16px;} .ds-plan{display:inline-flex;align-items:center;border:1px solid;border-radius:9999px;padding:2px 8px 2px 10px;font:600 10px/1.5 Onest,ui-sans-serif,sans-serif;text-transform:uppercase;letter-spacing:0.2em;} .ds-free{background:rgba(139,92,246,0.15);border-color:rgba(139,92,246,0.5);color:#a78bfa;} .ds-pro{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);color:#fcd34d;}"
+    },
+    {
+      "name": "Desk Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Opaque product panel: players and mocks.",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-panel-title\">Schedule <span>(an example)</span></div><p>Opaque #101018, 1px hairline, neutral drop shadow.</p></div>",
+      "css": ".ds-panel{background:#101018;border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:28px;box-shadow:0 24px 48px -24px rgba(0,0,0,0.9);color:#d4d4d8;font:400 1rem/1.625 Onest,ui-sans-serif,sans-serif;max-width:420px;} .ds-panel-title{color:#fff;font-size:0.875rem;font-weight:500;} .ds-panel-title span{color:#7d7d87;font-weight:400;} .ds-panel p{margin:12px 0 0;color:#a1a1aa;font-size:0.875rem;}"
+    },
+    {
+      "name": "Station Name Preview",
+      "kind": "custom",
+      "refersTo": "initials-tile",
+      "description": "Signature: the visitor's player page, lit LIVE once it has a name (hover to see it power on).",
+      "html": "<div class=\"ds-pv\"><div class=\"ds-pv-top\"><span class=\"ds-pv-state\"><i></i><b class=\"ds-off-l\">Off air</b><b class=\"ds-on-l\">Live</b></span><small>Player page</small></div><div class=\"ds-pv-id\"><div class=\"ds-tile\">LN</div><div><div class=\"ds-pv-name\">Late Night Lagos</div><div class=\"ds-pv-sub\">Live from a browser tab</div></div></div><div class=\"ds-well\"><small>Your link</small><div>gocast.fm/station/<span>late-night-lagos</span></div></div></div>",
+      "css": ".ds-pv{max-width:480px;background:#101018;border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:28px;box-shadow:0 24px 48px -24px rgba(0,0,0,0.9);font-family:Onest,ui-sans-serif,sans-serif;} .ds-pv *{transition:color 500ms,background-color 500ms,border-color 500ms;} .ds-pv-top{display:flex;justify-content:space-between;align-items:center;} .ds-pv-top small,.ds-well small{font-size:11px;color:#7d7d87;} .ds-pv-state{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,0.1);border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.025em;color:#7d7d87;} .ds-pv-state i{width:6px;height:6px;border-radius:9999px;background:#7d7d87;} .ds-pv-state b{font-weight:500;} .ds-on-l{display:none;} .ds-pv-id{display:flex;align-items:center;gap:20px;margin-top:20px;} .ds-tile{width:112px;height:112px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:transparent;font:700 2.25rem 'Bricolage Grotesque',Onest,sans-serif;letter-spacing:-0.04em;} .ds-pv-name{font:600 1.5rem/1.25 'Bricolage Grotesque',Onest,sans-serif;color:#7d7d87;} .ds-pv-sub{margin-top:6px;font-size:0.875rem;color:#a1a1aa;} .ds-well{margin-top:20px;border-radius:10px;border:1px solid rgba(255,255,255,0.07);background:rgba(8,8,13,0.6);padding:12px 14px;} .ds-well div{margin-top:4px;font:15px/1.375 'JetBrains Mono',ui-monospace,monospace;color:#a1a1aa;} .ds-well span{color:#7d7d87;} .ds-pv:hover .ds-pv-state{background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25);color:#6ee7b7;} .ds-pv:hover .ds-pv-state i{background:#34d399;} .ds-pv:hover .ds-off-l{display:none;} .ds-pv:hover .ds-on-l{display:inline;} .ds-pv:hover .ds-tile{background:rgba(139,92,246,0.2);border-color:rgba(139,92,246,0.5);color:#c4b5fd;} .ds-pv:hover .ds-pv-name,.ds-pv:hover .ds-well span{color:#fff;}"
+    },
+    {
+      "name": "Marker Pins + Notes",
+      "kind": "custom",
+      "refersTo": "marker-pin",
+      "description": "Numbered pins on the studio mock matching the numbered notes beside it; the page's only point list.",
+      "html": "<ol class=\"ds-notes\"><li><span class=\"ds-pin\">1</span><span><b>A running order, not a file picker</b><em>Drag tracks in and reorder them while they play.</em></span></li><li><span class=\"ds-pin\">2</span><span><b>A mic that behaves like a mixer</b><em>Hold Space and the music dips under your voice.</em></span></li></ol>",
+      "css": ".ds-notes{list-style:none;margin:0;padding:20px;background:#08080d;display:flex;flex-direction:column;gap:28px;font-family:Onest,ui-sans-serif,sans-serif;max-width:420px;} .ds-notes li{display:flex;gap:14px;} .ds-pin{display:inline-flex;flex-shrink:0;width:20px;height:20px;margin-top:2px;align-items:center;justify-content:center;border-radius:9999px;background:#fafafa;color:#08080d;font-size:11px;font-weight:600;} .ds-notes b{display:block;color:#fff;font-weight:600;font-size:1rem;} .ds-notes em{display:block;margin-top:6px;font-style:normal;color:#d4d4d8;line-height:1.7;}"
+    },
+    {
+      "name": "Schedule Mock Slots",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Live Is Brightest: emerald live shows over a violet AutoDJ ramp.",
+      "html": "<div class=\"ds-wk\"><div class=\"ds-wk-row\"><i style=\"left:0;width:29.2%;background:#2e1065;box-shadow:inset 0 0 0 1px rgba(167,139,250,0.4)\"></i><i style=\"left:29.2%;width:8.3%;background:#34d399\"></i><i style=\"left:37.5%;width:41.7%;background:rgba(139,92,246,0.55)\"></i><i style=\"left:79.2%;width:8.3%;background:#34d399\"></i><i style=\"left:87.5%;width:12.5%;background:rgba(221,214,254,0.85)\"></i></div><div class=\"ds-wk-legend\"><span><b style=\"background:#34d399\"></b>Your live shows</span><span><b style=\"background:rgba(139,92,246,0.55)\"></b>Daytime playlist</span></div></div>",
+      "css": ".ds-wk{background:#101018;border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:28px;max-width:480px;font-family:Onest,ui-sans-serif,sans-serif;} .ds-wk-row{position:relative;height:28px;border-radius:4px;background:rgba(255,255,255,0.04);overflow:hidden;} .ds-wk-row i{position:absolute;top:2px;bottom:2px;border-radius:2px;} .ds-wk-legend{display:flex;gap:20px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:#a1a1aa;} .ds-wk-legend span{display:inline-flex;align-items:center;gap:6px;} .ds-wk-legend b{width:10px;height:10px;border-radius:2px;display:inline-block;}"
+    },
+    {
+      "name": "OnAirLamp",
+      "kind": "custom",
+      "refersTo": "onair-lamp-chip-live",
+      "description": "Signature: the whole strip takes the state. LIVE emerald, MIC OPEN sky, fault red; solid chip with dark same-hue text.",
+      "html": "<div class=\"ds-lamps\"><div class=\"ds-lamp ds-l-live\"><span class=\"ds-chip\"><i></i>Live</span><span class=\"ds-say\">Listeners hear you about 15-20 seconds after you speak.</span><span class=\"ds-stats\">Uptime <b>00:12:09</b> &nbsp;<b class=\"ds-n\">14</b> listening &nbsp;192 kbps</span></div><div class=\"ds-lamp ds-l-mic\"><span class=\"ds-chip\"><i></i>Mic open</span><span class=\"ds-say\">Your voice is going out. Music is ducked.</span></div><div class=\"ds-lamp ds-l-fault\"><span class=\"ds-chip\"><i></i>Not reaching listeners</span><span class=\"ds-say\">Audio is being dropped on the way out.</span></div></div>",
+      "css": ".ds-lamps{display:flex;flex-direction:column;gap:12px;background:#08080d;padding:16px;font-family:Onest,ui-sans-serif,sans-serif;} .ds-lamp{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 20px;border:1px solid;transition:background-color 200ms,border-color 200ms;} .ds-chip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;font:700 13px Onest,sans-serif;text-transform:uppercase;letter-spacing:0.08em;animation:ds-settle 220ms cubic-bezier(0.16,1,0.3,1);} .ds-chip i{width:8px;height:8px;border-radius:9999px;background:currentColor;} .ds-say{font-size:0.875rem;flex:1;min-width:0;} .ds-stats{font-size:12px;color:#a1a1aa;} .ds-stats b{font:400 0.875rem 'JetBrains Mono',monospace;color:#fafafa;} .ds-stats .ds-n{font:600 0.875rem Onest,sans-serif;} .ds-l-live{background:rgba(52,211,153,0.08);border-color:rgba(52,211,153,0.25);} .ds-l-live .ds-chip{background:#34d399;color:#03140d;} .ds-l-live .ds-say{color:#6ee7b7;} .ds-l-mic{background:rgba(56,189,248,0.1);border-color:rgba(56,189,248,0.3);} .ds-l-mic .ds-chip{background:#38bdf8;color:#04121c;} .ds-l-mic .ds-say{color:#7dd3fc;} .ds-l-fault{background:rgba(255,100,103,0.12);border-color:rgba(255,100,103,0.4);} .ds-l-fault .ds-chip{background:#ff6467;color:#1f0404;animation:ds-blink 0.7s ease-in-out 3;} .ds-l-fault .ds-say{color:#fca5a5;} @keyframes ds-settle{from{opacity:0;transform:scale(0.92);}to{opacity:1;transform:scale(1);}} @keyframes ds-blink{50%{opacity:0.5;}} @media (prefers-reduced-motion:reduce){.ds-chip{animation:none !important;}}"
+    },
+    {
+      "name": "Push-to-talk + Mic Meter",
+      "kind": "custom",
+      "refersTo": "push-to-talk",
+      "description": "72px hold-to-talk pad beside a dBFS meter: grey level check while closed, sky when open (hover the pad to open).",
+      "html": "<div class=\"ds-ptt\"><button class=\"ds-pad\"><span class=\"ds-disc\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"12\" rx=\"3\"/><path d=\"M5 10a7 7 0 0 0 14 0M12 17v4\"/></svg></span><span><b>Hold to talk</b><small>Hold Space · music ducks under you</small></span></button><div class=\"ds-meter\"><div class=\"ds-cap\">Level check · not going out</div><div class=\"ds-segs\"></div><div class=\"ds-scale\"><span>-48</span><span>-24</span><span>-12</span><span>-6</span><span>0</span></div></div></div>",
+      "css": ".ds-ptt{display:grid;grid-template-columns:minmax(220px,auto) 1fr;gap:12px 20px;align-items:center;background:#101018;border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:16px 24px;font-family:Onest,ui-sans-serif,sans-serif;} .ds-pad{display:flex;align-items:center;gap:14px;min-height:72px;padding:0 20px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.03);color:#fafafa;text-align:left;cursor:pointer;transition:background-color 150ms,border-color 150ms,color 150ms,transform 150ms;} .ds-pad b{display:block;font:600 1rem/1.25 Onest,sans-serif;} .ds-pad small{display:block;margin-top:2px;font-size:12px;color:#a1a1aa;} .ds-disc{display:flex;width:40px;height:40px;border-radius:9999px;align-items:center;justify-content:center;background:rgba(56,189,248,0.12);color:#7dd3fc;} .ds-pad:hover{background:#38bdf8;border-color:#38bdf8;color:#04121c;transform:scale(0.99);} .ds-pad:hover small{color:rgba(4,18,28,0.75);} .ds-pad:hover .ds-disc{background:rgba(4,18,28,0.15);color:#04121c;} .ds-pad:focus-visible{outline:2px solid #c4b5fd;outline-offset:2px;} .ds-cap{font-size:12px;color:#a1a1aa;margin-bottom:8px;} .ds-segs{height:16px;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.32) 0 6px,transparent 6px 8px);-webkit-mask:linear-gradient(90deg,#000 62%,transparent 62%);mask:linear-gradient(90deg,#000 62%,transparent 62%);} .ds-ptt:has(.ds-pad:hover) .ds-segs{background:repeating-linear-gradient(90deg,#38bdf8 0 6px,transparent 6px 8px);} .ds-ptt:has(.ds-pad:hover) .ds-cap{color:#7dd3fc;font-weight:500;} .ds-scale{display:flex;justify-content:space-between;margin-top:6px;font:11px 'JetBrains Mono',monospace;color:#a1a1aa;}"
+    },
+    {
+      "name": "Running Order Row",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Numbered rows: handle-only drag, mono on-air time or a neutral Playing pill, mono duration, remove.",
+      "html": "<ol class=\"ds-ro\"><li class=\"ds-on\"><span class=\"ds-h\">⋮⋮</span><span class=\"ds-i\">1</span><span class=\"ds-t\"><b>Night Drive</b><small>Kavinsky</small></span><span class=\"ds-pill\">Playing</span><span class=\"ds-d\">4:12</span></li><li><span class=\"ds-h\">⋮⋮</span><span class=\"ds-i\">2</span><span class=\"ds-t\"><b>Midnight City</b><small>M83</small></span><span class=\"ds-at\">3:31 AM</span><span class=\"ds-d\">4:03</span></li></ol>",
+      "css": ".ds-ro{list-style:none;margin:0;padding:8px;background:#101018;border:1px solid rgba(255,255,255,0.09);border-radius:18px;max-width:560px;font-family:Onest,ui-sans-serif,sans-serif;display:flex;flex-direction:column;gap:2px;} .ds-ro li{display:grid;grid-template-columns:36px 28px minmax(0,1fr) auto 52px;gap:8px;align-items:center;padding:6px 4px 6px 0;border-radius:8px;transition:background-color 150ms;} .ds-ro li:hover{background:rgba(255,255,255,0.025);} .ds-ro li.ds-on{background:rgba(255,255,255,0.04);} .ds-h{text-align:center;color:#a1a1aa;cursor:grab;font-size:12px;} .ds-i{text-align:right;font-size:12px;color:#a1a1aa;font-variant-numeric:tabular-nums;} .ds-t b{display:block;font-weight:400;font-size:0.875rem;color:#fafafa;} .ds-on .ds-t b{font-weight:600;} .ds-t small{display:block;font-size:12px;color:#a1a1aa;} .ds-pill{border:1px solid rgba(255,255,255,0.15);border-radius:9999px;padding:2px 8px;font-size:12px;font-weight:500;color:#fafafa;} .ds-at,.ds-d{font:12px 'JetBrains Mono',monospace;color:#a1a1aa;text-align:right;font-variant-numeric:tabular-nums;}"
+    },
+    {
+      "name": "Pro Tag (dashboard)",
+      "kind": "chip",
+      "refersTo": "pro-tag",
+      "description": "Amber tinted 11px pill after the thing it marks; never solid.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-lbl\">Embed player <span class=\"ds-pro\">Pro</span></span></div>",
+      "css": ".ds-row{display:flex;gap:8px;background:#08080d;padding:16px;font-family:Onest,ui-sans-serif,sans-serif;} .ds-lbl{display:inline-flex;align-items:center;gap:6px;color:#fafafa;font-size:0.875rem;} .ds-pro{display:inline-flex;border:1px solid rgba(245,158,11,0.3);background:rgba(245,158,11,0.1);color:#fcd34d;border-radius:9999px;padding:1px 6px;font:600 11px/1.4 Onest,sans-serif;letter-spacing:0.05em;text-transform:uppercase;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Name Your Station",
+    "overview": "GoCast looks like the inside of a small station after dark: a near-black room, one violet desk lamp, and a station that powers on the moment it has a name. The marketing site, help, blog and dashboard share the ground, the violet accent and the three typefaces. The homepage sets out the system through one interaction. The visitor types a name, and a player-page preview beside the field goes from OFF AIR to LIVE: the initials tile lights violet, the name turns white, the level meter moves and the mono link fills in with their slug. Every section after that shows something Free does today. Pro appears once, as an optional extra, and says so with an inline tag.\n\nInside, the dashboard is the station's control room and the studio is its console. One lamp answers \"is it working?\" for the whole room: a full-width strip that is emerald while a person is live, sky while the mic is open, and red only when listeners are not hearing what the host thinks they are. The same lamp follows the host onto every other dashboard page as a banner. The console borrows radio's own instruments rather than a generic card grid: a hot clock around the time left on the track, a dBFS mic meter with peak hold, a push-to-talk pad, a numbered running order with on-air times. A show ends with a sign-off card, not a redirect.\n\nColour is vocabulary rather than decoration. Emerald means a person is live. Violet is the brand, the primary action, AutoDJ on air and the Free plan. Amber means Pro. Sky means the mic is open. Red means a fault. Grey and unlit fills mean off air. Each hue answers \"who is on air?\", \"is the mic open?\", \"is something wrong?\" or \"which plan is this?\", so the system turns away any accent that carries no meaning.\n\nMaterial is solid and plain. Panels are opaque (#101018) with 1px white hairlines and soft neutral drop shadows. There is no glass, no blur, no gradient and no halo. On the homepage, sections are separated by hairline rules rather than boxes; the dashboard overview follows the same idea between its groups. Density on the homepage is generous (up to 112px of vertical room per section on desktop) with copy in narrow measures (30rem to 58ch); the dashboard is denser, with 44px touch targets in the studio.\n\nThe previous homepage world, \"The Broadcast Day\" (2026-09-25), is retired. Its Day Ribbon and Clock Rail still exist as files in `client/components/homepage/broadcastDay/` but are not rendered. They are kept under Components as history, and nothing new should be built from them.",
+    "keyCharacteristics": [
+      "Near-black ground (#08080d) with opaque #101018 panels and 1px white hairlines at 6–13% opacity.",
+      "One brand accent (violet). Emerald, sky, red and amber appear only as live, mic, fault and Pro semantics.",
+      "Bricolage Grotesque headlines and page titles. Onest for everything read. JetBrains Mono for links, times, durations, keys and data.",
+      "Off air looks unlit, not hatched: faint text, 3–7% white fills, meters held low.",
+      "State changes the whole strip, not a dot: the studio lamp and its dashboard banner recolour edge to edge.",
+      "One motion curve (exponential ease-out), 200–500ms, only on a change of state."
+    ],
+    "rules": [
+      {
+        "name": "The One Meaning Rule",
+        "body": "Every hue names a state, a fault, a plan or the mic. Emerald is LIVE. Violet is the brand, ON AIR and Free. Sky is an open mic. Red is a fault. Amber is Pro. Grey is OFF AIR. If a new colour carries no meaning, keep the element neutral.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Wrong Rule",
+        "body": "Red is reserved for something wrong: listeners not hearing what the host thinks, dead air, clipping, an error, a clash, or the confirm step of an irreversible action. A healthy broadcast is never red, and neither is the button that opens a destructive flow; End broadcast is neutral and only its confirm is red.",
+        "section": "colors"
+      },
+      {
+        "name": "The Live Is Brightest Rule",
+        "body": "Wherever live and AutoDJ time share a view, the person on the mic gets the brightest fill (solid emerald-signal). AutoDJ steps down a violet ramp: violet-950 with a 40% violet-400 inset ring, Station Violet at 55%, indigo-300 at 70% and violet-200 at 85%. Live is never drawn as the gap in an AutoDJ day.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fill Is Not Text Rule",
+        "body": "Violet Fill (#7f4ff0) sits only behind white text; violet words use Soft Violet. A violet that is readable as a fill is not readable as text on the dark ground, and the other way round.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono Means Machine Rule",
+        "body": "JetBrains Mono is only for URLs, slugs, times, durations, keys and data values. Never use it for headings, labels, counts, list numbers or decoration.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Kicker Rule",
+        "body": "Headings carry their own weight. No uppercase eyebrow or kicker sits above a heading. If a section needs a plan marker, the tag sits inline after the heading text, inside the heading.",
+        "section": "typography"
+      },
+      {
+        "name": "The 11px Floor Rule",
+        "body": "No dashboard text is smaller than 11px. Meter scales, Pro tags and small labels sit at 11px exactly.",
+        "section": "typography"
+      },
+      {
+        "name": "The Solid Panel Rule",
+        "body": "Surfaces are opaque with a 1px white hairline. Don't use glass, backdrop blur, gradients, halos or coloured glow shadows on surfaces. Shadows are neutral black and only ground a surface. The one light that glows is an indicator: hot and clipping mic-meter segments glow (6px, their own colour) while the mic is open, the way a meter LED does.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use Violet Fill (#7f4ff0) as the only filled-button colour, with one filled button per view.",
+      "Do draw station state with StateBadge on public surfaces, and with the OnAirLamp (studio), LiveBanner (elsewhere in the dashboard) and control-strip edge on the overview.",
+      "Do change the whole strip or panel edge when state changes, with a solid chip in the state's colour and dark text of the same hue.",
+      "Do announce every state change to screen readers once: `status` for healthy, `alert` for faults.",
+      "Do mark Pro with an amber tinted tag wherever a Pro capability is shown.",
+      "Do build surfaces as opaque #101018 panels with a 1px white hairline (8–10%) and the neutral panel drop shadow.",
+      "Do separate homepage sections, and overview groups, with a 7% hairline rule, not boxes.",
+      "Do set URLs, slugs, times, durations, keys and data values in JetBrains Mono with tabular numerals, and nothing else.",
+      "Do keep studio controls at 44px or larger, and write hints for the input the host is actually using (Space on keyboards, press and hold on touch).",
+      "Do draw off air as unlit: faint text, 3–7% white fills, meters held low.",
+      "Do give a person's live time the brightest fill in any schedule, with AutoDJ in the violet ramp below it.",
+      "Do label every mock or illustrative screen as an example, and let only the real station go unlabelled.",
+      "Do animate only on a change of state, on the house curve, and give every animation a reduced-motion fallback that holds a meaningful static state (level meters freeze at mid-level, not flat)."
+    ],
+    "donts": [
+      "Don't put an uppercase eyebrow or kicker above a heading. A plan tag goes inline, after the heading text.",
+      "Don't colour a healthy state red, and don't make the button that opens a destructive flow red. Red is for faults, errors, clashes and the final confirm.",
+      "Don't use amber for anything but Pro, including \"starting\" or \"warning\".",
+      "Don't use glass, backdrop blur (including on dialog overlays), gradients, halos or coloured glow shadows on surfaces.",
+      "Don't mark state or emphasis with a side-stripe border; tint the whole edge.",
+      "Don't set violet text in Violet Fill; use Soft Violet.",
+      "Don't colour an AutoDJ slot emerald or a live slot violet. Emerald is only for a person on the mic.",
+      "Don't introduce an accent hue that doesn't name a state, a fault, a plan or the mic.",
+      "Don't set a plan or Pro tag as a solid fill. It is a tinted footnote.",
+      "Don't set dashboard text below 11px.",
+      "Don't pulse a live dot for anything that isn't actually live, and don't pulse a fault; faults blink three times and hold.",
+      "Don't make the track position scrubbable on air; the progress bar is read-only.",
+      "Don't build new surfaces from the retired Day Ribbon or Clock Rail."
+    ]
+  }
+}

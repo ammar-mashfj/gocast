@@ -49,7 +49,10 @@ export function describeProgramme(
   if (programme.next) {
     return {
       now: playing,
-      detail: `next: ${programme.next.playlist.name ?? "…"}, ${formatSlotInstant(programme.next.starts_at, timeZone)}`,
+      // "Numbers starts Mon 00:00", not "next: Numbers, Mon 00:00": the colon
+      // form read as a label with a value missing, and "next" alone didn't
+      // say next WHAT.
+      detail: `${programme.next.playlist.name ?? "The next slot"} starts ${formatSlotInstant(programme.next.starts_at, timeZone)}`,
     }
   }
 

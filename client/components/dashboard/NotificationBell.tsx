@@ -102,7 +102,7 @@ export function NotificationBell() {
               // button without making it taller.
               className={cn(
                 "absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center",
-                "rounded-full bg-primary px-1 text-[0.625rem] leading-none font-medium text-primary-foreground",
+                "rounded-full bg-primary px-1 text-[11px] leading-none font-medium text-primary-foreground",
               )}
             >
               {formatUnreadCount(unreadCount, cappedAt)}
@@ -181,7 +181,7 @@ export function NotificationBell() {
                 <button
                   type="button"
                   onClick={loadFeed}
-                  className="mt-2 text-xs text-primary underline-offset-4 hover:underline"
+                  className="mt-2 text-xs text-violet-muted underline-offset-4 hover:underline"
                 >
                   Try again
                 </button>

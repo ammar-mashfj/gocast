@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import {
   IconLoader2,
@@ -39,7 +39,7 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
     artist: initial.now_playing?.artist ?? null,
   })
 
-  const { audioRef, playing, loading, transport, inband, toggle } = useStreamPlayback({
+  const { audioRef, playing, loading, transport, inband, toggle, stop } = useStreamPlayback({
     hlsUrl: station.hls_url,
     icecastUrl: `${env.icecastUrl}${station.icecast_mount}`,
   })
@@ -68,6 +68,13 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
   const nowPlaying = inband ?? polled
   const offAir = !station.is_on_air
   const busy = loading && !playing
+
+  // Turned off under a listener: the stream just stops arriving and the
+  // spinner would run forever. Same rule as the station page — stop once the
+  // feed says off air and the buffered tail has run out.
+  useEffect(() => {
+    if (offAir && loading) stop()
+  }, [offAir, loading, stop])
 
   const subtitle = offAir
     ? "Off air"

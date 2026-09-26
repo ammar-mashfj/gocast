@@ -69,13 +69,6 @@ export default function Body() {
         height={626}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
-
-      <h2>Skipping</h2>
-      <p>
-        The station page has a skip control while AutoDJ is playing. It moves to
-        the next track immediately &mdash; useful when something you would
-        rather not have aired comes up.
-      </p>
     </>
   )
 }

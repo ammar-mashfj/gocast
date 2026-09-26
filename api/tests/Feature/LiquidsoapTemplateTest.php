@@ -89,6 +89,16 @@ it('renders a script for a station', function () {
         ->and($script)->toContain('output.file.hls');
 });
 
+it('gives HLS segments a per-boot name so immutable caching cannot replay an old run', function () {
+    // Segments are served `immutable`, and the default name restarts at
+    // aac_0.aac on every boot — a cached segment from a previous run would be
+    // played back in place of the new audio under the same name.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('hls_boot = string(int(time()))')
+        ->and($script)->toContain('segment_name = fun (m) -> "#{m.stream_name}_#{hls_boot}_#{m.position}.#{m.extname}"');
+});
+
 it('names the rotation source so telnet commands keep working', function () {
     // StationPowerController sends "<id>.skip" built from this same constant;
     // if the id here drifts, skip-track silently stops working.

@@ -1,14 +1,6 @@
 import { redirect } from "next/navigation"
-import { IconRadio, IconBolt, IconShare3, IconHeadphones } from "@tabler/icons-react"
 import { getMyStation } from "@/lib/station-server"
 import { CreateStationButton } from "@/components/dashboard/CreateStationButton"
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty"
 
 /**
  * The dashboard root, and the only place that answers "which station is this?".
@@ -25,44 +17,31 @@ export default async function DashboardPage() {
     redirect(`/dashboard/stations/${station.slug}`)
   }
 
+  // One action and one sentence about what follows it. This used to be a
+  // centred empty-state plus three identical icon cards selling features to
+  // someone who has already signed up, one of which promised "no studio" in a
+  // product whose main screen is called Studio. Left-aligned like every other
+  // dashboard page, so the first screen a new account sees is already the
+  // shape of the ones after it.
   return (
-    <div className="max-w-2xl mx-auto py-12">
-      <Empty className="py-10">
-        <EmptyMedia variant="icon">
-          <IconRadio size={48} />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle className="text-lg">Create your station</EmptyTitle>
-          <EmptyDescription className="text-sm">
-            Name it, give it a vibe, and you&apos;ll be on air in under a minute.
-          </EmptyDescription>
-        </EmptyHeader>
+    <div className="max-w-2xl flex flex-col gap-8 py-4">
+      <div className="flex flex-col items-start gap-5">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">
+            Create your station
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Pick a name. Artwork, genre and a description are optional and can change any time.
+          </p>
+        </div>
         <CreateStationButton />
-      </Empty>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-8">
-        <div className="rounded-xl border border-border/60 bg-card/40 p-4">
-          <IconBolt size={18} className="text-primary mb-2" />
-          <div className="text-sm font-medium mb-1">Go live in seconds</div>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            Browser-only. No downloads, no plugins, no studio.
-          </div>
-        </div>
-        <div className="rounded-xl border border-border/60 bg-card/40 p-4">
-          <IconShare3 size={18} className="text-primary mb-2" />
-          <div className="text-sm font-medium mb-1">Share one link</div>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            Listeners tap and tune in. No app, no signup.
-          </div>
-        </div>
-        <div className="rounded-xl border border-border/60 bg-card/40 p-4">
-          <IconHeadphones size={18} className="text-primary mb-2" />
-          <div className="text-sm font-medium mb-1">Talk over music</div>
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            Push-to-talk plus a drag-and-drop queue, like a DJ.
-          </div>
-        </div>
       </div>
+
+      <p className="max-w-[60ch] border-t border-white/[0.06] pt-5 text-sm leading-relaxed text-muted-foreground">
+        Next you get a player page link to share, and you can go live from the
+        Studio right here in your browser. Nothing to install, and listeners
+        don&apos;t need an account to tune in.
+      </p>
     </div>
   )
 }

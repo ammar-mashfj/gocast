@@ -11,9 +11,9 @@ export default function Body() {
         because &ldquo;Drive time&rdquo; is easier to scan than 16:00.
       </p>
       <p>
-        It lives on the <strong>Schedule</strong>{" "}page of your station, with the
-        slots listed above and the whole week drawn out below so you can see the
-        shape of it rather than read it.
+        It lives on your station&rsquo;s <strong>Schedule</strong>{" "}page, under{" "}
+        <strong>What AutoDJ plays</strong>, with the whole week drawn out above
+        so you can see the shape of it rather than read it.
       </p>
 
       <ZoomableImage
@@ -86,8 +86,8 @@ export default function Body() {
 
       <h2>This Is Not Show Times</h2>
       <p>
-        Two different things share a word. The show times on your settings page
-        are advertising &mdash; text listeners read on your player page. Slots
+        The same page has a second lane, <strong>When you&rsquo;re live</strong>.
+        Those show times are advertising &mdash; text listeners read on your player page. Slots
         are what your station actually plays, and listeners never see them.
       </p>
       <p>

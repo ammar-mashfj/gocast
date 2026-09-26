@@ -29,36 +29,36 @@ export function MonitorBar() {
   const volume = engine?.getMonitorVolume() ?? 0
 
   return (
-    <div className="flex items-center gap-3.5 flex-wrap rounded-xl border bg-card px-4 py-2.5">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <Button
-        variant={enabled ? "secondary" : "outline"}
+        variant="ghost"
         size="sm"
+        aria-pressed={enabled}
+        aria-keyshortcuts="M"
+        title="Hear the music through your speakers (M)"
         onClick={() => engine?.setMonitorEnabled(!enabled)}
-        className={cn(enabled && "text-primary")}
+        className={cn("h-9 -ml-2", enabled ? "text-foreground" : "text-muted-foreground")}
       >
         {enabled ? (
           <IconHeadphones data-icon="inline-start" />
         ) : (
           <IconHeadphonesOff data-icon="inline-start" />
         )}
-        {enabled ? "Monitoring on" : "Monitor off"}
+        {enabled ? "Monitor on" : "Monitor off"}
       </Button>
 
-      <div className="flex items-center gap-2.5 flex-1 min-w-[180px]">
-        <span className="text-xs text-muted-foreground shrink-0">Monitor volume</span>
-        <Slider
-          value={[Math.round(volume * 100)]}
-          onValueChange={([v]) => engine?.setMonitorVolume(v / 100)}
-          max={100}
-          step={1}
-          disabled={!enabled}
-          aria-label="Monitor volume"
-          className="flex-1 min-w-[80px]"
-        />
-      </div>
+      <Slider
+        value={[Math.round(volume * 100)]}
+        onValueChange={([v]) => engine?.setMonitorVolume(v / 100)}
+        max={100}
+        step={1}
+        disabled={!enabled}
+        aria-label="Monitor volume"
+        className="w-40 min-w-[96px] flex-1 sm:flex-none"
+      />
 
-      <span className="text-xs text-muted-foreground shrink-0">
-        Affects your speakers only — never the stream
+      <span className="text-xs text-muted-foreground">
+        Your speakers only — never the stream
       </span>
     </div>
   )

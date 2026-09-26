@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react"
+import { useConfirm } from "@/components/ui/use-confirm"
 import { toast } from "sonner"
 import {
-  IconCheck,
+  IconInfoCircle,
   IconLoader2,
   IconMicrophone,
   IconPlus,
-  IconSparkles,
+  IconTag,
 } from "@tabler/icons-react"
 import api from "@/lib/axios"
 import { Badge } from "@/components/ui/badge"
@@ -20,12 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { formatBytes, formatDuration } from "@/lib/format"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
@@ -67,6 +68,7 @@ type NameDialog = { mode: "create" } | { mode: "rename"; playlist: Playlist } | 
  * click landed in. The views are presentational and receive callbacks.
  */
 export function LibraryView({ station, initialTracks, initialMeta, initialPlaylists }: Props) {
+  const [confirm, confirmDialog] = useConfirm()
   const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
   const [playlists, setPlaylists] = useState<Playlist[]>(initialPlaylists)
@@ -94,9 +96,6 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
    * for upgrading than one they've been locked out of.
    */
   const locked = useAutoDjLocked()
-
-  // The dashboard's single request dialog, mounted by the layout.
-  const proRequest = useProRequest()
 
   // Which row is on air. Polled at the hook's own pace.
   const { status } = useStationStatus(slug)
@@ -221,8 +220,13 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
     async (id: string) => {
       const target = tracks.find((t) => t.id === id)
       if (!target) return
-      // TODO: replace with shadcn AlertDialog
-      if (!window.confirm(`Delete "${target.title}"? It leaves every playlist too. This can't be undone.`)) return
+      const ok = await confirm({
+        title: `Delete “${target.title}”?`,
+        description: "It leaves every playlist too. This can't be undone.",
+        confirmLabel: "Delete track",
+        destructive: true,
+      })
+      if (!ok) return
 
       setTracks((prev) => prev.filter((t) => t.id !== id))
       setMembers((prev) =>
@@ -240,7 +244,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
         if (currentPlaylist) await refetchMembers(currentPlaylist.id)
       }
     },
-    [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchMembers, currentPlaylist],
+    [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchMembers, currentPlaylist, confirm],
   )
 
   /**
@@ -503,7 +507,6 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
   const deletePlaylist = useCallback(async () => {
     const playlist = currentPlaylist
     if (!playlist || playlist.is_default) return
-    // TODO: replace with shadcn AlertDialog
     // Slots that play this playlist go with it (the API cascades them), so
     // the owner hears about that here rather than from a gap in the week.
     const slotCount = (station.autodj_slots ?? []).filter((s) => s.playlist_id === playlist.id).length
@@ -511,7 +514,13 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
       slotCount === 0
         ? ""
         : ` ${slotCount === 1 ? "The schedule slot that plays it is" : `The ${slotCount} schedule slots that play it are`} removed too.`
-    if (!window.confirm(`Delete "${playlist.name}"? The tracks stay in your library.${slotNote}`)) return
+    const ok = await confirm({
+      title: `Delete “${playlist.name}”?`,
+      description: `The tracks stay in your library.${slotNote}`,
+      confirmLabel: "Delete playlist",
+      destructive: true,
+    })
+    if (!ok) return
     setPlaylists((prev) => prev.filter((p) => p.id !== playlist.id))
     setMembers((prev) => {
       const next = { ...prev }
@@ -531,11 +540,21 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
       setPlaylists(data.data)
       await refetchLibrary()
     }
-  }, [currentPlaylist, defaultPlaylist, slug, station.autodj_slots, refetchLibrary])
+  }, [currentPlaylist, defaultPlaylist, slug, station.autodj_slots, refetchLibrary, confirm])
 
   // ---- derived ----------------------------------------------------------
 
-  const untagged = useMemo(() => tracks.filter((t) => !t.artist), [tracks])
+  /**
+   * Untagged tracks in what is on screen, not in the whole library. The
+   * banner used to count the library everywhere, so a playlist with every
+   * artist filled in still said "12 tracks have no artist tag" and "Fix tags"
+   * opened a list of rows that weren't in it. A playlist whose members are
+   * still loading counts as none rather than borrowing the library's number.
+   */
+  const untaggedInView = useMemo(() => {
+    if (currentPlaylist === null) return tracks.filter((t) => !t.artist)
+    return (members[currentPlaylist.id] ?? []).filter((t) => !t.artist)
+  }, [currentPlaylist, members, tracks])
   const totalSeconds = useMemo(() => tracks.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0), [tracks])
 
   /**
@@ -582,21 +601,30 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
         title={`${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`}
       >
         <div
-          className={cn("h-full transition-all", usagePct >= 90 ? "bg-destructive" : "bg-primary")}
+          className={cn("h-full transition-all", usagePct >= 90 ? "bg-foreground" : "bg-primary")}
           style={{ width: `${Math.max(usagePct, usagePct > 0 ? 0.4 : 0)}%` }}
         />
       </div>
 
-      {untagged.length > 0 && !tagBannerDismissed && (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-primary/5 border-b border-primary/15 text-sm">
-          <span className="flex-1 min-w-[220px] text-primary/90">
-            {untagged.length} track{untagged.length === 1 ? " has" : "s have"} no artist tag —
-            listeners see “Unknown artist” in the player.
+      {/* Neutral, not violet and not red: a missing tag is worth fixing
+          but nothing is broken, and violet is the brand and on-air colour.
+          Outline buttons, because the header's Add tracks is this view's one
+          filled button. */}
+      {untaggedInView.length > 0 && !tagBannerDismissed && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-muted/40 border-b border-border text-sm">
+          <span className="flex flex-1 min-w-[220px] items-start gap-2 text-foreground">
+            <IconInfoCircle size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span>
+              {untaggedInView.length} track{untaggedInView.length === 1 ? "" : "s"}
+              {currentPlaylist ? " in this playlist" : ""}{" "}
+              {untaggedInView.length === 1 ? "has" : "have"} no artist tag. Listeners see “Unknown
+              artist” in the player.
+            </span>
           </span>
-          <Button size="sm" onClick={() => setFixTagsOpen(true)}>
+          <Button variant="outline" onClick={() => setFixTagsOpen(true)}>
             Fix tags
           </Button>
-          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setTagBannerDismissed(true)}>
+          <Button variant="ghost" className="text-muted-foreground" onClick={() => setTagBannerDismissed(true)}>
             Dismiss
           </Button>
         </div>
@@ -604,77 +632,87 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
     </>
   )
 
+  /**
+   * Library-wide actions, handed to whichever view is open for its ⋯ menu.
+   * They used to be buttons of their own in the header; with the playlist
+   * toolbar's that made ten controls in view at once. One menu per view
+   * keeps them a click away without competing with Add tracks.
+   */
+  const menuItems = (
+    <>
+      {/* Jingles are AutoDJ: they only ever play between rotation tracks,
+          so on a plan without it there is nothing behind this dialog that
+          could work. Disabled outright rather than opened onto a screen of
+          dead controls; the Pro tag says why. */}
+      <DropdownMenuItem onClick={() => setJinglesOpen(true)} disabled={locked}>
+        <IconMicrophone size={15} />
+        Jingles
+        {locked ? (
+          <Badge variant="pro" className="ml-auto">
+            Pro
+          </Badge>
+        ) : (
+          station.jingles_enabled && <span className="ml-auto text-[11px] text-muted-foreground">On</span>
+        )}
+      </DropdownMenuItem>
+      {/* Reachable after the banner is dismissed, which was otherwise the
+          end of the road for fixing tags in bulk. */}
+      {untaggedInView.length > 0 && (
+        <DropdownMenuItem onClick={() => setFixTagsOpen(true)}>
+          <IconTag size={15} />
+          Fix artist tags
+          <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{untaggedInView.length}</span>
+        </DropdownMenuItem>
+      )}
+    </>
+  )
+
   return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-wrap items-end gap-4">
-        <div className="flex-1 min-w-[280px] flex flex-col gap-2">
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-display flex items-center gap-2 text-2xl font-semibold">
-              Music
-              <HelpLink
-                article="upload-your-music"
-                label="file formats, size limits and where uploads land"
-              />
-            </h1>
+    <div className="sheet flex flex-col gap-5">
+      {/* Headed "AutoDJ" to match the sidebar item that leads here. The
+          schedule used to be a second tab under it; it is its own item now. */}
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-wrap items-center gap-2.5">
+          <h1 className="font-display flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            AutoDJ
+            {/* Inline in the heading, per DESIGN.md's plan-tag rule. The
+                request itself lives once, in the AutoDjUpsell panel below. */}
             {locked && (
-              <Badge
-                variant="outline"
-                className="border-primary/30 bg-primary/10 text-[10px] tracking-wider text-primary uppercase"
-              >
-                Pro feature
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            {stats.map((part, i) => (
-              <span key={part} className="inline-flex items-center gap-2">
-                {i > 0 && <span className="text-border">•</span>}
-                <span className={i === 0 ? "text-primary" : undefined}>{part}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          {/* Jingles are AutoDJ: they only ever play between rotation
-              tracks, so on a plan without it there is nothing behind this
-              dialog that could work. Disabled outright rather than opened
-              onto a screen of dead controls. */}
-          <Button
-            variant="outline"
-            onClick={() => setJinglesOpen(true)}
-            disabled={locked}
-            title={locked ? "Jingles are part of AutoDJ, which isn't in your plan." : undefined}
-          >
-            <IconMicrophone size={16} data-icon="inline-start" />
-            Jingles
-            {locked ? (
-              <Badge
-                variant="outline"
-                className="ml-1 border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"
-              >
+              <Badge variant="pro">
                 Pro
               </Badge>
-            ) : (
-              station.jingles_enabled && (
-                <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                  on
-                </span>
-              )
             )}
-          </Button>
-          {/* Locked, the primary action is the upgrade rather than a dead
-              "Add tracks" — a disabled button in the position people reach
-              for first says "broken" more loudly than it says "paid". */}
-          {locked ? (
-            <Button onClick={proRequest.open} disabled={proRequest.requested}>
-              {proRequest.requested ? (
-                <IconCheck size={16} data-icon="inline-start" />
-              ) : (
-                <IconSparkles size={16} data-icon="inline-start" />
-              )}
-              <span>{proRequest.requested ? "Request sent" : "Upgrade to enable AutoDJ"}</span>
-            </Button>
-          ) : (
+            <HelpLink
+              article="playlists-and-the-rotation"
+              label="how AutoDJ and playlists work"
+            />
+          </h1>
+          {/* The one sentence a newcomer needs before any of the controls
+              below make sense. The ? used to lead to file formats, which
+              answered a question nobody arriving here had asked yet. */}
+          <p className="w-full text-sm text-muted-foreground">
+            AutoDJ plays your uploaded music whenever you&apos;re not live, so the
+            station keeps going when you step away.
+          </p>
+        </header>
+
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex-1 min-w-[240px] flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          {stats.map((part, i) => (
+            <span key={part} className="inline-flex items-center gap-2">
+              {i > 0 && <span className="text-muted-foreground/60" aria-hidden="true">·</span>}
+              <span className={i === 0 ? "text-foreground" : undefined}>{part}</span>
+            </span>
+          ))}
+        </div>
+        {/* Locked, there is no header action at all: the request lives
+            once, in the AutoDjUpsell panel below, as the page's one filled
+            button. A second "upgrade" here plus a badge made three prompts
+            for one decision; a dead "Add tracks" would read as broken. */}
+        {!locked && (
+          <div className="flex gap-2 shrink-0">
             <Button
               onClick={pickFiles}
               disabled={uploading}
@@ -691,9 +729,16 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               )}
               {uploading ? "Uploading…" : "Add tracks"}
             </Button>
-          )}
-        </div>
-      </header>
+            {/* Beside the upload it answers, now that the heading's ? explains
+                AutoDJ itself. */}
+            <HelpLink
+              article="upload-your-music"
+              label="file formats and size limits for uploads"
+              className="self-center"
+            />
+          </div>
+        )}
+      </div>
 
       <input
         ref={fileInputRef}
@@ -714,7 +759,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               editor reads as the feature working, and the upsell above it as
               an ad for something the user apparently already has. */}
           <div className="flex items-center gap-3">
-            <span className="text-[11px] uppercase tracking-wider text-muted-foreground shrink-0">
+            <span className="text-sm font-medium text-muted-foreground shrink-0">
               Preview of the playlist editor
             </span>
             <span className="h-px flex-1 bg-border" />
@@ -722,7 +767,10 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
         </>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4 items-start">
+      {/* Stretch on phones: with items-start the rail sized itself to its
+          chips instead of the screen, so it never scrolled — it widened the
+          whole page to 868px instead. */}
+      <div className="flex min-w-0 flex-col md:flex-row gap-4 items-stretch md:items-start">
         <PlaylistRail
           playlists={playlists}
           libraryCount={tracks.length}
@@ -745,9 +793,15 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
             setDragOver(false)
             if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
           }}
+          // No overflow-hidden: the sort control's list is positioned inside
+          // this panel and was cut off at its edge. Nothing here paints into
+          // the rounded corners (the top toolbar and the bottom footer have
+          // no background), so clipping bought nothing.
           className={cn(
-            "flex-1 min-w-0 w-full rounded-xl border overflow-hidden transition-colors",
-            dragOver ? "border-primary bg-primary/5" : "border-border bg-card",
+            // The page's one raised panel: the track table is the instrument
+            // the rest of the AutoDJ sheet describes.
+            "flex-1 min-w-0 w-full rounded-2xl border shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] transition-colors",
+            dragOver ? "border-violet/60 bg-primary/5" : "border-white/[0.09] bg-panel",
           )}
         >
           {currentPlaylist ? (
@@ -756,10 +810,8 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               playlist={currentPlaylist}
               tracks={members[currentPlaylist.id] ?? null}
               locked={locked}
-              uploading={uploading}
               savingOrder={savingOrder}
               nowPlayingId={nowPlayingId}
-              onPickFiles={pickFiles}
               onAddFromLibrary={() => setPickerOpen(true)}
               onReorder={handleReorder}
               onRemove={handleRemove}
@@ -769,42 +821,49 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               onSetDefault={setDefault}
               onDelete={deletePlaylist}
               belowToolbar={belowToolbar}
+              menuItems={menuItems}
             />
           ) : (
             <AllTracksView
               tracks={tracks}
               playlistNames={playlistNames}
               locked={locked}
-              uploading={uploading}
               nowPlayingId={nowPlayingId}
-              onPickFiles={pickFiles}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onBulkDelete={handleBulkDelete}
               onBulkAdd={setBulkAddIds}
               belowToolbar={belowToolbar}
+              menuItems={menuItems}
             />
           )}
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
-        {locked && "On Pro: "}
-        MP3, M4A, AAC, FLAC, OGG and WAV up to 300 MB per file. A track can be in any number of
-        playlists; the default playlist plays whenever nothing else is scheduled. Station IDs and
-        liners belong under{" "}
+      {/* 14px, not 12: this is the page's explanation, and a newcomer needs
+          it most, so it no longer sits in the smallest, dimmest type. 34rem
+          keeps it near 70 characters a line. It also carries the drop hint
+          the toolbar's "Drop files or browse" button used to. Keep in step
+          with loading.tsx. */}
+      <p className="text-sm text-muted-foreground leading-relaxed max-w-[34rem]">
+        {locked
+          ? "On Pro, drop audio files anywhere on the list to upload. "
+          : "Drop audio files anywhere on the list to upload. "}
+        MP3, M4A, AAC, FLAC, OGG or WAV, up to 300 MB each. A track can be in any number of
+        playlists; the default one plays when nothing else is scheduled. Put short clips like
+        &ldquo;You&apos;re listening to&hellip;&rdquo; in{" "}
         {locked ? (
           <span className="text-foreground">Jingles</span>
         ) : (
           <button
             type="button"
             onClick={() => setJinglesOpen(true)}
-            className="text-primary hover:underline cursor-pointer"
+            className="cursor-pointer rounded-sm text-violet-muted hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet"
           >
             Jingles
           </button>
         )}{" "}
-        so they interleave between tracks instead of joining a playlist.
+        so they play between songs.
       </p>
 
       <JinglesDialog
@@ -817,7 +876,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
       <FixTagsDialog
         open={fixTagsOpen}
         onClose={() => setFixTagsOpen(false)}
-        tracks={untagged}
+        tracks={untaggedInView}
         onSaved={applyTagFixes}
       />
 
@@ -827,6 +886,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
           onClose={() => setPickerOpen(false)}
           playlistName={currentPlaylist.name}
           candidates={pickerCandidates}
+          libraryEmpty={tracks.length === 0}
           onAdd={handleAddFromLibrary}
         />
       )}
@@ -840,6 +900,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
       />
 
       <PlaylistNameDialog dialog={nameDialog} onClose={() => setNameDialog(null)} onSubmit={submitName} />
+      {confirmDialog}
     </div>
   )
 }
@@ -904,11 +965,16 @@ function PlaylistNameDialog({ dialog, onClose, onSubmit }: NameDialogProps) {
             maxLength={60}
             autoFocus
             aria-label="Playlist name"
+            aria-invalid={error !== null}
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit()
             }}
           />
-          {error && <span className="text-xs text-destructive">{error}</span>}
+          {error && (
+            <span role="alert" className="text-xs text-fault-text">
+              {error}
+            </span>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>

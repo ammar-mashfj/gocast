@@ -151,7 +151,7 @@ export function StationFormDialog({ open, onClose, station }: StationFormDialogP
                     <IconUpload size={18} className="text-muted-foreground" />
                   )}
                   {uploading && (
-                    <div className="absolute inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center">
+                    <div className="absolute inset-0 bg-background/85 flex items-center justify-center">
                       <IconLoader2 size={18} className="animate-spin text-primary" />
                     </div>
                   )}

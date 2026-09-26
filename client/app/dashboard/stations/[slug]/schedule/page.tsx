@@ -1,12 +1,13 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import Link from "next/link"
-import { IconArrowLeft } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
-import { AutoDjTabs } from "@/components/dashboard/AutoDjTabs"
-import { AutodjSlotsEditor } from "./AutodjSlotsEditor"
-import { HelpLink } from "@/components/dashboard/HelpLink"
+import { SchedulePlanner } from "./SchedulePlanner"
+
+// Its own tab title: every dashboard tab used to read the marketing title,
+// so history and open tabs were indistinguishable.
+export const metadata: Metadata = { title: "Schedule" }
 
 export default async function SchedulePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
@@ -31,33 +32,18 @@ export default async function SchedulePage({ params }: { params: Promise<{ slug:
     throw err
   }
 
+  // Its own sidebar item now, not a tab under AutoDJ: show times are on
+  // every plan, and a Free station had to open a Pro page to reach them.
   return (
-    <div>
-      <Link
-        href={`/dashboard/stations/${slug}`}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
-      >
-        <IconArrowLeft size={14} />
-        Back to {station.name}
-      </Link>
-
-      <AutoDjTabs slug={slug} />
-
-      <div className="flex flex-col gap-2 mb-6">
-        <h1 className="font-display flex items-center gap-2 text-2xl font-semibold">
-          Schedule
-          <HelpLink
-            article="schedule-playlists-by-time"
-            label="scheduling playlists by day and time"
-          />
-        </h1>
-        <p className="text-sm text-muted-foreground max-w-2xl">
-          Play different playlists at different times of the week. This is separate from the show
-          times on your settings page, which only tell listeners when you&apos;re live.
+    <div className="sheet max-w-4xl">
+      <div className="mb-8 flex flex-col gap-1.5">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Schedule</h1>
+        <p className="text-sm text-muted-foreground max-w-[62ch]">
+          Your station&apos;s week: when you go live, and what AutoDJ plays the rest of the time.
         </p>
       </div>
 
-      <AutodjSlotsEditor station={station} playlists={playlists} />
+      <SchedulePlanner station={station} playlists={playlists} />
     </div>
   )
 }

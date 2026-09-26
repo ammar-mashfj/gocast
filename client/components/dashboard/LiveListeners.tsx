@@ -83,6 +83,8 @@ interface LiveListenersProps {
   isOnAir: boolean
   /** All-time peak concurrent listeners, for scale under the live figure. */
   peakListeners?: number
+  /** Render as the overview control strip's readout, not a card. */
+  bare?: boolean
 }
 
 /**
@@ -94,10 +96,51 @@ interface LiveListenersProps {
  * they run only while someone is actually connected, so a glance from across
  * the room tells you whether anyone is there without reading a digit.
  */
-export function LiveListeners({ slug, isOnAir, peakListeners = 0 }: LiveListenersProps) {
+export function LiveListeners({ slug, isOnAir, peakListeners = 0, bare = false }: LiveListenersProps) {
   const count = useListenerCount(slug, isOnAir)
   const display = useCountUp(count)
   const hasAudience = isOnAir && (count ?? 0) > 0
+
+  // Bare: the third part of the overview's control strip, a readout rather
+  // than a card — the count, what it means, and the way to the history.
+  if (bare) {
+    return (
+      <section aria-label="Listeners" className="flex flex-1 flex-col gap-1.5">
+        <h2 className="text-xs font-medium text-muted-foreground">Listening now</h2>
+        <div className="flex items-baseline gap-2">
+          <span
+            className={cn(
+              "font-display text-4xl font-semibold leading-none tracking-tight tabular-nums transition-colors duration-500",
+              hasAudience ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {display ?? "—"}
+          </span>
+          {hasAudience && (
+            <span className="size-2 rounded-full bg-live motion-safe:animate-pulse" aria-hidden />
+          )}
+        </div>
+        <p className="text-sm leading-snug text-muted-foreground">
+          {!isOnAir
+            ? "Go live or start AutoDJ to start counting."
+            : count === null
+              ? "Counting who is tuned in…"
+              : hasAudience
+                ? "Updates every few seconds."
+                : peakListeners > 0
+                  ? `Nobody right now — your peak is ${peakListeners}.`
+                  : "Nobody yet. Share your link below."}
+        </p>
+        <Link
+          href={`/dashboard/stations/${slug}/audience`}
+          className="mt-auto pt-1 inline-flex w-fit items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          View audience
+          <IconArrowRight size={13} />
+        </Link>
+      </section>
+    )
+  }
 
   return (
     <Card className="overflow-hidden">
@@ -121,7 +164,7 @@ export function LiveListeners({ slug, isOnAir, peakListeners = 0 }: LiveListener
             className={cn(
               "relative flex size-14 items-center justify-center rounded-full ring-1 transition-colors duration-500",
               hasAudience
-                ? "bg-primary/15 text-primary ring-primary/30"
+                ? "bg-primary/15 text-violet-muted ring-primary/30"
                 : "bg-muted/40 text-muted-foreground ring-foreground/10",
             )}
           >
@@ -150,7 +193,7 @@ export function LiveListeners({ slug, isOnAir, peakListeners = 0 }: LiveListener
             </span>
           )}
 
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {!isOnAir
               ? "Off air"
               : count === 1
@@ -159,9 +202,9 @@ export function LiveListeners({ slug, isOnAir, peakListeners = 0 }: LiveListener
           </span>
         </div>
 
-        <p className="text-xs leading-relaxed text-muted-foreground/80">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {!isOnAir
-            ? "Put the station on air to start counting."
+            ? "Go live or start AutoDJ to start counting."
             : count === null
               // On air but the first poll has not answered. "Nobody tuned in
               // yet" here would be a claim about an audience we have not

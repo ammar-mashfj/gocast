@@ -23,9 +23,14 @@ const SEGMENT_LABELS: Record<string, string> = {
   broadcasts: "Broadcasts",
   settings: "Settings",
   library: "AutoDJ",
+  schedule: "Schedule",
+  audience: "Audience",
   live: "Go live",
   studio: "Studio",
 }
+
+/** A segment nobody named still reads as a word, never as a raw slug. */
+const labelFor = (seg: string) => SEGMENT_LABELS[seg] ?? seg.charAt(0).toUpperCase() + seg.slice(1)
 
 export function DashboardHeader() {
   const pathname = usePathname()
@@ -70,7 +75,9 @@ export function DashboardHeader() {
         continue
       }
 
-      crumbs.push({ label: SEGMENT_LABELS[seg] ?? seg, href })
+      // /dashboard/settings is the ACCOUNT page; station settings live under
+      // /stations/{slug}/settings and keep the "Settings" label.
+      crumbs.push({ label: i === 0 && seg === "settings" ? "Account" : labelFor(seg), href })
     }
 
     return crumbs
@@ -79,7 +86,7 @@ export function DashboardHeader() {
   const crumbs = buildCrumbs()
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-background px-4">
       <SidebarTrigger className="-ml-1" />
 
       {crumbs.length > 0 && (

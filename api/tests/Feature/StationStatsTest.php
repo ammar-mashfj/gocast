@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ListenerSession;
 use App\Models\ListenerStatHourly;
 use App\Models\Station;
 use App\Models\StreamSession;
@@ -98,4 +99,35 @@ it('still reports airtime from closed broadcasts', function () {
         ->assertOk()
         ->assertJsonPath('data.stats.sessions', 1)
         ->assertJsonPath('data.stats.total_airtime_seconds', 3600);
+});
+
+/**
+ * The setup checklist's "first listener" item. The hourly rollup lags the raw
+ * listener_sessions the Audience page counts, so the peak alone said "nobody
+ * has tuned in yet" beside an Audience page showing listeners.
+ */
+it('reports has_listeners from raw listens before the rollup has run', function () {
+    ListenerSession::factory()->for($this->station)->closed(300)->create();
+
+    actingAs($this->user)
+        ->getJson("/api/stations/{$this->station->slug}")
+        ->assertOk()
+        ->assertJsonPath('data.stats.peak_listeners', 0)
+        ->assertJsonPath('data.stats.has_listeners', true);
+});
+
+it('reports no listeners for a station nobody has heard', function () {
+    actingAs($this->user)
+        ->getJson("/api/stations/{$this->station->slug}")
+        ->assertOk()
+        ->assertJsonPath('data.stats.has_listeners', false);
+});
+
+it('reports has_listeners from the peak once retention has pruned the raw listens', function () {
+    hourlyPeak($this->station, 4);
+
+    actingAs($this->user)
+        ->getJson("/api/stations/{$this->station->slug}")
+        ->assertOk()
+        ->assertJsonPath('data.stats.has_listeners', true);
 });

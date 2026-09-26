@@ -1,12 +1,14 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import Link from "next/link"
-import { IconArrowLeft } from "@tabler/icons-react"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
-import { AutoDjTabs } from "@/components/dashboard/AutoDjTabs"
 import { LibraryView } from "./LibraryView"
+
+// Its own tab title: every dashboard tab used to read the marketing title,
+// so history and open tabs were indistinguishable.
+export const metadata: Metadata = { title: "AutoDJ" }
 
 export default async function LibraryPage({
   params,
@@ -38,21 +40,14 @@ export default async function LibraryPage({
     throw err
   }
 
+  // No back link: the sidebar's AutoDJ item and the header breadcrumb both
+  // already lead back to the station.
   return (
     <div>
-      <Link
-        href={`/dashboard/stations/${slug}`}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground no-underline hover:text-foreground transition-colors mb-6"
-      >
-        <IconArrowLeft size={14} />
-        Back to {station.name}
-      </Link>
-
-      <AutoDjTabs slug={slug} />
-
-      {/* Heading and the count/runtime/storage line live inside LibraryView:
-          they change on every upload, delete and tag edit, so they have to be
-          rendered from the same client state as the list itself. */}
+      {/* Heading, tabs and the count/runtime/storage line live inside
+          LibraryView: the line changes on every upload, delete and tag edit,
+          so it has to be rendered from the same client state as the list
+          itself, and the tabs sit between it and the heading. */}
       <LibraryView
         station={station}
         initialTracks={initialTracks}

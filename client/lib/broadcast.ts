@@ -5,6 +5,16 @@ export type BroadcastStep = 'station' | 'mic' | 'engine' | 'stream'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
 
+export interface BroadcastStartOptions {
+  /** Music only: no microphone is requested or mixed. */
+  skipMic?: boolean
+  /**
+   * Cue the saved queue's last song from 0:00 instead of where it stopped.
+   * Chosen on the Go Live page; see {@link AudioEngine.resumePlayback}.
+   */
+  resumeFromStart?: boolean
+}
+
 export interface BroadcastStepInfo {
   id: BroadcastStep
   label: string
@@ -121,6 +131,11 @@ export class BroadcastManager {
   private engine: AudioEngine | null = null
   private ws: WebSocket | null = null
   private wakeLock: WakeLockSentinel | null = null
+  // Whether the broadcast wants the screen held on. The browser drops the lock
+  // itself whenever the page is hidden, so this — not `wakeLock` — decides
+  // whether to take it again when the page is shown.
+  private wantWakeLock = false
+  private wakeLockRequesting = false
   private steps: BroadcastStepInfo[] = []
   private stopping = false
   // True once the server has accepted the hello frame and kept the connection.
@@ -167,6 +182,13 @@ export class BroadcastManager {
    * listener looking at whatever was playing before the drop.
    */
   private lastMetadata: { title: string; artist: string } | null = null
+  /**
+   * Title/artist of the last frame that actually went over the socket. The
+   * engine notifies on every state change (a restored queue's durations
+   * alone fire one per track), and each unchanged re-send re-inserts
+   * metadata into the stream.
+   */
+  private sentMetadataKey: string | null = null
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = [
@@ -204,11 +226,12 @@ export class BroadcastManager {
   /**
    * Begin broadcasting. Mic → engine → webcast. On any failure, calls {@link fail}.
    */
-  async start(options?: { skipMic?: boolean }): Promise<void> {
+  async start(options?: BroadcastStartOptions): Promise<void> {
     this.stopping = false
     this.established = false
     this.reconnecting = false
     this.lastMetadata = null
+    this.sentMetadataKey = null
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
@@ -276,7 +299,8 @@ export class BroadcastManager {
       // Keep harbor's metadata in step with whatever the queue is playing.
       this.engine.subscribe(() => {
         const track = this.engine?.getCurrentTrack()
-        if (track) this.sendMetadata(track.title, track.artist)
+        if (!track || `${track.title}\0${track.artist}` === this.sentMetadataKey) return
+        this.sendMetadata(track.title, track.artist)
       })
       await this.engine.restoreQueue()
       this.updateStep('engine', 'done')
@@ -289,7 +313,11 @@ export class BroadcastManager {
       // Socket is up and accepted — safe to resume saved playback. Starting
       // earlier would encode audio that gets dropped for want of a socket,
       // clipping the first seconds of the broadcast.
-      await this.engine.resumePlayback()
+      // Not awaited: it waits on the track's metadata, which a background tab
+      // may not load until it is shown, and the broadcast is live either way.
+      void this.engine.resumePlayback({ fromStart: options?.resumeFromStart }).catch((err) => {
+        console.error('[BroadcastManager] could not resume saved playback:', err)
+      })
 
       this.acquireWakeLock()
       this.watchVisibility()
@@ -609,11 +637,16 @@ export class BroadcastManager {
     })
   }
 
-  /** Retry immediately when the broadcaster returns to the tab. */
+  /**
+   * When the broadcaster returns to the tab: retry a pending reconnect now, and
+   * take the screen wake lock again, since the browser released it on hide.
+   */
   private watchVisibility() {
     if (this.visibilityHandler) return
     this.visibilityHandler = () => {
-      if (document.visibilityState === 'visible') this.wakeFromBackoff?.()
+      if (document.visibilityState !== 'visible') return
+      this.wakeFromBackoff?.()
+      if (this.wantWakeLock) void this.requestWakeLock()
     }
     document.addEventListener('visibilitychange', this.visibilityHandler)
   }
@@ -630,6 +663,7 @@ export class BroadcastManager {
     this.lastMetadata = { title, artist }
     if (this.ws?.readyState !== WebSocket.OPEN) return
     this.ws.send(JSON.stringify({ type: 'metadata', data: { title, artist } }))
+    this.sentMetadataKey = `${title}\0${artist}`
   }
 
   /**
@@ -690,19 +724,39 @@ export class BroadcastManager {
     this.micStream = null
     this.engine = null
     this.lastMetadata = null
+    this.sentMetadataKey = null
     this.releaseWakeLock()
     this.callbacks.onStateChange('idle')
   }
 
-  private async acquireWakeLock() {
-    if (!('wakeLock' in navigator)) return
+  private acquireWakeLock() {
+    this.wantWakeLock = true
+    void this.requestWakeLock()
+  }
+
+  private async requestWakeLock() {
+    if (!('wakeLock' in navigator) || this.wakeLock || this.wakeLockRequesting) return
+    if (document.visibilityState !== 'visible') return // rejected while hidden
+    this.wakeLockRequesting = true
     try {
-      this.wakeLock = await navigator.wakeLock.request('screen')
-    } catch { /* device may not support it */ }
+      const lock = await navigator.wakeLock.request('screen')
+      // The broadcast may have ended while the request was pending.
+      if (!this.wantWakeLock) {
+        void lock.release()
+        return
+      }
+      this.wakeLock = lock
+      lock.addEventListener('release', () => {
+        if (this.wakeLock === lock) this.wakeLock = null
+      })
+    } catch { /* unsupported, or denied (e.g. battery saver) */ } finally {
+      this.wakeLockRequesting = false
+    }
   }
 
   private releaseWakeLock() {
-    this.wakeLock?.release()
+    this.wantWakeLock = false
+    void this.wakeLock?.release()
     this.wakeLock = null
   }
 

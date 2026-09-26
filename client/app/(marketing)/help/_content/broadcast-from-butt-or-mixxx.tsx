@@ -59,7 +59,8 @@ export default function Body() {
       <h2>Switch the Station On First</h2>
       <p>
         Unlike the browser studio, connecting an encoder does not switch your
-        station on. Put it on air from the dashboard, then connect. An encoder
+        station on. Press Start AutoDJ on the dashboard, then connect; your
+        encoder takes over from AutoDJ the moment it does. An encoder
         pointed at a station that is off air has nothing to connect to.
       </p>
       <p>

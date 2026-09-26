@@ -12,7 +12,7 @@ export default function PrivacyPage() {
     <main className="max-w-2xl mx-auto px-6 py-16">
       <h1 className="font-display text-3xl font-semibold mb-2">Privacy Policy</h1>
       <p className="text-sm text-text-muted mb-12">
-        Last updated: September 8, 2026
+        Last updated: September 26, 2026
       </p>
 
       <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">
@@ -67,9 +67,8 @@ export default function PrivacyPage() {
               station so we can send you that one email. It is not used for anything else.
             </p>
             <p className="mt-3">
-              There are no tracking pixels, advertising, or third-party analytics on player pages.
-              Sentry session replay, described below, samples a small number of sessions across the
-              whole site.
+              The site-wide analytics and Sentry session replay described below run on every page,
+              including player pages.
             </p>
 
             <h3 className="text-sm font-medium text-white mt-4 mb-2">Uploaded Files</h3>
@@ -96,6 +95,7 @@ export default function PrivacyPage() {
               <li>To email listeners who asked to hear when a station goes live</li>
               <li>To send email verification and service-related notifications</li>
               <li>To detect and prevent abuse (rate limiting, stale session cleanup)</li>
+              <li>To understand how the site is used, so we can improve it</li>
             </ul>
             <p className="mt-3">
               We do not sell your data. We do not use your data for advertising. We do not share your
@@ -121,6 +121,25 @@ export default function PrivacyPage() {
                 including public player pages.
               </li>
               <li>
+                <strong className="text-white">Google Analytics</strong> — site-wide usage
+                analytics. Receives the pages you visit, the referring site, your device and browser
+                type, and an approximate location, and sets its own cookies to tell visits apart.
+                Google&apos;s privacy policy applies to that data.
+              </li>
+              <li>
+                <strong className="text-white">Umami</strong> — privacy-focused page-view analytics.
+                Receives the pages you visit, the referring site, and your device and browser type.
+                It does not use cookies.
+              </li>
+              <li>
+                <strong className="text-white">Microsoft Clarity</strong> — session recordings and
+                heatmaps, so we can see where the site is confusing or broken. Records how you move,
+                click, and scroll across the site, including the dashboard and player pages, along
+                with your device and browser type and an approximate location. Sensitive content is
+                masked before it leaves your browser, and it sets its own cookies to tell visits
+                apart. Microsoft&apos;s privacy statement applies to that data.
+              </li>
+              <li>
                 <strong className="text-white">Resend</strong> — our email provider. Receives the
                 address and contents of any email we send: verification codes, password resets,
                 station-live alerts, and service notices.
@@ -136,7 +155,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="font-display text-lg font-medium text-white mb-3">Cookies</h2>
             <p>
-              We use three cookies, all of them first-party:
+              We set three cookies of our own, all needed for the site to work:
             </p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5 mt-2">
               <li>
@@ -156,7 +175,15 @@ export default function PrivacyPage() {
             <p className="mt-2">
               All are set with <code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">SameSite=Lax</code> and
               the <code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">Secure</code> flag in production.
-              We do not use tracking cookies, analytics cookies, or third-party cookies.
+            </p>
+            <p className="mt-3">
+              Google Analytics and Microsoft Clarity also set analytics cookies
+              (<code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">_ga</code>,
+              {" "}<code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">_ga_*</code>,
+              {" "}<code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">_clck</code>, and
+              {" "}<code className="text-xs bg-white/[0.04] px-1.5 py-0.5 rounded">_clsk</code>)
+              to tell one visit from another. You can block them in your browser settings without
+              affecting how GoCast works.
             </p>
             <p className="mt-3">
               Some things stay in your browser&apos;s local storage and are never sent to us at all:

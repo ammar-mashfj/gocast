@@ -2,75 +2,78 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { IconBroadcast, IconArrowRight } from "@tabler/icons-react"
+import { IconArrowRight, IconLockOpen } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { SIGNAL_TONE, useStudioSignal, useTransportHealth } from "@/components/studio/signal"
+import { cn } from "@/lib/utils"
 
 /**
- * Strip shown across the top of every dashboard page while a broadcast is
- * active. Its job is the warning, not the navigation (BroadcastMiniController
- * already links back to the studio): the broadcast runs in this tab — mic,
- * mixer and encoder all live in the page — so closing it ends the show, and
- * nothing else on a settings or library page says so.
+ * The studio's lamp, carried onto every other dashboard page while a
+ * broadcast is running.
  *
- * It also says how far behind listeners are. New broadcasters open their own
- * player link, talk, still hear AutoDJ, and conclude the station is broken:
- * the harbor buffer plus HLS put listeners 15–20s behind.
+ * The broadcast runs in this tab — mic, mixer and encoder all live in the
+ * page — so leaving the studio does not leave the show. This strip used to
+ * say only "You're live" in green, which hid the one state that matters most
+ * away from the studio: a mic latched open while the broadcaster reads
+ * their settings page out loud to every listener. It now shows exactly what
+ * the studio lamp shows, and offers Unlatch right where the problem is.
  *
- * The studio renders its own copy (`inStudio`) instead of this one: it sizes
- * itself to the viewport minus the header, so a strip above `main` would push
- * its bottom edge off screen. Inside the studio's column it takes its height
- * from the layout, and there is no "Open studio" link to offer.
+ * Not rendered in the studio, which draws the full lamp itself.
  */
-export function LiveBanner({ inStudio = false }: { inStudio?: boolean }) {
+export function LiveBanner() {
   const pathname = usePathname()
-  const { state, stationSlug } = useBroadcast()
-
+  const { state, stationSlug, engine } = useBroadcast()
   const isLive = state === "live" || state === "reconnecting"
-  if (!isLive || !stationSlug) return null
+  const onStudio = !!stationSlug && (pathname?.startsWith(`/dashboard/stations/${stationSlug}/studio`) ?? false)
+  const transport = useTransportHealth(isLive && !onStudio)
+  const signal = useStudioSignal(transport, { inStudio: false })
 
-  const onStudio = pathname?.startsWith(`/dashboard/stations/${stationSlug}/studio`) ?? false
-  if (onStudio !== inStudio) return null
+  if (!isLive || !stationSlug || onStudio || !signal) return null
 
-  const isReconnecting = state === "reconnecting"
-
-  if (inStudio) {
-    return (
-      <div className={`lg:col-span-2 flex items-center gap-2 px-4 py-2.5 text-sm font-medium leading-snug ${
-        isReconnecting
-          ? "bg-amber-500/10 border-b border-amber-500/30 text-amber-100"
-          : "bg-emerald-500/10 border-b border-emerald-500/30 text-emerald-100"
-      }`}>
-        <span className={`size-2 rounded-full shrink-0 animate-pulse ${isReconnecting ? "bg-amber-400" : "bg-emerald-400"}`} />
-        <IconBroadcast size={16} className="shrink-0" />
-        {isReconnecting
-          ? "Reconnecting your broadcast… keep this tab open."
-          : "You're live. Keep this tab open — closing it ends your broadcast. Listeners hear you about 15–20 seconds after you speak."}
-      </div>
-    )
-  }
+  const tone = SIGNAL_TONE[signal.tone]
+  const latched = engine?.isMicLatched() ?? false
 
   return (
-    <Link
-      href={`/dashboard/stations/${stationSlug}/studio`}
-      className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm no-underline transition-colors ${
-        isReconnecting
-          ? "bg-amber-500/10 border-b border-amber-500/30 text-amber-100 hover:bg-amber-500/15"
-          : "bg-emerald-500/10 border-b border-emerald-500/30 text-emerald-100 hover:bg-emerald-500/15"
-      }`}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className={`size-2 rounded-full shrink-0 ${isReconnecting ? "bg-amber-400 animate-pulse" : "bg-emerald-400 animate-pulse"}`} />
-        <IconBroadcast size={16} className="shrink-0" />
-        <span className="font-medium leading-snug">
-          {isReconnecting
-            ? "Reconnecting your broadcast… keep this tab open."
-            : "You're live. Keep this tab open — closing it ends your broadcast. Listeners hear you about 15–20 seconds after you speak."}
+    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5", tone.strip)}>
+      <p key={signal.code} className="sr-only" role={signal.tone === "fault" ? "alert" : "status"}>
+        {signal.label}. {signal.detail}
+      </p>
+      <div className="flex min-w-0 flex-1 items-center gap-3" aria-hidden>
+        <span
+          key={signal.code}
+          className={cn(
+            "lamp-settle inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-bold uppercase tracking-[0.08em]",
+            tone.chip,
+          )}
+        >
+          <span className={cn("size-1.5 rounded-full bg-current", signal.tone !== "fault" && "animate-pulse motion-reduce:animate-none")} />
+          {signal.label}
+        </span>
+        <span className={cn("min-w-0 text-sm leading-snug", tone.text)}>
+          {signal.code === "live"
+            ? "You're broadcasting from this tab — closing it ends the show."
+            : signal.detail}
         </span>
       </div>
-      <span className="flex items-center gap-1 text-xs shrink-0 opacity-90">
-        Open studio
-        <IconArrowRight size={14} />
-      </span>
-    </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        {latched && (
+          <button
+            type="button"
+            onClick={() => engine?.setMicLatched(false)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-mic px-3 text-sm font-semibold text-[#04121c] transition-[filter] hover:brightness-110"
+          >
+            <IconLockOpen size={15} />
+            Mic off
+          </button>
+        )}
+        <Link
+          href={`/dashboard/stations/${stationSlug}/studio`}
+          className="inline-flex h-9 items-center gap-1 rounded-md px-2.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-white/[0.06]"
+        >
+          Open studio
+          <IconArrowRight size={15} />
+        </Link>
+      </div>
+    </div>
   )
 }

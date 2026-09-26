@@ -2,18 +2,16 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { IconCheck } from "@tabler/icons-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StationFormDialog } from "@/components/dashboard/StationFormDialog"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Station } from "@/interfaces/Station"
-import { cn } from "@/lib/utils"
 
 interface StationChecklistProps {
   station: Station
   trackCount: number
-  /** All-time peak concurrent listeners — the only evidence anyone ever tuned in. */
-  peakListeners: number
+  /** Has anyone ever pressed play? The same source the Audience page counts. */
+  hasListeners: boolean
 }
 
 /**
@@ -29,7 +27,7 @@ interface StationChecklistProps {
  * listener" stays last because it is the only item the owner cannot simply
  * go and do.
  */
-export function StationChecklist({ station, trackCount, peakListeners }: StationChecklistProps) {
+export function StationChecklist({ station, trackCount, hasListeners }: StationChecklistProps) {
   const [showEdit, setShowEdit] = useState(false)
 
   // "Fill the AutoDJ rotation" is dropped rather than reworded on a plan that
@@ -61,7 +59,7 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
             key: "tracks",
             done: trackCount > 0,
             title: "Fill the default playlist",
-            hint: "It is what plays when you're off air — empty, the station goes on air to silence.",
+            hint: "AutoDJ plays it whenever you're not live. Empty, the station plays silence.",
             href: `/dashboard/stations/${station.slug}/library`,
           },
         ]),
@@ -73,9 +71,9 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
     {
       key: "schedule",
       done: (station.schedules?.length ?? 0) > 0,
-      title: "Set your schedule",
-      hint: "Tell listeners when you're on air so they know when to come back.",
-      href: `/dashboard/stations/${station.slug}/settings#schedule`,
+      title: "Set your show times",
+      hint: "Tell listeners when you're live so they know when to come back.",
+      href: `/dashboard/stations/${station.slug}/schedule`,
     },
     {
       key: "links",
@@ -86,47 +84,48 @@ export function StationChecklist({ station, trackCount, peakListeners }: Station
     },
     {
       key: "listener",
-      done: peakListeners > 0,
+      done: hasListeners,
       title: "Get your first listener",
-      hint: "Share the link above — nobody has tuned in yet.",
+      hint: "Share your station link. Nobody has tuned in yet.",
     },
   ]
 
   const todo = items.filter((i) => !i.done)
   if (todo.length === 0) return null
 
+  const doneCount = items.length - todo.length
+
+  // Only the open items are drawn; finished ones collapse into the count in
+  // the header. Drawing them struck through meant a nearly-finished station
+  // carried a card that was mostly strikethrough — five crossed-out lines
+  // around the one thing left, which read as "this checklist is stuck" rather
+  // than "one to go".
   return (
     <>
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-baseline justify-between gap-3">
           <CardTitle className="text-base font-medium">Finish setting up</CardTitle>
+          {doneCount > 0 && (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {doneCount}/{items.length} done
+            </span>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {items.map((item) => {
+          {todo.map((item) => {
             const body = (
               <div className="flex items-start gap-3 text-left">
                 <span
-                  className={cn(
-                    "size-4 mt-0.5 rounded-full shrink-0 flex items-center justify-center",
-                    item.done ? "bg-emerald-500/15 text-emerald-400" : "border border-primary/50",
-                  )}
-                >
-                  {item.done && <IconCheck size={11} stroke={3} />}
-                </span>
+                  className="size-4 mt-0.5 rounded-full shrink-0 border border-white/[0.18]"
+                  aria-hidden="true"
+                />
                 <div className="min-w-0">
-                  <div className={cn("text-sm", item.done && "text-muted-foreground line-through")}>
-                    {item.title}
-                  </div>
-                  {!item.done && (
-                    <div className="text-xs text-muted-foreground leading-relaxed">{item.hint}</div>
-                  )}
+                  <div className="text-sm">{item.title}</div>
+                  <div className="text-xs text-muted-foreground leading-relaxed">{item.hint}</div>
                 </div>
               </div>
             )
 
-            if (item.done) {
-              return <div key={item.key}>{body}</div>
-            }
             if (item.href) {
               return (
                 <Link key={item.key} href={item.href} className="no-underline hover:opacity-80 transition-opacity">

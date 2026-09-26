@@ -172,6 +172,40 @@ it('averages only sessions that have finished', function () {
         ->assertJsonPath('data.totals.avg_listen_seconds', 600);
 });
 
+it('counts arrivals from the raw rows, not the hourly rollup that lags them', function () {
+    // Two listens the rollup has not run over yet — no listener_stats_hourly
+    // row exists. Devices and distinct listeners read these rows live, so the
+    // arrivals total must too, or the screen shows a device split beside a
+    // "nobody has pressed play" empty state keyed off a stale zero.
+    ListenerSession::factory()->count(2)->for($this->station)->closed(900)->create([
+        'started_at' => now()->subMinutes(30), 'device' => 'desktop',
+    ]);
+
+    actingAs($this->user)
+        ->getJson('/api/stations/jazz/audience?days=7')
+        ->assertOk()
+        ->assertJsonPath('data.totals.sessions', 2)
+        ->assertJsonPath('data.devices.total', 2)
+        ->assertJsonPath('data.totals.finished_listens', 2);
+});
+
+it('counts an open listen as an arrival but not as a finished listen', function () {
+    // finished_listens is the average's denominator: a listen still in
+    // progress has no duration yet, so it must not be in it.
+    ListenerSession::factory()->for($this->station)->closed(900)->create([
+        'started_at' => now()->subMinutes(30),
+    ]);
+    ListenerSession::factory()->for($this->station)->create([
+        'started_at' => now()->subMinutes(5),
+    ]);
+
+    actingAs($this->user)
+        ->getJson('/api/stations/jazz/audience?days=7')
+        ->assertOk()
+        ->assertJsonPath('data.totals.sessions', 2)
+        ->assertJsonPath('data.totals.finished_listens', 1);
+});
+
 it('excludes another station\'s audience', function () {
     $other = Station::factory()->for($this->user, 'user')->create(['slug' => 'rock']);
 

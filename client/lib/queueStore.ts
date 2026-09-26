@@ -14,6 +14,14 @@ interface StoredTrack {
   file: File
   title: string
   artist: string
+  /**
+   * Place in the running order. The store is keyed by a random UUID and
+   * `getAll()` returns records in KEY order, not insertion order — without
+   * this a restored queue came back shuffled, and the saved `currentIndex`
+   * pointed at whichever song happened to sort into that slot. Absent on
+   * queues saved before it existed; those keep the order they load in.
+   */
+  position?: number
 }
 
 export interface PlaybackState {
@@ -44,9 +52,9 @@ export async function saveQueue(tracks: { id: string; file: File; title: string;
   const tx = db.transaction(QUEUE_STORE, 'readwrite')
   const store = tx.objectStore(QUEUE_STORE)
   store.clear()
-  for (const track of tracks) {
-    store.put({ id: track.id, file: track.file, title: track.title, artist: track.artist } satisfies StoredTrack)
-  }
+  tracks.forEach((track, position) => {
+    store.put({ id: track.id, file: track.file, title: track.title, artist: track.artist, position } satisfies StoredTrack)
+  })
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
@@ -54,7 +62,7 @@ export async function saveQueue(tracks: { id: string; file: File; title: string;
   db.close()
 }
 
-/** Read all tracks from IndexedDB, preserving insertion order. */
+/** Read all tracks from IndexedDB, in running order. */
 export async function loadQueue(): Promise<StoredTrack[]> {
   const db = await openDB()
   const tx = db.transaction(QUEUE_STORE, 'readonly')
@@ -66,6 +74,9 @@ export async function loadQueue(): Promise<StoredTrack[]> {
   })
   db.close()
   return result
+    .map((track, i) => ({ track, rank: track.position ?? i }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ track }) => track)
 }
 
 /** Delete all tracks and the saved playback position from IndexedDB. */
@@ -102,4 +113,28 @@ export async function loadPlayback(): Promise<PlaybackState | null> {
   })
   db.close()
   return result
+}
+
+/**
+ * What the studio will open with, read before a broadcast exists — so the Go
+ * Live page can say what is waiting instead of the show opening on a surprise.
+ * Mirrors {@link AudioEngine.resumePlayback}: the "last song" is only reported
+ * when that method would actually cue it.
+ */
+export interface SavedQueueSummary {
+  trackCount: number
+  bytes: number
+  lastTrack: { title: string; artist: string; offset: number } | null
+}
+
+export async function loadQueueSummary(): Promise<SavedQueueSummary> {
+  const [tracks, playback] = await Promise.all([loadQueue(), loadPlayback()])
+  const track = playback ? tracks[playback.currentIndex] : undefined
+  return {
+    trackCount: tracks.length,
+    bytes: tracks.reduce((sum, t) => sum + (t.file?.size ?? 0), 0),
+    lastTrack: track && playback
+      ? { title: track.title, artist: track.artist, offset: Math.max(0, playback.offset) }
+      : null,
+  }
 }

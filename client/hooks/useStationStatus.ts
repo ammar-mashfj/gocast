@@ -72,6 +72,27 @@ function intervalFor(status: StationStatus | null, pushed: boolean): number {
 
   if (status.state === "offline") return POLL_OFFLINE_MS
 
+  // The show has ended but its last buffered seconds are still playing out:
+  // the broadcaster is gone, the live arm still holds the mount. Like
+  // `starting`, this is a state that ends by itself in a few seconds, and
+  // nothing announces the end — AutoDJ taking over is a title change, which
+  // is deliberately not pushed (NowPlayingController::broadcastTransition),
+  // and a live source has no `remaining` to time a read against. The
+  // live_disconnected push lands INSIDE this window, so without this the next
+  // read was the full ceiling away and the headline sat on the show's title
+  // for up to thirty seconds after AutoDJ was back.
+  if (status.reachable && status.source === "live" && status.broadcaster === false) {
+    return POLL_STARTING_MS
+  }
+  // And its mirror at the start of a show: connected, but harbor is still
+  // buffering, so AutoDJ holds the mount. `remaining` here is AutoDJ's track —
+  // minutes away — and the switch to live is not pushed either, so the
+  // track-aware rule below would leave AutoDJ's title up for the whole
+  // ceiling.
+  if (status.reachable && status.broadcaster === true && status.source !== "live") {
+    return POLL_STARTING_MS
+  }
+
   // Push only raises the CEILING. It must not skip the track-aware rule
   // below, because nothing on the socket carries `now_playing` — a fixed
   // interval here leaves the headline stale for the whole of it, which is

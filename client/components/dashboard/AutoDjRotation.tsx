@@ -69,12 +69,12 @@ export function AutoDjRotation({
   const subtitle = unavailable
     ? "Couldn't load the rotation just now."
     : locked
-      ? "Your stream stops when you close your encoder. AutoDJ fills that gap."
+      ? "Your station goes silent when you close the studio. AutoDJ keeps your music playing."
       : tracks.length === 0
         ? `${playlistName ?? "The default playlist"} is empty — a station with nothing to play goes on air to silence.`
         : onNow?.detail
           ? `${playlistName ?? onNow.now} • ${onNow.detail} • ${tracks.length} track${tracks.length === 1 ? "" : "s"}`
-          : `${playlistName ?? "Default playlist"} • ${tracks.length} track${tracks.length === 1 ? "" : "s"} • ${formatAirtime(totalSeconds)} • plays whenever you're off air`
+          : `${playlistName ?? "Default playlist"} • ${tracks.length} track${tracks.length === 1 ? "" : "s"} • ${formatAirtime(totalSeconds)} • plays whenever you're not live`
 
   return (
     <Card className="@container/autodj gap-0 overflow-hidden">
@@ -91,10 +91,7 @@ export function AutoDjRotation({
             <div className="flex items-center gap-2">
               <div className="text-base font-medium">AutoDJ rotation</div>
               {locked && (
-                <Badge
-                  variant="outline"
-                  className="border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase"
-                >
+                <Badge variant="pro">
                   Pro
                 </Badge>
               )}
@@ -124,7 +121,7 @@ export function AutoDjRotation({
               <span className="text-xs text-muted-foreground tabular-nums">{i + 1}</span>
               <span className="truncate">{track.title}</span>
               <span className="hidden md:block text-xs text-muted-foreground truncate">
-                {track.artist ?? "—"}
+                {track.artist ?? "Unknown artist"}
               </span>
               <span className="text-xs text-muted-foreground tabular-nums text-right">
                 {formatClock(track.duration_seconds).replace(/^00:/, "")}

@@ -25,7 +25,10 @@ export interface AudienceDay {
   listener_minutes: number
   /** Highest concurrent listeners seen that day. */
   peak: number
-  /** Sessions that started that day. */
+  /**
+   * Player-page listens that started that day, counted live from the raw
+   * rows (not the hourly rollup, which lags). Never includes Icecast.
+   */
   sessions: number
   /** Distinct listeners that day. See the note on `totals.listeners`. */
   listeners: number
@@ -68,6 +71,12 @@ export interface AudienceReport {
     listener_minutes: number
     /** Highest concurrent figure in the window — a maximum, never a sum. */
     peak: number
+    /**
+     * Player-page listens in the window — the SAME rows devices, browsers,
+     * referrers and `listeners` are counted from, so it is the figure every
+     * breakdown's empty state keys off. Excludes Icecast listeners, who never
+     * create a session; `listener_minutes` is the only figure that sees them.
+     */
     sessions: number
     /**
      * Distinct listeners per day, added up across the window.
@@ -80,6 +89,9 @@ export interface AudienceReport {
      */
     listeners: number
     avg_listen_seconds: number
+    /** Finished listens — the set `avg_listen_seconds` is averaged over. */
+    finished_listens: number
+    /** Finished listens of at least `analytics.min_listen_seconds`. */
     qualified_listens: number
   }
   /** One entry per day of the window, zeros included — never sparse. */

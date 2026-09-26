@@ -1,36 +1,82 @@
 "use client"
 
+import { useEffect } from "react"
 import Link from "next/link"
+import { IconArrowRight, IconRefresh } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { IconAlertTriangle } from "@tabler/icons-react"
+import { useBroadcast } from "@/contexts/BroadcastContext"
 
+/**
+ * A dashboard page failed to render.
+ *
+ * This boundary sits INSIDE the dashboard layout, so the layout — and with it
+ * BroadcastProvider, the socket, the mixer and the mic — is still mounted.
+ * A host whose library page throws mid-show is still on air, and the most
+ * useful sentence here is the one that says so; the old card only said
+ * "Something went wrong" and invited them to leave.
+ *
+ * The raw error message stays out of the heading: it is written for us, not
+ * for a broadcaster. It is kept behind "Details", with the digest the server
+ * logs carry, so a support message can quote it.
+ */
 export default function DashboardError({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string }
-  reset: () => void
+  unstable_retry: () => void
 }) {
+  const { state, stationSlug } = useBroadcast()
+  const live = state === "live" || state === "reconnecting"
+
+  useEffect(() => {
+    console.error("[dashboard] page error:", error)
+  }, [error])
+
   return (
-    <div className="flex flex-1 items-center justify-center p-6">
-      <Card className="max-w-md w-full">
-        <CardContent className="flex flex-col items-center text-center py-10">
-          <div className="size-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
-            <IconAlertTriangle size={24} className="text-destructive" />
-          </div>
-          <h2 className="text-lg font-medium mb-2">Something went wrong</h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            {error.message || "An unexpected error occurred."}
-          </p>
-          <div className="flex gap-2">
-            <Button onClick={reset}>Try again</Button>
-            <Button variant="outline" asChild>
-              <Link href="/dashboard">Go to dashboard</Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="flex max-w-2xl flex-col gap-6 py-4">
+      <div className="flex flex-col gap-3">
+        {/* No "Page error" pill above this: it was a kicker (DESIGN.md bans
+            them), and the heading already says the same thing. */}
+        <h1 className="font-display text-2xl font-semibold tracking-tight">This page didn&apos;t load</h1>
+        <p className="max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
+          {live ? (
+            <>
+              <span className="font-medium text-live-text">Your broadcast is still on air.</span>{" "}
+              Only this page failed — the show runs in this tab, so keep it open and try again.
+            </>
+          ) : (
+            <>Something on our side stopped this page from rendering. Trying again usually fixes it.</>
+          )}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {/* unstable_retry, not reset: reset() re-renders without re-fetching,
+            so a failed server fetch just failed again (Next 16 error.md). */}
+        <Button className="h-11" onClick={() => unstable_retry()}>
+          <IconRefresh data-icon="inline-start" />
+          Try again
+        </Button>
+        <Button variant="outline" className="h-11" asChild>
+          {/* A Link, never an anchor: a full page load would tear down the
+              broadcast this page just promised is still running. */}
+          {/* The broadcasting station, not the current one: they differ when
+              the host has switched stations mid-show. */}
+          <Link href={live && stationSlug ? `/dashboard/stations/${stationSlug}/studio` : "/dashboard"}>
+            {live ? "Back to the studio" : "Go to your station"}
+            <IconArrowRight data-icon="inline-end" />
+          </Link>
+        </Button>
+      </div>
+
+      <details className="max-w-[60ch] border-t border-white/[0.07] pt-4 text-xs text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground">Details for support</summary>
+        <p className="mt-2 font-mono break-words">
+          {error.message || "No message"}
+          {error.digest && <><br />ref {error.digest}</>}
+        </p>
+      </details>
     </div>
   )
 }

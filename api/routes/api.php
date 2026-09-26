@@ -20,6 +20,7 @@ use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\PlaylistTrackController;
 use App\Http\Controllers\PublicEmbedController;
 use App\Http\Controllers\PublicStationController;
+use App\Http\Controllers\ResendWebhookController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
@@ -301,3 +302,9 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
     // public throttle bucket because scrapes are scheduled, not bursty.
     Route::get('/internal/metrics', MetricsController::class)->withoutMiddleware('throttle:internal');
 });
+
+// Resend webhooks (inbound email today, delivery events later). Public, but
+// every request must carry a valid Svix signature for RESEND_WEBHOOK_SECRET;
+// the controller routes each event type to its handler.
+Route::post('/webhooks/resend', ResendWebhookController::class)
+    ->middleware('throttle:120,1');

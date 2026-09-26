@@ -21,6 +21,9 @@ import { User } from "@/interfaces/User"
 // because a signed-out visitor is redirected to /auth/login, which is
 // crawlable and noindex itself.
 export const metadata: Metadata = {
+  // Restates the root template: a layout's own title replaces its parent's,
+  // so a plain string here would drop "— GoCast" from every page below it.
+  title: { default: "Dashboard", template: "%s — GoCast" },
   robots: { index: false, follow: false },
 }
 

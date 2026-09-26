@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useRef, useCallback, useMemo } from "react"
+import { flushSync } from "react-dom"
 import { toast } from "sonner"
-import { IconPlus, IconMinus, IconX, IconGripVertical } from "@tabler/icons-react"
+import { IconPlus, IconX, IconGripVertical, IconUpload } from "@tabler/icons-react"
 import {
   DndContext,
   PointerSensor,
@@ -23,104 +24,138 @@ import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { QUEUE_BYTE_LIMIT, type QueueTrack, type RepeatMode } from "@/lib/audioEngine"
-import { formatBytes } from "@/lib/format"
+import { formatBytes, formatTrackTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${String(s).padStart(2, "0")}`
-}
+const clockTime = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 
-const GRADIENTS = [
-  "linear-gradient(135deg,#1a0533,#2d1b69)",
-  "linear-gradient(135deg,#0f1a2b,#1a3355)",
-  "linear-gradient(135deg,#1a1a0f,#33331a)",
-  "linear-gradient(135deg,#0f2b1a,#1a5533)",
-  "linear-gradient(135deg,#2b0f1a,#551a33)",
-]
-const ICONS = ["♫", "♬", "♩", "♪", "♫"]
+/**
+ * Run a queue edit inside a view transition, so the rows below a removed
+ * track glide up instead of jumping. Plain call where the API is missing or
+ * the user asked for less motion.
+ *
+ * Only rows fully inside the scroller get a transition name, and only for
+ * the length of the transition. Snapshots are drawn in the top layer, outside
+ * the list's overflow clip: with a permanent name on every row, the rows
+ * scrolled out of view painted over the deck and the lamp for the whole
+ * animation.
+ */
+function withRowTransition(scroller: HTMLElement | null, update: () => void) {
+  const doc = document as Document & {
+    startViewTransition?: (cb: () => void) => { finished: Promise<void> }
+  }
+  if (!scroller || !doc.startViewTransition || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    update()
+    return
+  }
+  const box = scroller.getBoundingClientRect()
+  const named: HTMLElement[] = []
+  scroller.querySelectorAll<HTMLElement>("[data-queue-row]").forEach((row) => {
+    const r = row.getBoundingClientRect()
+    if (r.top < box.top || r.bottom > box.bottom) return
+    row.style.viewTransitionName = `q-${row.dataset.queueRow}`
+    named.push(row)
+  })
+  const clear = () => named.forEach((row) => (row.style.viewTransitionName = ""))
+  doc.startViewTransition(() => flushSync(update)).finished.then(clear, clear)
+}
 
 interface SortableRowProps {
   track: QueueTrack
-  index: number
+  position: number
   isPlaying: boolean
   /** Wall-clock time this track is projected to start, or null if unknowable. */
   airsAt: Date | null
   onRemove: () => void
 }
 
-function SortableRow({ track, index, isPlaying, airsAt, onRemove }: SortableRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: track.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
+/**
+ * One line of the running order. Only the grip is the drag handle: when the
+ * whole row carried dnd-kit's attributes, the row was a button with the
+ * remove button nested inside it, and a screen reader announced every track
+ * as "sortable button" with no way to reach the remove action on its own.
+ */
+function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: track.id })
 
   return (
-    <div
+    <li
       ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className={`grid grid-cols-[24px_32px_1fr_auto_40px_24px] items-center gap-2 px-2.5 py-2 rounded-md border transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
-        isDragging ? "opacity-50 z-10 relative shadow-lg" : ""
-      } ${
-        isPlaying
-          ? "bg-primary/[0.04] border-primary/10"
-          : "border-transparent hover:bg-muted/50"
-      }`}
+      // Named for the remove/undo view transition by withRowTransition,
+      // only while one runs.
+      data-queue-row={track.id}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "grid grid-cols-[36px_28px_minmax(0,1fr)_auto_36px] items-center gap-2 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[36px_28px_minmax(0,1fr)_auto_52px_36px]",
+        isDragging && "relative z-10 bg-popover shadow-lg",
+        isPlaying ? "bg-white/[0.04]" : "hover:bg-white/[0.025]",
+      )}
     >
-      <div className="flex items-center justify-center size-6 text-muted-foreground">
-        <IconGripVertical size={14} />
-      </div>
-      <div
-        className="size-8 rounded-md flex items-center justify-center text-xs shrink-0"
-        style={{ background: GRADIENTS[index % GRADIENTS.length] }}
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`Move ${track.title}`}
+        className="flex size-9 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:cursor-grabbing"
       >
-        {ICONS[index % ICONS.length]}
-      </div>
+        <IconGripVertical size={16} />
+      </button>
+      <span className="text-right text-xs text-muted-foreground tabular-nums">
+        {position}
+      </span>
       <div className="min-w-0">
-        <div className={`text-sm truncate ${isPlaying ? "font-medium" : ""}`}>
-          {track.title}
-        </div>
-        <div className="text-xs text-muted-foreground truncate">{track.artist}</div>
+        <div className={cn("truncate text-sm", isPlaying && "font-semibold")}>{track.title}</div>
+        <div className="truncate text-xs text-muted-foreground">{track.artist}</div>
       </div>
-      <div className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-        {isPlaying
-          ? "on air now"
-          : airsAt
-            ? `on air at ${airsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-            : ""}
+      <div className="whitespace-nowrap text-xs">
+        {isPlaying ? (
+          <span className="rounded-full border border-white/15 px-2 py-0.5 font-medium text-foreground">
+            Playing
+          </span>
+        ) : airsAt ? (
+          <span className="font-mono text-muted-foreground tabular-nums">{clockTime(airsAt)}</span>
+        ) : null}
       </div>
-      <div className="text-xs text-muted-foreground text-right tabular-nums">
-        {formatDuration(track.duration)}
+      <div className="hidden text-right font-mono text-xs text-muted-foreground tabular-nums sm:block">
+        {formatTrackTime(track.duration)}
       </div>
       <Button
         variant="ghost"
         size="icon"
-        className="size-5"
-        onPointerDown={(e) => e.stopPropagation()}
+        className="size-9 text-muted-foreground"
         onClick={onRemove}
+        aria-label={`Remove ${track.title}`}
+        title="Remove from the running order"
       >
-        <IconX size={14} />
+        <IconX size={15} />
       </Button>
-    </div>
+    </li>
   )
 }
 
+/**
+ * The running order: what plays after the track on air, when each one airs,
+ * and how long until the queue comes back round.
+ *
+ * Shared by both layouts now. The phone layout used to carry its own copy of
+ * this list — no air times, no keyboard reordering, unlabelled buttons.
+ */
 export function FileQueue() {
   const { engine } = useBroadcast()
   const version = useEngineVersion(engine)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [dragOverZone, setDragOverZone] = useState(false)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [dragOver, setDragOver] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -142,10 +177,10 @@ export function FileQueue() {
     }
   }, [engine])
 
-  const handleDropZone = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setDragOverZone(false)
+    setDragOver(false)
     const files: File[] = []
     if (e.dataTransfer.items) {
       for (let i = 0; i < e.dataTransfer.items.length; i++) {
@@ -170,6 +205,37 @@ export function FileQueue() {
     engine.moveTrack(from, to)
   }, [engine, queue])
 
+  /** Removal with a way back: the order is captured before anything moves. */
+  const removeWithUndo = useCallback((ids: string[] | "upcoming") => {
+    if (!engine) return
+    const before = engine.getQueue()
+    const order = before.map((t) => t.id)
+    // Worked out here, not inside the transition: startViewTransition runs its
+    // callback later, so anything it assigns is still empty on the next line.
+    const current = engine.getCurrentTrack()
+    const removed = ids === "upcoming"
+      ? before.filter((t) => t !== current)
+      : before.filter((t) => ids.includes(t.id))
+    if (removed.length === 0) return
+    withRowTransition(scrollerRef.current, () => {
+      if (ids === "upcoming") {
+        engine.clearUpcoming()
+      } else {
+        ids.forEach((id) => engine.removeTrack(id))
+      }
+    })
+    toast(
+      removed.length === 1 ? `Removed “${removed[0].title}”` : `Cleared ${removed.length} upcoming tracks`,
+      {
+        action: {
+          label: "Undo",
+          onClick: () => withRowTransition(scrollerRef.current, () => engine.restoreTracks(removed, order)),
+        },
+        duration: 6000,
+      },
+    )
+  }, [engine])
+
   /**
    * Projected start time for every queued track, walking forward from where
    * the current one actually is. Null while nothing is playing — a queue that
@@ -184,8 +250,13 @@ export function FileQueue() {
     if (!engine || currentIndex < 0 || !engine.isPlaying()) return times
     const current = queue[currentIndex]
     if (!current) return times
+    // "Hold track" never reaches anything else, so nothing else gets a time.
+    if (engine.getRepeatMode() === "one") return times
     let cursor = Date.now() + Math.max(0, current.duration - engine.getElapsed()) * 1000
-    for (let i = currentIndex + 1; i < queue.length; i++) {
+    // The queue loops, so the tracks ABOVE the one on air are next after the
+    // ones below it — walk round once, not just to the bottom of the list.
+    for (let step = 1; step < queue.length; step++) {
+      const i = (currentIndex + step) % queue.length
       times[i] = new Date(cursor)
       cursor += queue[i].duration * 1000
     }
@@ -196,13 +267,28 @@ export function FileQueue() {
   }, [engine, queue, currentIndex, version])
 
   const repeatMode: RepeatMode = engine?.getRepeatMode() ?? "all"
-
   const totalDuration = queue.reduce((sum, t) => sum + t.duration, 0)
   const queueBytes = engine?.getQueueBytes() ?? 0
   const nearLimit = queueBytes / QUEUE_BYTE_LIMIT > 0.9
+  const upcoming = queue.length - (currentIndex >= 0 ? 1 : 0)
 
   return (
-    <Card className="flex-1 flex flex-col min-h-0 py-2 md:py-4 gap-0">
+    <section
+      aria-labelledby="running-order-title"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)
+      }}
+      onDrop={handleDrop}
+      className={cn(
+        "flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-2xl border bg-panel transition-colors",
+        dragOver ? "border-violet/60" : "border-white/[0.09]",
+      )}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -215,99 +301,107 @@ export function FileQueue() {
         }}
       />
 
-      <CardHeader className="flex-row items-center justify-between py-2 md:py-3">
-        <CardTitle className="text-xs tracking-widest uppercase text-muted-foreground font-normal">
-          Up next
-        </CardTitle>
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">
-            {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatDuration(totalDuration)}
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/[0.06] px-4 py-3 sm:px-5">
+        <div className="min-w-0">
+          <h2 id="running-order-title" className="text-sm font-semibold">Running order</h2>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {/* "Running order" is radio for the show's playlist; said once, here. */}
+            Your show&apos;s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
             {queue.length > 0 && (
               <>
                 {" · "}
-                <span className={nearLimit ? "text-destructive" : undefined}>
-                  {formatBytes(queueBytes)}
+                <span className={nearLimit ? "font-medium text-foreground" : undefined}>
+                  {formatBytes(queueBytes)} of {formatBytes(QUEUE_BYTE_LIMIT)}
                 </span>
-                {` / ${formatBytes(QUEUE_BYTE_LIMIT)}`}
               </>
             )}
-            {queue.length > 1 && " · hold to reorder"}
-          </span>
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
-              whether it continues to the next track or holds this one. */}
-          <div className="flex items-center gap-1">
+              whether it moves on to the next track or holds this one. */}
+          <div role="group" aria-label="When a track ends" className="flex rounded-lg border border-white/10 p-0.5">
             {(["all", "one"] as const).map((mode) => (
-              <Button
+              <button
                 key={mode}
-                variant={repeatMode === mode ? "secondary" : "ghost"}
-                size="sm"
-                className={cn("h-7 px-2.5 text-xs", repeatMode === mode && "text-foreground")}
-                onClick={() => engine?.setRepeatMode(mode)}
+                type="button"
                 aria-pressed={repeatMode === mode}
+                onClick={() => engine?.setRepeatMode(mode)}
                 title={
                   mode === "all"
-                    ? "Play through the queue, then start it again"
-                    : "Hold the current track on repeat"
+                    ? "Play through the running order, then start it again (R)"
+                    : "Keep the current track on repeat (R)"
                 }
+                className={cn(
+                  "h-8 rounded-md px-2.5 text-xs transition-colors",
+                  repeatMode === mode
+                    ? "bg-white/10 font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
               >
-                {mode === "all" ? "Repeat all" : "Repeat one"}
-              </Button>
+                {mode === "all" ? "Repeat list" : "Repeat track"}
+              </button>
             ))}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
+          {upcoming > 0 && (
+            <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => removeWithUndo("upcoming")}>
+              Clear upcoming
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="h-9" onClick={() => fileInputRef.current?.click()}>
             <IconPlus data-icon="inline-start" />
             Add files
           </Button>
-          {queue.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => engine?.clearQueue()}>
-              <IconMinus data-icon="inline-start" />
-              Clear
-            </Button>
-          )}
         </div>
-      </CardHeader>
+      </header>
 
-      <CardContent className="flex flex-col gap-0.5 overflow-y-auto flex-1 pt-0">
-        {/* Stable id — see the note in LibraryView. dnd-kit's generated ids
-            come from a module-scoped counter that the server process keeps
-            incrementing across requests, so they never match the browser's. */}
-        <DndContext
-          id="studio-file-queue"
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-            {queue.map((track, i) => (
-              <SortableRow
-                key={track.id}
-                track={track}
-                index={i}
-                isPlaying={i === currentIndex}
-                airsAt={airTimes[i]}
-                onRemove={() => engine?.removeTrack(track.id)}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
-      </CardContent>
-
-      <div
-        onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOverZone(true) }}
-        onDragLeave={() => setDragOverZone(false)}
-        onDrop={handleDropZone}
-        className={`border border-dashed rounded-lg py-3 md:py-4 text-center cursor-pointer mx-3 md:mx-4 mb-3 md:mb-4 transition-all ${
-          dragOverZone
-            ? "border-primary bg-primary/[0.04]"
-            : "border-border hover:border-primary/40 hover:bg-primary/[0.02]"
-        }`}
-      >
-        <div className="text-sm text-muted-foreground">
-          Drop audio files here or <span className="text-primary">browse</span>
-        </div>
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+        {queue.length === 0 ? (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/12 text-center transition-colors hover:border-white/25"
+          >
+            <IconUpload size={20} className="text-muted-foreground" />
+            <span className="text-sm font-medium">Drop audio files here, or browse</span>
+            <span className="max-w-xs text-xs text-muted-foreground">
+              They play in order and loop, so the station never runs out. Files stay on this device.
+            </span>
+          </button>
+        ) : (
+          // Stable id — see the note in LibraryView. dnd-kit's generated ids
+          // come from a module-scoped counter that the server process keeps
+          // incrementing across requests, so they never match the browser's.
+          <DndContext
+            id="studio-file-queue"
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={queue.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+              <ol className="flex flex-col gap-0.5">
+                {queue.map((track, i) => (
+                  <SortableRow
+                    key={track.id}
+                    track={track}
+                    position={i + 1}
+                    isPlaying={i === currentIndex}
+                    airsAt={airTimes[i]}
+                    onRemove={() => removeWithUndo([track.id])}
+                  />
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
+        )}
       </div>
-    </Card>
+
+      {queue.length > 0 && (
+        <p className="border-t border-white/[0.06] px-5 py-2 text-xs text-muted-foreground">
+          {dragOver ? "Drop to add to the end of the running order" : "Drag files anywhere onto this panel to add them"}
+        </p>
+      )}
+    </section>
   )
 }

@@ -32,12 +32,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Track } from "@/interfaces/Track"
@@ -45,10 +47,10 @@ import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
 
 type SortKey = "order" | "title" | "length"
 
-const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: "order", label: "Play order" },
-  { key: "title", label: "Title" },
-  { key: "length", label: "Longest" },
+const SORTS: Array<{ value: SortKey; label: string }> = [
+  { value: "order", label: "Play order" },
+  { value: "title", label: "Title" },
+  { value: "length", label: "Longest" },
 ]
 
 const INITIAL_LIMIT = 50
@@ -58,10 +60,8 @@ interface Props {
   /** Members in play order, or null while they load. */
   tracks: Track[] | null
   locked: boolean
-  uploading: boolean
   savingOrder: boolean
   nowPlayingId: string | null
-  onPickFiles: () => void
   onAddFromLibrary: () => void
   /** The full new order, ids only. */
   onReorder: (ids: string[]) => void
@@ -72,6 +72,8 @@ interface Props {
   onSetDefault: () => void
   onDelete: () => void
   belowToolbar?: React.ReactNode
+  /** Library-wide items (Jingles, Fix tags) appended to this view's ⋯ menu. */
+  menuItems?: React.ReactNode
 }
 
 /**
@@ -83,10 +85,8 @@ export function PlaylistView({
   playlist,
   tracks,
   locked,
-  uploading,
   savingOrder,
   nowPlayingId,
-  onPickFiles,
   onAddFromLibrary,
   onReorder,
   onRemove,
@@ -96,6 +96,7 @@ export function PlaylistView({
   onSetDefault,
   onDelete,
   belowToolbar,
+  menuItems,
 }: Props) {
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortKey>("order")
@@ -171,7 +172,7 @@ export function PlaylistView({
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <span className="size-8 rounded-md bg-muted flex items-center justify-center shrink-0">
             {playlist.is_default ? (
-              <IconStarFilled size={15} className="text-primary" />
+              <IconStarFilled size={15} className="text-violet-muted" />
             ) : (
               <IconPlaylist size={16} className="text-muted-foreground" />
             )}
@@ -179,10 +180,12 @@ export function PlaylistView({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h2 className="text-base font-medium truncate">{playlist.name}</h2>
+              {/* Neutral: "default" is a role the playlist has, not a
+                  station state, so it gets none of the state colours. */}
               {playlist.is_default && (
                 <Badge
                   variant="outline"
-                  className="border-primary/30 bg-primary/10 px-1.5 text-[9px] tracking-wider text-primary uppercase shrink-0"
+                  className="border-white/[0.09] bg-transparent px-1.5 text-[11px] text-muted-foreground shrink-0"
                   title="Plays whenever nothing else is scheduled, and where uploads land by default."
                 >
                   Default
@@ -193,59 +196,6 @@ export function PlaylistView({
               {tracks === null ? "Loading…" : summary.join(" • ")}
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onToggleOrder}
-            disabled={locked || savingOrder}
-            title={
-              locked
-                ? "Shuffle is part of AutoDJ, which isn't in your plan."
-                : playlist.order === "shuffle"
-                  ? "Playing a random pass of this playlist. Click for play order."
-                  : "Playing top to bottom. Click to shuffle."
-            }
-          >
-            <IconArrowsShuffle size={15} data-icon="inline-start" />
-            Shuffle
-            {playlist.order === "shuffle" && !locked && (
-              <span className="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                on
-              </span>
-            )}
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Playlist actions">
-                <IconDotsVertical size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onRename}>
-                <IconPencil size={15} />
-                Rename
-              </DropdownMenuItem>
-              {!playlist.is_default && (
-                <DropdownMenuItem onClick={onSetDefault}>
-                  <IconStar size={15} />
-                  Make default
-                </DropdownMenuItem>
-              )}
-              {!playlist.is_default && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                    <IconTrash size={15} />
-                    Delete playlist
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
@@ -271,35 +221,65 @@ export function PlaylistView({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {SORTS.map((s) => (
-            <Button
-              key={s.key}
-              size="sm"
-              variant={sort === s.key ? "secondary" : "ghost"}
-              onClick={() => setSort(s.key)}
-              className={sort === s.key ? undefined : "text-muted-foreground"}
-            >
-              {s.label}
+        {/* One sort control, not three chips. The toolbar used to carry ten
+            always-visible controls between this row and the page header;
+            what remains is search, sort, the page's one primary action
+            (Add tracks, up in the header) and this ⋯ for everything else. */}
+        <Select
+          aria-label="Sort tracks"
+          value={sort}
+          onChange={setSort}
+          options={SORTS}
+          className="w-36 [&>button]:h-9"
+        />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon" aria-label="Playlist actions">
+              <IconDotsVertical size={16} />
             </Button>
-          ))}
-        </div>
-
-        <Button variant="outline" size="sm" onClick={onAddFromLibrary} disabled={tracks === null}>
-          <IconPlaylistAdd size={15} data-icon="inline-start" />
-          Add from library
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-dashed"
-          onClick={onPickFiles}
-          disabled={uploading || locked}
-          title={locked ? "AutoDJ is not included in your plan." : `Uploads from here join ${playlist.name}.`}
-        >
-          {locked ? "Uploading needs Pro" : "Drop files or browse"}
-        </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {/* Shuffle's state is still on screen without opening this: the
+                summary under the playlist name says "shuffled" or "plays in
+                order". The check here is for changing it. */}
+            <DropdownMenuCheckboxItem
+              checked={playlist.order === "shuffle"}
+              disabled={locked || savingOrder}
+              onCheckedChange={() => onToggleOrder()}
+            >
+              <IconArrowsShuffle size={15} />
+              Shuffle
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuItem onClick={onAddFromLibrary} disabled={tracks === null}>
+              <IconPlaylistAdd size={15} />
+              Add from library
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onRename}>
+              <IconPencil size={15} />
+              Rename
+            </DropdownMenuItem>
+            {!playlist.is_default && (
+              <DropdownMenuItem onClick={onSetDefault}>
+                <IconStar size={15} />
+                Make default
+              </DropdownMenuItem>
+            )}
+            {!playlist.is_default && (
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <IconTrash size={15} />
+                Delete playlist
+              </DropdownMenuItem>
+            )}
+            {menuItems && (
+              <>
+                <DropdownMenuSeparator />
+                {menuItems}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {belowToolbar}
@@ -318,6 +298,13 @@ export function PlaylistView({
               ? "This is what plays when nothing else is scheduled — empty, the station goes on air to silence."
               : "Add tracks from your library, or drop files here to upload straight into it."}
           </p>
+          {/* "Add from library" lives in the ⋯ menu once the playlist has
+              rows; an empty playlist is exactly when it is needed, so it is
+              on the surface here. */}
+          <Button variant="outline" className="mt-2" onClick={onAddFromLibrary}>
+            <IconPlaylistAdd size={15} data-icon="inline-start" />
+            Add from library
+          </Button>
         </div>
       ) : (
         <>
@@ -354,7 +341,7 @@ export function PlaylistView({
                 ? `Showing ${shown.length} of ${visible.length} matches`
                 : `Showing ${shown.length} of ${members.length}`}
               {!canReorder && members.length > 1 && (
-                <span className="ml-2 text-muted-foreground/70">{reorderHint}</span>
+                <span className="ml-2 text-text-faint">{reorderHint}</span>
               )}
             </span>
             {shown.length < visible.length && (

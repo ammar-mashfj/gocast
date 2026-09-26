@@ -3,22 +3,42 @@
 @section('title', 'Stations')
 
 @section('content')
+    @php
+        // The Stations / Powered on / Live now / Featured tiles are filters.
+        // Each link keeps the search and the other filters, and clicking an
+        // active tile turns it back off.
+        $filterUrl = fn (array $changes) => route('admin.stations.index', array_filter(
+            [...['search' => $search, 'state' => $state, 'featured' => $featuredOnly ? '1' : null], ...$changes],
+            fn ($value) => $value !== null && $value !== '',
+        ));
+        $tileClass = fn (bool $active) => 'stat transition-colors hover:bg-base-200 '
+            .($active ? 'bg-primary/10 shadow-[inset_0_-2px_0_var(--color-primary)]' : '');
+    @endphp
+
     <div class="stats mb-6 w-full border border-base-300 bg-base-100 shadow-sm max-sm:stats-vertical">
-        <div class="stat">
+        <a href="{{ $filterUrl(['state' => null, 'featured' => null]) }}"
+           class="{{ $tileClass($state === null && ! $featuredOnly) }}"
+           title="Show all stations">
             <div class="stat-title">Stations</div>
             <div class="stat-value">{{ $totalStations }}</div>
-        </div>
-        <div class="stat">
+        </a>
+        <a href="{{ $filterUrl(['state' => $state === 'running' ? null : 'running']) }}"
+           class="{{ $tileClass($state === 'running') }}"
+           title="{{ $state === 'running' ? 'Clear this filter' : 'Show only powered-on stations' }}">
             <div class="stat-title">Powered on</div>
             <div class="stat-value">{{ $runningStations }}</div>
             <div class="stat-desc">owner intent, not containers</div>
-        </div>
-        <div class="stat">
+        </a>
+        <a href="{{ $filterUrl(['state' => $state === 'live' ? null : 'live']) }}"
+           class="{{ $tileClass($state === 'live') }}"
+           title="{{ $state === 'live' ? 'Clear this filter' : 'Show only stations live now' }}">
             <div class="stat-title">Live now</div>
             <div class="stat-value">{{ $liveStations }}</div>
             <div class="stat-desc">open broadcast session</div>
-        </div>
-        <div class="stat">
+        </a>
+        <a href="{{ $filterUrl(['featured' => $featuredOnly ? null : '1']) }}"
+           class="{{ $tileClass($featuredOnly) }}"
+           title="{{ $featuredOnly ? 'Clear this filter' : 'Show only featured stations' }}">
             <div class="stat-title">Featured</div>
             <div class="stat-value {{ $featuredOnAir === 0 && $featuredStations > 0 ? 'text-warning' : '' }}">
                 {{ $featuredStations }}
@@ -34,7 +54,7 @@
                     &middot; {{ $featuredStations - $featuredOnAir }} powered off
                 @endif
             </div>
-        </div>
+        </a>
         <div class="stat">
             <div class="stat-title">Users</div>
             <div class="stat-value">{{ $totalUsers }}</div>
@@ -53,9 +73,13 @@
             <span class="label-text">Featured only</span>
         </label>
 
+        @if ($state)
+            <input type="hidden" name="state" value="{{ $state }}">
+        @endif
+
         <button type="submit" class="btn btn-sm btn-primary">Filter</button>
 
-        @if ($search !== '' || $featuredOnly)
+        @if ($search !== '' || $featuredOnly || $state)
             <a href="{{ route('admin.stations.index') }}" class="btn btn-ghost btn-sm">Clear</a>
         @endif
     </form>
@@ -233,8 +257,16 @@
                         @empty
                             <tr>
                                 <td colspan="8" class="py-10 text-center opacity-60">
-                                    @if ($featuredOnly)
+                                    @if ($search === '' && $state === 'live' && ! $featuredOnly)
+                                        No stations are live right now.
+                                    @elseif ($search === '' && $state === 'running' && ! $featuredOnly)
+                                        No stations are powered on.
+                                    @elseif ($search === '' && $state !== null)
+                                        No featured stations match that filter.
+                                    @elseif ($featuredOnly && $search === '')
                                         No stations are featured.
+                                    @elseif ($state !== null || $featuredOnly)
+                                        No stations match that search and filter.
                                     @elseif ($search !== '')
                                         No stations match that search.
                                     @else

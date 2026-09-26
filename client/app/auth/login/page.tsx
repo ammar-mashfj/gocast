@@ -57,9 +57,7 @@ function LoginForm() {
       return
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVerifyEmail(existingUser.email)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVerifyOpen(true)
   }, [router])
 
@@ -227,7 +225,7 @@ function LoginForm() {
           Don&apos;t have an account?{" "}
           <Link
             href="/auth/register"
-            className="text-primary underline-offset-4 hover:underline text-sm"
+            className="text-violet-muted underline-offset-4 hover:underline text-sm"
           >
             Sign up
           </Link>

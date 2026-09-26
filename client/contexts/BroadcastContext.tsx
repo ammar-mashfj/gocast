@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { BroadcastManager, type BroadcastState, type BroadcastStepInfo, type TransportStats } from '@/lib/broadcast'
+import { BroadcastManager, type BroadcastStartOptions, type BroadcastState, type BroadcastStepInfo, type TransportStats } from '@/lib/broadcast'
 import type { AudioEngine } from '@/lib/audioEngine'
 import { fireOnce } from '@/lib/milestones'
 import api from '@/lib/axios'
@@ -68,13 +68,20 @@ interface BroadcastContextValue {
   micDisabled: boolean
   engine: AudioEngine | null
   /**
+   * When this broadcast first went live (epoch ms), or null when idle.
+   * Owned here, not by a page: a reconnect or a trip to the library and back
+   * is still the same show, and an uptime counted from when the studio
+   * mounted restarted at 0:00 every time the broadcaster came back to it.
+   */
+  liveSince: number | null
+  /**
    * Live send-path tally, or null before a broadcast exists. A function
    * rather than state: it changes on every encoded frame, and re-rendering
    * the whole dashboard at the encoder's frame rate would be absurd. Callers
    * sample it on their own cadence.
    */
   getTransportStats: () => TransportStats | null
-  start: (stationId: string, options?: { skipMic?: boolean }) => Promise<void>
+  start: (stationId: string, options?: BroadcastStartOptions) => Promise<void>
   /**
    * End the broadcast. `releaseStation` additionally takes the station off
    * air, and belongs to callers that know the account has no AutoDJ to hand
@@ -99,6 +106,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const [engine, setEngine] = useState<AudioEngine | null>(null)
   const [micDisabled, setMicDisabled] = useState(false)
   const [stationSlug, setStationSlug] = useState<string | null>(null)
+  const [liveSince, setLiveSince] = useState<number | null>(null)
   const managerRef = useRef<BroadcastManager | null>(null)
   const stationIdRef = useRef<string | null>(null)
   // Guards against a second start racing the first. Each call builds its own
@@ -108,7 +116,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   // and by React's development double-invoke.
   const startingRef = useRef(false)
 
-  const start = useCallback(async (stationId: string, options?: { skipMic?: boolean }) => {
+  const start = useCallback(async (stationId: string, options?: BroadcastStartOptions) => {
     if (startingRef.current) return
     startingRef.current = true
 
@@ -121,11 +129,18 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       }
 
       setError(null)
+      // A new start is a new show. A broadcast that died of exhausted
+      // reconnects ends in 'error', not 'idle', so without this Try again
+      // would inherit the dead show's clock, stats key and milestones.
+      setLiveSince(null)
       const manager = new BroadcastManager(stationId, {
         onStepChange: setSteps,
         onStateChange: (s) => {
           setState(s)
           if (s === 'live') {
+            // First transition only — a reconnect lands here again and must
+            // not restart the show's clock.
+            setLiveSince((prev) => prev ?? Date.now())
             setMicStream(manager.getMicStream())
             setEngine(manager.getEngine())
             // First-ever broadcast celebration. Subsequent milestones
@@ -137,6 +152,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
           } else if (s === 'idle') {
             setMicStream(null)
             setEngine(null)
+            setLiveSince(null)
           }
         },
         onError: setError,
@@ -169,6 +185,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       stationIdRef.current = null
     }
     setStationSlug(null)
+    setLiveSince(null)
     setMicStream(null)
     setMicDisabled(false)
     setEngine(null)
@@ -196,8 +213,26 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [onAir])
 
+  // A suspended audio context broadcasts silence, and only a user gesture is
+  // guaranteed to wake it. Every gesture is offered, not just the first: the
+  // browser can suspend it again later (the lamp says so when it does). Here
+  // rather than in the studio, because the banner on every other page tells
+  // the host to click to resume — and only the studio used to listen.
+  useEffect(() => {
+    if (!engine) return
+    const resume = () => {
+      if (engine.isSuspended()) void engine.resume()
+    }
+    window.addEventListener('pointerdown', resume)
+    window.addEventListener('keydown', resume)
+    return () => {
+      window.removeEventListener('pointerdown', resume)
+      window.removeEventListener('keydown', resume)
+    }
+  }, [engine])
+
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, getTransportStats, start, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, stop }}>
       {children}
     </BroadcastContext.Provider>
   )
