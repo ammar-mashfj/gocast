@@ -99,10 +99,12 @@ export default async function StationDetailPage({
     }
   } catch (err) {
     // Only render the 404 page when the backend actually said the station
-    // is missing. Any other failure (timeout, 401 from a stale cookie, 5xx)
+    // is missing — or that it isn't yours (403 from StationPolicy::view),
+    // which is the same answer from where this user stands and shouldn't
+    // confirm that someone else's slug exists. Any other failure (timeout, 401 from a stale cookie, 5xx)
     // is a real error and must not be silently masked as "not found" — log
     // it and rethrow so Next.js surfaces it via the error boundary.
-    if (err instanceof ApiFetchError && err.status === 404) {
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }
     console.error(`[station/${slug}] fetch failed:`, err)

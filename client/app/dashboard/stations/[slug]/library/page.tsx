@@ -33,7 +33,7 @@ export default async function LibraryPage({
     meta = tracksRes.meta
     playlists = playlistsRes.data
   } catch (err) {
-    if (err instanceof ApiFetchError && err.status === 404) {
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }
     console.error(`[library/${slug}] fetch failed:`, err)

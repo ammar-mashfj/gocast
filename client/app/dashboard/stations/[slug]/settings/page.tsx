@@ -43,7 +43,7 @@ export default async function StationSettingsPage({
     const res = await apiFetch<{ data: Station }>(`/stations/${slug}`)
     station = res.data
   } catch (err) {
-    if (err instanceof ApiFetchError && err.status === 404) {
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }
     console.error(`[station/${slug}/settings] fetch failed:`, err)

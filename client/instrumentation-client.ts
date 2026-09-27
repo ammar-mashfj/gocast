@@ -58,6 +58,13 @@ if (process.env.NODE_ENV === "production" && dsn) {
     // Disable sending user PII (Personally Identifiable Information).
     // Privacy policy commits to "no personal data is intentionally sent" to Sentry.
     sendDefaultPii: false,
+
+    // Facebook/Instagram's Android in-app browser injects its own scripts
+    // (app://navigation_performance_logger_android and friends) that call
+    // into a Java bridge; on unload the bridge is torn down first and they
+    // throw "Java object is gone". Not our code, nothing we can fix.
+    denyUrls: [/^app:\/\//],
+    ignoreErrors: [/Java object is gone/],
   });
 }
 

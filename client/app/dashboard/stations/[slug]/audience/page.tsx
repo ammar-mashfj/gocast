@@ -60,7 +60,7 @@ export default async function StationAudiencePage({
     station = stationRes.data
     audience = audienceRes.data
   } catch (err) {
-    if (err instanceof ApiFetchError && err.status === 404) {
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }
     console.error(`[station/${slug}/audience] fetch failed:`, err)

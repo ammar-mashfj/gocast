@@ -25,7 +25,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ slug:
     station = stationRes.data
     playlists = playlistsRes.data
   } catch (err) {
-    if (err instanceof ApiFetchError && err.status === 404) {
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }
     console.error(`[schedule/${slug}] fetch failed:`, err)
