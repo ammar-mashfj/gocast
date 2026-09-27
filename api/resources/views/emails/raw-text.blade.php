@@ -26,10 +26,8 @@ GoCast.fm
 
 {!! $headline !!}
 @endif
-@foreach ($paragraphs as $paragraph)
 
-{!! $paragraph !!}
-@endforeach
+{!! $bodyText !!}
 @if ($ctaUrl)
 
 {!! $ctaLabel !!}: {!! $ctaUrl !!}

@@ -65,7 +65,7 @@ class RawEmailController extends Controller
             // The form request's rules mirror the draft's own, so this is the
             // combination neither of them anticipated rather than ordinary
             // invalid input — a body of nothing but blank lines, say, which
-            // passes `required` and produces no paragraphs.
+            // passes `required` and renders nothing.
             return back()->withInput()->withErrors(['body' => $e->getMessage()]);
         }
 

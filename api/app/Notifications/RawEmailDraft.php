@@ -2,7 +2,7 @@
 
 namespace App\Notifications;
 
-use Illuminate\Support\Str;
+use App\Services\EmailMarkdown;
 use InvalidArgumentException;
 
 /**
@@ -14,11 +14,11 @@ use InvalidArgumentException;
  * here is a {@see Notification} with its copy in the code, which is right for
  * anything said more than once and pure friction for anything said once.
  *
- * IT IS NOT AN HTML EDITOR. The body is plain paragraphs, escaped on the way
- * into the template, and the only structure on offer is the headline and the
- * one button. That is deliberate: the value of sending through the GoCast
- * shell is that the result renders in Outlook, and an admin pasting markup
- * into a textarea is the fastest way to lose that without knowing it.
+ * IT IS NOT AN HTML EDITOR. The body is Markdown — bold, links, lists, tables —
+ * rendered by {@see EmailMarkdown} into elements it has styled inline, with any
+ * raw HTML escaped. That is deliberate: the value of sending through the
+ * GoCast shell is that the result renders in Outlook, and an admin pasting
+ * markup into a textarea is the fastest way to lose that without knowing it.
  *
  * The object is per-MESSAGE, not per-recipient. Nothing in here names an
  * address — the greeting is whatever was typed, the same for everybody on the
@@ -30,12 +30,9 @@ final class RawEmailDraft
     /** The default signature, so the field can be left blank. */
     public const SIGN_OFF = '— The GoCast team';
 
-    /**
-     * @param  list<string>  $paragraphs
-     */
     public function __construct(
         public readonly string $subject,
-        public readonly array $paragraphs,
+        public readonly string $body,
         public readonly ?string $greeting,
         public readonly ?string $headline,
         public readonly ?string $ctaUrl,
@@ -44,7 +41,9 @@ final class RawEmailDraft
         public readonly string $preheader,
         public readonly bool $marketing,
     ) {
-        if ($this->paragraphs === []) {
+        // Checked on what renders, not on the source: a body of blank lines,
+        // or of nothing but a `---` rule, passes `required` and says nothing.
+        if (EmailMarkdown::toPlain($this->body) === '') {
             throw new InvalidArgumentException('An email needs a body.');
         }
 
@@ -62,11 +61,14 @@ final class RawEmailDraft
      */
     public static function fromArray(array $fields): self
     {
-        $paragraphs = self::paragraphs((string) ($fields['body'] ?? ''));
+        // Windows and old-Mac line endings are folded first so the blank-line
+        // test Markdown splits paragraphs on does not depend on which machine
+        // the copy was written on.
+        $body = trim(str_replace(["\r\n", "\r"], "\n", (string) ($fields['body'] ?? '')));
 
         return new self(
             subject: trim((string) ($fields['subject'] ?? '')),
-            paragraphs: $paragraphs,
+            body: $body,
             greeting: self::optional($fields['greeting'] ?? null),
             headline: self::optional($fields['headline'] ?? null),
             ctaUrl: self::optional($fields['cta_url'] ?? null),
@@ -77,35 +79,11 @@ final class RawEmailDraft
             // is not "no preheader" — it is the client filling that space with
             // whatever it finds first, which for this template is the wordmark.
             preheader: self::optional($fields['preheader'] ?? null)
-                ?? Str::limit($paragraphs[0], 140, ''),
+                ?? EmailMarkdown::summary($body),
             // Unchecked is the deliberate choice, not the default: see
             // RawEmail for what the flag actually governs.
             marketing: (bool) ($fields['marketing'] ?? false),
         );
-    }
-
-    /**
-     * Split the textarea into paragraphs on blank lines.
-     *
-     * A single newline is NOT a paragraph break, so an admin who wraps their
-     * own lines at 80 columns — which anybody writing in a textarea does — gets
-     * one paragraph rather than six. Windows and old-Mac line endings are
-     * folded first so the blank-line test does not depend on which machine the
-     * copy was written on.
-     *
-     * @return list<string>
-     */
-    private static function paragraphs(string $body): array
-    {
-        $normalised = str_replace(["\r\n", "\r"], "\n", $body);
-
-        return collect(preg_split('/\n\s*\n/', $normalised) ?: [])
-            // Interior newlines collapse to spaces for the same reason: the
-            // HTML half would ignore them anyway, and the text half re-wraps.
-            ->map(fn (string $block) => trim(preg_replace('/\s+/', ' ', $block) ?? ''))
-            ->filter()
-            ->values()
-            ->all();
     }
 
     private static function optional(mixed $value): ?string
@@ -128,7 +106,10 @@ final class RawEmailDraft
             'preheader' => $this->preheader,
             'greeting' => $this->greeting,
             'headline' => $this->headline,
-            'paragraphs' => $this->paragraphs,
+            'bodyHtml' => EmailMarkdown::toHtml($this->body, lead: $this->headline === null),
+            // The source, not a rendering of it: Markdown is already how a
+            // plain-text email is written, so a table stays a table.
+            'bodyText' => $this->body,
             'ctaUrl' => $this->ctaUrl,
             'ctaLabel' => $this->ctaLabel,
             'signOff' => $this->signOff,
@@ -150,9 +131,7 @@ final class RawEmailDraft
     {
         return [
             'subject' => $this->subject,
-            // Rejoined with the blank lines that made them, so re-parsing this
-            // gives back the same paragraphs.
-            'body' => implode("\n\n", $this->paragraphs),
+            'body' => $this->body,
             'greeting' => $this->greeting,
             'headline' => $this->headline,
             'cta_url' => $this->ctaUrl,

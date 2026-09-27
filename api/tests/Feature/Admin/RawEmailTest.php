@@ -5,6 +5,7 @@ use App\Models\EmailSuppression;
 use App\Notifications\RawEmail;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -17,7 +18,8 @@ use Spatie\Activitylog\Models\Activity;
  * previewed — together with the three things the admin cannot see for
  * themselves: that one message goes per address rather than one with everybody
  * on it, that the marketing flag governs suppression and the unsubscribe
- * footer together, and that a body of markup is shown rather than rendered.
+ * footer together, and that the body's Markdown renders while HTML typed into
+ * it is shown rather than rendered.
  */
 beforeEach(function () {
     test()->withoutVite();
@@ -110,11 +112,68 @@ it('renders the body as paragraphs, splitting on blank lines and not on wrapping
         ->toContain('Hi Rae,')
         ->toContain('— Ada');
 
-    // The plain-text half is not optional, and says the same things.
+    // The plain-text half is not optional, and says the same things — as
+    // they were typed, wrapping included, since it is the source verbatim.
     expect($message->getTextBody())
-        ->toContain('The container ran out of memory overnight, which is why it went quiet.')
+        ->toContain("The container ran out of memory\novernight, which is why it went quiet.")
         ->toContain('It is back up.')
         ->toContain('— Ada');
+});
+
+it('renders Markdown bold, links, lists and tables with inline styles', function () {
+    $this->post(route('admin.emails.store'), emailForm([
+        'body' => implode("\n", [
+            'Your station is on **Pro** — see [the dashboard](https://gocast.fm/dashboard).',
+            '',
+            '- 24/7 AutoDJ',
+            '- Playlists',
+            '',
+            '| | Free | Pro |',
+            '|---|---|---|',
+            '| Listeners | 100 | 1,000 |',
+        ]),
+    ]))->assertRedirect();
+
+    $html = sentMessage()->getHtmlBody();
+
+    expect($html)->toContain('<strong style=')
+        ->toContain('href="https://gocast.fm/dashboard"')
+        ->toContain('<li style=')
+        ->toContain('<table style=')
+        ->toContain('>1,000</td>');
+
+    // Every element carries its own style: Outlook ignores the <style> block,
+    // so an unstyled table would arrive as browser defaults. Only the body is
+    // checked — the shell's own layout cells are not this renderer's.
+    $body = Str::between($html, '<!-- Body -->', '<!-- Sign-off -->');
+
+    expect($body)->not->toBeEmpty()->not->toMatch('/<(p|ul|li|table|th|td|strong|a)>/');
+
+    // Plain text is the source — Markdown is already how a plain-text email
+    // is written.
+    expect(sentMessage()->getTextBody())->toContain('| Listeners | 100 | 1,000 |')
+        ->toContain('**Pro**');
+});
+
+it('refuses script links and images in the body', function () {
+    $this->post(route('admin.emails.store'), emailForm([
+        'body' => '[click](javascript:alert(1)) and ![pixel](https://tracker.example/p.gif)',
+    ]))->assertRedirect();
+
+    $html = sentMessage()->getHtmlBody();
+
+    expect($html)->not->toContain('javascript:')
+        ->not->toContain('<img')
+        ->not->toContain('tracker.example')
+        ->toContain('pixel');
+});
+
+it('builds the preheader from the rendered words, not the Markdown', function () {
+    $this->post(route('admin.emails.preview'), emailForm([
+        'body' => 'Your station is on **Pro** for two months.',
+    ]))
+        ->assertOk()
+        ->assertSee('Your station is on Pro for two months.', escape: false);
 });
 
 it('shows markup in the body rather than rendering it', function () {
@@ -122,8 +181,8 @@ it('shows markup in the body rather than rendering it', function () {
         'body' => 'Use the <strong>power button</strong> to go live.',
     ]))->assertRedirect();
 
-    // The whole reason the body is not an HTML field: what an admin pastes
-    // cannot break the template, and cannot smuggle a link into it either.
+    // The whole reason the body is Markdown and not an HTML field: what an
+    // admin pastes cannot break the template or arrive unstyled.
     expect(sentMessage()->getHtmlBody())
         ->toContain('&lt;strong&gt;power button&lt;/strong&gt;')
         ->not->toContain('<strong>power button</strong>');
@@ -164,7 +223,7 @@ it('refuses a path for the button, which a mail client cannot resolve', function
 });
 
 it('refuses a body that is nothing but blank lines', function () {
-    // Passes `required` and produces no paragraphs — the one case the rules
+    // Passes `required` and renders nothing — the one case the rules
     // and the draft disagree about, which is why the controller catches it.
     $this->post(route('admin.emails.preview'), emailForm(['body' => "\n  \n\n"]))
         ->assertSessionHasErrors('body');

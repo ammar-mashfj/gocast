@@ -20,10 +20,11 @@
     @verbatim guards the <style> block: its @media rules would otherwise be
     read as Blade directives.
 
-    EVERYTHING INTERPOLATED HERE IS ESCAPED, and that is the feature. The body
-    arrives from a textarea in the admin panel, so markup typed into it is
-    shown as the characters that were typed rather than rendered — an admin who
-    pastes a <table> gets a paragraph reading "<table>", not a broken email.
+    EVERYTHING INTERPOLATED HERE IS ESCAPED, except the body. That arrives as
+    HTML already rendered from Markdown by App\Services\EmailMarkdown, which
+    escapes any raw HTML in the source and styles every element it emits
+    inline — an admin who pastes a <table> gets a paragraph reading "<table>",
+    not a broken email. Every other field is plain text.
 --}}
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -96,12 +97,7 @@
             @endif
 
             <!-- Body -->
-            {{-- The first paragraph is lighter and larger when there is no
-                 headline above it, so a short note still opens on something
-                 rather than starting in the middle of grey body copy. --}}
-            @foreach ($paragraphs as $paragraph)
-            <p style="margin:0 0 {{ $loop->last ? '0' : '20px' }} 0;font-size:17px;line-height:27px;mso-line-height-rule:exactly;color:{{ ! $headline && $loop->first ? '#ECEBE6' : '#C3C4CB' }};">{{ $paragraph }}</p>
-            @endforeach
+            {!! $bodyHtml !!}
 
             <!-- Sign-off -->
             <p style="margin:28px 0 0 0;font-size:15px;line-height:24px;mso-line-height-rule:exactly;color:#C3C4CB;">{{ $signOff }}</p>

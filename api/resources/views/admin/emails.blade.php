@@ -103,9 +103,10 @@
                         {{-- The one rule an admin has to know about this field,
                              and the one that is invisible until the preview:
                              a single newline does nothing. --}}
-                        <p class="label">
-                            Plain writing — <strong>leave a blank line between paragraphs</strong>. Formatting and HTML
-                            are shown as the characters you typed, not rendered.
+                        <p class="label whitespace-normal">
+                            Markdown — <strong>leave a blank line between paragraphs</strong>. <code>**bold**</code>,
+                            <code>[text](https://…)</code>, <code>- </code> lists and <code>| a | b |</code> tables work.
+                            HTML and images are not rendered.
                         </p>
                         @error('body')
                             <p class="label text-error">{{ $message }}</p>
