@@ -89,7 +89,8 @@ class AuthController extends Controller
         RateLimiter::clear($key);
 
         $user = Auth::user();
-        $token = $user->createToken('auth')->plainTextToken;
+        $deviceName = $request->validated('device_name');
+        $token = $user->createToken($deviceName ?? 'auth')->plainTextToken;
 
         // If the user's still pending verification, issue a fresh code now so
         // the client can open the verify modal on a code that's guaranteed
@@ -97,6 +98,19 @@ class AuthController extends Controller
         // on an empty modal and have to click Resend.
         if (! $user->hasVerifiedEmail()) {
             $user->sendEmailVerificationNotification();
+        }
+
+        // The mobile app names its device, Sanctum's convention for a token
+        // client. It has no browser cookie jar to keep an HttpOnly cookie in,
+        // so it gets the token in the body instead. The web never sends
+        // device_name and keeps the cookie-only behaviour, and XSS gains
+        // nothing here: minting a token this way still takes the password.
+        if ($deviceName !== null) {
+            return response()->json([
+                'data' => $user,
+                'token' => $token,
+                'message' => 'Login successful.',
+            ]);
         }
 
         return response()->json([

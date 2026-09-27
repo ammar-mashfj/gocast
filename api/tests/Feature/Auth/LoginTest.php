@@ -52,3 +52,21 @@ it('sets the Sanctum token as an HttpOnly cookie instead of exposing it in JSON'
         ->assertSuccessful()
         ->assertJsonPath('data.id', $user->id);
 });
+
+it('returns the token in JSON, without a cookie, when the mobile app names its device', function () {
+    Notification::fake();
+    $user = User::factory()->create(['password' => Hash::make('secret-pass')]);
+
+    $response = postJson('/api/auth/login', [
+        'email' => $user->email,
+        'password' => 'secret-pass',
+        'device_name' => 'Galaxy A55',
+    ])->assertSuccessful()->assertCookieMissing('token');
+
+    expect($user->tokens()->sole()->name)->toBe('Galaxy A55');
+
+    $this->withToken($response->json('token'))
+        ->getJson('/api/user')
+        ->assertSuccessful()
+        ->assertJsonPath('data.id', $user->id);
+});

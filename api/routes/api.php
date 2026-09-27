@@ -41,6 +41,7 @@ Route::middleware('throttle:auth')->prefix('auth')->group(function () {
 
     Route::get('/google', [GoogleAuthController::class, 'redirect']);
     Route::get('/google/callback', [GoogleAuthController::class, 'callback']);
+    Route::post('/google/native', [GoogleAuthController::class, 'native']);
 
     // Password reset — always-200 on /forgot to prevent enumeration, separate
     // tighter throttle (3/min) on code requests so attackers can't spam the

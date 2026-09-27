@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\GoogleIdTokenVerifier;
+use App\Services\InvalidGoogleIdToken;
 use App\Services\InviteException;
 use App\Services\InviteRedemption;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 use Symfony\Component\HttpFoundation\Cookie;
 
@@ -96,31 +101,108 @@ class GoogleAuthController extends Controller
             ], $frontendOrigin);
         }
 
-        $user = User::where('google_id', $googleUser->getId())->first();
-
-        if (! $user) {
-            $user = User::where('email', $googleUser->getEmail())->first();
-
-            if ($user) {
-                $user->update([
-                    'google_id' => $googleUser->getId(),
-                    'avatar_url' => $user->avatar_url ?? $this->avatarUrl($googleUser->getAvatar()),
-                ]);
-            } else {
-                $user = User::create([
-                    'name' => $googleUser->getName(),
-                    'email' => $googleUser->getEmail(),
-                    'google_id' => $googleUser->getId(),
-                    'avatar_url' => $this->avatarUrl($googleUser->getAvatar()),
-                    'password' => null,
-                ]);
-            }
-        }
+        [$user, $invite] = $this->signInGoogleUser(
+            $invites,
+            $googleUser->getId(),
+            $googleUser->getEmail(),
+            $googleUser->getName(),
+            $googleUser->getAvatar(),
+            $request->cookie(self::INVITE_COOKIE),
+        );
 
         $payload = [
             'type' => 'gocast-oauth',
             'authenticated' => true,
         ];
+
+        if ($invite !== null) {
+            $payload['invite'] = $invite;
+        }
+
+        $token = $user->createToken('auth')->plainTextToken;
+
+        return $this->callbackResponse($payload, $frontendOrigin, $this->authCookie($request, $token));
+    }
+
+    /**
+     * Sign in with the ID token from the mobile app's "Sign in with Google"
+     * sheet (Android Credential Manager).
+     *
+     * The app has no browser to carry the popup's cookie, so this takes the
+     * token Google handed the app, verifies it here (GoogleIdTokenVerifier),
+     * and returns a Sanctum token in the body, the same way login() does for
+     * a request that names its device. Account linking, verification and an
+     * invite behave exactly as in the web callback.
+     */
+    public function native(Request $request, GoogleIdTokenVerifier $verifier, InviteRedemption $invites): JsonResponse
+    {
+        $data = $request->validate([
+            'id_token' => ['required', 'string', 'max:8192'],
+            'device_name' => ['required', 'string', 'max:255'],
+            'invite' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        try {
+            $google = $verifier->verify($data['id_token']);
+        } catch (InvalidGoogleIdToken $e) {
+            report($e);
+
+            throw ValidationException::withMessages([
+                'id_token' => 'Google sign-in failed. Please try again.',
+            ]);
+        }
+
+        [$user, $invite] = $this->signInGoogleUser(
+            $invites,
+            $google['sub'],
+            $google['email'],
+            $google['name'],
+            $google['picture'],
+            $data['invite'] ?? null,
+        );
+
+        return response()->json([
+            'data' => new UserResource($user->loadMissing('plan')),
+            'token' => $user->createToken($data['device_name'])->plainTextToken,
+            'invite' => $invite,
+        ]);
+    }
+
+    /**
+     * Find the account for a Google identity, link it to an existing
+     * password account with the same email, or create it; apply an invite;
+     * and mark the email verified, since Google has confirmed it.
+     *
+     * @return array{0: User, 1: array{applied: bool, plan?: string, message: string}|null}
+     */
+    private function signInGoogleUser(
+        InviteRedemption $invites,
+        string $googleId,
+        string $email,
+        ?string $name,
+        ?string $avatar,
+        mixed $inviteCode,
+    ): array {
+        $user = User::where('google_id', $googleId)->first();
+
+        if (! $user) {
+            $user = User::where('email', $email)->first();
+
+            if ($user) {
+                $user->update([
+                    'google_id' => $googleId,
+                    'avatar_url' => $user->avatar_url ?? $this->avatarUrl($avatar),
+                ]);
+            } else {
+                $user = User::create([
+                    'name' => $name ?? Str::before($email, '@'),
+                    'email' => $email,
+                    'google_id' => $googleId,
+                    'avatar_url' => $this->avatarUrl($avatar),
+                    'password' => null,
+                ]);
+            }
+        }
 
         // Before the Verified event, so a brand-new account is still
         // unverified while the invite is applied (InviteRedemption then sends
@@ -130,19 +212,19 @@ class GoogleAuthController extends Controller
         //
         // Best effort: the person has authenticated with Google, so the
         // account stands whether or not the link still works. What went
-        // wrong travels back in the payload for the SPA to show.
-        $inviteCode = $request->cookie(self::INVITE_COOKIE);
+        // wrong travels back for the client to show.
+        $invite = null;
 
-        if (is_string($inviteCode) && $inviteCode !== '') {
+        if (is_string($inviteCode) && preg_match('/^[A-Za-z0-9-]{1,40}$/', $inviteCode)) {
             try {
-                $invite = $invites->redeem($inviteCode, $user);
-                $payload['invite'] = [
+                $redeemed = $invites->redeem($inviteCode, $user);
+                $invite = [
                     'applied' => true,
-                    'plan' => $invite->plan->name,
-                    'message' => "You're on {$invite->plan->name}.",
+                    'plan' => $redeemed->plan->name,
+                    'message' => "You're on {$redeemed->plan->name}.",
                 ];
             } catch (InviteException $e) {
-                $payload['invite'] = [
+                $invite = [
                     'applied' => false,
                     'message' => $e->getMessage(),
                 ];
@@ -154,9 +236,7 @@ class GoogleAuthController extends Controller
             event(new Verified($user));
         }
 
-        $token = $user->createToken('auth')->plainTextToken;
-
-        return $this->callbackResponse($payload, $frontendOrigin, $this->authCookie($request, $token));
+        return [$user, $invite];
     }
 
     /**
