@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["GocastEncoderModule"]
+  },
+  "android": {
+    "modules": ["app.gocast.encoder.GocastEncoderModule"]
+  }
+}

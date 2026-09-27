@@ -1,0 +1,48 @@
+diff --git a/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp b/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
+index 0f997f8..41473d0 100644
+--- a/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
++++ b/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
+@@ -74,6 +74,12 @@ Result<NoneType, std::string> AndroidAudioRecorder::openAudioStream() {
+       ->setFormat(oboe::AudioFormat::Float)
+       ->setFormatConversionAllowed(true)
+       ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
++      // GoCast patch: Oboe's default preset is VoiceRecognition, a flat,
++      // unboosted signal meant for speech-to-text, which put a broadcaster's
++      // voice ~20 dB under the music. VoicePerformance is Android's preset
++      // for live performance: no noise suppression or echo cancelling (the
++      // web studio turns those off too) at a usable level.
++      ->setInputPreset(oboe::InputPreset::VoicePerformance)
+       ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
+       ->setDataCallback(shared_from_this())
+       ->setErrorCallback(shared_from_this());
+diff --git a/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp b/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
+index 76c51aa..cca4f60 100644
+--- a/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
++++ b/node_modules/react-native-audio-api/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
+@@ -31,10 +31,14 @@ AudioPlayer::AudioPlayer(
+ bool AudioPlayer::openAudioStream() {
+   AudioStreamBuilder builder;
+ 
+-  builder.setSharingMode(SharingMode::Exclusive)
++  // GoCast patch: shared mode, no low-latency request. The studio's mix tap
++  // does a burst of work on this thread every 100ms; a low-latency exclusive
++  // stream has ~3ms of slack, so each burst clicked through the speakers.
++  // Speaker latency does not matter to a broadcast; glitches do.
++  builder.setSharingMode(SharingMode::Shared)
+       ->setFormat(AudioFormat::Float)
+       ->setFormatConversionAllowed(true)
+-      ->setPerformanceMode(PerformanceMode::LowLatency)
++      ->setPerformanceMode(PerformanceMode::None)
+       ->setChannelCount(channelCount_)
+       ->setSampleRateConversionQuality(SampleRateConversionQuality::Medium)
+       ->setFramesPerDataCallback(RENDER_QUANTUM_SIZE)
+@@ -49,6 +53,9 @@ bool AudioPlayer::openAudioStream() {
+     return false;
+   }
+ 
++  // GoCast patch: use the whole buffer the stream was given.
++  mStream_->setBufferSizeInFrames(mStream_->getBufferCapacityInFrames());
++
+   buffer_ = std::make_shared<DSPAudioBuffer>(RENDER_QUANTUM_SIZE, channelCount_, sampleRate_);
+   isInitialized_.store(true, std::memory_order_release);
+   return true;

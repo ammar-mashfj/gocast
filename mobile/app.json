@@ -4,19 +4,18 @@
     "slug": "gocast",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/gocast-icon.png",
     "scheme": "gocast",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "app.gocast.mobile"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#8B5CF6",
+        "foregroundImage": "./assets/images/gocast-adaptive-foreground.png",
+        "monochromeImage": "./assets/images/gocast-adaptive-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "app.gocast.mobile"
@@ -30,12 +29,32 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#08080d",
+          "image": "./assets/images/splash-blank.png",
+          "imageWidth": 1
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "react-native-audio-api",
+        {
+          "iosBackgroundMode": true,
+          "iosMicrophonePermission": "GoCast uses the microphone to broadcast your voice live on your station.",
+          "androidPermissions": [
+            "android.permission.RECORD_AUDIO",
+            "android.permission.MODIFY_AUDIO_SETTINGS",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+            "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+            "android.permission.POST_NOTIFICATIONS"
+          ],
+          "androidForegroundService": true,
+          "androidFSTypes": [
+            "microphone",
+            "mediaPlayback"
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -46,6 +65,7 @@
         "projectId": "ce29c112-36f1-492a-a166-6419d0afc781"
       }
     },
-    "owner": "ammarmashfj"
+    "owner": "ammarmashfj",
+    "backgroundColor": "#08080d"
   }
 }
