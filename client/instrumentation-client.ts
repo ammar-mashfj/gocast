@@ -63,8 +63,13 @@ if (process.env.NODE_ENV === "production" && dsn) {
     // (app://navigation_performance_logger_android and friends) that call
     // into a Java bridge; on unload the bridge is torn down first and they
     // throw "Java object is gone". Not our code, nothing we can fix.
+    //
+    // Microsoft's Outlook/Defender Safe Links scanner opens emailed links in
+    // a headless CefSharp browser and rejects a promise with "Object Not
+    // Found Matching Id:N, MethodName:update" from its own .NET bridge. A
+    // bot visiting a link from one of our emails, not a real user.
     denyUrls: [/^app:\/\//],
-    ignoreErrors: [/Java object is gone/],
+    ignoreErrors: [/Java object is gone/, /Object Not Found Matching Id:\d+/],
   });
 }
 
