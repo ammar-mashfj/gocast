@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { IconArrowRight, IconLockOpen } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { SIGNAL_TONE, useStudioSignal, useTransportHealth } from "@/components/studio/signal"
+import { useCoarsePointer } from "@/lib/useCoarsePointer"
 import { cn } from "@/lib/utils"
 
 /**
@@ -27,6 +28,7 @@ export function LiveBanner() {
   const onStudio = !!stationSlug && (pathname?.startsWith(`/dashboard/stations/${stationSlug}/studio`) ?? false)
   const transport = useTransportHealth(isLive && !onStudio)
   const signal = useStudioSignal(transport, { inStudio: false })
+  const touch = useCoarsePointer()
 
   if (!isLive || !stationSlug || onStudio || !signal) return null
 
@@ -51,7 +53,9 @@ export function LiveBanner() {
         </span>
         <span className={cn("min-w-0 text-sm leading-snug", tone.text)}>
           {signal.code === "live"
-            ? "You're broadcasting from this tab — closing it ends the show."
+            ? touch
+              ? "You're broadcasting from this tab — switching apps or locking the screen stops the show."
+              : "You're broadcasting from this tab — closing it ends the show."
             : signal.detail}
         </span>
       </div>

@@ -4,6 +4,7 @@ import OnAir247Body from "./keep-your-radio-station-on-air-24-7"
 import CostsBody from "./how-much-does-it-cost-to-run-an-internet-radio-station"
 import HowItWorksBody from "./how-does-an-internet-radio-station-work"
 import SchedulingBody from "./how-to-schedule-playlists-on-your-radio-station"
+import PhoneBody from "./broadcasting-from-your-phone"
 
 export interface FAQ {
   question: string
@@ -30,6 +31,44 @@ export interface Article {
 }
 
 export const ARTICLES: Article[] = [
+  {
+    slug: "broadcasting-from-your-phone",
+    title: "Broadcasting Radio From Your Phone: What Works and What Stops It",
+    description:
+      "You can go live from a phone browser, and the studio keeps your screen awake while you do. What it can't do is keep broadcasting once the phone puts it in the background. Every scenario, what your listeners hear, and a checklist for a clean show.",
+    metaDescription:
+      "Going live from a phone browser: what keeps you on air, what stops the broadcast (locking, switching apps, calls), and what your listeners hear.",
+    date: "2026-09-27",
+    readingTime: "~6 minutes",
+    Body: PhoneBody,
+    faqs: [
+      {
+        question: "Can I broadcast from my phone with the screen off?",
+        answer:
+          "No. Locking the phone pauses the browser, and a paused browser can't send audio. While you're live, the GoCast studio keeps the screen on for you so it doesn't lock on its own.",
+      },
+      {
+        question: "Why does my screen still dim while I'm live?",
+        answer:
+          "Your phone refused the request to keep the screen on, usually because battery saver or Low Power Mode is on, or because the browser is too old to support it. Turn battery saver off, or set the screen timeout to never for the show.",
+      },
+      {
+        question: "Can I check another app while I'm broadcasting from my phone?",
+        answer:
+          "Not without stopping the broadcast. If you're back within two minutes the studio reconnects straight away, but your listeners will have heard a gap, or your AutoDJ music if you're on Pro.",
+      },
+      {
+        question: "What happens if someone calls me mid-show?",
+        answer:
+          "The call takes the microphone and the broadcast stops. Hang up and go back to the studio within two minutes and you're back on air. Turn on Do Not Disturb before you start so calls can't come through.",
+      },
+      {
+        question: "Does broadcasting from a phone work on both iPhone and Android?",
+        answer:
+          "Yes, with the same rule on both: keep the studio on screen. Some Android phones keep a background tab going for a little longer, but not reliably enough to plan a show around.",
+      },
+    ],
+  },
   {
     slug: "how-to-schedule-playlists-on-your-radio-station",
     title: "How to Schedule Playlists on Your Internet Radio Station",

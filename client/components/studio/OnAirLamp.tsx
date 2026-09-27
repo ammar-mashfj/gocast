@@ -45,7 +45,9 @@ export function OnAirLamp({
         {signal.label}. {signal.detail}
       </p>
 
-      <div className="flex min-w-0 flex-1 items-center gap-3.5" aria-hidden>
+      {/* On a phone the detail beside the chip wraps to four lines; under it,
+          full width, it takes two. */}
+      <div className={cn("flex min-w-0 flex-1 gap-3.5", compact ? "basis-full flex-col items-start gap-2" : "items-center")} aria-hidden>
         <span
           key={signal.code}
           className={cn(
@@ -63,7 +65,7 @@ export function OnAirLamp({
           />
           {signal.label}
         </span>
-        <span className={cn("min-w-0 text-sm leading-snug", tone.text)}>{signal.detail}</span>
+        <span className={cn("min-w-0 leading-snug", compact ? "text-[13px]" : "text-sm", tone.text)}>{signal.detail}</span>
       </div>
 
       <dl className={cn("flex shrink-0 items-center gap-5 text-xs", compact && "w-full justify-between gap-3")}>
@@ -80,11 +82,11 @@ export function OnAirLamp({
         </div>
         <div className="flex items-baseline gap-1.5">
           <dt className="sr-only">Encoder</dt>
-          <dd className="font-mono text-muted-foreground tabular-nums">
+          <dd className="whitespace-nowrap font-mono text-muted-foreground tabular-nums">
             {AudioEngine.encoderInfo().bitrate} kbps
             {lost > 0 && (
               <span className={cn("ml-1.5", transport.droppingNow ? "text-fault-text" : "text-foreground")}>
-                · {lost.toFixed(1)}s of audio lost
+                · {lost.toFixed(1)}s {compact ? "lost" : "of audio lost"}
               </span>
             )}
           </dd>

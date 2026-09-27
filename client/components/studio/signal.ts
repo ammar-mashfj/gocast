@@ -107,7 +107,7 @@ export function useStudioSignal(
   const { state, engine, micDisabled } = useBroadcast()
   useEngineVersion(engine)
   const touch = useCoarsePointer()
-  const raw = computeSignal(state, engine, micDisabled, transport, !inStudio ? "away" : touch ? "touch" : "keys")
+  const raw = computeSignal(state, engine, micDisabled, transport, !inStudio ? "away" : touch ? "touch" : "keys", touch)
   const silent = raw?.code === "silence"
   const [silenceConfirmed, setSilenceConfirmed] = useState(false)
 
@@ -122,15 +122,24 @@ export function useStudioSignal(
     return () => clearTimeout(t)
   }, [silent])
 
-  if (silent && !silenceConfirmed) return LIVE_SIGNAL
+  if (silent && !silenceConfirmed) return liveSignal(touch)
   return raw
 }
 
-const LIVE_SIGNAL: StudioSignal = {
-  code: "live",
-  tone: "live",
-  label: "Live",
-  detail: "Listeners hear you about 15–20 seconds after you speak. Closing this tab ends the broadcast.",
+/**
+ * On a touch device the tab dies long before anyone closes it: a phone pauses
+ * a page the moment it leaves the screen, and a paused page sends nothing.
+ * So the warning there names what actually ends the show.
+ */
+function liveSignal(touch: boolean): StudioSignal {
+  return {
+    code: "live",
+    tone: "live",
+    label: "Live",
+    detail: touch
+      ? "Listeners hear you about 15–20 seconds after you speak. Switching apps or locking the screen stops the broadcast."
+      : "Listeners hear you about 15–20 seconds after you speak. Closing this tab ends the broadcast.",
+  }
 }
 
 type Broadcast = ReturnType<typeof useBroadcast>
@@ -142,6 +151,8 @@ function computeSignal(
   transport: TransportHealth | null,
   /** How the advice tells them to act: tap, press a studio key, or go to the studio. */
   input: "touch" | "keys" | "away",
+  /** A touch device, wherever the signal is shown — see {@link liveSignal}. */
+  touch: boolean,
 ): StudioSignal | null {
   if (state !== "live" && state !== "reconnecting") return null
 
@@ -154,7 +165,9 @@ function computeSignal(
       code: "reconnecting",
       tone: "fault",
       label: "Reconnecting",
-      detail: "Nothing is reaching listeners. Keep this tab open — it reconnects on its own.",
+      detail: touch
+        ? "Nothing is reaching listeners. Keep this tab on screen — it reconnects on its own."
+        : "Nothing is reaching listeners. Keep this tab open — it reconnects on its own.",
     }
   }
   // Only trust "not connected" once a sample exists — the first two seconds
@@ -211,5 +224,5 @@ function computeSignal(
         : "Your voice is going out live. The music dips underneath you.",
     }
   }
-  return LIVE_SIGNAL
+  return liveSignal(touch)
 }

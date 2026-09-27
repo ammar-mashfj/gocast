@@ -201,14 +201,16 @@ export function MicMeter({
       aria-valuemin={FLOOR_DB}
       aria-valuemax={0}
       aria-valuenow={FLOOR_DB}
-      className={cn("flex flex-col gap-1.5", className)}
+      className={cn("@container flex flex-col gap-1.5", className)}
     >
       <canvas ref={canvasRef} className="block h-4 w-full" />
       <div className="relative h-3.5 font-mono text-[11px] leading-none text-muted-foreground tabular-nums" aria-hidden>
         {SCALE.map((db) => (
           <span
             key={db}
-            className="absolute top-0 -translate-x-1/2 last:translate-x-[-100%]"
+            // -12, -6 and 0 share the top quarter; on a narrow meter the
+            // middle one collides with both, so it goes.
+            className={cn("absolute top-0 -translate-x-1/2 last:translate-x-[-100%]", db === -6 && "@max-[18rem]:hidden")}
             style={{ left: `${toPct(db) * 100}%` }}
           >
             {db}

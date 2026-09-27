@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useMemo } from "react"
 import { flushSync } from "react-dom"
 import { toast } from "sonner"
-import { IconPlus, IconX, IconGripVertical, IconUpload } from "@tabler/icons-react"
+import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash } from "@tabler/icons-react"
 import {
   DndContext,
   PointerSensor,
@@ -317,7 +317,7 @@ export function FileQueue() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
               whether it moves on to the next track or holds this one. */}
@@ -334,7 +334,7 @@ export function FileQueue() {
                     : "Keep the current track on repeat (R)"
                 }
                 className={cn(
-                  "h-8 rounded-md px-2.5 text-xs transition-colors",
+                  "h-8 whitespace-nowrap rounded-md px-2 text-xs transition-colors sm:px-2.5",
                   repeatMode === mode
                     ? "bg-white/10 font-medium text-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -345,11 +345,14 @@ export function FileQueue() {
             ))}
           </div>
           {upcoming > 0 && (
-            <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => removeWithUndo("upcoming")}>
-              Clear upcoming
+            // Icon-only on a phone, where the words push Add files off the
+            // edge; it comes with an undo, so a bare icon is safe to press.
+            <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" title="Clear upcoming" onClick={() => removeWithUndo("upcoming")}>
+              <IconTrash className="sm:hidden" />
+              <span className="max-sm:sr-only">Clear upcoming</span>
             </Button>
           )}
-          <Button variant="outline" size="sm" className="h-9" onClick={() => fileInputRef.current?.click()}>
+          <Button variant="outline" size="sm" className="ml-auto h-9 sm:ml-0" onClick={() => fileInputRef.current?.click()}>
             <IconPlus data-icon="inline-start" />
             Add files
           </Button>
