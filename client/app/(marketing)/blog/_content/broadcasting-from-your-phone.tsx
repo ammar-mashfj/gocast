@@ -31,7 +31,9 @@ export default function Body() {
         page can get around. iOS and Android both decide what a background
         browser tab is allowed to do, and keeping a microphone open and
         streaming isn&#39;t on the list. Any service that broadcasts from a
-        mobile browser is bound by the same rule.
+        mobile browser is bound by the same rule. An app isn&#39;t, which is
+        why we&#39;re building one. More on that{" "}
+        <a href="#the-gocast-app">at the end</a>.
       </p>
 
       <h2>What We Do to Keep You On Air</h2>
@@ -237,9 +239,27 @@ export default function Body() {
       </p>
       <p>
         On Pro you can also broadcast from desktop apps like BUTT or Mixxx,
-        which don&#39;t depend on a browser tab at all. A broadcasting app for
-        phones is on our list, but it&#39;s further out, and we&#39;d rather
-        tell you that plainly than leave you to find out mid-show.
+        which don&#39;t depend on a browser tab at all.
+      </p>
+
+      <h2 id="the-gocast-app">A GoCast App Is on the Way</h2>
+      <p>
+        Everything above is a limit on browser tabs, not on phones. An app is
+        allowed to keep the microphone open and the audio flowing when it
+        isn&#39;t on screen, so we&#39;re building one for iPhone and Android.
+      </p>
+      <p>
+        With the app you can switch to your notes mid-show, lock the screen
+        and put the phone in your pocket, or leave it on a stand without
+        worrying about the screen timing out. Your broadcast keeps going
+        through all of it. It&#39;s the same station, the same microphone
+        and queue, and the same push-to-talk, without the rule about keeping
+        the tab on screen.
+      </p>
+      <p>
+        We&#39;ll announce it here when it&#39;s ready. Until then, the phone
+        browser works for a show you can give your full attention, and the
+        checklist above is how to get through one cleanly.
       </p>
 
       <h2>Frequently Asked Questions</h2>
@@ -271,6 +291,14 @@ export default function Body() {
         The call takes the microphone and the broadcast stops. Hang up and go
         back to the studio within two minutes and you&#39;re back on air. Turn
         on Do Not Disturb before you start so calls can&#39;t come through.
+      </p>
+
+      <h3>Is there a GoCast app for broadcasting from my phone?</h3>
+      <p>
+        We&#39;re building one now, for iPhone and Android. It keeps
+        broadcasting when you switch apps or lock the screen, which a
+        browser tab can&#39;t do. Until it&#39;s out, broadcast from the
+        browser and keep the studio on screen.
       </p>
 
       <h3>Does this work on both iPhone and Android?</h3>

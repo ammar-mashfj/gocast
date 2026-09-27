@@ -35,7 +35,7 @@ export const ARTICLES: Article[] = [
     slug: "broadcasting-from-your-phone",
     title: "Broadcasting Radio From Your Phone: What Works and What Stops It",
     description:
-      "You can go live from a phone browser, and the studio keeps your screen awake while you do. What it can't do is keep broadcasting once the phone puts it in the background. Every scenario, what your listeners hear, and a checklist for a clean show.",
+      "You can go live from a phone browser, and the studio keeps your screen awake while you do. What it can't do is keep broadcasting once the phone puts it in the background. Every scenario, what your listeners hear, a checklist for a clean show, and the app we're building to fix it.",
     metaDescription:
       "Going live from a phone browser: what keeps you on air, what stops the broadcast (locking, switching apps, calls), and what your listeners hear.",
     date: "2026-09-27",
@@ -61,6 +61,11 @@ export const ARTICLES: Article[] = [
         question: "What happens if someone calls me mid-show?",
         answer:
           "The call takes the microphone and the broadcast stops. Hang up and go back to the studio within two minutes and you're back on air. Turn on Do Not Disturb before you start so calls can't come through.",
+      },
+      {
+        question: "Is there a GoCast app for broadcasting from my phone?",
+        answer:
+          "We're building one now, for iPhone and Android. It keeps broadcasting when you switch apps or lock the screen, which a browser tab can't do. Until it's out, broadcast from the browser and keep the studio on screen.",
       },
       {
         question: "Does broadcasting from a phone work on both iPhone and Android?",
