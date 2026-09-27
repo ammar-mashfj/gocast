@@ -295,7 +295,7 @@ function ClearQueueDialog({ trackCount, onClear }: { trackCount: number; onClear
             </Button>
             <Button variant="destructive" disabled={clearing} onClick={handleClear}>
               {clearing && <IconLoader2 className="animate-spin" data-icon="inline-start" />}
-              Clear {tracks}
+              <span>Clear {tracks}</span>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -330,7 +330,7 @@ function CopyLinkButton({ url }: { url: string }) {
   return (
     <Button variant="outline" size="sm" className="h-[34px] shrink-0" onClick={copy}>
       {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
-      {copied ? "Copied" : "Copy"}
+      <span>{copied ? "Copied" : "Copy"}</span>
       <span className="sr-only"> listener link</span>
     </Button>
   )

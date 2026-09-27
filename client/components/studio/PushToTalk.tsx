@@ -185,7 +185,7 @@ export function PushToTalk({ compact = false }: { compact?: boolean }) {
           className={cn("h-11 self-center", latched && "border-mic/50 bg-mic/10 text-mic-text hover:bg-mic/15 hover:text-mic-text")}
         >
           {latched ? <IconLockOpen data-icon="inline-start" /> : <IconLock data-icon="inline-start" />}
-          {latched ? "Mic off" : "Keep mic on"}
+          <span>{latched ? "Mic off" : "Keep mic on"}</span>
         </Button>
         <MicSettings />
       </div>

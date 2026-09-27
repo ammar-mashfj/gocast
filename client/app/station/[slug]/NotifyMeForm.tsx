@@ -101,7 +101,7 @@ export function NotifyMeForm({ slug, stationName }: { slug: string; stationName:
           disabled={submitting || !email}
           className="px-3 py-1.5 rounded-md bg-violet-full text-white text-xs font-medium hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
         >
-          {submitting ? <IconLoader2 size={14} className="animate-spin" /> : "Notify me"}
+          {submitting ? <IconLoader2 size={14} className="animate-spin" /> : <span>Notify me</span>}
         </button>
       </div>
     </form>

@@ -352,7 +352,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   {signingOut
                     ? <IconLoader2 className="animate-spin" />
                     : <IconLogout />}
-                  {signingOut ? "Signing out…" : "Sign out"}
+                  <span>{signingOut ? "Signing out…" : "Sign out"}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

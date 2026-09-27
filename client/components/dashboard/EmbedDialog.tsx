@@ -102,7 +102,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
         <DialogFooter>
           <Button onClick={copy} className="w-full sm:w-auto">
             {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
-            {copied ? "Copied" : "Copy code"}
+            <span>{copied ? "Copied" : "Copy code"}</span>
           </Button>
         </DialogFooter>
         {/* The button's label changes silently for a screen reader; this says it. */}

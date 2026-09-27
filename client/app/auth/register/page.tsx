@@ -22,6 +22,7 @@ import { saveAuth, getUser } from "@/actions/auth"
 import { signInWithGoogle } from "@/lib/google-auth"
 import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
 import { TrustCues } from "@/components/common/TrustCues"
+import { PasswordInput } from "@/components/common/PasswordInput"
 
 /**
  * What `GET /api/invites/{code}` says about the code in the URL. `checking`
@@ -144,6 +145,14 @@ export default function RegisterPage() {
   )
 }
 
+/** Form field → input id, for putting a server error where it belongs. */
+const FIELD_IDS: Record<string, string> = {
+  name: "name",
+  email: "email",
+  password: "password",
+  passwordConfirmation: "password-confirmation",
+}
+
 function RegisterForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -166,6 +175,9 @@ function RegisterForm() {
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [verifyEmail, setVerifyEmail] = useState("")
   const [googleLoading, setGoogleLoading] = useState(false)
+  // One switch for both fields: someone checking what they typed wants to
+  // compare the two, and a mismatch was the loop Clarity kept recording.
+  const [showPassword, setShowPassword] = useState(false)
 
   // If the visitor already has a session cookie, don't let them register on
   // top of it. Verified → send them to the dashboard; unverified → surface
@@ -187,6 +199,8 @@ function RegisterForm() {
     const newErrors: Record<string, string> = {}
     if (!name) newErrors.name = "Name is required."
     if (!email) newErrors.email = "Email is required."
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      newErrors.email = "Enter a full email address, like you@example.com."
     if (!password) newErrors.password = "Password is required."
     else if (password.length < 8)
       newErrors.password = "Password must be at least 8 characters."
@@ -231,6 +245,16 @@ function RegisterForm() {
     }
   }
 
+  // An error stays up only until the field it names is touched again.
+  function clearError(field: string) {
+    setErrors((current) => {
+      if (!(field in current)) return current
+      const rest = { ...current }
+      delete rest[field]
+      return rest
+    })
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const newErrors = validate()
@@ -260,10 +284,27 @@ function RegisterForm() {
         // and makes a free account instead of failing the same way again.
         const closedInvite = inviteStateFromError(errData?.code)
         if (closedInvite) setInvite(closedInvite)
-        const fieldError = errData?.errors
-          ? Object.values(errData.errors as Record<string, string[]>).flat()[0]
-          : null
-        toast.error(fieldError || errData?.message || "Registration failed")
+        // Field errors go under their field. A toast alone vanished while the
+        // form looked untouched, and people retyped their passwords and
+        // resubmitted into the same error ("email already taken", mostly).
+        const serverErrors = (errData?.errors ?? {}) as Record<string, string[]>
+        const fieldErrors: Record<string, string> = {}
+        // Errors with no field on the form (invite_code, mostly) still get a
+        // toast, even when a field error arrives alongside them.
+        const unmapped: string[] = []
+        for (const [key, messages] of Object.entries(serverErrors)) {
+          const field = key === "password_confirmation" ? "passwordConfirmation" : key
+          if (!messages[0]) continue
+          if (field in FIELD_IDS) fieldErrors[field] = messages[0]
+          else unmapped.push(messages[0])
+        }
+        if (Object.keys(fieldErrors).length > 0) {
+          setErrors(fieldErrors)
+          document.getElementById(FIELD_IDS[Object.keys(fieldErrors)[0]])?.focus()
+          for (const message of unmapped) toast.error(message)
+        } else {
+          toast.error(unmapped[0] || errData?.message || "Registration failed")
+        }
       } else {
         toast.error("Something went wrong. Please try again.")
       }
@@ -300,7 +341,10 @@ function RegisterForm() {
               type="text"
               placeholder="Your name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value)
+                clearError("name")
+              }}
               aria-invalid={!!errors.name}
             />
             {errors.name && (
@@ -317,11 +361,25 @@ function RegisterForm() {
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                clearError("email")
+              }}
               aria-invalid={!!errors.email}
             />
             {errors.email && (
-              <p className="text-xs text-destructive">{errors.email}</p>
+              <p className="text-xs text-destructive">
+                {errors.email}
+                {/* The usual reason: they already signed up, maybe with Google. */}
+                {/taken/i.test(errors.email) && (
+                  <>
+                    {" "}
+                    <Link href="/auth/login" className="font-medium text-foreground underline underline-offset-2">
+                      Sign in instead
+                    </Link>
+                  </>
+                )}
+              </p>
             )}
           </div>
 
@@ -329,29 +387,44 @@ function RegisterForm() {
             <Label htmlFor="password">
               Password
             </Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
+              shown={showPassword}
+              onShownChange={setShowPassword}
               placeholder="********"
+              autoComplete="new-password"
+              aria-describedby="password-hint"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                clearError("password")
+              }}
               aria-invalid={!!errors.password}
             />
-            {errors.password && (
-              <p className="text-xs text-destructive">{errors.password}</p>
-            )}
+            {/* The one rule, said before submit rather than after. */}
+            <p
+              id="password-hint"
+              className={errors.password ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+            >
+              {errors.password ?? "At least 8 characters."}
+            </p>
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="password-confirmation">
               Confirm password
             </Label>
-            <Input
+            <PasswordInput
               id="password-confirmation"
-              type="password"
+              shown={showPassword}
+              onShownChange={setShowPassword}
+              autoComplete="new-password"
               placeholder="********"
               value={passwordConfirmation}
-              onChange={(e) => setPasswordConfirmation(e.target.value)}
+              onChange={(e) => {
+                setPasswordConfirmation(e.target.value)
+                clearError("passwordConfirmation")
+              }}
               aria-invalid={!!errors.passwordConfirmation}
             />
             {errors.passwordConfirmation && (

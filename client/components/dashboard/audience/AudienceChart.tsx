@@ -73,7 +73,7 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
               )}
             </span>
           ) : (
-            `Last ${rangeDays} days`
+            <span>Last {rangeDays} days</span>
           )}
         </div>
       </div>

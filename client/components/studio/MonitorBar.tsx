@@ -44,7 +44,7 @@ export function MonitorBar() {
         ) : (
           <IconHeadphonesOff data-icon="inline-start" />
         )}
-        {enabled ? "Monitor on" : "Monitor off"}
+        <span>{enabled ? "Monitor on" : "Monitor off"}</span>
       </Button>
 
       <Slider

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { IconPlus, IconTrash } from "@tabler/icons-react"
@@ -45,6 +45,11 @@ export function LinksEditor({ station }: { station: Station }) {
     })),
   )
   const [saving, setSaving] = useState(false)
+  // The row "Add link" just made, so its address field can take the caret.
+  // Clarity showed Add link → Save links → nothing: the new row appeared with
+  // no focus, the save dropped it as empty, and the list looked unchanged.
+  const focusKey = useRef<string | null>(null)
+  const urlInputs = useRef(new Map<string, HTMLInputElement>())
 
   const full = rows.length >= MAX_SOCIAL_LINKS
 
@@ -63,13 +68,28 @@ export function LinksEditor({ station }: { station: Station }) {
   }
 
   function addRow() {
-    setRows((current) => [...current, { key: `new-${Date.now()}`, label: "", url: "" }])
+    const key = `new-${Date.now()}`
+    focusKey.current = key
+    setRows((current) => [...current, { key, label: "", url: "" }])
   }
 
   async function save() {
     // An empty row is how a mis-click looks, not an error worth a red toast —
     // drop it and save the rest.
     const filled = rows.filter((row) => row.url.trim() !== "")
+
+    // Only empty new rows, and nothing else touched: saving would drop them
+    // and report success for a change that didn't happen. Point at the row.
+    const empty = rows.find((row) => row.url.trim() === "")
+    const saved = station.social_links ?? []
+    const unchanged = filled.length === saved.length &&
+      filled.every((row, index) => row.url === saved[index].url && (row.label.trim() || null) === (saved[index].label ?? null))
+    if (empty && unchanged) {
+      toast.error("Paste a link into the new row first.")
+      urlInputs.current.get(empty.key)?.focus()
+
+      return
+    }
     const links = filled.map((row) => ({
       label: row.label.trim() === "" ? null : row.label.trim(),
       url: normalizeSocialUrl(row.url),
@@ -125,6 +145,17 @@ export function LinksEditor({ station }: { station: Station }) {
                 {Icon ? <Icon size={18} /> : <span className="text-xs text-text-faint">—</span>}
               </div>
               <Input
+                ref={(el) => {
+                  if (el) {
+                    urlInputs.current.set(row.key, el)
+                    if (focusKey.current === row.key) {
+                      focusKey.current = null
+                      el.focus()
+                    }
+                  } else {
+                    urlInputs.current.delete(row.key)
+                  }
+                }}
                 value={row.url}
                 onChange={(e) => update(row.key, { url: e.target.value })}
                 onBlur={() => normalizeRow(row.key)}

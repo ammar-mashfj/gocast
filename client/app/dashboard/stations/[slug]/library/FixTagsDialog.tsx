@@ -137,11 +137,13 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
           </Button>
           <Button onClick={save} disabled={filled.length === 0 || saving}>
             {saving && <IconLoader2 className="animate-spin" data-icon="inline-start" />}
-            {saving
-              ? "Saving…"
-              : filled.length === 0
-                ? "Save"
-                : `Save ${filled.length}`}
+            <span>
+              {saving
+                ? "Saving…"
+                : filled.length === 0
+                  ? "Save"
+                  : `Save ${filled.length}`}
+            </span>
           </Button>
         </DialogFooter>
       </DialogContent>

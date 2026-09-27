@@ -587,7 +587,7 @@ function ConnectionWatcher({
           {starting && (
             <IconLoader2 className="animate-spin" data-icon="inline-start" />
           )}
-          Put it on air
+          <span>Put it on air</span>
         </Button>
       </div>
     )

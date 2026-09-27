@@ -77,7 +77,7 @@ export function DeleteStation({ slug, name }: DeleteStationProps) {
             </Button>
             <Button variant="destructive" disabled={deleting} onClick={handleDelete}>
               {deleting && <IconLoader2 className="animate-spin" data-icon="inline-start" />}
-              {deleting ? "Deleting…" : "Delete station"}
+              <span>{deleting ? "Deleting…" : "Delete station"}</span>
             </Button>
           </DialogFooter>
         </DialogContent>

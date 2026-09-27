@@ -234,7 +234,7 @@ function ShareButtons({ station }: { station: Station }) {
         className={`${PILL} ${saved ? "border-primary/60 text-white" : ""}`}
       >
         {saved ? <IconHeartFilled size={16} className="text-rose-400" /> : <IconHeart size={16} />}
-        {saved ? "Following" : "Follow"}
+        <span>{saved ? "Following" : "Follow"}</span>
       </button>
       <button
         type="button"
@@ -987,7 +987,20 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
             the disc back when there is no height to spare, rather than
             pushing the play button off the bottom. */}
         <div className="w-full max-w-[340px] justify-self-end @max-[900px]/player:max-w-[240px] @max-[900px]/player:justify-self-center @max-[520px]/player:max-w-[min(240px,30dvh)]">
-          <Vinyl artworkUrl={station.artwork_url} rippling={playing} />
+          {/* The disc plays too. Listeners clicked the artwork expecting it
+              to (Clarity dead clicks); the dock button stays the one control
+              in the tab order and the accessibility tree, so this is a mouse
+              and touch shortcut, not a second Play for a screen reader. */}
+          <button
+            type="button"
+            onClick={togglePlay}
+            disabled={!audible}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="block w-full cursor-pointer rounded-full disabled:cursor-default"
+          >
+            <Vinyl artworkUrl={station.artwork_url} rippling={playing} />
+          </button>
         </div>
 
         <div className="flex min-w-0 flex-col gap-5 @max-[900px]/player:items-center @max-[520px]/player:gap-3.5">

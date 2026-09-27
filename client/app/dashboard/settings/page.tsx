@@ -9,6 +9,7 @@ import api from "@/lib/axios"
 import { saveAuth, clearAuth, getUser } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/common/PasswordInput"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -39,6 +40,8 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("")
+  // One switch for the new password and its confirmation.
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [passwordLoading, setPasswordLoading] = useState(false)
 
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -243,9 +246,8 @@ export default function SettingsPage() {
             {email !== user.email && (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="profile-current-password">Current password</Label>
-                <Input
+                <PasswordInput
                   id="profile-current-password"
-                  type="password"
                   value={profileCurrentPassword}
                   onChange={(e) => setProfileCurrentPassword(e.target.value)}
                   required
@@ -280,16 +282,16 @@ export default function SettingsPage() {
             {hasPassword && (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="current-password">Current password</Label>
-                <Input id="current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
+                <PasswordInput id="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
               </div>
             )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-password">New password</Label>
-              <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <PasswordInput id="new-password" shown={showNewPassword} onShownChange={setShowNewPassword} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-password-confirmation">Confirm new password</Label>
-              <Input id="new-password-confirmation" type="password" value={newPasswordConfirmation} onChange={(e) => setNewPasswordConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <PasswordInput id="new-password-confirmation" shown={showNewPassword} onShownChange={setShowNewPassword} value={newPasswordConfirmation} onChange={(e) => setNewPasswordConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" />
             </div>
             {/* Outline: Profile's "Save changes" is this view's one filled
                 button (DESIGN.md). */}

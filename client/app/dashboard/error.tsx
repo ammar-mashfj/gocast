@@ -40,13 +40,15 @@ export default function DashboardError({
             them), and the heading already says the same thing. */}
         <h1 className="font-display text-2xl font-semibold tracking-tight">This page didn&apos;t load</h1>
         <p className="max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
+          {/* Keyed spans, not fragments: page translation moves bare text
+              nodes, and swapping them in place throws (instrumentation-client). */}
           {live ? (
-            <>
+            <span key="live">
               <span className="font-medium text-live-text">Your broadcast is still on air.</span>{" "}
               Only this page failed — the show runs in this tab, so keep it open and try again.
-            </>
+            </span>
           ) : (
-            <>Something on our side stopped this page from rendering. Trying again usually fixes it.</>
+            <span key="idle">Something on our side stopped this page from rendering. Trying again usually fixes it.</span>
           )}
         </p>
       </div>

@@ -151,7 +151,7 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
             ) : (
               <IconCopy data-icon="inline-start" />
             )}
-            {copied ? "Copied" : "Copy"}
+            <span>{copied ? "Copied" : "Copy"}</span>
           </Button>
         </div>
         <div className="flex gap-2">

@@ -265,7 +265,9 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
             <h2 className="truncate text-xl font-semibold leading-tight tracking-tight">
               {track?.title ?? "Nothing queued"}
             </h2>
-            <p className="truncate text-sm text-muted-foreground">
+            {/* min-h: an untagged track has no artist, and the line collapsing
+                under the title would shift the whole deck. */}
+            <p className="min-h-5 truncate text-sm text-muted-foreground">
               {track ? track.artist : "Add files below to start playing"}
             </p>
           </div>
@@ -280,32 +282,37 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
           )}
 
           <p className={cn("text-xs", micActive ? "text-mic-text" : "text-muted-foreground")}>
+            {/* Keyed spans, not fragments: this line flips on every mic press,
+                and page translation makes swapping bare text nodes throw
+                (see instrumentation-client). A new key replaces the whole span. */}
             {micActive ? (
-              <>Music dipped while you talk</>
+              <span key="mic">Music dipped while you talk</span>
             ) : queue.length === 0 ? (
-              <>Nothing queued</>
+              <span key="empty">Nothing queued</span>
             ) : currentIndex < 0 ? (
               // Reachable: a queue restored from disk with no saved playhead
               // never auto-starts, and there is a frame after the first add
               // before playIndex(0) lands. Neither has a loop point yet.
-              <>Queue loaded — nothing playing yet</>
+              <span key="loaded">Queue loaded — nothing playing yet</span>
             ) : (
-              <>
+              <span key="playing">
                 {repeatMode === "one" ? (
-                  <>Holding this track</>
+                  <span key="hold">Holding this track</span>
                 ) : nextTrack ? (
-                  <>
+                  <span key="next">
                     Then <span className="text-foreground">{nextTrack.title}</span>
-                  </>
+                  </span>
                 ) : (
-                  <>Looping this track</>
+                  <span key="loop">Looping this track</span>
                 )}
-                {" · "}
-                <span ref={loopInRef} className="text-foreground tabular-nums">
-                  —
-                </span>{" "}
-                {nextTrack ? "until the queue loops" : "until it restarts"}
-              </>
+                <span>
+                  {" · "}
+                  <span ref={loopInRef} className="text-foreground tabular-nums">
+                    —
+                  </span>{" "}
+                  {nextTrack ? "until the queue loops" : "until it restarts"}
+                </span>
+              </span>
             )}
           </p>
         </div>

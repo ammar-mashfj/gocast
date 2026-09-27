@@ -28,7 +28,7 @@ export default function UserMenu({ name }: UserMenuProps) {
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={signingOut} onClick={() => signOut()}>
           {signingOut && <IconLoader2 className="animate-spin" />}
-          {signingOut ? "Signing out…" : "Sign out"}
+          <span>{signingOut ? "Signing out…" : "Sign out"}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

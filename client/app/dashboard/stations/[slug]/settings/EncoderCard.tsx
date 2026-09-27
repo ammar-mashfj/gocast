@@ -139,7 +139,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
                 "Request", not "Upgrade" — Pro is granted by hand. */}
             <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
               {proRequest.requested && <IconCheck size={16} data-icon="inline-start" />}
-              {proRequest.requested ? "Request sent" : "Request Pro"}
+              <span>{proRequest.requested ? "Request sent" : "Request Pro"}</span>
             </Button>
           </div>
         </CardContent>
@@ -191,7 +191,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
           ) : (
             <IconRefresh size={14} data-icon="inline-start" />
           )}
-          New key
+          <span>New key</span>
         </Button>
       </CardHeader>
 

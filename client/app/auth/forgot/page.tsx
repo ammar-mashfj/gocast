@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/common/PasswordInput"
 import { Label } from "@/components/ui/label"
 import api from "@/lib/axios"
 
@@ -33,6 +34,8 @@ export default function ForgotPasswordPage() {
   const router = useRouter()
   const [step, setStep] = useState<Step>("request")
   const [email, setEmail] = useState("")
+  // One switch for the new password and its confirmation.
+  const [showPassword, setShowPassword] = useState(false)
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
   const [passwordConfirmation, setPasswordConfirmation] = useState("")
@@ -127,8 +130,8 @@ export default function ForgotPasswordPage() {
         </CardTitle>
         <CardDescription className="text-sm">
           {step === "request"
-            ? "Enter the email on your account and we'll send you a 6-digit reset code."
-            : <>We sent a code to <span className="text-foreground font-medium">{email}</span>. Enter it below with your new password.</>}
+            ? <span key="request">Enter the email on your account and we&apos;ll send you a 6-digit reset code.</span>
+            : <span key="reset">We sent a code to <span className="text-foreground font-medium">{email}</span>. Enter it below with your new password.</span>}
         </CardDescription>
       </CardHeader>
 
@@ -180,9 +183,10 @@ export default function ForgotPasswordPage() {
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="password">New password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
+                shown={showPassword}
+                onShownChange={setShowPassword}
                 placeholder="At least 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -194,9 +198,10 @@ export default function ForgotPasswordPage() {
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="password-confirmation">Confirm new password</Label>
-              <Input
+              <PasswordInput
                 id="password-confirmation"
-                type="password"
+                shown={showPassword}
+                onShownChange={setShowPassword}
                 placeholder="Repeat new password"
                 value={passwordConfirmation}
                 onChange={(e) => setPasswordConfirmation(e.target.value)}

@@ -22,7 +22,7 @@ export function CopyButton({ text, title }: CopyButtonProps) {
   return (
     <Button variant="ghost" size="sm" onClick={handleShare}>
       {done ? <IconCheck data-icon="inline-start" /> : <IconShare data-icon="inline-start" />}
-      {done ? "Done!" : "Share"}
+      <span>{done ? "Done!" : "Share"}</span>
     </Button>
   )
 }

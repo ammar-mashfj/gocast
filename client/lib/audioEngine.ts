@@ -144,6 +144,33 @@ function readDurationFromFile(file: File): Promise<number> {
 }
 
 /**
+ * Title and artist from the file's own tags (ID3, MP4, Vorbis, FLAC), falling
+ * back to the filename. Every track used to read "Unknown" under the deck and
+ * went out to listeners that way. An untagged "Artist - Title.mp3" is split
+ * on the dash — unless the left side is a track number ("01 - Intro"). No
+ * artist is '', not a placeholder: the player already hides an empty one.
+ * The parser loads on first use, so it costs nothing until files are added.
+ */
+async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
+  const base = file.name.replace(/\.[^.]+$/, '')
+  const dash = base.match(/^(.+?)\s+[-–—]\s+(.+)$/)
+  const fallback = dash && !/^\d+$/.test(dash[1].trim())
+    ? { title: dash[2].trim(), artist: dash[1].trim() }
+    : { title: base, artist: '' }
+  try {
+    const { parseBlob } = await import('music-metadata')
+    const { common } = await parseBlob(file, { duration: false, skipCovers: true })
+    const title = common.title?.trim()
+    const artist = (common.artist ?? common.albumartist)?.trim()
+    // A tagged title with no artist keeps the tag's title; the filename's
+    // artist half belongs to the filename's title, not to this one.
+    return title ? { title, artist: artist ?? '' } : { title: fallback.title, artist: artist || fallback.artist }
+  } catch {
+    return fallback
+  }
+}
+
+/**
  * Single AudioContext mixer. Files and mic route through gain nodes into an
  * AudioWorklet that captures PCM and hands it — over a MessagePort, without
  * touching the main thread — to a Worker running lamejs. The resulting MP3
@@ -602,6 +629,20 @@ export class AudioEngine {
     this.queue.push(...restored)
     this.notify()
     void this.fillDurations(restored)
+    // Queues saved before tags were read carry the old 'Unknown' placeholder
+    // and a filename title; read them properly once, behind the restore.
+    void this.fillTags(restored.filter((track) => track.artist === 'Unknown'))
+  }
+
+  private async fillTags(tracks: QueueTrack[]): Promise<void> {
+    if (tracks.length === 0) return
+    for (const track of tracks) {
+      const tags = await readTagsFromFile(track.file)
+      track.title = tags.title
+      track.artist = tags.artist
+    }
+    this.persistQueue()
+    this.notify()
   }
 
   /**
@@ -669,12 +710,15 @@ export class AudioEngine {
         skipped.push(file)
         continue
       }
-      const duration = await readDurationFromFile(file).catch(() => 0)
+      const [duration, tags] = await Promise.all([
+        readDurationFromFile(file).catch(() => 0),
+        readTagsFromFile(file),
+      ])
       this.queue.push({
         id: crypto.randomUUID(),
         file,
-        title: file.name.replace(/\.[^.]+$/, ''),
-        artist: 'Unknown',
+        title: tags.title,
+        artist: tags.artist,
         duration,
       })
       currentBytes += file.size

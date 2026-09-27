@@ -503,7 +503,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
       ) : (
         <IconBroadcastOff size={15} data-icon="inline-start" />
       )}
-      Turn station off
+      <span>Turn station off</span>
     </Button>
   )
 
@@ -518,7 +518,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
       ) : (
         <IconPlayerPlayFilled size={14} data-icon="inline-start" />
       )}
-      Start AutoDJ
+      <span>Start AutoDJ</span>
     </Button>
   )
 
@@ -552,7 +552,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
             {pending === "stop" && (
               <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
             )}
-            Cut it off
+            <span>Cut it off</span>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -585,7 +585,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
             {pending === "stop" && (
               <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
             )}
-            Turn station off
+            <span>Turn station off</span>
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -111,7 +111,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
       </span>
       <div className="min-w-0">
         <div className={cn("truncate text-sm", isPlaying && "font-semibold")}>{track.title}</div>
-        <div className="truncate text-xs text-muted-foreground">{track.artist}</div>
+        <div className="min-h-4 truncate text-xs text-muted-foreground">{track.artist}</div>
       </div>
       <div className="whitespace-nowrap text-xs">
         {isPlaying ? (
@@ -308,12 +308,12 @@ export function FileQueue() {
             {/* "Running order" is radio for the show's playlist; said once, here. */}
             Your show&apos;s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
             {queue.length > 0 && (
-              <>
+              <span>
                 {" · "}
                 <span className={nearLimit ? "font-medium text-foreground" : undefined}>
                   {formatBytes(queueBytes)} of {formatBytes(QUEUE_BYTE_LIMIT)}
                 </span>
-              </>
+              </span>
             )}
           </p>
         </div>
@@ -333,10 +333,15 @@ export function FileQueue() {
                     ? "Play through the running order, then start it again (R)"
                     : "Keep the current track on repeat (R)"
                 }
+                // Same weight in both states: bolding the active one widened it
+                // and nudged its neighbours on every press (measured as a
+                // layout shift per click). The fill and ring carry the state,
+                // strong enough to read at a glance — Clarity showed people
+                // toggling this four to six times to find out which was on.
                 className={cn(
-                  "h-8 whitespace-nowrap rounded-md px-2 text-xs transition-colors sm:px-2.5",
+                  "h-8 whitespace-nowrap rounded-md px-2 text-xs font-medium transition-colors sm:px-2.5",
                   repeatMode === mode
-                    ? "bg-white/10 font-medium text-foreground"
+                    ? "bg-primary/20 text-foreground ring-1 ring-inset ring-primary/50"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -344,10 +349,21 @@ export function FileQueue() {
               </button>
             ))}
           </div>
-          {upcoming > 0 && (
+          {queue.length > 0 && (
             // Icon-only on a phone, where the words push Add files off the
             // edge; it comes with an undo, so a bare icon is safe to press.
-            <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" title="Clear upcoming" onClick={() => removeWithUndo("upcoming")}>
+            // Kept in the row (invisible) whenever there is a queue, even with
+            // nothing upcoming: mounting it as the first track started moved
+            // Add files out from under the pointer.
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("h-9 text-muted-foreground", upcoming === 0 && "invisible")}
+              title="Clear upcoming"
+              disabled={upcoming === 0}
+              aria-hidden={upcoming === 0 || undefined}
+              onClick={() => removeWithUndo("upcoming")}
+            >
               <IconTrash className="sm:hidden" />
               <span className="max-sm:sr-only">Clear upcoming</span>
             </Button>

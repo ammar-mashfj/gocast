@@ -727,7 +727,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
               ) : (
                 <IconPlus size={16} data-icon="inline-start" />
               )}
-              {uploading ? "Uploading…" : "Add tracks"}
+              <span>{uploading ? "Uploading…" : "Add tracks"}</span>
             </Button>
             {/* Beside the upload it answers, now that the heading's ? explains
                 AutoDJ itself. */}
@@ -862,8 +862,8 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
           >
             Jingles
           </button>
-        )}{" "}
-        so they play between songs.
+        )}
+        <span> so they play between songs.</span>
       </p>
 
       <JinglesDialog

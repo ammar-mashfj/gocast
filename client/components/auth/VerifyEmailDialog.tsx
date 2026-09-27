@@ -43,6 +43,8 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
   const [code, setCode] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const inFlightRef = useRef(false)
+  const queuedCodeRef = useRef<string | null>(null)
   const [resending, setResending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -79,26 +81,45 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
     return true
   }
 
-  async function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (code.length !== 6) {
       setError("Enter the 6-digit code.")
       return
     }
+    void verify(code)
+  }
+
+  async function verify(value: string) {
+    // A code typed while a check is in flight (a corrected sixth digit) is
+    // queued, not dropped, and the in-flight check's error is discarded so it
+    // never lands under the corrected code.
+    if (inFlightRef.current) {
+      queuedCodeRef.current = value
+      return
+    }
+    inFlightRef.current = true
     setError(null)
     setSubmitting(true)
     try {
-      const response = await api.post<VerifyResponse>("/email/verify", { code })
+      const response = await api.post<VerifyResponse>("/email/verify", { code: value })
+      queuedCodeRef.current = null
       handleVerifiedResponse(response.data)
     } catch (err) {
-      if (err instanceof AxiosError) {
+      if (queuedCodeRef.current && queuedCodeRef.current !== value) {
+        // Superseded: the finally block sends the newer code.
+      } else if (err instanceof AxiosError) {
         const fieldError = err.response?.data?.errors?.code?.[0]
         setError(fieldError || err.response?.data?.message || "Couldn't verify that code.")
       } else {
         setError("Something went wrong. Please try again.")
       }
     } finally {
+      inFlightRef.current = false
       setSubmitting(false)
+      const queued = queuedCodeRef.current
+      queuedCodeRef.current = null
+      if (queued && queued !== value) void verify(queued)
     }
   }
 
@@ -166,6 +187,10 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
                 const digits = e.target.value.replace(/\D/g, "").slice(0, 6)
                 setCode(digits)
                 if (error) setError(null)
+                // The sixth digit submits. Clarity showed "Verify email"
+                // clicked three and four times a session; typing or pasting
+                // the whole code is the moment the person is done.
+                if (digits.length === 6 && digits !== code) void verify(digits)
               }}
               // Mono: it is a code, read and typed digit by digit. The indent
               // matches the tracking, which otherwise trails after the last
@@ -182,7 +207,9 @@ export function VerifyEmailDialog({ open, email, onCancel }: VerifyEmailDialogPr
           </div>
 
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button type="submit" disabled={submitting || code.length !== 6} className="h-11 w-full">
+            {/* Enabled with a short code: a click then says what's missing
+                instead of landing on a dead button. */}
+            <Button type="submit" disabled={submitting} className="h-11 w-full">
               {submitting ? "Verifying…" : "Verify email"}
             </Button>
             {/* Ghost buttons rather than bare text: the same 36px target and
