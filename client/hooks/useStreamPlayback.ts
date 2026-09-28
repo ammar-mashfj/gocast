@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type Hls from "hls.js"
+import { createNetworkRecovery } from "@/lib/hlsRecovery"
+import { createPlaylistLoader } from "@/lib/hlsPlaylistLoader"
 
 export type Transport = "hls" | "icecast"
 
@@ -194,8 +196,12 @@ export function useStreamPlayback({ hlsUrl, icecastUrl }: Options) {
         // At 4s segments that is ~4s closer to the broadcaster, for 8s rather
         // than 12s of headroom against a late segment on a slow connection.
         liveSyncDurationCount: 2,
+        // Stops iOS Safari from reloading the playlist in a loop after the
+        // phone wakes. See createPlaylistLoader.
+        pLoader: createPlaylistLoader(HlsCtor),
       })
       hlsRef.current = hls
+      const retryNetwork = createNetworkRecovery(hls, HlsCtor, playIcecast)
 
       hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
         setTransport("hls")
@@ -206,9 +212,10 @@ export function useStreamPlayback({ hlsUrl, icecastUrl }: Options) {
         if (!data.fatal) return
         // The standard recovery ladder. A live stream is a moving target, so
         // a network error usually means the manifest moved on while we were
-        // reading it — retrying is far more likely to work than giving up.
+        // reading it, so retrying usually works. Retries are spaced out and
+        // capped, then we fall back to Icecast. See createNetworkRecovery.
         if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR) {
-          hls.startLoad()
+          retryNetwork()
         } else if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) {
           hls.recoverMediaError()
         } else {

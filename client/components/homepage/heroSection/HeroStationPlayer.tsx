@@ -5,6 +5,8 @@ import Hls from "hls.js"
 import { IconExternalLink, IconLoader2, IconPlayerPauseFilled, IconPlayerPlayFilled } from "@tabler/icons-react"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
+import { createNetworkRecovery } from "@/lib/hlsRecovery"
+import { createPlaylistLoader } from "@/lib/hlsPlaylistLoader"
 import { StationArtwork } from "@/components/StationArtwork"
 import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed, type PublicStationStats } from "@/hooks/usePublicStationStats"
@@ -145,8 +147,10 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
     if (Hls.isSupported()) {
       // A live audio stream is never seeked backwards, so holding decoded
       // audio behind the playhead only costs memory on long listens.
-      const hls = new Hls({ backBufferLength: 30, liveSyncDurationCount: 2 })
+      // pLoader: see createPlaylistLoader (iOS reload loop after the phone wakes).
+      const hls = new Hls({ backBufferLength: 30, liveSyncDurationCount: 2, pLoader: createPlaylistLoader(Hls) })
       hlsRef.current = hls
+      const retryNetwork = createNetworkRecovery(hls, Hls, playIcecast)
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setTransport("hls")
@@ -162,7 +166,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
           // looks like from here, and the only off-air signal available when
           // the API is unreachable.
           if (data.response?.code === 404) { hls.destroy(); setLoading(false); setFailed(true) }
-          else hls.startLoad()
+          else retryNetwork()
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
         else playIcecast()
       })
