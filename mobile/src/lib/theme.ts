@@ -1,77 +1,96 @@
 /**
- * GoCast design tokens for the app, from the repo's DESIGN.md. Colour is
- * vocabulary, not decoration: emerald means a person is live, violet is the
- * brand and ON AIR, sky means the mic is open, red means something is wrong,
- * amber means Pro, and grey means off air. Keep new elements neutral unless
- * they carry one of those meanings.
+ * GoCast Studio design tokens (the Claude Design comp "GoCast Studio").
+ * Colour carries meaning: coral is live (a person on air), violet is AutoDJ,
+ * amber is Pro and warnings, green is "all good", and warm greys are
+ * everything else. Keep new elements neutral unless they mean one of those.
  */
 export const colors = {
-  bg: '#08080d',
-  panel: '#101018',
-  popover: '#13131d',
-  mutedSurface: '#181822',
+  bg: '#0E0D0C',
+  card: '#181614',
+  chip: '#1D1A17',
+  raised: '#221F1C',
+  track: '#2A2723',
+  sheet: '#1B1916',
 
-  violetFill: '#7f4ff0',
-  violet: '#8b5cf6',
-  violetText: '#a78bfa',
-  violetPale: '#c4b5fd',
+  text: '#F4F1EC',
+  muted: '#A39D94',
+  faint: '#6F6A63',
 
-  live: '#34d399',
-  liveText: '#6ee7b7',
-  liveInk: '#03140d',
+  hairline: 'rgba(244,241,236,0.06)',
+  line: 'rgba(244,241,236,0.08)',
+  dashed: 'rgba(244,241,236,0.12)',
+  border: 'rgba(244,241,236,0.14)',
 
-  mic: '#38bdf8',
-  micText: '#7dd3fc',
-  micInk: '#04121c',
+  live: '#FF5A4E',
+  liveInk: '#1A0806',
+  liveText: '#FF8177',
+  livePale: '#FFB3AC',
+  liveSoft: '#FF8A80',
+  liveSub: '#4A1510',
+  liveBand: '#3A1714',
+  liveDim: '#221A18',
+  liveHot: '#FFF1E0',
 
-  fault: '#ff6467',
-  faultText: '#fca5a5',
-  faultInk: '#1f0404',
+  autodj: '#9B7BFF',
+  autodjText: '#C9B8FF',
+  autodjCard: '#1E1A2B',
+  autodjDim: '#3A3350',
+  autodjArtA: '#2B2540',
+  autodjArtB: '#241F36',
+  autodjArtInk: '#8A80B0',
 
-  pro: '#f59e0b',
-  proText: '#fcd34d',
+  pro: '#FFB547',
+  proInk: '#1A1206',
+  proBand: '#33260F',
+  proText: '#FFD48A',
+  avatar: '#2A2419',
 
-  text: '#fafafa',
-  textSecondary: '#d4d4d8',
-  muted: '#a1a1aa',
-  faint: '#7d7d87',
-
-  hairline: 'rgba(255,255,255,0.09)',
-  divider: 'rgba(255,255,255,0.06)',
-  inputLine: 'rgba(255,255,255,0.13)',
-  unlit: 'rgba(255,255,255,0.03)',
-  unlitEdge: 'rgba(255,255,255,0.08)',
+  ok: '#5FD39A',
 };
 
-/** `alpha('#34d399', 0.08)` → rgba string, for the tinted strips and pills. */
+/** Station art and playlist swatches, in the comp's order. */
+export const SWATCHES = [colors.pro, colors.autodj, colors.ok, colors.live];
+
+/** `alpha('#FF5A4E', 0.14)` → rgba string. */
 export function alpha(hex: string, a: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
-export const fonts = {
-  display: 'BricolageGrotesque_600SemiBold',
-  displayBold: 'BricolageGrotesque_700Bold',
-  body: 'Onest_400Regular',
-  medium: 'Onest_500Medium',
-  semibold: 'Onest_600SemiBold',
-  bold: 'Onest_700Bold',
-  mono: 'JetBrainsMono_400Regular',
-  monoMedium: 'JetBrainsMono_500Medium',
+export type Weight = 400 | 500 | 600 | 700 | 800;
+
+const DISPLAY: Record<Weight, string> = {
+  400: 'BricolageGrotesque_400Regular',
+  500: 'BricolageGrotesque_500Medium',
+  600: 'BricolageGrotesque_600SemiBold',
+  700: 'BricolageGrotesque_700Bold',
+  800: 'BricolageGrotesque_800ExtraBold',
 };
 
-export const radius = { sm: 6, md: 8, lg: 10, xl: 14, xxl: 18, full: 9999 };
-
-export const space = { gutter: 16, touch: 44 };
+const MONO: Record<Weight, string> = {
+  400: 'IBMPlexMono_400Regular',
+  500: 'IBMPlexMono_500Medium',
+  600: 'IBMPlexMono_600SemiBold',
+  700: 'IBMPlexMono_700Bold',
+  800: 'IBMPlexMono_700Bold',
+};
 
 /**
- * Panel drop: grounds a surface, never glows. iOS only: Android's `elevation`
- * would also lift the panel above its siblings, over the pinned studio lamp,
- * and a black shadow on the near-black ground is barely visible anyway.
+ * A font as the comp writes it: `font(800, 34, { tracking: -0.04 })`.
+ * Tracking is in em and line height a multiple of the size, as in CSS.
+ * Never pair these with fontWeight: Android then ignores the family.
  */
-export const panelShadow = {
-  shadowColor: '#000',
-  shadowOpacity: 0.9,
-  shadowRadius: 24,
-  shadowOffset: { width: 0, height: 24 },
-};
+export function font(
+  weight: Weight,
+  size: number,
+  opts: { mono?: boolean; tracking?: number; lineHeight?: number } = {},
+) {
+  return {
+    fontFamily: (opts.mono ? MONO : DISPLAY)[weight],
+    fontSize: size,
+    ...(opts.tracking ? { letterSpacing: opts.tracking * size } : null),
+    ...(opts.lineHeight ? { lineHeight: Math.round(opts.lineHeight * size) } : null),
+  };
+}
+
+export const space = { gutter: 16, touch: 44 };

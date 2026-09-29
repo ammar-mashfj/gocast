@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Platform } from 'react-native';
 
 import GocastGoogleAuth from '../../modules/gocast-google-auth/src/GocastGoogleAuthModule';
-import { api, ApiError, setApiToken } from './api';
+import { api, ApiError, setApiToken, setUnauthorizedHandler } from './api';
 
 const TOKEN_KEY = 'auth-token';
 
@@ -44,6 +44,23 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
+
+  // Forget the session on this phone. The navigator's guards then close every
+  // signed-in screen and clear them from history (_layout.tsx).
+  const endSession = useCallback(async () => {
+    setApiToken(null);
+    setState({ status: 'signedOut' });
+    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+    await GocastGoogleAuth.signOut().catch(() => {});
+  }, []);
+
+  // The API rejected our token mid-session (expired, revoked from the web's
+  // sessions list): sign out here too, rather than leave every screen
+  // showing its own error. No /logout call; the token is already dead.
+  useEffect(() => {
+    setUnauthorizedHandler(() => void endSession());
+    return () => setUnauthorizedHandler(null);
+  }, [endSession]);
 
   // Restore a saved session. A token the API no longer accepts is dropped;
   // a network failure is not, so a phone that boots offline stays signed in.
@@ -100,11 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await api('/logout', { method: 'POST' }).catch(() => {});
-    await GocastGoogleAuth.signOut().catch(() => {});
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    setApiToken(null);
-    setState({ status: 'signedOut' });
-  }, []);
+    await endSession();
+  }, [endSession]);
 
   const value = useMemo(
     () => ({ state, signIn, signInWithGoogle, signOut }),

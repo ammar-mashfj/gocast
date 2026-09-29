@@ -205,16 +205,17 @@ export default function Body() {
           files straight into it.
         </li>
         <li>
-          Switch to the <strong>Schedule</strong> tab and check the timezone at
-          the top. Your slots are written in that clock, and it&#39;s the same
-          one your advertised show times use.
+          Open <strong>Schedule</strong>{" "}from the sidebar and check the
+          timezone under the week view. Your slots are written in that clock.
+          It&#39;s set in Station settings, next to your show times, which use
+          the same one.
         </li>
         <li>
           <strong>Add slot</strong>, pick the playlist, tap the days it runs on
           and set the start and end time. Give it a label if it helps you.
         </li>
         <li>
-          <strong>Save schedule.</strong> Nothing restarts and no listener is
+          <strong>Save AutoDJ slots.</strong> Nothing restarts and no listener is
           dropped &mdash; the change is picked up at the next track boundary.
         </li>
       </ol>
@@ -229,8 +230,7 @@ export default function Body() {
         different jobs.
       </p>
       <p>
-        <strong>Show times</strong>, in the &ldquo;When you&#39;re live&rdquo;
-        section of the same schedule page, are the claim you
+        <strong>Show times</strong>, in Station settings, are the claim you
         make to listeners: &ldquo;Thursdays at 8&rdquo;. They&#39;re display
         only. Nothing about them reaches your audio.
       </p>

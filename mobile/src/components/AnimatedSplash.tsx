@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  bar: { width: 3, height: WAVE_H, borderRadius: 2, backgroundColor: colors.violet },
+  bar: { width: 3, height: WAVE_H, borderRadius: 2, backgroundColor: colors.autodj },
   logoBox: { width: LOGO_W, height: (LOGO_W * LOGO_HEIGHT) / LOGO_WIDTH },
   logoClip: { height: '100%', overflow: 'hidden' },
 });

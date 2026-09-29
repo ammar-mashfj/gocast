@@ -10,6 +10,7 @@ import { StationActions } from "../StationActions"
 import { DeleteStation } from "../DeleteStation"
 import { LinksEditor } from "../LinksEditor"
 import { EncoderSection } from "./EncoderSection"
+import { ShowTimesSection } from "./ShowTimesSection"
 
 /**
  * Hardcoded in the Liquidsoap template (`%mp3(bitrate=128, samplerate=44100)`)
@@ -114,6 +115,18 @@ export default async function StationSettingsPage({
         </CardHeader>
         <CardContent>
           <LinksEditor station={station} />
+        </CardContent>
+      </Card>
+
+      {/* Show times are station info listeners read, like Details and Links,
+          so they live here on every plan. They do not program anything —
+          that is the Schedule page (AutoDJ slots). */}
+      <Card id="show-times" className="scroll-mt-6">
+        <CardHeader>
+          <CardTitle className="text-base font-medium">Show times</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ShowTimesSection station={station} />
         </CardContent>
       </Card>
 

@@ -1,12 +1,17 @@
-import { BricolageGrotesque_600SemiBold, BricolageGrotesque_700Bold } from '@expo-google-fonts/bricolage-grotesque';
-import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import {
-  Onest_400Regular,
-  Onest_500Medium,
-  Onest_600SemiBold,
-  Onest_700Bold,
+  BricolageGrotesque_400Regular,
+  BricolageGrotesque_500Medium,
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
   useFonts,
-} from '@expo-google-fonts/onest';
+} from '@expo-google-fonts/bricolage-grotesque';
+import {
+  IBMPlexMono_400Regular,
+  IBMPlexMono_500Medium,
+  IBMPlexMono_600SemiBold,
+  IBMPlexMono_700Bold,
+} from '@expo-google-fonts/ibm-plex-mono';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -15,7 +20,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { BroadcastProvider } from '../broadcast/BroadcastContext';
 import { AnimatedSplash } from '../components/AnimatedSplash';
-import { AppHeader } from '../components/AppHeader';
 import { OverlayHost } from '../components/Overlay';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { colors } from '../lib/theme';
@@ -33,16 +37,52 @@ function SplashLayer({ fontsLoaded }: { fontsLoaded: boolean }) {
   return <AnimatedSplash ready={fontsLoaded && state.status !== 'loading'} onDone={() => setGone(true)} />;
 }
 
+/**
+ * Signed-in and signed-out screens are guarded groups. When the session
+ * changes, Expo Router drops the now-forbidden group from history and sends
+ * the person to `index`, which redirects to the right home. So sign-in and
+ * sign-out never navigate by hand, and the system back button can't return
+ * to the station after signing out or to login after signing in.
+ * Null while the saved session is checked: both groups closed, `index` waits.
+ */
+function RootStack() {
+  const { state } = useAuth();
+  const signedIn = state.status === 'loading' ? null : state.status === 'signedIn';
+
+  return (
+    <Stack
+      // Every screen draws its own top bar, as in the design.
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}
+    >
+      <Stack.Screen name="index" />
+      <Stack.Protected guard={signedIn === false}>
+        <Stack.Screen name="welcome" />
+        <Stack.Screen name="login" />
+      </Stack.Protected>
+      <Stack.Protected guard={signedIn === true}>
+        <Stack.Screen name="home" />
+        <Stack.Screen name="account" />
+        <Stack.Screen name="station/[slug]" />
+        <Stack.Screen name="show-times/[slug]" />
+        <Stack.Screen name="live/[slug]" />
+        <Stack.Screen name="studio/[slug]" />
+        <Stack.Screen name="summary/[slug]" options={{ gestureEnabled: false }} />
+      </Stack.Protected>
+    </Stack>
+  );
+}
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
+    BricolageGrotesque_400Regular,
+    BricolageGrotesque_500Medium,
     BricolageGrotesque_600SemiBold,
     BricolageGrotesque_700Bold,
-    Onest_400Regular,
-    Onest_500Medium,
-    Onest_600SemiBold,
-    Onest_700Bold,
-    JetBrainsMono_400Regular,
-    JetBrainsMono_500Medium,
+    BricolageGrotesque_800ExtraBold,
+    IBMPlexMono_400Regular,
+    IBMPlexMono_500Medium,
+    IBMPlexMono_600SemiBold,
+    IBMPlexMono_700Bold,
   });
 
   return (
@@ -52,20 +92,7 @@ export default function RootLayout() {
           <BroadcastProvider>
             <OverlayHost>
               <StatusBar style="light" />
-              <Stack
-                screenOptions={{
-                  header: (props) => <AppHeader {...props} />,
-                  contentStyle: { backgroundColor: colors.bg },
-                }}
-              >
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="login" options={{ headerShown: false }} />
-                <Stack.Screen name="stations" options={{ headerShown: false }} />
-                <Stack.Screen name="account" options={{ title: 'Account' }} />
-                <Stack.Screen name="station/[slug]" options={{ title: 'Station' }} />
-                <Stack.Screen name="live/[slug]" options={{ title: 'Go live' }} />
-                <Stack.Screen name="studio/[slug]" options={{ title: 'Studio' }} />
-              </Stack>
+              <RootStack />
             </OverlayHost>
           </BroadcastProvider>
         )}

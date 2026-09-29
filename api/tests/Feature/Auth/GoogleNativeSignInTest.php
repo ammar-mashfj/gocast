@@ -101,6 +101,133 @@ describe('GoogleIdTokenVerifier', function () {
 
         expect($claims['sub'])->toBe('g-native-1');
     });
+
+    it('does not refetch the key set for a token that is bad for any other reason', function (string $token) {
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        Http::fake();
+
+        try {
+            app(GoogleIdTokenVerifier::class)->verify($token);
+        } catch (InvalidGoogleIdToken) {
+        }
+
+        Http::assertNothingSent();
+        expect(Cache::has('google-id-token-jwks'))->toBeTrue();
+    })->with([
+        'garbage' => ['not-a-jwt'],
+        'expired' => fn () => googleIdToken(googleSigningKey()[0], ['iat' => time() - 7200, 'exp' => time() - 3600]),
+    ]);
+
+    it('refetches at most once a minute for unknown key ids', function () {
+        [$forger] = googleSigningKey('made-up');
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        publishKeys($this->jwk);
+
+        foreach (range(1, 3) as $_) {
+            try {
+                app(GoogleIdTokenVerifier::class)->verify(googleIdToken($forger, kid: 'made-up'));
+            } catch (InvalidGoogleIdToken) {
+            }
+        }
+
+        Http::assertSentCount(1);
+    });
+
+    it('still refetches for a real new key right after a made-up one', function () {
+        [$forger] = googleSigningKey('made-up');
+        [$newPrivate, $newJwk] = googleSigningKey('kid-2');
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        // Google rotates after the forged refetch has already cached the old set.
+        Http::fake([GoogleIdTokenVerifier::JWKS_URL => Http::sequence()
+            ->push(['keys' => [$this->jwk]])
+            ->push(['keys' => [$this->jwk, $newJwk]])]);
+
+        try {
+            app(GoogleIdTokenVerifier::class)->verify(googleIdToken($forger, kid: 'made-up'));
+        } catch (InvalidGoogleIdToken) {
+        }
+
+        $claims = app(GoogleIdTokenVerifier::class)->verify(googleIdToken($newPrivate, kid: 'kid-2'));
+
+        expect($claims['sub'])->toBe('g-native-1');
+    });
+
+    it('keeps the cached key set when the refetch fails, and lets that key id try again', function () {
+        [$newPrivate, $newJwk] = googleSigningKey('kid-2');
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        // Google is down for the first refetch, back for the second.
+        Http::fake([GoogleIdTokenVerifier::JWKS_URL => Http::sequence()
+            ->push(null, 503)
+            ->push(['keys' => [$this->jwk, $newJwk]])]);
+
+        try {
+            app(GoogleIdTokenVerifier::class)->verify(googleIdToken($newPrivate, kid: 'kid-2'));
+        } catch (InvalidGoogleIdToken) {
+        }
+
+        // The old set is still there, so a token under the old key needs no network.
+        expect(Cache::get('google-id-token-jwks'))->toBe(['keys' => [$this->jwk]]);
+        expect(app(GoogleIdTokenVerifier::class)->verify(googleIdToken($this->private))['sub'])->toBe('g-native-1');
+        Http::assertSentCount(1);
+
+        // The failed attempt did not spend kid-2's once-a-minute refetch.
+        $claims = app(GoogleIdTokenVerifier::class)->verify(googleIdToken($newPrivate, kid: 'kid-2'));
+
+        expect($claims['sub'])->toBe('g-native-1');
+        Http::assertSentCount(2);
+    });
+
+    it('caps refetches across many made-up key ids', function () {
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        publishKeys($this->jwk);
+
+        foreach (range(1, 15) as $i) {
+            [$forger] = googleSigningKey("made-up-{$i}");
+
+            try {
+                app(GoogleIdTokenVerifier::class)->verify(googleIdToken($forger, kid: "made-up-{$i}"));
+            } catch (InvalidGoogleIdToken) {
+            }
+        }
+
+        Http::assertSentCount(10);
+    });
+
+    it('lets a real new key refetch as soon as the shared budget frees', function () {
+        [$newPrivate, $newJwk] = googleSigningKey('kid-2');
+        Cache::put('google-id-token-jwks', ['keys' => [$this->jwk]], now()->addHour());
+        // One fake for the whole test (a second Http::fake would reset the
+        // request count); Google rotates when the flag flips.
+        $rotated = false;
+        Http::fake([GoogleIdTokenVerifier::JWKS_URL => function () use (&$rotated, $newJwk) {
+            return Http::response(['keys' => $rotated ? [$this->jwk, $newJwk] : [$this->jwk]]);
+        }]);
+
+        // A flood of made-up key IDs spends the minute's budget...
+        foreach (range(1, 10) as $i) {
+            [$forger] = googleSigningKey("made-up-{$i}");
+
+            try {
+                app(GoogleIdTokenVerifier::class)->verify(googleIdToken($forger, kid: "made-up-{$i}"));
+            } catch (InvalidGoogleIdToken) {
+            }
+        }
+
+        // ...so a real rotation arriving mid-minute cannot refetch yet.
+        $this->travel(30)->seconds();
+        $rotated = true;
+        expect(fn () => app(GoogleIdTokenVerifier::class)->verify(googleIdToken($newPrivate, kid: 'kid-2')))
+            ->toThrow(InvalidGoogleIdToken::class);
+        Http::assertSentCount(10);
+
+        // Once the budget frees, the new key gets its refetch at once: the
+        // refused attempt did not hold kid-2's own once-a-minute marker.
+        $this->travel(31)->seconds();
+        $claims = app(GoogleIdTokenVerifier::class)->verify(googleIdToken($newPrivate, kid: 'kid-2'));
+
+        expect($claims['sub'])->toBe('g-native-1');
+        Http::assertSentCount(11);
+    });
 });
 
 describe('POST /auth/google/native', function () {

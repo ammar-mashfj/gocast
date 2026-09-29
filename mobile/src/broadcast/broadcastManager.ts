@@ -1,6 +1,7 @@
 import { AudioManager, PlaybackNotificationManager, RecordingNotificationManager } from 'react-native-audio-api';
 
 import GocastEncoder from '../../modules/gocast-encoder/src/GocastEncoderModule';
+import GocastKeepAlive from '../../modules/gocast-keepalive/src/GocastKeepAliveModule';
 import { AudioEngine } from '../audio/engine';
 import { api, ApiError } from '../lib/api';
 
@@ -11,8 +12,9 @@ import { api, ApiError } from '../lib/api';
  * The web file carries the reasoning for every number here.
  *
  * Differences are platform only: AAC from the native encoder instead of MP3
- * from lamejs, a foreground service instead of a wake lock, and no tab
- * visibility handling, because a locked phone keeps running.
+ * from lamejs, a foreground service plus Wi-Fi and CPU locks instead of a
+ * screen wake lock, no tab visibility handling because a locked phone keeps
+ * running, and a much longer reconnect budget (see RECONNECT_BUDGET_MS).
  */
 
 export type BroadcastStep = 'station' | 'mic' | 'engine' | 'stream';
@@ -44,6 +46,8 @@ interface BroadcastCallbacks {
   onStepChange: (steps: BroadcastStepInfo[]) => void;
   onStateChange: (state: BroadcastState) => void;
   onError: (message: string) => void;
+  /** The Stop button on the notification, the one control left once the app has been swiped away. */
+  onNotificationStop: () => void;
 }
 
 /** AAC stereo. Roughly the quality of the web's 192k MP3. */
@@ -54,8 +58,16 @@ const SOCKET_CONNECT_TIMEOUT_MS = 10000;
 const HELLO_GRACE_MS = 600;
 const STATION_READY_TIMEOUT_MS = 20000;
 const STATION_READY_POLL_MS = 1000;
-const RECONNECT_BUDGET_MS = 120000;
-const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+/**
+ * Far longer than the web's two minutes, because a phone show is often left
+ * running unattended (overnight, screen off) and nobody is there to press Go
+ * live again after a router reboot or an ISP blip. The web keeps its budget
+ * under the API's studio_gone_stop_seconds (150s) so a no-AutoDJ station stays
+ * up while it retries; past that here, the station goes off air and every
+ * attempt's ensureStationOnAir() brings it back.
+ */
+const RECONNECT_BUDGET_MS = 30 * 60_000;
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONNECT_JITTER = 0.2;
 const RECONNECT_STATION_READY_TIMEOUT_MS = 8000;
 
@@ -80,6 +92,7 @@ export class BroadcastManager {
   private reconnecting = false;
   private encoderStarted = false;
   private notification: 'recording' | 'playback' | null = null;
+  private notificationStopSub: { remove: () => void } | null = null;
 
   private bytesSent = 0;
   private chunksSent = 0;
@@ -89,6 +102,10 @@ export class BroadcastManager {
   private dropRunStart = 0;
   private countersArmed = false;
   private wakeFromBackoff: (() => void) | null = null;
+
+  /** Milliseconds of audio the engine has handed over; see {@link after}. */
+  private audioClockMs = 0;
+  private audioWaits: { until: number; fire: () => void }[] = [];
 
   private lastMetadata: { title: string; artist: string } | null = null;
   private sentMetadataKey: string | null = null;
@@ -131,6 +148,7 @@ export class BroadcastManager {
     try {
       this.setActiveStep('station');
       await this.ensureStationOnAir();
+      this.throwIfStopped();
       this.updateStep('station', 'done');
 
       if (!options?.skipMic) {
@@ -138,22 +156,27 @@ export class BroadcastManager {
         if ((await AudioManager.requestRecordingPermissions()) !== 'Granted') {
           throw new MicPermissionError('Microphone access denied — allow it in the phone’s settings for GoCast');
         }
+        this.throwIfStopped();
         this.updateStep('mic', 'done');
       }
 
       this.setActiveStep('engine');
       await this.startForegroundService(!options?.skipMic);
+      this.throwIfStopped();
       this.engine = await AudioEngine.create(!options?.skipMic, (left, right) => this.onPcm(left, right));
+      this.throwIfStopped();
       this.engine.subscribe(() => {
         const track = this.engine?.getCurrentTrack();
         if (!track || `${track.title}\0${track.artist}` === this.sentMetadataKey) return;
         this.sendMetadata(track.title, track.artist);
       });
       await this.engine.restoreQueue();
+      this.throwIfStopped();
       this.updateStep('engine', 'done');
 
       this.setActiveStep('stream');
       await this.connectWebcast();
+      this.throwIfStopped();
       this.updateStep('stream', 'done');
 
       void this.engine.resumePlayback({ fromStart: options?.resumeFromStart }).catch((err) => {
@@ -162,8 +185,26 @@ export class BroadcastManager {
 
       this.callbacks.onStateChange('live');
     } catch (err) {
-      await this.fail(err);
+      // stop() ran while this was still starting (the countdown was
+      // cancelled). stop() tore down only what existed at that moment, so
+      // whatever came up since (the notification, the engine, the socket)
+      // is undone here, quietly: the show was never on air.
+      if (this.stopping) await this.abandonStart();
+      else await this.fail(err);
     }
+  }
+
+  private throwIfStopped() {
+    if (this.stopping) throw new StartCancelled();
+  }
+
+  private async abandonStart() {
+    this.established = false;
+    try {
+      this.ws?.close(1000, 'broadcast ended');
+    } catch {}
+    this.ws = null;
+    await this.teardownAudio();
   }
 
   /**
@@ -172,6 +213,10 @@ export class BroadcastManager {
    * and before the mic opens: Android 14 refuses to start a microphone
    * service from the background. Music-only shows use the playback type,
    * which does not need the mic permission.
+   *
+   * The service outlives a swipe out of recents (androidFSStopWithTask is
+   * false in app.json), so the show keeps going with no app on screen. Its
+   * Stop button is then the only way to end it without reopening the app.
    */
   private async startForegroundService(withMic: boolean) {
     // Android 13+ hides the notification without this; the service still runs.
@@ -181,21 +226,34 @@ export class BroadcastManager {
         title: `Live on ${this.stationName}`,
         contentText: 'GoCast is broadcasting',
         usesChronometer: true,
-        showStopAction: false,
+        showStopAction: true,
+        stopActionTitle: 'End show',
         paused: false,
       });
       this.notification = 'recording';
+      this.notificationStopSub = RecordingNotificationManager.addEventListener('recordingNotificationStop', () =>
+        this.callbacks.onNotificationStop(),
+      );
     } else {
       await PlaybackNotificationManager.show({
         title: `Live on ${this.stationName}`,
         artist: 'GoCast is broadcasting',
         state: 'playing',
       });
+      // Pause is left off: the notification's only button is Stop.
+      await PlaybackNotificationManager.enableControl('stop', true).catch(() => {});
       this.notification = 'playback';
+      this.notificationStopSub = PlaybackNotificationManager.addEventListener('playbackNotificationStop', () =>
+        this.callbacks.onNotificationStop(),
+      );
     }
+    GocastKeepAlive?.acquire();
   }
 
   private async stopForegroundService() {
+    GocastKeepAlive?.release();
+    this.notificationStopSub?.remove();
+    this.notificationStopSub = null;
     if (this.notification === 'recording') await RecordingNotificationManager.hide().catch(() => {});
     if (this.notification === 'playback') await PlaybackNotificationManager.hide().catch(() => {});
     this.notification = null;
@@ -208,6 +266,11 @@ export class BroadcastManager {
    */
   private onPcm(left: Float32Array, right: Float32Array | null) {
     if (!this.engine) return;
+    this.audioClockMs += (left.length / this.engine.sampleRate) * 1000;
+    if (this.audioWaits.length > 0) {
+      const due = this.audioWaits.filter((w) => w.until <= this.audioClockMs);
+      due.forEach((w) => w.fire());
+    }
     if (!this.encoderStarted) {
       GocastEncoder.start(this.engine.sampleRate, CHANNELS, BITRATE);
       this.encoderStarted = true;
@@ -244,14 +307,15 @@ export class BroadcastManager {
     }
 
     const deadline = Date.now() + readyTimeoutMs;
-    while (Date.now() < deadline) {
+    while (!this.stopping && Date.now() < deadline) {
       try {
         const { data } = await api<{ data: { ready: boolean } }>(`/stations/${this.stationSlug}/status`);
         if (data.ready) return;
       } catch {
         // A blip reading the container is not a reason to abandon the broadcast.
       }
-      await new Promise((resolve) => setTimeout(resolve, STATION_READY_POLL_MS));
+      // backoff, not a bare timer, so stop() wakes it instead of waiting out the poll.
+      await this.backoff(STATION_READY_POLL_MS);
     }
   }
 
@@ -272,6 +336,8 @@ export class BroadcastManager {
       throw new Error('Not signed in — please sign in and try again');
     }
     if (!ingestUrl) throw new Error('The server did not return a publish address for this station');
+    // Stopped while the token was on its way: don't touch harbor at all.
+    this.throwIfStopped();
 
     const ws = await this.openSocket(ingestUrl, token);
     this.established = true;
@@ -291,23 +357,23 @@ export class BroadcastManager {
       this.ws = ws;
 
       let settled = false;
-      let helloTimer: ReturnType<typeof setTimeout> | null = null;
+      let cancelHello: (() => void) | null = null;
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(connectTimer);
-        if (helloTimer) clearTimeout(helloTimer);
+        cancelConnect();
+        cancelHello?.();
         fn();
       };
 
-      const connectTimer = setTimeout(() => {
+      const cancelConnect = this.after(SOCKET_CONNECT_TIMEOUT_MS, () => {
         finish(() => {
           try {
             ws.close();
           } catch {}
           reject(new Error('Timed out connecting to the stream server'));
         });
-      }, SOCKET_CONNECT_TIMEOUT_MS);
+      });
 
       ws.onopen = () => {
         ws.send(
@@ -326,7 +392,7 @@ export class BroadcastManager {
             },
           }),
         );
-        helloTimer = setTimeout(() => finish(() => resolve(ws)), HELLO_GRACE_MS);
+        cancelHello = this.after(HELLO_GRACE_MS, () => finish(() => resolve(ws)));
       };
       ws.onerror = () => {
         finish(() => reject(new Error('Could not reach the stream server')));
@@ -400,13 +466,37 @@ export class BroadcastManager {
   private backoff(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
       const done = () => {
-        clearTimeout(timer);
+        cancel();
         this.wakeFromBackoff = null;
         resolve();
       };
-      const timer = setTimeout(done, ms);
+      const cancel = this.after(ms, done);
       this.wakeFromBackoff = done;
     });
+  }
+
+  /**
+   * setTimeout that still fires with the phone locked. Android stops React
+   * Native's JS timers whenever the app is not in front, which would freeze a
+   * reconnect until the phone is unlocked. The engine's PCM keeps arriving
+   * every 100ms regardless, so its running total is a clock that does not
+   * stop; the ordinary timer covers the case where the engine is not running
+   * yet or has stalled. Whichever comes first fires, once. Returns a cancel.
+   */
+  private after(ms: number, fn: () => void): () => void {
+    let done = false;
+    const wait = { until: this.audioClockMs + ms, fire: () => settle(true) };
+    const timer = setTimeout(() => settle(true), ms);
+    const settle = (run: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const i = this.audioWaits.indexOf(wait);
+      if (i !== -1) this.audioWaits.splice(i, 1);
+      if (run) fn();
+    };
+    this.audioWaits.push(wait);
+    return () => settle(false);
   }
 
   private sendMetadata(title: string, artist: string): void {
@@ -473,6 +563,9 @@ export class BroadcastManager {
     await this.teardownAudio();
   }
 }
+
+/** Unwinds start() once stop() has been called during it. */
+class StartCancelled extends Error {}
 
 /** Thrown when the mic permission is refused, so the UI can offer music only. */
 export class MicPermissionError extends Error {}

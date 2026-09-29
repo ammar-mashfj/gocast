@@ -112,7 +112,7 @@ class TrackController extends Controller
         $errors = [];
         foreach ($request->file('files', []) as $idx => $file) {
             try {
-                $created[] = $this->importer->import($station, $file, $kind, $playlist);
+                $created[] = $this->importer->import($station, $file, $kind, $playlist, $request->nameFor($idx));
             } catch (RuntimeException $e) {
                 // Quota exceeded mid-batch — surface which file and stop;
                 // partial successes are kept (status code reflects that).

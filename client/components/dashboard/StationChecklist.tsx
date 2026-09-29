@@ -73,7 +73,7 @@ export function StationChecklist({ station, trackCount, hasListeners }: StationC
       done: (station.schedules?.length ?? 0) > 0,
       title: "Set your show times",
       hint: "Tell listeners when you're live so they know when to come back.",
-      href: `/dashboard/stations/${station.slug}/schedule`,
+      href: `/dashboard/stations/${station.slug}/settings#show-times`,
     },
     {
       key: "links",

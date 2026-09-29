@@ -68,8 +68,16 @@ if (process.env.NODE_ENV === "production" && dsn) {
     // a headless CefSharp browser and rejects a promise with "Object Not
     // Found Matching Id:N, MethodName:update" from its own .NET bridge. A
     // bot visiting a link from one of our emails, not a real user.
+    //
+    // XBrowser-style Android browsers eval an `execute_auto_fill` script on
+    // page load that references their own `xbrowser` bridge; when the bridge
+    // isn't injected it throws "xbrowser is not defined" from <anonymous>.
     denyUrls: [/^app:\/\//],
-    ignoreErrors: [/Java object is gone/, /Object Not Found Matching Id:\d+/],
+    ignoreErrors: [
+      /Java object is gone/,
+      /Object Not Found Matching Id:\d+/,
+      /xbrowser is not defined/,
+    ],
   });
 }
 

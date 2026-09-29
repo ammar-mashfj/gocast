@@ -29,7 +29,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#08080d",
+          "backgroundColor": "#0E0D0C",
           "image": "./assets/images/splash-blank.png",
           "imageWidth": 1
         }
@@ -49,6 +49,7 @@
             "android.permission.POST_NOTIFICATIONS"
           ],
           "androidForegroundService": true,
+          "androidFSStopWithTask": false,
           "androidFSTypes": [
             "microphone",
             "mediaPlayback"
@@ -66,6 +67,6 @@
       }
     },
     "owner": "ammarmashfj",
-    "backgroundColor": "#08080d"
+    "backgroundColor": "#0E0D0C"
   }
 }

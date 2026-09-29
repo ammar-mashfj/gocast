@@ -1,31 +1,26 @@
-import {
-  IconBroadcast,
-  IconCalendarTime,
-  IconChartBar,
-  IconMicrophone,
-  IconPlaylist,
-  IconShare,
-} from '@tabler/icons-react-native';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Share } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useBroadcast } from '../../../broadcast/BroadcastContext';
-import { HeaderIcon } from '../../../components/AppHeader';
-import { Button } from '../../../components/ui';
+import { AccountButton } from '../../../components/AccountButton';
+import { LiveStrip } from '../../../components/LiveStrip';
+import { PillButton, T } from '../../../components/ui';
 import { api } from '../../../lib/api';
 import { errorText, StationContext, type Station } from '../../../lib/station';
-import { colors, fonts } from '../../../lib/theme';
-import { webUrl } from '../../../lib/web';
+import { colors } from '../../../lib/theme';
+import { shareStation } from '../../../lib/web';
 
 /**
- * One station: Overview, Audience, Schedule and Library as bottom tabs, the
- * web dashboard's station pages for a phone. The station payload is fetched
- * here once and shared; each tab adds only what it alone needs.
+ * The home screen: an account has one station, so this is where the app
+ * opens (app/home.tsx hands over to it). Overview, Audience, Schedule and Library as bottom tabs. The
+ * station payload is fetched here once and shared; each tab adds only what
+ * it alone needs.
  */
 export default function StationLayout() {
   const { slug, name } = useLocalSearchParams<{ slug: string; name?: string }>();
+  const insets = useSafeAreaInsets();
   const [station, setStation] = useState<Station | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,79 +45,77 @@ export default function StationLayout() {
     };
   }, [slug]);
 
-  const broadcast = useBroadcast();
-  const liveHere =
-    broadcast.stationSlug === slug && (broadcast.state === 'live' || broadcast.state === 'reconnecting');
-  const title = station?.name ?? name ?? 'Station';
-
   const value = useMemo(() => ({ slug, station, error, reload }), [slug, station, error, reload]);
+  const title = station?.name ?? name ?? 'Station';
 
   return (
     <StationContext.Provider value={value}>
-      <Stack.Screen
-        options={{
-          title,
-          headerRight: () => (
-            <>
-              <HeaderIcon
-                label="Share station"
-                onPress={() => {
-                  const url = webUrl(`/station/${slug}`);
-                  Share.share({ message: url, url });
-                }}
-              >
-                <IconShare size={20} color={colors.text} />
-              </HeaderIcon>
-              <Button
-                label={liveHere ? 'Studio' : 'Go live'}
-                variant={liveHere ? 'outline' : 'primary'}
-                height={36}
-                icon={<IconMicrophone size={16} color={liveHere ? colors.text : '#ffffff'} />}
-                style={{ paddingHorizontal: 12 }}
-                onPress={() =>
-                  router.push(
-                    liveHere
-                      ? { pathname: '/studio/[slug]', params: { slug } }
-                      : { pathname: '/live/[slug]', params: { slug, name: title } },
-                  )
-                }
-              />
-            </>
-          ),
-        }}
-      />
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          sceneStyle: { backgroundColor: colors.bg },
-          tabBarStyle: {
-            backgroundColor: colors.bg,
-            borderTopColor: colors.hairline,
-            borderTopWidth: 1,
-            paddingTop: 4,
-          },
-          tabBarActiveTintColor: colors.violetPale,
-          tabBarInactiveTintColor: colors.faint,
-          tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{ title: 'Overview', tabBarIcon: ({ color }) => <IconBroadcast size={22} color={color} /> }}
-        />
-        <Tabs.Screen
-          name="audience"
-          options={{ title: 'Audience', tabBarIcon: ({ color }) => <IconChartBar size={22} color={color} /> }}
-        />
-        <Tabs.Screen
-          name="schedule"
-          options={{ title: 'Schedule', tabBarIcon: ({ color }) => <IconCalendarTime size={22} color={color} /> }}
-        />
-        <Tabs.Screen
-          name="library"
-          options={{ title: 'Library', tabBarIcon: ({ color }) => <IconPlaylist size={22} color={color} /> }}
-        />
-      </Tabs>
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <LiveStrip />
+        <View style={styles.header}>
+          <AccountButton />
+          <T weight={700} size={19} tracking={-0.02} numberOfLines={1} style={{ flex: 1 }}>
+            {title}
+          </T>
+          <PillButton label="Share" variant="card" onPress={() => shareStation(slug, title)} />
+        </View>
+        <Tabs
+          tabBar={(props) => <TabBar {...props} />}
+          screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
+        >
+          <Tabs.Screen name="index" options={{ title: 'Overview' }} />
+          <Tabs.Screen name="audience" options={{ title: 'Audience' }} />
+          <Tabs.Screen name="schedule" options={{ title: 'Schedule' }} />
+          <Tabs.Screen name="library" options={{ title: 'Library' }} />
+        </Tabs>
+      </View>
     </StationContext.Provider>
   );
 }
+
+type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0];
+
+/** The comp's tab bar: text labels, with a bar over the current one. */
+function TabBar({ state, descriptors, navigation }: TabBarProps) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.tabs, { paddingBottom: insets.bottom }]} accessibilityRole="tablist">
+      {state.routes.map((route, index) => {
+        const focused = state.index === index;
+        const label = descriptors[route.key]?.options.title ?? route.name;
+        return (
+          <Pressable
+            key={route.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: focused }}
+            onPress={() => {
+              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+              if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
+            }}
+            style={styles.tab}
+          >
+            <View style={[styles.tabBar, { backgroundColor: focused ? colors.text : 'transparent' }]} />
+            <T weight={600} size={12} tone={focused ? 'text' : 'faint'}>
+              {label}
+            </T>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  header: { height: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14 },
+  tabs: {
+    flexDirection: 'row',
+    paddingTop: 6,
+    paddingHorizontal: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.hairline,
+    backgroundColor: colors.bg,
+  },
+  tab: { flex: 1, height: 54, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  tabBar: { width: 34, height: 4, borderRadius: 2 },
+});

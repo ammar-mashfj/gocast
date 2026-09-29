@@ -1,9 +1,18 @@
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 let token: string | null = null;
+let onUnauthorized: (() => void) | null = null;
 
 export function setApiToken(value: string | null) {
   token = value;
+}
+
+/**
+ * Called when the API rejects the current token (expired, revoked, or the
+ * account signed out elsewhere). The auth provider ends the session there.
+ */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
 }
 
 export class ApiError extends Error {
@@ -21,6 +30,7 @@ export class ApiError extends Error {
  * Throws ApiError with the API's own message, which is written for humans.
  */
 export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const sent = token;
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -28,7 +38,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sent ? { Authorization: `Bearer ${sent}` } : {}),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
@@ -38,10 +48,42 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 
   const body = await response.json().catch(() => null);
   if (!response.ok) {
+    // Only for the token still in use: a slow request from a session that
+    // has since been replaced must not sign the new one out.
+    if (response.status === 401 && sent && sent === token) onUnauthorized?.();
     const message = (body as { message?: string } | null)?.message ?? `Request failed (${response.status})`;
     throw new ApiError(response.status, message, body);
   }
   return body as T;
+}
+
+/**
+ * Multipart POST, for uploads. React Native streams `{ uri, name, type }`
+ * parts from disk, so a large file never sits in JS memory. The response is
+ * returned for 2xx and 207 (partial success) alike.
+ */
+export async function apiUpload<T>(path: string, form: FormData): Promise<{ status: number; body: T }> {
+  const sent = token;
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...(sent ? { Authorization: `Bearer ${sent}` } : {}) },
+      body: form,
+    });
+  } catch (err) {
+    // Not always the network: expo/fetch also throws here for a body it
+    // can't encode, and that message is the one worth seeing.
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new ApiError(0, `Upload didn’t go through: ${reason}`);
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (response.status === 401 && sent && sent === token) onUnauthorized?.();
+    const message = (body as { message?: string } | null)?.message ?? `Upload failed (${response.status})`;
+    throw new ApiError(response.status, message, body);
+  }
+  return { status: response.status, body: body as T };
 }
 
 const LOOPBACK = /^(https?:)\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(?=\/|$)/i;

@@ -197,6 +197,40 @@ it('allows uploads on a plan with AutoDJ', function () {
         ->assertCreated();
 });
 
+it('titles an upload from the name sent alongside the file', function () {
+    // The mobile app's fetch percent-encodes the filename in the part itself,
+    // so it sends the real one in `names`.
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+
+    actingAs($user)
+        ->postJson("/api/stations/{$station->slug}/tracks", [
+            'files' => [UploadedFile::fake()->create('%D8%A3%D9%85%20Song.mp3', 100, 'audio/mpeg')],
+            'names' => ['أم Song.mp3'],
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.0.title', 'أم Song')
+        ->assertJsonPath('data.0.original_filename', 'أم Song.mp3');
+});
+
+it('keeps the part filename when no name is sent', function () {
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+
+    actingAs($user)
+        ->postJson("/api/stations/{$station->slug}/tracks", [
+            'files' => [UploadedFile::fake()->create('My Song.mp3', 100, 'audio/mpeg')],
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.0.original_filename', 'My Song.mp3');
+});
+
 it('still lets a downgraded user see and delete their existing library', function () {
     // A downgrade must never trap someone's files behind a paywall.
     $plan = Plan::query()->where('slug', 'free')->firstOrFail();

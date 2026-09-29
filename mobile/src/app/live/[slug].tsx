@@ -1,22 +1,26 @@
-import { IconCheck, IconMicrophone, IconMusic, IconPlayerPlay, IconPlayerTrackPrev } from '@tabler/icons-react-native';
-import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, BackHandler, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { AudioManager } from 'react-native-audio-api';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import GocastKeepAlive from '../../../modules/gocast-keepalive/src/GocastKeepAliveModule';
 import { clearQueue, loadQueueSummary, type SavedQueueSummary } from '../../audio/queueStore';
 import { useBroadcast } from '../../broadcast/BroadcastContext';
-import { formatTrackTime } from '../../broadcast/hooks';
+import { formatTrackTime, useNow } from '../../broadcast/hooks';
+import { CheckRow, Mode, Notice, type Check } from '../../components/live/parts';
 import { Overlay } from '../../components/Overlay';
-import { Button, PageTitle, Panel, T } from '../../components/ui';
+import { BackButton, Button, Card, Dot, Segmented, T } from '../../components/ui';
 import { api } from '../../lib/api';
+import { useAutoDjLocked } from '../../lib/auth';
 import { readJson, removeJson, writeJson } from '../../lib/kv';
-import { alpha, colors, fonts, radius } from '../../lib/theme';
+import { formatBytes } from '../../lib/station';
+import { colors } from '../../lib/theme';
 
 /**
- * Go Live: the web's pre-flight page (client/app/dashboard/stations/[slug]/
- * live). Choose mic + music or music only, see the saved running order and
- * whether to pick up where it stopped, then go live. The connecting steps
- * show here, and once live it hands over to the studio.
+ * Go live: choose mic + music or music only, check the four things that
+ * make a show survive (mic, background running, music, connection), then a
+ * 3-2-1 while the connection comes up, and into the studio.
  */
 
 interface Station {
@@ -26,53 +30,95 @@ interface Station {
   is_on_air?: boolean;
 }
 
-const LIVE_HOLD_MS = 3000;
+type Mic = 'Granted' | 'Denied' | 'Undetermined' | null;
+type Probe = { state: 'checking' } | { state: 'ok'; ms: number } | { state: 'down' };
+
+const COUNT_FROM = 3;
+const COUNT_STEP_MS = 800;
+/** The stream's bitrate, as the studio sends it. */
+const BITRATE_KBPS = 128;
+const SLOW_MS = 1500;
 const micDisabledKey = (slug: string) => `broadcast-mic-disabled-${slug}`;
 const RESUME_FROM_START_KEY = 'broadcast-resume-from-start';
 
 export default function GoLive() {
   const { slug, name } = useLocalSearchParams<{ slug: string; name?: string }>();
   const broadcast = useBroadcast();
+  const insets = useSafeAreaInsets();
+  const autoDjLocked = useAutoDjLocked();
   const [station, setStation] = useState<Station | null>(null);
   const [skipMic, setSkipMic] = useState(() => readJson<boolean>(micDisabledKey(slug), false));
   const [fromStart, setFromStart] = useState(() => readJson<boolean>(RESUME_FROM_START_KEY, false));
   const [summary, setSummary] = useState<SavedQueueSummary | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(LIVE_HOLD_MS / 1000);
+  const [mic, setMic] = useState<Mic>(null);
+  const [batteryOk, setBatteryOk] = useState(true);
+  const [probe, setProbe] = useState<Probe>({ state: 'checking' });
+  // When the 3-2-1 started; null on the pre-flight page.
+  const [launchedAt, setLaunchedAt] = useState<number | null>(null);
 
   const thisStation = broadcast.stationSlug === slug;
   const otherStation = broadcast.stationSlug !== null && !thisStation;
   const phase = !thisStation ? 'idle' : broadcast.state;
+  const stationName = station?.name ?? name ?? slug;
+
+  // Re-read everything the checklist shows whenever the screen or the app
+  // comes back: the grants happen in system dialogs and settings.
+  const refresh = useCallback(() => {
+    setSummary(loadQueueSummary());
+    AudioManager.checkRecordingPermissions().then(setMic, () => setMic(null));
+    if (GocastKeepAlive) setBatteryOk(GocastKeepAlive.isIgnoringBatteryOptimizations());
+    const began = Date.now();
+    setProbe({ state: 'checking' });
+    api<{ data: Station }>(`/stations/${slug}`).then(
+      ({ data }) => {
+        setStation(data);
+        setProbe({ state: 'ok', ms: Date.now() - began });
+      },
+      () => setProbe({ state: 'down' }),
+    );
+  }, [slug]);
 
   useFocusEffect(
     useCallback(() => {
-      setSummary(loadQueueSummary());
-      api<{ data: Station }>(`/stations/${slug}`)
-        .then(({ data }) => setStation(data))
-        .catch(() => {});
-    }, [slug]),
+      refresh();
+      const sub = AppState.addEventListener('change', (next) => {
+        if (next === 'active') refresh();
+      });
+      return () => sub.remove();
+    }, [refresh]),
   );
 
-  // Once live, count down and open the studio, as the web does.
-  useEffect(() => {
-    if (phase !== 'live') return;
-    let left = LIVE_HOLD_MS / 1000;
-    const id = setInterval(() => {
-      left -= 1;
-      setSecondsLeft(left);
-      if (left <= 0) {
-        clearInterval(id);
-        router.replace({ pathname: '/studio/[slug]', params: { slug } });
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [phase, slug]);
+  const counting = launchedAt !== null || (thisStation && phase === 'connecting');
 
-  const stationName = station?.name ?? name ?? slug;
-  const goLive = (opts?: { skipMic?: boolean }) => {
-    setSecondsLeft(LIVE_HOLD_MS / 1000);
-    void broadcast.start(slug, stationName, { skipMic: opts?.skipMic ?? skipMic, resumeFromStart: fromStart });
-  };
+  // A failed start drops back to the pre-flight page, which shows why.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- leaving the countdown on failure
+    if (phase === 'error') setLaunchedAt(null);
+  }, [phase]);
+
+  // Live, and the countdown is over (or there was none): into the studio.
+  const now = useNow(counting ? 100 : 60_000);
+  const countDone = launchedAt === null || now - launchedAt >= COUNT_FROM * COUNT_STEP_MS;
+  useEffect(() => {
+    if (phase === 'live' && countDone) router.replace({ pathname: '/studio/[slug]', params: { slug } });
+  }, [phase, countDone, slug]);
+
+  const cancel = useCallback(() => {
+    setLaunchedAt(null);
+    void broadcast.stop();
+  }, [broadcast]);
+
+  // Back during the countdown cancels it rather than leaving a show starting.
+  useEffect(() => {
+    if (!counting) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      cancel();
+      return true;
+    });
+    return () => sub.remove();
+  }, [counting, cancel]);
+
   const chooseMic = (noMic: boolean) => {
     setSkipMic(noMic);
     writeJson(micDisabledKey(slug), noMic);
@@ -82,283 +128,264 @@ export default function GoLive() {
     writeJson(RESUME_FROM_START_KEY, value);
   };
 
-  const micDenied = phase === 'error' && /microphone/i.test(broadcast.error ?? '');
-  const alreadyLive = phase === 'idle' && !otherStation && !!station?.is_live;
-  const stoppedAt = summary?.lastTrack ? formatTrackTime(summary.lastTrack.offset) : null;
+  const askMic = async (): Promise<boolean> => {
+    const result = await AudioManager.requestRecordingPermissions().catch(() => 'Denied' as const);
+    setMic(result);
+    if (result !== 'Granted' && mic === 'Denied') await Linking.openSettings();
+    return result === 'Granted';
+  };
+
+  const launch = (opts?: { skipMic?: boolean }) => {
+    const noMic = opts?.skipMic ?? skipMic;
+    setLaunchedAt(Date.now());
+    void broadcast.start(slug, stationName, { skipMic: noMic, resumeFromStart: fromStart });
+  };
+
+  const goLive = async () => {
+    if (!skipMic && mic !== 'Granted' && !(await askMic())) return;
+    launch();
+  };
+
+  const alreadyLive = !otherStation && phase === 'idle' && !!station?.is_live;
+  const blocked = otherStation || alreadyLive;
+  const micMissing = !skipMic && mic !== 'Granted';
+  const failed = thisStation && phase === 'error';
+  const micDenied = failed && /microphone/i.test(broadcast.error ?? '');
+
+  if (counting) {
+    const elapsed = launchedAt === null ? Infinity : now - launchedAt;
+    const count = Math.max(1, COUNT_FROM - Math.floor(elapsed / COUNT_STEP_MS));
+    const waiting = countDone && phase !== 'live';
+    const step = broadcast.steps.find((s) => s.status === 'active');
+    return (
+      <View style={[styles.countdown, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <T mono weight={600} size={13} tracking={0.16} tone="liveInk">
+          {waiting ? 'CONNECTING' : 'LIVE IN'}
+        </T>
+        <T
+          weight={800}
+          size={200}
+          tracking={-0.06}
+          tone="liveInk"
+          style={{ lineHeight: 190, opacity: waiting ? 0.35 : 1 }}
+          accessibilityLiveRegion="assertive"
+        >
+          {count}
+        </T>
+        <T weight={500} size={15} tone="liveInk" style={{ textAlign: 'center', paddingHorizontal: 32 }}>
+          {waiting
+            ? `${step?.label ?? 'Connecting'}…`
+            : skipMic
+              ? 'Music only · mic stays off'
+              : 'Mic is closed until you hold to talk'}
+        </T>
+        <Pressable
+          accessibilityRole="button"
+          onPress={cancel}
+          style={({ pressed }) => [styles.cancel, pressed && { opacity: 0.7 }]}
+        >
+          <T weight={700} size={15} tone="liveInk">
+            Cancel
+          </T>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const checks: Check[] = [
+    ...(!skipMic
+      ? [
+          {
+            key: 'mic',
+            title: 'Microphone',
+            ok: mic === 'Granted',
+            sub:
+              mic === 'Granted'
+                ? 'Allowed · this phone’s mic'
+                : mic === 'Denied'
+                  ? 'Blocked. Allow the microphone for GoCast in Settings.'
+                  : 'GoCast needs your mic to put you on air',
+            action: mic === 'Denied' ? { label: 'Settings', onPress: () => Linking.openSettings() } : { label: 'Allow', onPress: askMic },
+          },
+        ]
+      : []),
+    {
+      key: 'battery',
+      title: 'Keep running when locked',
+      ok: batteryOk,
+      sub: batteryOk ? 'On · the show survives a locked screen' : 'Without it, the phone may cut a long show',
+      action: { label: 'Turn on', onPress: () => GocastKeepAlive?.requestIgnoreBatteryOptimizations() },
+    },
+    {
+      key: 'queue',
+      title: 'Running order',
+      ok: !!summary?.trackCount,
+      neutral: !summary?.trackCount,
+      sub: summary?.trackCount
+        ? `${summary.trackCount} ${summary.trackCount === 1 ? 'track' : 'tracks'} · ${formatBytes(summary.bytes)}`
+        : 'Empty. You can add music once you’re live.',
+      action: summary?.trackCount ? { label: 'Clear', onPress: () => setConfirmClear(true), quiet: true } : undefined,
+    },
+    {
+      key: 'net',
+      title: 'Connection',
+      ok: probe.state === 'ok' && probe.ms < SLOW_MS,
+      neutral: probe.state === 'checking',
+      sub:
+        probe.state === 'checking'
+          ? 'Checking…'
+          : probe.state === 'down'
+            ? 'Can’t reach GoCast. Check your internet.'
+            : probe.ms < SLOW_MS
+              ? `Connected · ${BITRATE_KBPS} kbps stream`
+              : `Slow · ${probe.ms} ms to GoCast`,
+      action: probe.state === 'down' ? { label: 'Retry', onPress: refresh } : undefined,
+    },
+  ];
+  const stoppedAt = summary?.lastTrack && summary.lastTrack.offset >= 1 ? formatTrackTime(summary.lastTrack.offset) : null;
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={styles.page}>
-      <Stack.Screen options={{ title: 'Go live' }} />
-      <PageTitle>{stationName}</PageTitle>
+    <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom + 14 }]}>
+      <View style={styles.top}>
+        <BackButton onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
+        <T weight={600} size={15} tone="muted" numberOfLines={1} style={{ flex: 1 }}>
+          {stationName}
+        </T>
+      </View>
 
-      {phase === 'idle' && otherStation && (
-        <Notice tone="fault">
-          You are live on {broadcast.stationName ?? broadcast.stationSlug}. End that broadcast before going live here.
-        </Notice>
-      )}
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <T weight={800} size={34} tracking={-0.04} style={{ lineHeight: 36 }}>
+          Ready to go live?
+        </T>
 
-      {alreadyLive && (
-        <Notice tone="fault">
-          Someone is live from another browser or computer, and a station takes one broadcast at a time. Press End
-          broadcast in the studio there, then come back and go live here.
-        </Notice>
-      )}
-
-      {phase === 'idle' && !otherStation && !alreadyLive && station?.is_on_air && (
-        <Notice tone="violet">
-          AutoDJ is on air right now. Going live takes over from it, and ending hands back to it.
-        </Notice>
-      )}
-
-      {phase === 'idle' && !otherStation && (
-        <>
-          <Section title="How are you broadcasting?">
-            <Choice
-              selected={!skipMic}
-              icon={<IconMicrophone size={20} color={colors.text} />}
-              title="Mic + music"
-              note="Talk over your files"
-              onPress={() => chooseMic(false)}
-            />
-            <Choice
-              selected={skipMic}
-              icon={<IconMusic size={20} color={colors.text} />}
-              title="Music only"
-              note="No mic permission asked"
-              onPress={() => chooseMic(true)}
-            />
-          </Section>
-
-          <Section title="Running order">
-            {!summary || summary.trackCount === 0 ? (
-              <T tone="muted" size={14}>
-                Empty. Add music files in the studio once you&apos;re live.
-              </T>
-            ) : (
-              <>
-                <T size={14}>
-                  {summary.trackCount} {summary.trackCount === 1 ? 'track' : 'tracks'} saved
-                  {summary.lastTrack ? (
-                    <T tone="muted" size={14}>
-                      {' '}
-                      · last played {summary.lastTrack.title}
-                    </T>
-                  ) : null}
-                </T>
-                {summary.lastTrack && summary.lastTrack.offset >= 1 && (
-                  <>
-                    <Choice
-                      selected={!fromStart}
-                      icon={<IconPlayerPlay size={20} color={colors.text} />}
-                      title={`Pick up at ${stoppedAt}`}
-                      note="Right where it stopped"
-                      onPress={() => chooseFromStart(false)}
-                    />
-                    <Choice
-                      selected={fromStart}
-                      icon={<IconPlayerTrackPrev size={20} color={colors.text} />}
-                      title="Start it over"
-                      note="Same song, from 0:00"
-                      onPress={() => chooseFromStart(true)}
-                    />
-                  </>
-                )}
-                <Button
-                  label="Clear queue"
-                  variant="ghost"
-                  onPress={() => setConfirmClear(true)}
-                  style={{ alignSelf: 'flex-start', paddingHorizontal: 0 }}
-                />
-              </>
-            )}
-          </Section>
-
-          <Button label="Go live" variant="primary" height={52} disabled={alreadyLive} onPress={() => goLive()} />
-        </>
-      )}
-
-      {thisStation && (phase === 'connecting' || phase === 'live' || phase === 'reconnecting') && (
-        <Panel style={styles.progress}>
-          <T size={15} weight="semibold" tone={phase === 'live' ? 'live' : 'text'}>
-            {phase === 'live'
-              ? `You're live. Opening the studio in ${secondsLeft}…`
-              : phase === 'reconnecting'
-                ? 'The connection dropped. Reconnecting…'
-                : 'Going live…'}
-          </T>
-          {broadcast.steps.map((s) => (
-            <View key={s.id} style={styles.step}>
-              {s.status === 'active' ? (
-                <ActivityIndicator color={colors.muted} size="small" />
-              ) : s.status === 'done' ? (
-                <IconCheck size={18} color={colors.liveText} />
-              ) : (
-                <View style={styles.pending} />
-              )}
-              <T size={14} tone={s.status === 'pending' ? 'faint' : 'text'}>
-                {s.label}
-              </T>
-            </View>
-          ))}
-          {phase === 'live' && (
-            <Button
-              label="Open studio now"
-              variant="outline"
-              onPress={() => router.replace({ pathname: '/studio/[slug]', params: { slug } })}
-            />
-          )}
-        </Panel>
-      )}
-
-      {thisStation && phase === 'error' && (
-        <Panel style={styles.progress}>
-          <T size={15} weight="semibold" tone="fault">
-            Couldn&apos;t go live
-          </T>
-          <T tone="fault" size={14}>
-            {broadcast.error || 'Something stopped the broadcast from starting.'}
-          </T>
-          {micDenied ? (
-            <View style={styles.row}>
+        {otherStation && (
+          <Notice>
+            You&apos;re live on {broadcast.stationName ?? broadcast.stationSlug}. End that show before going live here.
+          </Notice>
+        )}
+        {alreadyLive && (
+          <Notice>
+            Someone is live on this station from another device, and a station takes one show at a time. End it
+            there, then come back.
+          </Notice>
+        )}
+        {failed && (
+          <Card radius={22} style={{ gap: 12 }}>
+            <T weight={700} size={16} tone="liveText">
+              Couldn&apos;t go live
+            </T>
+            <T weight={400} size={14} tone="muted" lineHeight={1.45}>
+              {broadcast.error || 'Something stopped the show from starting.'}
+            </T>
+            {micDenied && (
               <Button
-                label="Continue without mic"
-                variant="primary"
+                label="Go live without the mic"
+                variant="outline"
+                height={50}
+                radius={16}
+                size={15}
                 onPress={() => {
                   chooseMic(true);
-                  goLive({ skipMic: true });
+                  launch({ skipMic: true });
                 }}
-                style={{ flex: 1 }}
               />
-              <Button label="Try again" onPress={() => goLive()} style={{ flex: 1 }} />
-            </View>
-          ) : (
-            <View style={styles.row}>
-              <Button label="Try again" variant="primary" onPress={() => goLive()} style={{ flex: 1 }} />
-              <Button
-                label="Back"
-                onPress={() => {
-                  void broadcast.stop();
-                  router.back();
-                }}
-                style={{ flex: 1 }}
-              />
-            </View>
-          )}
-        </Panel>
-      )}
+            )}
+          </Card>
+        )}
 
-      <Overlay visible={confirmClear} onClose={() => setConfirmClear(false)}>
-        <T style={styles.dialogTitle}>Clear your running order?</T>
-        <T tone="muted" size={14} style={{ lineHeight: 20 }}>
+        <View style={styles.modes}>
+          <Mode
+            selected={!skipMic}
+            title="Mic + music"
+            sub="Talk over your tracks"
+            onPress={() => chooseMic(false)}
+          />
+          <Mode selected={skipMic} title="Music only" sub="No mic, no permission" onPress={() => chooseMic(true)} />
+        </View>
+
+        <Card style={{ paddingVertical: 4 }}>
+          {checks.map((c, i) => (
+            <View key={c.key}>
+              <CheckRow check={c} first={i === 0} />
+              {c.key === 'queue' && stoppedAt && (
+                <View style={{ paddingBottom: 11 }}>
+                  <Segmented
+                    value={fromStart}
+                    onChange={chooseFromStart}
+                    options={[
+                      { value: false, label: `Pick up at ${stoppedAt}` },
+                      { value: true, label: 'Start it over' },
+                    ]}
+                  />
+                </View>
+              )}
+            </View>
+          ))}
+        </Card>
+
+        {!autoDjLocked && station?.is_on_air && !station.is_live && (
+          <View style={styles.note}>
+            <View style={{ marginTop: 5 }}>
+              <Dot color={colors.autodj} />
+            </View>
+            <T weight={500} size={13} tone="muted" lineHeight={1.45} style={{ flex: 1 }}>
+              AutoDJ is on air. It fades out when you start and picks up again when you end.
+            </T>
+          </View>
+        )}
+      </ScrollView>
+
+      <Button
+        label={failed ? 'Try again' : micMissing ? 'Allow mic & go live' : 'Go live now'}
+        variant="live"
+        height={64}
+        radius={20}
+        size={18}
+        dot
+        disabled={blocked}
+        onPress={goLive}
+        style={styles.start}
+      />
+
+      <Overlay visible={confirmClear} onClose={() => setConfirmClear(false)} placement="bottom">
+        <T weight={800} size={28} tracking={-0.03} style={{ lineHeight: 30 }}>
+          Clear your running order?
+        </T>
+        <T weight={400} size={15} tone="muted" lineHeight={1.45}>
           Every saved track is removed from this phone. Your music files elsewhere are not touched.
         </T>
-        <View style={styles.row}>
-          <Button label="Keep it" onPress={() => setConfirmClear(false)} style={{ flex: 1 }} />
+        <View style={{ gap: 8 }}>
           <Button
-            label="Clear queue"
-            variant="destructive"
+            label="Clear it"
+            variant="live"
             onPress={() => {
               clearQueue();
               removeJson(RESUME_FROM_START_KEY);
               setSummary(loadQueueSummary());
               setConfirmClear(false);
             }}
-            style={{ flex: 1 }}
           />
+          <Button label="Keep it" variant="subtle" height={54} onPress={() => setConfirmClear(false)} />
         </View>
       </Overlay>
-    </ScrollView>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <View style={{ gap: 10 }}>
-      <T size={13} tone="muted" weight="medium">
-        {title}
-      </T>
-      {children}
-    </View>
-  );
-}
-
-function Choice({
-  selected,
-  icon,
-  title,
-  note,
-  onPress,
-}: {
-  selected: boolean;
-  icon: ReactNode;
-  title: string;
-  note: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={[
-        styles.choice,
-        selected
-          ? { borderColor: colors.violetPale, backgroundColor: alpha(colors.violet, 0.08) }
-          : { borderColor: colors.hairline, backgroundColor: colors.panel },
-      ]}
-    >
-      {icon}
-      <View style={{ flex: 1 }}>
-        <T size={15} weight="semibold">
-          {title}
-        </T>
-        <T size={13} tone="muted">
-          {note}
-        </T>
-      </View>
-      <View style={[styles.radio, selected && { borderColor: colors.violetPale }]}>
-        {selected && <View style={styles.radioDot} />}
-      </View>
-    </Pressable>
-  );
-}
-
-function Notice({ tone, children }: { tone: 'fault' | 'violet'; children: ReactNode }) {
-  const c = tone === 'fault' ? colors.fault : colors.violet;
-  return (
-    <View style={[styles.notice, { backgroundColor: alpha(c, 0.08), borderColor: alpha(c, 0.3) }]}>
-      <T size={14} tone={tone === 'fault' ? 'fault' : 'violet'} style={{ lineHeight: 20 }}>
-        {children}
-      </T>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 16, gap: 20, paddingBottom: 40 },
-  choice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderWidth: 1,
-    borderRadius: radius.xl,
-    paddingHorizontal: 16,
-    minHeight: 64,
-  },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  screen: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 18 },
+  top: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: -10 },
+  body: { flexGrow: 1, gap: 14, paddingTop: 2, paddingBottom: 4 },
+  modes: { flexDirection: 'row', gap: 10 },
+  note: { flexDirection: 'row', gap: 10 },
+  start: { marginTop: 12 },
+  countdown: { flex: 1, backgroundColor: colors.live, alignItems: 'center', justifyContent: 'center', gap: 18 },
+  cancel: {
+    marginTop: 30,
     borderWidth: 1.5,
-    borderColor: colors.inputLine,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: 'rgba(26,8,6,0.35)',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
   },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.violetPale },
-  notice: { borderWidth: 1, borderRadius: radius.xl, padding: 14 },
-  progress: { padding: 16, gap: 12 },
-  step: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 24 },
-  pending: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: colors.inputLine },
-  row: { flexDirection: 'row', gap: 10 },
-  dialogTitle: { fontFamily: fonts.display, fontSize: 20, color: colors.text },
 });

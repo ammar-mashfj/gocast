@@ -326,6 +326,11 @@ export function formatWhen(iso: string): string {
   return d.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+/** "1 track", "12 tracks". */
+export function trackCount(n: number): string {
+  return `${n} ${n === 1 ? 'track' : 'tracks'}`;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;

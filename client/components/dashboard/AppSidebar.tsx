@@ -138,14 +138,14 @@ const NAV_ITEMS: NavItem[] = [
     lock: "autodj",
   },
   {
-    // Its own item, not a tab under AutoDJ: it carries show times too, which
-    // every plan has, and it answers the one question a volunteer arrives
-    // with — "what's on this week?" — without knowing which feature owns it.
+    // AutoDJ slots only, so it carries the AutoDJ lock. Show times, which
+    // every plan has, live in Station settings (docs/features/schedule.md).
     title: "Schedule",
     href: "/dashboard",
     stationHref: (slug) => `/dashboard/stations/${slug}/schedule`,
     icon: IconCalendarTime,
     isActive: (p) => /^\/dashboard\/stations\/[^/]+\/schedule/.test(p),
+    lock: "autodj",
   },
   {
     title: "Audience",

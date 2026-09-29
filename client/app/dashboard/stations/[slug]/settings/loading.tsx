@@ -100,6 +100,17 @@ export default function SettingsLoading() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-base font-medium">Show times</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Skeleton className="h-4 w-full max-w-lg" />
+          <Skeleton className="h-9 w-full max-w-md" />
+          <Skeleton className="h-9 w-40" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base font-medium">Stream</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

@@ -1,18 +1,18 @@
-import { IconAlertTriangle, IconBrandGoogleFilled } from '@tabler/icons-react-native';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Wordmark } from '../components/Brand';
-import { Button, T, TextField } from '../components/ui';
+import { GoogleLogo } from '../components/Brand';
+import { BackButton, Button, T, TextField } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { alpha, colors, fonts, radius } from '../lib/theme';
+import { colors } from '../lib/theme';
 import { openWeb } from '../lib/web';
 
 /**
- * Email and password sign-in. Everything the app doesn't do yet (sign-up,
- * password reset, Google) is one tap away on the web, and says so.
+ * Email and password sign-in, one step in from the welcome screen. Google
+ * stays here for anyone who tapped email by habit. Password reset is on the
+ * web, one tap away.
  */
 export default function Login() {
   const { signIn, signInWithGoogle } = useAuth();
@@ -22,31 +22,34 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Which field the error is about, so its box gets the coral edge.
+  const [error, setError] = useState<{ message: string; field: 'email' | 'password' | null } | null>(null);
 
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !busy && !googleBusy;
+  const filled = email.trim().length > 0 && password.length > 0;
 
   const google = async () => {
     setGoogleBusy(true);
     setError(null);
     try {
-      if (await signInWithGoogle()) router.replace('/stations');
+      await signInWithGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.');
+      setError({ message: err instanceof Error ? err.message : 'Google sign-in failed.', field: null });
     } finally {
       setGoogleBusy(false);
     }
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (busy || googleBusy) return;
+    if (!email.includes('@')) return setError({ message: 'Enter the email you signed up with.', field: 'email' });
+    if (!password) return setError({ message: 'Enter your password.', field: 'password' });
     setBusy(true);
     setError(null);
     try {
+      // The session change opens the station (_layout.tsx → home).
       await signIn(email.trim(), password);
-      router.replace('/stations');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError({ message: err instanceof Error ? err.message : String(err), field: 'password' });
     } finally {
       setBusy(false);
     }
@@ -56,19 +59,22 @@ export default function Login() {
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 6, paddingBottom: insets.bottom + 22 }]}
       >
-        <Wordmark width={124} />
+        <View style={{ marginLeft: -12 }}>
+          <BackButton onPress={() => (router.canGoBack() ? router.back() : router.replace('/welcome'))} />
+        </View>
 
-        <View style={styles.hero}>
-          <T style={styles.display}>Sign in.</T>
-          <T style={[styles.display, { color: colors.violetPale }]}>Go live from your phone.</T>
-          <T tone="muted" size={16} style={{ lineHeight: 24, marginTop: 12 }}>
-            Use the email and password of your GoCast account. Your show keeps going with the screen locked.
+        <View style={{ gap: 8 }}>
+          <T weight={800} size={38} tracking={-0.04} style={{ lineHeight: 40 }}>
+            Welcome back.
+          </T>
+          <T weight={400} size={16} tone="muted" lineHeight={1.45}>
+            Use your GoCast email and password.
           </T>
         </View>
 
-        <View style={styles.form}>
+        <View style={{ gap: 10 }}>
           <TextField
             label="Email"
             placeholder="you@example.com"
@@ -79,90 +85,67 @@ export default function Login() {
             textContentType="emailAddress"
             returnKeyType="next"
             submitBehavior="submit"
+            invalid={error?.field === 'email'}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => {
+              setEmail(v);
+              setError(null);
+            }}
             onSubmitEditing={() => passwordRef.current?.focus()}
           />
           <TextField
             ref={passwordRef}
             label="Password"
+            placeholder="Your password"
             secret
             autoCapitalize="none"
             autoComplete="current-password"
             textContentType="password"
             returnKeyType="go"
+            invalid={error?.field === 'password'}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(v) => {
+              setPassword(v);
+              setError(null);
+            }}
             onSubmitEditing={submit}
-            trailing={
-              <Pressable hitSlop={10} onPress={() => openWeb('/auth/forgot')}>
-                <T tone="violet" size={13} weight="medium">
-                  Forgot password?
-                </T>
-              </Pressable>
-            }
           />
-
-          {error && (
-            <View style={styles.error} accessibilityRole="alert">
-              <IconAlertTriangle size={18} color={colors.faultText} />
-              <T tone="fault" size={14} style={{ flex: 1, lineHeight: 20 }}>
-                {error}
-              </T>
-            </View>
-          )}
-
-          <Button
-            label="Sign in"
-            variant="primary"
-            height={52}
-            busy={busy}
-            disabled={!canSubmit}
-            onPress={submit}
-            style={styles.submit}
-          />
-
-          <View style={styles.or}>
-            <View style={styles.rule} />
-            <T tone="muted" size={13}>
-              Or
+          <View style={styles.below}>
+            <T weight={600} size={13} tone="liveText" accessibilityRole="alert" style={{ flex: 1 }}>
+              {error?.message ?? ''}
             </T>
-            <View style={styles.rule} />
-          </View>
-
-          <Button
-            label={googleBusy ? 'Signing in…' : 'Continue with Google'}
-            height={52}
-            disabled={busy || googleBusy}
-            icon={<IconBrandGoogleFilled size={18} color={colors.text} />}
-            onPress={google}
-            style={{ borderRadius: radius.lg }}
-          />
-        </View>
-
-        <View style={styles.footer}>
-          <View style={styles.footerRow}>
-            <T tone="muted" size={14}>
-              New to GoCast?
-            </T>
-            <Pressable hitSlop={10} onPress={() => openWeb('/auth/register')}>
-              <T tone="violet" size={14} weight="semibold">
-                Create a free station
+            <Pressable accessibilityRole="link" hitSlop={10} onPress={() => openWeb('/auth/forgot')}>
+              <T weight={600} size={13} tone="autodjText">
+                Forgot password?
               </T>
             </Pressable>
           </View>
-          <T tone="faint" size={12} style={{ textAlign: 'center', lineHeight: 18 }}>
-            By signing in with Google, you agree to our{' '}
-            <T tone="faint" size={12} style={styles.underline} onPress={() => openWeb('/terms')}>
-              Terms of Service
-            </T>{' '}
-            and{' '}
-            <T tone="faint" size={12} style={styles.underline} onPress={() => openWeb('/privacy')}>
-              Privacy Policy
-            </T>
-            .
-          </T>
         </View>
+
+        <Button
+          label="Sign in"
+          variant={filled ? 'light' : 'dark'}
+          busy={busy}
+          disabled={googleBusy}
+          onPress={submit}
+          style={!filled && styles.idle}
+        />
+
+        <View style={styles.or}>
+          <View style={styles.rule} />
+          <T weight={500} size={13} tone="faint">
+            or
+          </T>
+          <View style={styles.rule} />
+        </View>
+
+        <Button
+          label={googleBusy ? 'Signing in…' : 'Continue with Google'}
+          variant="outline"
+          icon={<GoogleLogo />}
+          disabled={busy || googleBusy}
+          onPress={google}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -170,24 +153,10 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: { flexGrow: 1, paddingHorizontal: 24 },
-  hero: { marginTop: 56, marginBottom: 36 },
-  display: { fontFamily: fonts.displayBold, fontSize: 38, lineHeight: 38, letterSpacing: -1.5, color: colors.text },
-  form: { gap: 18 },
-  error: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    padding: 12,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    backgroundColor: alpha(colors.fault, 0.1),
-    borderColor: alpha(colors.fault, 0.35),
-  },
-  submit: { marginTop: 6, borderRadius: radius.lg },
+  content: { flexGrow: 1, paddingHorizontal: 26, gap: 26 },
+  below: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 20 },
+  // The comp's "not ready yet" button: dark, with faint ink.
+  idle: { opacity: 0.7 },
   or: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rule: { flex: 1, height: 1, backgroundColor: colors.hairline },
-  underline: { textDecorationLine: 'underline' },
-  footer: { marginTop: 'auto', paddingTop: 40, gap: 10, alignItems: 'center' },
-  footerRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'center' },
+  rule: { flex: 1, height: 1, backgroundColor: colors.line },
 });

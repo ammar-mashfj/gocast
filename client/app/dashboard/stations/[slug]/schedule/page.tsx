@@ -32,17 +32,13 @@ export default async function SchedulePage({ params }: { params: Promise<{ slug:
     throw err
   }
 
-  // Its own sidebar item now, not a tab under AutoDJ: show times are on
-  // every plan, and a Free station had to open a Pro page to reach them.
+  // AutoDJ slots only. Show times and the station timezone are edited in
+  // Station settings and drawn here read-only — see SchedulePlanner.
   return (
-    <div className="sheet max-w-4xl">
-      <div className="mb-8 flex flex-col gap-1.5">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Schedule</h1>
-        <p className="text-sm text-muted-foreground max-w-[62ch]">
-          Your station&apos;s week: when you go live, and what AutoDJ plays the rest of the time.
-        </p>
-      </div>
-
+    // Full width, like Library and Audience: the week calendar needs the
+    // room, and the slot panel sits beside it on large screens. The heading
+    // is the planner's, so the save state can sit next to it.
+    <div className="sheet">
       <SchedulePlanner station={station} playlists={playlists} />
     </div>
   )

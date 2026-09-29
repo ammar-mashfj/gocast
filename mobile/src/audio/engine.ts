@@ -30,6 +30,7 @@ import {
   pruneFiles,
   savePlayback,
   saveQueue,
+  trackFile,
   trackPath,
   type StoredTrack,
 } from './queueStore';
@@ -137,8 +138,13 @@ export class AudioEngine {
   private currentIndex = -1;
   private playing = false;
   private currentSource: FileSource | null = null;
-  private progressTimer: ReturnType<typeof setInterval>;
+  /** Frames of the mix since the playback position was last saved. */
+  private framesSinceSave = 0;
+  /** Tracks in a row that would not open; stops the skip-ahead going round forever. */
+  private failedInARow = 0;
   private pruneTimer: ReturnType<typeof setTimeout> | null = null;
+  /** addFiles calls in flight: their files are in the queue directory but not yet in the queue. */
+  private importing = 0;
 
   private listeners = new Set<() => void>();
   private version = 0;
@@ -153,7 +159,10 @@ export class AudioEngine {
 
     // JS-side receiver for the tap. A plain function: scheduleOnRN runs it on
     // the React Native runtime with copies of the worklet's buffers.
-    const deliver = (left: Float32Array, right: Float32Array | null) => this.onPcm(left, right);
+    const deliver = (left: Float32Array, right: Float32Array | null) => {
+      this.onPcm(left, right);
+      this.tickProgress(left.length);
+    };
     this.tap = this.ctx.createWorkletNode(
       (audioData: Float32Array[], channelCount: number) => {
         'worklet';
@@ -182,7 +191,6 @@ export class AudioEngine {
     this.fileGain.connect(this.monitorGain);
     this.monitorGain.connect(this.ctx.destination);
 
-    this.progressTimer = setInterval(() => this.saveProgress(), 5000);
   }
 
   /**
@@ -469,8 +477,30 @@ export class AudioEngine {
   private persistQueue() {
     saveQueue(this.queue.map(({ duration: _duration, ...stored }) => stored));
     // Files of removed tracks go once Undo can no longer want them.
+    this.schedulePrune();
+  }
+
+  private schedulePrune() {
     if (this.pruneTimer) clearTimeout(this.pruneTimer);
-    this.pruneTimer = setTimeout(() => pruneFiles(new Set(this.queue.map((t) => t.fileName))), PRUNE_DELAY_MS);
+    this.pruneTimer = setTimeout(() => {
+      // An import in flight has moved its file in but not queued it yet;
+      // pruning now would delete it. Android holds JS timers while the file
+      // picker is in front, so an overdue prune fires exactly then.
+      if (this.importing > 0) this.schedulePrune();
+      else pruneFiles(new Set(this.queue.map((t) => t.fileName)));
+    }, PRUNE_DELAY_MS);
+  }
+
+  /**
+   * Save the playback position every 5s of audio. Counted off the tap rather
+   * than setInterval: Android stops JS timers while the phone is locked, which
+   * is when the app is likeliest to be killed.
+   */
+  private tickProgress(frames: number) {
+    this.framesSinceSave += frames;
+    if (this.framesSinceSave < this.ctx.sampleRate * 5) return;
+    this.framesSinceSave = 0;
+    this.saveProgress();
   }
 
   private saveProgress() {
@@ -516,29 +546,34 @@ export class AudioEngine {
     let added = 0;
     let currentBytes = this.getQueueBytes();
 
-    for (const file of files) {
-      if (file.mimeType && !file.mimeType.startsWith('audio/')) continue;
-      if (currentBytes + file.size > QUEUE_BYTE_LIMIT) {
-        skipped.push(file);
-        continue;
+    this.importing++;
+    try {
+      for (const file of files) {
+        if (file.mimeType && !file.mimeType.startsWith('audio/')) continue;
+        if (currentBytes + file.size > QUEUE_BYTE_LIMIT) {
+          skipped.push(file);
+          continue;
+        }
+        const id = newId();
+        let fileName: string;
+        try {
+          fileName = importPickedFile(file.uri, id, file.name);
+        } catch (err) {
+          console.error('[AudioEngine] could not import', file.name, err);
+          skipped.push(file);
+          continue;
+        }
+        const stored = { id, fileName, originalName: file.name, size: file.size };
+        const [duration, tags] = await Promise.all([
+          getAudioDuration(trackPath(stored)).catch(() => 0),
+          readTags(trackPath(stored), file.name),
+        ]);
+        this.queue.push({ ...stored, ...tags, duration });
+        currentBytes += file.size;
+        added++;
       }
-      const id = newId();
-      let fileName: string;
-      try {
-        fileName = importPickedFile(file.uri, id, file.name);
-      } catch (err) {
-        console.error('[AudioEngine] could not import', file.name, err);
-        skipped.push(file);
-        continue;
-      }
-      const stored = { id, fileName, originalName: file.name, size: file.size };
-      const [duration, tags] = await Promise.all([
-        getAudioDuration(trackPath(stored)).catch(() => 0),
-        readTags(trackPath(stored), file.name),
-      ]);
-      this.queue.push({ ...stored, ...tags, duration });
-      currentBytes += file.size;
-      added++;
+    } finally {
+      this.importing--;
     }
     if (added > 0) {
       this.persistQueue();
@@ -662,6 +697,12 @@ export class AudioEngine {
     this.playIndex(prevIdx >= 0 ? prevIdx : this.queue.length - 1);
   }
 
+  /** Jump to a track in the running order and play it from the start. */
+  playAt(index: number) {
+    if (index < 0 || index >= this.queue.length) return;
+    this.playIndex(index);
+  }
+
   getElapsed(): number {
     return this.currentSource?.currentTime ?? 0;
   }
@@ -682,19 +723,35 @@ export class AudioEngine {
       if (this.repeatMode === 'one') this.playIndex(this.currentIndex);
       else this.next();
     });
-    if (!source) {
+    // The native side never returns null for a local path: a file it cannot
+    // decode (or one that has gone missing) comes back as a source that plays
+    // silence and never ends. A zero duration is the sign of it, but not
+    // proof: a decoder can report the length late, or not at all for a
+    // container without one. So a source with no duration is only given up
+    // on when the file is gone, or import could not time it either.
+    const reported = source?.duration ?? 0;
+    const known = Number.isFinite(reported) && reported > 0 ? reported : track.duration || 0;
+    const unopenable = !source || known <= 0 || !trackFile(track).exists;
+    if (unopenable) {
+      source?.dispose();
       console.error('[AudioEngine] could not open', track.originalName);
+      this.failedInARow++;
+      if (this.failedInARow < this.queue.length) {
+        this.playIndex((index + 1) % this.queue.length);
+        return;
+      }
+      // Nothing in the queue will open; stop rather than spin.
+      this.failedInARow = 0;
+      this.playing = false;
       this.notify();
       return;
     }
+    this.failedInARow = 0;
     source.output.connect(this.fileGain);
     this.currentSource = source;
 
-    const duration = source.duration;
-    if (Number.isFinite(duration) && duration > 0) {
-      if (!track.duration || Math.abs(track.duration - duration) > 0.5) track.duration = duration;
-      if (offset > 0) source.seekTo(Math.min(offset, Math.max(0, duration - 0.1)));
-    }
+    if (!track.duration || Math.abs(track.duration - known) > 0.5) track.duration = known;
+    if (offset > 0) source.seekTo(Math.min(offset, Math.max(0, known - 0.1)));
     source.play();
     this.playing = true;
     savePlayback({ currentIndex: index, offset });
@@ -708,7 +765,6 @@ export class AudioEngine {
   }
 
   async destroy(): Promise<void> {
-    clearInterval(this.progressTimer);
     this.saveProgress();
     if (this.pruneTimer) clearTimeout(this.pruneTimer);
     this.stopCurrent();

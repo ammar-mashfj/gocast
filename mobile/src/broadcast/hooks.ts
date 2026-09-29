@@ -1,6 +1,7 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { AudioEngine } from '../audio/engine';
+import type { AudioEngine, QueueTrack, RepeatMode } from '../audio/engine';
+import type { MicPrefs } from '../audio/micPrefs';
 import { api } from '../lib/api';
 import { useBroadcast } from './BroadcastContext';
 import type { TransportStats } from './broadcastManager';
@@ -24,6 +25,54 @@ export function useEngineValue<T>(engine: AudioEngine, read: (engine: AudioEngin
 export function useEngineValue<T>(engine: AudioEngine | null, read: (engine: AudioEngine) => T, fallback: T): T;
 export function useEngineValue<T>(engine: AudioEngine | null, read: (engine: AudioEngine) => T, fallback?: T): T {
   return useSyncExternalStore(engine?.subscribe ?? noopSubscribe, () => (engine ? read(engine) : (fallback as T)));
+}
+
+export interface EngineSnapshot {
+  /** A copy: the engine reorders its own array in place. */
+  queue: QueueTrack[];
+  currentIndex: number;
+  current: QueueTrack | null;
+  playing: boolean;
+  micActive: boolean;
+  micLatched: boolean;
+  repeatMode: RepeatMode;
+  monitorEnabled: boolean;
+  monitorVolume: number;
+  prefs: MicPrefs;
+  queueBytes: number;
+}
+
+function readSnapshot(engine: AudioEngine): EngineSnapshot {
+  return {
+    queue: [...engine.getQueue()],
+    currentIndex: engine.getCurrentIndex(),
+    current: engine.getCurrentTrack(),
+    playing: engine.isPlaying(),
+    micActive: engine.isMicActive(),
+    micLatched: engine.isMicLatched(),
+    repeatMode: engine.getRepeatMode(),
+    monitorEnabled: engine.isMonitorEnabled(),
+    monitorVolume: engine.getMonitorVolume(),
+    prefs: engine.getMicPrefs(),
+    queueBytes: engine.getQueueBytes(),
+  };
+}
+
+/**
+ * Everything the studio draws from the engine, as one immutable object that
+ * is rebuilt only when the engine's version moves. Safe under the React
+ * Compiler (see useEngineValue) and cheap to read many fields from.
+ */
+export function useEngineSnapshot(engine: AudioEngine): EngineSnapshot {
+  const cache = useRef<{ engine: AudioEngine; version: number; snap: EngineSnapshot } | null>(null);
+  return useSyncExternalStore(engine.subscribe, () => {
+    const version = engine.getVersion();
+    const hit = cache.current;
+    if (hit && hit.engine === engine && hit.version === version) return hit.snap;
+    const snap = readSnapshot(engine);
+    cache.current = { engine, version, snap };
+    return snap;
+  });
 }
 
 // ── Transport health: the web's signal.ts, same constants ──

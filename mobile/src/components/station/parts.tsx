@@ -1,11 +1,9 @@
-import { IconExternalLink } from '@tabler/icons-react-native';
 import { useState, type ReactNode } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { alpha, colors, fonts, radius } from '../../lib/theme';
-import { openWeb } from '../../lib/web';
+import { colors } from '../../lib/theme';
 import { Bone, BonePanel, BoneRows, SkeletonGroup } from '../Skeleton';
-import { Button, Panel, T } from '../ui';
+import { Button, Caption, Card, T } from '../ui';
 
 /** A tab's scrolling body with pull-to-refresh. */
 export function StationScreen({ onRefresh, children }: { onRefresh: () => Promise<unknown>; children: ReactNode }) {
@@ -14,12 +12,13 @@ export function StationScreen({ onRefresh, children }: { onRefresh: () => Promis
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={styles.body}
+      showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           tintColor={colors.text}
-          colors={[colors.violet]}
-          progressBackgroundColor={colors.popover}
+          colors={[colors.autodj]}
+          progressBackgroundColor={colors.sheet}
           onRefresh={async () => {
             setRefreshing(true);
             await onRefresh();
@@ -33,179 +32,137 @@ export function StationScreen({ onRefresh, children }: { onRefresh: () => Promis
   );
 }
 
-/** A panel with a title row and an optional action on the right. */
-export function Section({
-  title,
-  action,
-  children,
-  style,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-  style?: object;
-}) {
+/** A card with a bold title row and an optional action on the right. */
+export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <Panel style={[styles.section, style]}>
+    <Card style={{ gap: 14 }}>
       <View style={styles.sectionHead}>
-        <T size={15} weight="semibold">
+        <T weight={700} size={16}>
           {title}
         </T>
         {action}
       </View>
       {children}
-    </Panel>
+    </Card>
   );
 }
 
-export function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
+/** The comp's stat tile: a mono caption, a big number, a faint note. */
+export function StatTile({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <Pressable hitSlop={10} onPress={onPress}>
-      <T tone="violet" size={13} weight="medium">
-        {label}
-      </T>
-    </Pressable>
-  );
-}
-
-/** A number with its label: "Peak at once · 12". */
-export function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <View style={styles.tile}>
-      <T tone="muted" size={12}>
-        {label}
-      </T>
-      <T style={styles.tileValue} numberOfLines={1}>
+    <Card radius={18} padding={14} style={{ flex: 1, gap: 8 }}>
+      <Caption>{label}</Caption>
+      <T weight={700} size={26} numberOfLines={1} adjustsFontSizeToFit style={{ lineHeight: 28 }}>
         {value}
       </T>
-      {!!hint && (
-        <T tone="faint" size={11} numberOfLines={2}>
-          {hint}
+      {!!note && (
+        <T weight={500} size={12} tone="faint" numberOfLines={1}>
+          {note}
         </T>
       )}
-    </View>
+    </Card>
   );
 }
 
-export function TileGrid({ children }: { children: ReactNode }) {
-  return <View style={styles.grid}>{children}</View>;
+export function TileRow({ children }: { children: ReactNode }) {
+  return <View style={styles.tiles}>{children}</View>;
 }
 
-/** A row label and a proportional bar, for breakdowns. */
-export function BarRow({ label, value, max, detail }: { label: string; value: number; max: number; detail: string }) {
-  const pct = max > 0 ? Math.max(0.02, value / max) : 0;
+/** A proportional bar with its label and share: "Egypt · 34%". */
+export function BarRow({ label, fraction, detail }: { label: string; fraction: number; detail: string }) {
   return (
     <View style={{ gap: 6 }}>
       <View style={styles.barHead}>
-        <T size={14} numberOfLines={1} style={{ flex: 1 }}>
+        <T weight={600} size={14} numberOfLines={1} style={{ flex: 1 }}>
           {label}
         </T>
-        <T mono size={12} tone="muted">
+        <T mono weight={500} size={13} tone="muted">
           {detail}
         </T>
       </View>
       <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+        <View style={[styles.barFill, { width: `${Math.max(0.02, Math.min(1, fraction)) * 100}%` }]} />
       </View>
     </View>
+  );
+}
+
+export function ErrorNote({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card radius={24} style={{ gap: 14, padding: 20 }}>
+      <T weight={700} size={17}>
+        Couldn&apos;t load this
+      </T>
+      <T weight={400} size={15} tone="liveText" lineHeight={1.45}>
+        {message}
+      </T>
+      <Button label="Try again" height={52} radius={16} onPress={onRetry} />
+    </Card>
+  );
+}
+
+/** A quiet card for "nothing here yet". */
+export function EmptyNote({ title, body }: { title?: string; body: string }) {
+  return (
+    <Card radius={22} style={{ gap: 8, padding: 18 }}>
+      {!!title && (
+        <T weight={700} size={16}>
+          {title}
+        </T>
+      )}
+      <T weight={400} size={15} tone="muted" lineHeight={1.45}>
+        {body}
+      </T>
+    </Card>
   );
 }
 
 // ── Skeletons: each tab's layout, unlit, while its data loads ──
 
-function TileBones({ count = 2 }: { count?: number }) {
-  return (
-    <View style={styles.grid}>
-      {Array.from({ length: count }, (_, i) => (
-        <View key={i} style={[styles.tile, { gap: 10 }]}>
-          <Bone w="55%" h={11} />
-          <Bone w="40%" h={24} r={6} />
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export function OverviewSkeleton() {
   return (
     <SkeletonGroup style={styles.body}>
-      <BonePanel style={{ gap: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Bone w={52} h={52} r={radius.xl} />
+      <BonePanel style={{ borderRadius: 28, padding: 20, gap: 18 }}>
+        <Bone w={150} h={12} />
+        <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+          <Bone w={68} h={68} r={16} />
           <View style={{ flex: 1, gap: 8 }}>
-            <Bone w={84} h={28} r={radius.md} />
-            <Bone w="45%" h={12} />
+            <Bone w="60%" h={18} />
+            <Bone w="40%" h={13} />
           </View>
         </View>
-        <Bone h={78} r={radius.lg} />
-        <Bone h={44} r={radius.md} />
+        <Bone h={58} r={18} />
       </BonePanel>
-      <BonePanel>
-        <Bone w="35%" h={14} />
-        <Bone w={72} h={44} r={6} />
-      </BonePanel>
-      <BonePanel>
-        <Bone w="45%" h={14} />
-        <Bone h={44} r={radius.lg} />
-      </BonePanel>
-    </SkeletonGroup>
-  );
-}
-
-export function AudienceSkeleton() {
-  return (
-    <SkeletonGroup style={styles.body}>
-      <TileBones />
-      <Bone h={46} r={radius.md} />
-      <TileBones count={4} />
-      <BonePanel>
-        <Bone w="50%" h={14} />
-        <View style={{ height: 120, flexDirection: 'row', alignItems: 'flex-end', gap: 3 }}>
-          {Array.from({ length: 14 }, (_, i) => (
-            <Bone key={i} w="auto" h={24 + ((i * 37) % 80)} r={2} style={{ flex: 1 }} />
-          ))}
-        </View>
-      </BonePanel>
-    </SkeletonGroup>
-  );
-}
-
-export function ScheduleSkeleton() {
-  return (
-    <SkeletonGroup style={styles.body}>
-      <BonePanel>
-        <Bone w="35%" h={14} />
-        <BoneRows count={3} lead={48} />
-      </BonePanel>
-      <BonePanel>
-        <Bone w="35%" h={14} />
-        <BoneRows count={2} lead={48} />
-      </BonePanel>
-    </SkeletonGroup>
-  );
-}
-
-export function LibrarySkeleton() {
-  return (
-    <SkeletonGroup style={styles.body}>
+      <View style={styles.tiles}>
+        {[0, 1, 2].map((i) => (
+          <BonePanel key={i} style={{ flex: 1, borderRadius: 18, padding: 14, gap: 10 }}>
+            <Bone w="70%" h={10} />
+            <Bone w="50%" h={22} />
+          </BonePanel>
+        ))}
+      </View>
       <BonePanel>
         <Bone w="30%" h={14} />
-        <Bone h={6} r={3} />
-        <Bone w="45%" h={11} />
+        <Bone h={48} r={14} />
+      </BonePanel>
+    </SkeletonGroup>
+  );
+}
+
+export function ListSkeleton({ heading = true, rows = 4 }: { heading?: boolean; rows?: number }) {
+  return (
+    <SkeletonGroup style={styles.body}>
+      {heading && <Bone w={150} h={28} r={6} />}
+      <BonePanel>
+        <BoneRows count={rows} />
       </BonePanel>
       <BonePanel>
-        <Bone w="30%" h={14} />
         <BoneRows count={2} />
       </BonePanel>
-      <BonePanel>
-        <Bone w="35%" h={14} />
-        <BoneRows count={5} />
-      </BonePanel>
     </SkeletonGroup>
   );
 }
 
-/** A few unlit list rows, for a list inside a panel that is still loading. */
 export function RowsSkeleton({ count = 3 }: { count?: number }) {
   return (
     <SkeletonGroup>
@@ -214,69 +171,11 @@ export function RowsSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
-export function ErrorNote({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <Panel style={[styles.section, { borderColor: alpha(colors.fault, 0.4) }]}>
-      <T tone="fault" size={14} style={{ lineHeight: 20 }}>
-        {message}
-      </T>
-      <Button label="Try again" onPress={onRetry} />
-    </Panel>
-  );
-}
-
-/** For the parts of the dashboard the app only shows: finish the job on the web. */
-export function EditOnWeb({ label, path }: { label: string; path: string }) {
-  return (
-    <Button
-      label={label}
-      icon={<IconExternalLink size={16} color={colors.text} />}
-      onPress={() => openWeb(path)}
-    />
-  );
-}
-
-/** The amber Pro marker, after the thing it marks. */
-export function ProTag() {
-  return (
-    <View style={styles.pro}>
-      <T style={styles.proText}>PRO</T>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  body: { padding: 16, gap: 16, paddingBottom: 32 },
-  section: { padding: 16, gap: 14 },
+  body: { paddingTop: 6, paddingHorizontal: 16, paddingBottom: 20, gap: 12 },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  tile: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    gap: 4,
-    padding: 14,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.panel,
-  },
-  tileValue: {
-    fontFamily: fonts.display,
-    fontSize: 26,
-    letterSpacing: -0.6,
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
+  tiles: { flexDirection: 'row', gap: 8 },
   barHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  barTrack: { height: 6, borderRadius: 3, backgroundColor: alpha('#ffffff', 0.06), overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 3, backgroundColor: alpha(colors.violet, 0.7) },
-  pro: {
-    borderWidth: 1,
-    borderRadius: radius.full,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    backgroundColor: alpha(colors.pro, 0.1),
-    borderColor: alpha(colors.pro, 0.3),
-  },
-  proText: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.5, color: colors.proText },
+  barTrack: { height: 6, borderRadius: 3, backgroundColor: colors.bg, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3, backgroundColor: colors.autodj },
 });

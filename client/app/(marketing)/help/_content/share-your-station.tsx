@@ -45,7 +45,7 @@ export default function Body() {
         becomes an audience for your next one instead of leaving.
       </p>
       <p>
-        If you broadcast to a schedule, put your show times on the Schedule page
+        If you broadcast to a schedule, put your show times in Station settings
         too. They appear on the player page, and &ldquo;back Thursday at
         8pm&rdquo; is a better answer than silence.
       </p>

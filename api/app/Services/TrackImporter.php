@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -73,8 +74,13 @@ class TrackImporter
      * A music track also joins a playlist — `$playlist` if given, else the
      * station's default — because a track in no playlist never plays, and
      * "upload it and it plays" is the promise the library page makes.
+     *
+     * `$originalName` overrides the filename the client put in the upload
+     * part, for clients that cannot send it there unmangled (see
+     * StoreTrackRequest). It only feeds the stored name and the title
+     * fallback; the extension still comes from the file itself.
      */
-    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC, ?Playlist $playlist = null): Track
+    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC, ?Playlist $playlist = null, ?string $originalName = null): Track
     {
         $size = $file->getSize();
         if ($size === false) {
@@ -89,7 +95,11 @@ class TrackImporter
         @chmod($dir, 0777);
 
         $extension = strtolower($file->getClientOriginalExtension() ?: 'mp3');
-        $originalName = (string) $file->getClientOriginalName();
+        // Str::afterLast, not basename(): basename() is locale-aware and can
+        // drop leading multibyte characters from an Arabic or Cyrillic name.
+        $originalName = $originalName !== null
+            ? Str::afterLast(str_replace('\\', '/', $originalName), '/')
+            : (string) $file->getClientOriginalName();
 
         $track = (new Track)->forceFill([
             'station_id' => $station->id,
@@ -402,9 +412,21 @@ class TrackImporter
 
     private function titleFromFilename(string $filename): string
     {
-        $stem = pathinfo($filename, PATHINFO_FILENAME);
+        $stem = $this->stem($filename);
 
         return $stem !== '' ? $stem : 'Untitled';
+    }
+
+    /**
+     * The file name without directory or extension. Not pathinfo(): like
+     * basename(), it is locale-aware and can drop leading multibyte
+     * characters from an Arabic or Cyrillic name.
+     */
+    private function stem(string $filename): string
+    {
+        $base = Str::afterLast(str_replace('\\', '/', $filename), '/');
+
+        return str_contains($base, '.') ? Str::beforeLast($base, '.') : $base;
     }
 
     /**
@@ -417,7 +439,7 @@ class TrackImporter
      */
     private function splitArtistTitle(string $filename): array
     {
-        $stem = pathinfo($filename, PATHINFO_FILENAME);
+        $stem = $this->stem($filename);
         if ($stem === '') {
             return [null, null];
         }

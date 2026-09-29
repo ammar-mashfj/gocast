@@ -4,8 +4,8 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * One weekday toggle, shared by the Schedule page's two lanes: AutoDJ slots
- * and show times.
+ * One weekday toggle, shared by the two weekly editors: AutoDJ slots on the
+ * Schedule page and show times in Station settings.
  *
  * Drawn at 36px so seven fit on a phone row beside nothing else, but the hit
  * area is 44px: the `after:` box reaches 4px past every edge, and the 8px gap

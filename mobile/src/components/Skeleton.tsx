@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { colors, radius } from '../lib/theme';
+import { colors } from '../lib/theme';
 
 /**
  * Placeholders in the shape of what is loading, drawn "unlit" (the design's
@@ -48,7 +48,7 @@ export function Bone({
   r?: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  return <View style={[{ width: w, height: h, borderRadius: r, backgroundColor: 'rgba(255,255,255,0.06)' }, style]} />;
+  return <View style={[{ width: w, height: h, borderRadius: r, backgroundColor: 'rgba(244,241,236,0.06)' }, style]} />;
 }
 
 /** An unlit panel to hold bones, the same frame as a real Panel. */
@@ -57,10 +57,8 @@ export function BonePanel({ children, style }: { children: ReactNode; style?: St
     <View
       style={[
         {
-          backgroundColor: colors.panel,
-          borderColor: colors.hairline,
-          borderWidth: 1,
-          borderRadius: radius.xxl,
+          backgroundColor: colors.card,
+          borderRadius: 22,
           padding: 16,
           gap: 12,
         },
@@ -85,7 +83,7 @@ export function BoneRows({ count = 3, lead }: { count?: number; lead?: number })
             gap: 12,
             paddingVertical: 10,
             borderTopWidth: i > 0 ? 1 : 0,
-            borderTopColor: colors.divider,
+            borderTopColor: colors.hairline,
           }}
         >
           {!!lead && <Bone w={lead} h={16} />}

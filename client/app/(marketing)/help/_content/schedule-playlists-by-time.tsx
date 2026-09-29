@@ -11,9 +11,8 @@ export default function Body() {
         because &ldquo;Drive time&rdquo; is easier to scan than 16:00.
       </p>
       <p>
-        It lives on your station&rsquo;s <strong>Schedule</strong>{" "}page, under{" "}
-        <strong>What AutoDJ plays</strong>, with the whole week drawn out above
-        so you can see the shape of it rather than read it.
+        It lives on your station&rsquo;s <strong>Schedule</strong>{" "}page, drawn
+        as a week you edit directly: one row per day, midnight to midnight.
       </p>
 
       <ZoomableImage
@@ -27,10 +26,19 @@ export default function Body() {
       <h2>Building One</h2>
       <ol>
         <li>Make the playlists first &mdash; slots point at them.</li>
-        <li>Add a slot: pick the playlist, tick the days, set the times.</li>
         <li>
-          Check the week view. Gaps are where nothing is scheduled, and your
-          default playlist fills them.
+          Drag along an empty stretch of a day to draw a slot, then pick its
+          playlist, times and days in the panel beside it.
+        </li>
+        <li>
+          Drag a slot&rsquo;s left or right edge to make it start or end
+          earlier or later.
+          Dragging changes that one day only, so weekday mornings can run
+          06:00&ndash;12:00 while the weekend runs 08:00&ndash;11:00.
+        </li>
+        <li>
+          Gaps are where nothing is scheduled, and your default playlist fills
+          them. Press <strong>Save</strong>{" "}when you&rsquo;re done.
         </li>
       </ol>
 
@@ -79,16 +87,19 @@ export default function Body() {
 
       <h2>Timezone</h2>
       <p>
-        Slots use your station&#39;s timezone, set on the settings page. Set it
-        before you build a schedule; changing it afterwards moves every slot at
-        once.
+        Slots use your station&#39;s timezone, which you set under{" "}
+        <strong>Show times</strong>{" "}in Station settings. The Schedule page
+        shows it but can&#39;t change it. Set it before you build a schedule;
+        changing it afterwards moves every slot at once.
       </p>
 
       <h2>This Is Not Show Times</h2>
       <p>
-        The same page has a second lane, <strong>When you&rsquo;re live</strong>.
-        Those show times are advertising &mdash; text listeners read on your player page. Slots
-        are what your station actually plays, and listeners never see them.
+        Show times live in Station settings, not here. They are advertising
+        &mdash; text listeners read on your player page. Slots are what your
+        station actually plays, and listeners never see them. You don&#39;t
+        need to add your live shows to the schedule: going live takes over from
+        any slot, and they appear on the week view as green marks anyway.
       </p>
       <p>
         There is a{" "}

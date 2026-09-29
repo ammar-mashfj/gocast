@@ -1,7 +1,9 @@
 import { createContext, Fragment, useContext, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Animated, BackHandler, Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, radius } from '../lib/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { colors } from '../lib/theme';
 
 /**
  * Sheets and dialogs drawn inside the app's own view tree.
@@ -91,10 +93,21 @@ export function Overlay({
       <FadeIn>
         <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={() => dismissable && onClose()} />
         <View pointerEvents="box-none" style={placement === 'bottom' ? styles.bottom : styles.center}>
-          <View style={placement === 'bottom' ? styles.sheet : styles.dialog}>{children}</View>
+          {placement === 'bottom' ? <Sheet>{children}</Sheet> : <View style={styles.dialog}>{children}</View>}
         </View>
       </FadeIn>
     </Portal>
+  );
+}
+
+/** The comp's bottom sheet: a grabber, then the content, clear of the home bar. */
+function Sheet({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.sheet, { paddingBottom: 22 + insets.bottom }]}>
+      <View style={styles.grabber} />
+      {children}
+    </View>
   );
 }
 
@@ -108,25 +121,18 @@ function FadeIn({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   layer: { ...StyleSheet.absoluteFill, zIndex: 100, elevation: 100 },
-  scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.8)' },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.6)' },
   center: { ...StyleSheet.absoluteFill, justifyContent: 'center', padding: 16 },
   bottom: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end' },
-  dialog: {
-    backgroundColor: colors.popover,
-    borderColor: colors.hairline,
-    borderWidth: 1,
-    borderRadius: radius.xxl,
-    padding: 20,
-    gap: 12,
-  },
+  dialog: { backgroundColor: colors.sheet, borderRadius: 28, padding: 22, gap: 14 },
   sheet: {
-    backgroundColor: colors.popover,
-    borderColor: colors.hairline,
-    borderWidth: 1,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    padding: 20,
-    paddingBottom: 36,
+    maxHeight: '86%',
+    backgroundColor: colors.sheet,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 10,
+    paddingHorizontal: 20,
     gap: 18,
   },
+  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: 'rgba(244,241,236,0.2)' },
 });

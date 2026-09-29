@@ -8,8 +8,8 @@ import axios from "axios"
 import api from "@/lib/axios"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DayChip } from "./DayChip"
-import { DAY_INITIALS, DAY_NAMES } from "./days"
+import { DayChip } from "../schedule/DayChip"
+import { DAY_INITIALS, DAY_NAMES } from "../schedule/days"
 import type { Station, StationSchedule } from "@/interfaces/Station"
 
 export interface ShowRow {
@@ -43,20 +43,18 @@ interface Props {
 /**
  * The owner's claim about when they are LIVE — a person at the mic.
  *
- * Drawn in the emerald live tone, never violet. Violet means AutoDJ, and this
- * sits on the same page as AutoDJ's slots, which decide what plays when
- * nobody is live. Two lists of the same shape in the same colour read as one
- * feature; the tone is what keeps "when I'm on" apart from "what the robot
- * plays".
+ * Advertising only: the rows are shown on the player page and read by nothing
+ * that decides what plays (see docs/features/schedule.md). That is why this
+ * lives in Station settings, beside the other things listeners see, and not
+ * on the Schedule page. It used to sit there as a "When you're live" lane next
+ * to AutoDJ's slots, and owners on Pro filled it in expecting it to program
+ * the station.
  *
- * It used to live in Station settings, one sidebar item away from AutoDJ's
- * schedule, and shared a timezone with it that could be edited in both
- * places. Owners edited the wrong one and couldn't tell which of the two
- * controlled their Sunday show.
+ * Drawn in the emerald live tone, never violet: violet means AutoDJ.
  *
- * Rows are held by the page so the week strip above draws them as they are
- * typed. Saved as one full-list PUT rather than per-row calls: the rows carry
- * no identity worth preserving and their order is the array's order.
+ * Rows are held by ShowTimesSection, which also owns the station timezone.
+ * Saved as one full-list PUT rather than per-row calls: the rows carry no
+ * identity worth preserving and their order is the array's order.
  */
 export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved }: Props) {
   const router = useRouter()
@@ -206,7 +204,7 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
           Add show time
         </Button>
         <Button type="button" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save show times"}
+          {saving ? "Saving…" : "Save"}
         </Button>
         {dirty && !saving && (
           <span role="status" className="text-xs text-muted-foreground">Unsaved changes</span>
@@ -217,8 +215,7 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
           discovered: a show that starts at 22:00 and runs past midnight
           belongs to the day it STARTS. */}
       <p className="text-sm text-muted-foreground leading-relaxed max-w-[62ch]">
-        Nothing here starts the station; you still go live from the studio. Days are when the
-        show starts, so a Sunday 11pm show stays under Sunday.
+        Days are when the show starts, so a Sunday 11pm show stays under Sunday.
       </p>
     </div>
   )

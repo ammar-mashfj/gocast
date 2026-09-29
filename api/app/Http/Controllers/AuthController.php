@@ -61,7 +61,7 @@ class AuthController extends Controller
         $token = $user->createToken('auth')->plainTextToken;
 
         return response()->json([
-            'data' => $user,
+            'data' => new UserResource($user->loadMissing('plan')),
             'message' => 'Registration successful. Please verify your email.',
         ], 201)->withCookie($this->authCookie($request, $token));
     }
@@ -107,14 +107,14 @@ class AuthController extends Controller
         // nothing here: minting a token this way still takes the password.
         if ($deviceName !== null) {
             return response()->json([
-                'data' => $user,
+                'data' => new UserResource($user->loadMissing('plan')),
                 'token' => $token,
                 'message' => 'Login successful.',
             ]);
         }
 
         return response()->json([
-            'data' => $user,
+            'data' => new UserResource($user->loadMissing('plan')),
             'message' => 'Login successful.',
         ])->withCookie($this->authCookie($request, $token));
     }

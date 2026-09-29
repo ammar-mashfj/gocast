@@ -6,5 +6,5 @@ import { useAuth } from '../lib/auth';
 export default function Index() {
   const { state } = useAuth();
   if (state.status === 'loading') return null;
-  return <Redirect href={state.status === 'signedIn' ? '/stations' : '/login'} />;
+  return <Redirect href={state.status === 'signedIn' ? '/home' : '/welcome'} />;
 }

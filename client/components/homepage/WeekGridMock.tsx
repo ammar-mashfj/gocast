@@ -48,7 +48,7 @@ for (const slot of SLOTS) {
 }
 
 /**
- * Static mock of the station Schedule page, shaped like the real WeekStrip so
+ * Static mock of the station Schedule page, shaped like the real WeekGrid so
  * the visitor reads it as "that is the screen I'll be using" rather than an
  * infographic. Nothing here is interactive or fetched.
  */

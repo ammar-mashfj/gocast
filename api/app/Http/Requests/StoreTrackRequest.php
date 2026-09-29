@@ -53,7 +53,21 @@ class StoreTrackRequest extends FormRequest
                 'max:307200',
                 'mimes:mp3,m4a,aac,flac,ogg,wav,mpga',
             ],
+            // The real filename of `files.N`, for clients that cannot send it
+            // in the part itself: the mobile app's fetch (Expo) percent-
+            // encodes every upload filename, so "My Song.mp3" arrives as
+            // "My%20Song.mp3". Browsers send it as-is and never set this.
+            'names' => ['sometimes', 'array'],
+            'names.*' => ['nullable', 'string', 'max:255'],
         ];
+    }
+
+    /** The filename sent in `names` for the file at `$index`, if any. */
+    public function nameFor(int|string $index): ?string
+    {
+        $name = $this->validated('names.'.$index);
+
+        return is_string($name) && trim($name) !== '' ? $name : null;
     }
 
     public function kind(): string
