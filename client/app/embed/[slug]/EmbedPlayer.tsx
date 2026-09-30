@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
+import { taggedStationUrl } from "@/lib/share"
 import { cn } from "@/lib/utils"
 import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
@@ -147,7 +148,7 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
       {/* Attribution — the only link out. Opens the full station page on
           gocast.fm in a new tab so the host page is never navigated away. */}
       <a
-        href={`${env.appUrl}/station/${station.slug}`}
+        href={taggedStationUrl(env.appUrl, station.slug, "embed")}
         target="_blank"
         rel="noopener"
         className="hidden sm:flex shrink-0 flex-col items-end leading-none text-muted-foreground/60 hover:text-muted-foreground transition-colors"

@@ -8,9 +8,10 @@ import { shareOrCopy } from "@/lib/share"
 interface CopyButtonProps {
   text: string
   title?: string
+  variant?: "ghost" | "outline"
 }
 
-export function CopyButton({ text, title }: CopyButtonProps) {
+export function CopyButton({ text, title, variant = "ghost" }: CopyButtonProps) {
   const [done, setDone] = useState(false)
 
   async function handleShare() {
@@ -20,7 +21,7 @@ export function CopyButton({ text, title }: CopyButtonProps) {
   }
 
   return (
-    <Button variant="ghost" size="sm" onClick={handleShare}>
+    <Button variant={variant} size="sm" onClick={handleShare}>
       {done ? <IconCheck data-icon="inline-start" /> : <IconShare data-icon="inline-start" />}
       <span>{done ? "Done!" : "Share"}</span>
     </Button>

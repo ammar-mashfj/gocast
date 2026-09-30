@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import type { Track } from "@/interfaces/Track"
 import { cn } from "@/lib/utils"
+import { useTrackPreview } from "@/hooks/useTrackPreview"
 import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
 
 type SortKey = "added" | "title" | "length"
@@ -82,6 +83,7 @@ export function AllTracksView({
   const [limit, setLimit] = useState(INITIAL_LIMIT)
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const [deleting, setDeleting] = useState(false)
+  const preview = useTrackPreview()
 
   const q = query.trim().toLowerCase()
 
@@ -298,6 +300,10 @@ export function AllTracksView({
                   selectable
                   selected={selected.has(track.id)}
                   onSelectChange={toggleOne}
+                  onRowClick={() => toggleOne(track.id, !selected.has(track.id))}
+                  onPreview={preview.toggle}
+                  previewing={preview.previewingId === track.id}
+                  previewBuffering={preview.buffering}
                 />
               ))}
             </SortableContext>

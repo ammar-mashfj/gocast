@@ -192,8 +192,8 @@ export default async function StationDetailPage({
         </div>
       </header>
 
-      {/* The control room: one continuous sheet in three groups — what is on
-          air now, how the shows went, getting it heard — divided by hairline
+      {/* The control room: one continuous sheet in two groups — what is on
+          air now (with how to get it heard), and how the shows went — divided by hairline
           rules like the homepage, not stacked under kicker labels. */}
       <section aria-label="On air now" className="flex flex-col gap-6">
         {/* One poll, one strip: can anyone hear this station, what are they
@@ -207,6 +207,17 @@ export default async function StationDetailPage({
               peakListeners={station.stats?.peak_listeners ?? 0}
               bare
             />
+          }
+        />
+        {/* Straight under the power bar: it is the action that fills the
+            listener count up there, and that panel points here. The
+            checklist (new stations only) follows it. */}
+        <StationShare url={playerUrl} appUrl={env.appUrl} stationName={station.name} slug={station.slug} />
+        <StationChecklist
+          station={station}
+          trackCount={tracks.length}
+          hasListeners={
+            station.stats?.has_listeners ?? (station.stats?.peak_listeners ?? 0) > 0
           }
         />
         <div className="border-t border-white/[0.07] pt-6">
@@ -235,19 +246,6 @@ export default async function StationDetailPage({
         <RecentBroadcasts sessions={sessions} />
       </section>
 
-      <section
-        aria-label="Share"
-        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
-      >
-        <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
-        <StationChecklist
-          station={station}
-          trackCount={tracks.length}
-          hasListeners={
-            station.stats?.has_listeners ?? (station.stats?.peak_listeners ?? 0) > 0
-          }
-        />
-      </section>
     </div>
   )
 }

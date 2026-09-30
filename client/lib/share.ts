@@ -52,3 +52,22 @@ export async function shareOrCopy(
     return "failed"
   }
 }
+
+/**
+ * Where a shared link was minted, for the `utm_source` on it.
+ *
+ * Without a tag, a link posted to WhatsApp, Telegram or a Facebook group
+ * arrives with no referrer and lands in analytics as "other" — two thirds of
+ * traffic, at the last count. The medium is always "share"; the source says
+ * whose hand the link left.
+ */
+export type ShareSource = "owner" | "listener" | "qr" | "embed"
+
+/**
+ * The public player URL with attribution on it. The bare URL is still what
+ * is displayed and what search engines index (the page sets its own
+ * canonical), so the tag never shows up anywhere a person has to read it.
+ */
+export function taggedStationUrl(appUrl: string, slug: string, source: ShareSource): string {
+  return `${appUrl}/station/${slug}?utm_source=${source}&utm_medium=share`
+}

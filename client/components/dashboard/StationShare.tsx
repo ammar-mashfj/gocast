@@ -5,7 +5,6 @@ import { QRCodeCanvas } from "qrcode.react"
 import { IconCode, IconDownload, IconQrcode } from "@tabler/icons-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -14,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { CopyButton } from "@/components/dashboard/CopyButton"
+import { taggedStationUrl } from "@/lib/share"
 import { EmbedDialog } from "@/components/dashboard/EmbedDialog"
 import { useEmbedLocked } from "@/contexts/AccountContext"
 import { useProRequest } from "@/contexts/ProRequestContext"
@@ -61,20 +61,32 @@ const LOGO_RATIO = 0.22
 const LOGO_PIXELS = Math.round(QR_PIXELS * LOGO_RATIO)
 
 interface StationShareProps {
-  /** Public player URL — the thing both the link and the code point at. */
+  /** Public player URL, as displayed. The copied link and the code carry a share tag on top. */
   url: string
+  /** Site origin, for the tagged links. */
+  appUrl: string
   stationName: string
   slug: string
 }
 
 /**
- * The share rail: one link, and a code for the physical world.
+ * The share strip: one link, and a code for the physical world.
+ *
+ * One low row directly under the on-air bar, not a card of its own. As a
+ * card it shared a two-column grid with the setup checklist, which goes away
+ * once a station is set up, and was left holding half the page at the very
+ * bottom while the listener panel above pointed at it with "share your link
+ * below".
  *
  * The QR is drawn to a canvas rather than an SVG specifically so it can be
  * exported — a code you can only screenshot is not much use on a flyer, and
  * the flyer is the whole reason a radio station wants one.
  */
-export function StationShare({ url, stationName, slug }: StationShareProps) {
+export function StationShare({ url, appUrl, stationName, slug }: StationShareProps) {
+  // Two tags, because a poster and a post are different channels and the
+  // audience numbers should be able to tell them apart.
+  const copyUrl = taggedStationUrl(appUrl, slug, "owner")
+  const qrUrl = taggedStationUrl(appUrl, slug, "qr")
   const [showQr, setShowQr] = useState(false)
   const [showEmbed, setShowEmbed] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -96,41 +108,35 @@ export function StationShare({ url, stationName, slug }: StationShareProps) {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Share your station</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
-            Anyone with this link can tune in from a browser — no app, no signup.
-          </p>
-          <div className="flex items-center justify-between gap-2 rounded-[10px] bg-background/60 py-1.5 pl-3 pr-1.5">
-            <code className="text-xs text-muted-foreground truncate">{url}</code>
-            <CopyButton text={url} title={stationName} />
+      <div
+        aria-label="Share your station"
+        className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-white/[0.09] bg-panel px-5 py-3.5"
+      >
+        <div className="min-w-0 flex-1 basis-[16rem]">
+          <div className="text-xs text-muted-foreground">
+            Share your station · anyone with this link can tune in, no app or signup
           </div>
-          <div className="flex gap-2 mt-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setShowQr(true)}
-            >
-              <IconQrcode data-icon="inline-start" />
-              Tune-in code
-            </Button>
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => (embedLocked ? proRequest.open() : setShowEmbed(true))}
-            >
-              <IconCode data-icon="inline-start" />
-              Embed
-              {embedLocked && (
-                <Badge variant="pro" className="ml-1">Pro</Badge>
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <code className="mt-0.5 block truncate text-sm text-foreground">{url}</code>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <CopyButton text={copyUrl} title={stationName} variant="outline" />
+          <Button variant="outline" size="sm" onClick={() => setShowQr(true)}>
+            <IconQrcode data-icon="inline-start" />
+            Tune-in code
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => (embedLocked ? proRequest.open() : setShowEmbed(true))}
+          >
+            <IconCode data-icon="inline-start" />
+            Embed
+            {embedLocked && (
+              <Badge variant="pro" className="ml-1">Pro</Badge>
+            )}
+          </Button>
+        </div>
+      </div>
 
       <EmbedDialog
         open={showEmbed}
@@ -157,7 +163,7 @@ export function StationShare({ url, stationName, slug }: StationShareProps) {
             <div className="rounded-lg bg-white p-3">
               <QRCodeCanvas
                 ref={canvasRef}
-                value={url}
+                value={qrUrl}
                 size={QR_PIXELS}
                 // H (30% recovery) because the centre is punched out for the
                 // logo. Q would still decode, but it spends the headroom that

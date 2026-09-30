@@ -10,6 +10,9 @@ import {
   IconX,
   IconPlaylistX,
   IconMinus,
+  IconPlayerPlayFilled,
+  IconPlayerPauseFilled,
+  IconLoader2,
 } from "@tabler/icons-react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -146,6 +149,20 @@ interface TrackRowProps {
   selectable?: boolean
   selected?: boolean
   onSelectChange?: (id: string, next: boolean) => void
+  /**
+   * Preview. When given, the # column becomes a play button on hover and the
+   * row can be heard before it is put anywhere. Clarity showed owners
+   * clicking rows expecting exactly this and getting nothing.
+   */
+  onPreview?: (id: string) => void
+  previewing?: boolean
+  previewBuffering?: boolean
+  /**
+   * What a click on the row body does, if anything. The library toggles the
+   * row's selection with it; a playlist row has no click action and stays a
+   * plain row. Clicks on the row's own controls never reach this.
+   */
+  onRowClick?: () => void
 }
 
 /**
@@ -165,6 +182,10 @@ export function TrackRow({
   selectable = false,
   selected = false,
   onSelectChange,
+  onPreview,
+  previewing = false,
+  previewBuffering = false,
+  onRowClick,
 }: TrackRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: track.id,
@@ -258,9 +279,21 @@ export function TrackRow({
     <div
       ref={setNodeRef}
       style={style}
+      onClick={
+        onRowClick
+          ? (e) => {
+              // Only the row body. Buttons, links and inputs inside the row
+              // handle themselves, and a click on them must not also flip
+              // the selection underneath.
+              if ((e.target as HTMLElement).closest("button, a, input, [role=button]")) return
+              onRowClick()
+            }
+          : undefined
+      }
       className={cn(
         ROW_GRID,
         "py-2 border-b border-border last:border-b-0 group",
+        onRowClick && "cursor-pointer select-none",
         // On air wins: it is the one fact about a row that is not the user's
         // own doing, and losing it under a selection tint would be worse.
         onAir ? "bg-on-air/10" : selected ? "bg-primary/5" : "hover:bg-muted/40",
@@ -287,14 +320,55 @@ export function TrackRow({
         <span />
       )}
 
-      <span
-        className={cn(
-          "text-xs tabular-nums text-right",
-          onAir ? "text-on-air font-medium" : "text-muted-foreground",
-        )}
-      >
-        {number}
-      </span>
+      {onPreview ? (
+        // The number is the resting state; the play control takes its place
+        // on hover, on focus, and for as long as the track is being heard,
+        // so the column never has to grow to fit a second glyph.
+        <button
+          type="button"
+          onClick={() => onPreview(track.id)}
+          aria-label={previewing ? `Stop previewing ${track.title}` : `Preview ${track.title}`}
+          aria-pressed={previewing}
+          className={cn(
+            "relative h-6 text-xs tabular-nums text-right cursor-pointer rounded-sm",
+            "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet",
+            onAir ? "text-on-air font-medium" : "text-muted-foreground",
+          )}
+        >
+          <span
+            className={cn(
+              "block",
+              previewing ? "invisible" : "group-hover:invisible group-focus-within:invisible",
+            )}
+          >
+            {number}
+          </span>
+          <span
+            className={cn(
+              "absolute inset-0 flex items-center justify-end text-foreground",
+              previewing ? "" : "invisible group-hover:visible group-focus-within:visible",
+            )}
+            aria-hidden="true"
+          >
+            {previewing && previewBuffering ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : previewing ? (
+              <IconPlayerPauseFilled size={14} />
+            ) : (
+              <IconPlayerPlayFilled size={14} />
+            )}
+          </span>
+        </button>
+      ) : (
+        <span
+          className={cn(
+            "text-xs tabular-nums text-right",
+            onAir ? "text-on-air font-medium" : "text-muted-foreground",
+          )}
+        >
+          {number}
+        </span>
+      )}
 
       <div className="min-w-0">
         <div className="text-sm truncate">{track.title}</div>

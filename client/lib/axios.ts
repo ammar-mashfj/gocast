@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { getCookie } from "./cookies"
 import { clearAuth } from "@/actions/auth"
 import { env } from "./env"
+import { navigate } from "./navigation"
 
 /** Axios instance preconfigured with API base URL and auth token interceptor. */
 const api = axios.create({
@@ -38,8 +39,15 @@ api.interceptors.response.use(
     ) {
       expiredRedirectInFlight = true
       clearAuth()
-      // ?expired=1 lets the login page show a contextual toast/banner.
-      window.location.href = "/auth/login?expired=1"
+      // ?expired=1 lets the login page show a contextual toast/banner. An
+      // in-app navigation, not a reload: the reload counted as a new,
+      // self-referred session in analytics on every expiry.
+      navigate("/auth/login?expired=1")
+      // The app no longer reloads here, so the guard has to let go on its
+      // own or a second expiry in the same tab would never redirect.
+      setTimeout(() => {
+        expiredRedirectInFlight = false
+      }, 2000)
     }
 
     // Defence in depth against an unverified action slipping past the UI gate

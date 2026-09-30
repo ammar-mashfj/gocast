@@ -86,6 +86,7 @@ export default async function BroadcastsPage() {
     Math.max(0, (new Date(s.ended_at!).getTime() - new Date(s.started_at).getTime()) / 1000)
   const longest = Math.min(3 * 3600, Math.max(1, ...finished.map(seconds)))
   const totalLive = finished.reduce((sum, s) => sum + seconds(s), 0)
+  const last = finished[0]
 
   return (
     <div className="sheet">
@@ -103,6 +104,32 @@ export default async function BroadcastsPage() {
           )}
         </p>
       </div>
+
+      {/* The most recent show, at a glance. The list answers "what have I
+          done", but what someone opening this page after a show wants first
+          is "how did last night go" — one row of figures, before the table. */}
+      <Card className="mb-4">
+        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+          <div className="col-span-2 sm:col-span-1">
+            <div className="text-xs text-muted-foreground">Last show</div>
+            <div className="mt-1 font-mono text-sm tabular-nums">{formatDateTime(last.started_at)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">On air</div>
+            <div className="mt-1 font-mono text-sm tabular-nums">{formatDateRange(last.started_at, last.ended_at!)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Peak listeners</div>
+            <div className="mt-1 text-sm tabular-nums">{last.peak_listeners}</div>
+          </div>
+          <div className="hidden sm:block">
+            <div className="text-xs text-muted-foreground">Source</div>
+            <div className="mt-1 truncate text-sm" title={last.client ?? undefined}>
+              {SOURCE_LABEL[last.source_type] ?? last.source_type}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>

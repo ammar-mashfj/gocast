@@ -192,6 +192,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/stations/{station:slug}/tracks/reorder', [TrackController::class, 'reorder']);
         Route::patch('/tracks/{track}', [TrackController::class, 'update']);
         Route::delete('/tracks/{track}', [TrackController::class, 'destroy']);
+        // The file itself, for the library's preview button. Owner-only and
+        // range-capable, so an <audio> element can seek through it.
+        Route::get('/tracks/{track}/audio', [TrackController::class, 'audio']);
         // Bulk delete for the library's multi-select. Station-scoped so one
         // batch means one playlist rewrite and one Liquidsoap reload, rather
         // than one of each per file.

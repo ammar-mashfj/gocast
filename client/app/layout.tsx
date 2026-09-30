@@ -4,6 +4,7 @@ import { Bricolage_Grotesque, JetBrains_Mono, Onest } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
+import { RouterBridge } from "@/components/common/RouterBridge";
 import { env } from "@/lib/env";
 import { DEFAULT_OG_IMAGE } from "@/lib/seo";
 
@@ -207,6 +208,7 @@ y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
         )}
         {children}
         <Toaster />
+        <RouterBridge />
       </body>
     </html>
   );

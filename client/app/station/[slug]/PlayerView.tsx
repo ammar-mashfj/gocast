@@ -20,11 +20,12 @@ import {
 } from "@tabler/icons-react"
 import Image from "next/image"
 import Hls from "hls.js"
+import { toast } from "sonner"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { createNetworkRecovery } from "@/lib/hlsRecovery"
 import { createPlaylistLoader } from "@/lib/hlsPlaylistLoader"
-import { shareOrCopy } from "@/lib/share"
+import { shareOrCopy, taggedStationUrl } from "@/lib/share"
 import { resolveSocialLink } from "@/lib/socialLinks"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -206,7 +207,7 @@ function LiveDot({ state }: { state: AirState }) {
  * and says so, which is what the row did before for everything but X.
  */
 function ShareButtons({ station }: { station: Station }) {
-  const url = `${env.appUrl}/station/${station.slug}`
+  const url = taggedStationUrl(env.appUrl, station.slug, "listener")
   const [saved, setSaved] = useState(false)
 
   // Sync the heart with the live library state (also reflects cross-tab changes).
@@ -899,6 +900,27 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
   const airState: AirState = station.is_live ? "live" : station.is_on_air ? "onair" : "off"
 
+  /**
+   * Play, or say why not. The button used to be disabled off air, and a
+   * disabled control taps like a broken one: Clarity logged the taps as rage
+   * clicks on every station that spends its day off. Now it answers, and
+   * hands over to the one thing worth doing while there is nothing to hear.
+   */
+  const pressPlay = useCallback(() => {
+    if (audible) {
+      togglePlay()
+      return
+    }
+    toast.info(`${station.name} is off air right now`, {
+      description: "Leave your email and we'll let you know when it's back on.",
+    })
+    const input = document.getElementById(`notify-${station.slug}`)
+    if (input instanceof HTMLElement) {
+      input.scrollIntoView({ behavior: "smooth", block: "center" })
+      input.focus({ preventScroll: true })
+    }
+  }, [audible, togglePlay, station.name, station.slug])
+
   return (
     // Container queries rather than viewport breakpoints. The player reflows
     // against the width of its own box, so it stays correct wherever it is put
@@ -1000,11 +1022,10 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
               and touch shortcut, not a second Play for a screen reader. */}
           <button
             type="button"
-            onClick={togglePlay}
-            disabled={!audible}
+            onClick={pressPlay}
             tabIndex={-1}
             aria-hidden="true"
-            className="block w-full cursor-pointer rounded-full disabled:cursor-default"
+            className="block w-full cursor-pointer rounded-full"
           >
             <Vinyl artworkUrl={station.artwork_url} rippling={playing} />
           </button>
@@ -1130,10 +1151,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-5 rounded-[20px] border border-[#2a2344] bg-[#161228]/85 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.6)] backdrop-blur-[18px] @max-[900px]/player:grid-cols-[auto_minmax(0,1fr)_auto] @max-[520px]/player:gap-3 @max-[520px]/player:rounded-2xl @max-[520px]/player:p-3">
             <Button
               size="icon"
-              onClick={togglePlay}
-              disabled={!audible}
-              aria-label={playing ? "Pause" : loading ? "Connecting" : "Play"}
-              className={`size-16 rounded-full shadow-[0_0_0_8px_rgba(139,92,246,0.18),0_12px_32px_rgba(139,92,246,0.45)] disabled:opacity-40 @max-[520px]/player:size-13 ${audible && !playing && !loading ? styles.playPulse : ""}`}
+              onClick={pressPlay}
+              aria-label={playing ? "Pause" : loading ? "Connecting" : audible ? "Play" : "Off air"}
+              className={`size-16 rounded-full shadow-[0_0_0_8px_rgba(139,92,246,0.18),0_12px_32px_rgba(139,92,246,0.45)] @max-[520px]/player:size-13 ${audible ? "" : "opacity-60 shadow-none"} ${audible && !playing && !loading ? styles.playPulse : ""}`}
             >
               {loading ? (
                 <IconLoader2 size={26} className="animate-spin" />

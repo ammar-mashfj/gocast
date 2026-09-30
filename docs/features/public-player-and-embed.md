@@ -64,7 +64,7 @@ sources:
   - api/tests/Feature/PublicEmbedTest.php
   - api/tests/Feature/PublicStationSeoTest.php
   - api/tests/Feature/StationNotifySubscriptionTest.php
-fingerprint: c77880c5050babfc
+fingerprint: ff28ce24bdaeef12
 ---
 
 # Public player page, Pro embed and listener-facing SEO
@@ -152,7 +152,7 @@ Single definition in `Station::scopeIndexable` / `isIndexable` (`api/app/Models/
 
 State machine, in words:
 
-- **Play button** (and clicking the vinyl artwork, which is `aria-hidden`, `tabIndex -1`) is disabled unless `audible = is_on_air || playing || loading || nowPlaying.title !== null`.
+- **Play button** (and clicking the vinyl artwork, which is `aria-hidden`, `tabIndex -1`) is never disabled. `pressPlay` plays when `audible = is_on_air || playing || loading || nowPlaying.title !== null`; otherwise it toasts "{name} is off air right now" and scrolls to and focuses the notify-me input (`#notify-{slug}`). Off air the dock button is dimmed (`opacity-60`) and labelled "Off air". (It used to be `disabled`, which Clarity recorded as rage clicks on every station that spends its day off.)
 - **Air label**: `airState` = `live` (red, breathing ring) if `is_live`, `onair` (green) if `is_on_air`, else `off`. Labels "Live" / "On air" / "Off air".
 - **Off air** (`!audible`): shows an "Off air" badge and the `NotifyMeForm`. Dock label reads "Off air" and "Nothing playing right now".
 - **Feed**: `usePublicStationFeed` merges `count`, `is_live`, `is_on_air` into state and applies `now_playing` **only until the first in-band ID3 has arrived** (`hasInbandMetadataRef`). If the feed says `is_on_air === false` while `loading`, playback is torn down.
@@ -260,7 +260,7 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 - **Metadata**: title `"{name} — Player"` (or "Not available"), `robots: {index:false, follow:false}`, canonical pointing at the station page.
 - **Framing headers** (`next.config.ts` `headers()`): every path except `/embed/...` (negative lookahead `/((?!embed/).*)`) gets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. `/embed/:path*` gets only `nosniff` and the referrer policy: **no X-Frame-Options and no `frame-ancestors`, no CSP at all** (`frame-ancestors *` would not match `file://` pages). So any site can frame any embeddable station. There is no per-customer domain allowlist. Nothing in `client/` sets a CSP. The API nginx vhost sets `X-Frame-Options SAMEORIGIN` (`infra/native/nginx/gocast-api.conf`) but that is the API, not this page.
 - **Middleware** (`client/proxy.ts`): the matcher excludes `api`, `embed`, `_next/static`, `_next/image`, `.png`, `.svg`, so the embed never touches the auth-cookie logic. `/dashboard*` redirects to `/auth/login` without a verified `user` cookie; `/auth/login` and `/auth/register` redirect signed-in verified users to `/dashboard/stations`.
-- **`EmbedPlayer`**: one row (56px artwork, name, LIVE pill when `is_live && !offAir`, subtitle, listener count when > 0 and not off air, 44px play button, and a "on GoCast" link to `/station/{slug}` in a new tab, hidden below the `sm` breakpoint). Subtitle is "Off air" / "Artist — Title" / "Live now" / "On air". The play button is disabled when off air. Uses `useStreamPlayback` (dynamic hls.js import), `useListenerSession` (so embed listeners count in the owner's audience) and the shared 10s feed. In-band ID3 wins over the poll once present (`inband ?? polled`). When the feed says off air while loading, it calls `stop()`.
+- **`EmbedPlayer`**: one row (56px artwork, name, LIVE pill when `is_live && !offAir`, subtitle, listener count when > 0 and not off air, 44px play button, and a "on GoCast" link to `/station/{slug}` in a new tab, hidden below the `sm` breakpoint; the link carries `?utm_source=embed&utm_medium=share`, see `taggedStationUrl` in `lib/share.ts`). Subtitle is "Off air" / "Artist — Title" / "Live now" / "On air". The play button is disabled when off air. Uses `useStreamPlayback` (dynamic hls.js import), `useListenerSession` (so embed listeners count in the owner's audience) and the shared 10s feed. In-band ID3 wins over the poll once present (`inband ?? polled`). When the feed says off air while loading, it calls `stop()`.
 - The embed does **not** have: volume, follow, share, schedule, notify-me, recent tracks, social links, or the owner chip.
 - The embed inherits the root layout, so in production it also loads the site's third-party scripts (see Gaps).
 

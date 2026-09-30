@@ -335,7 +335,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 
 ### axios (`lib/axios.ts`)
 - Request interceptor: reads `token` with `document.cookie` and sets a bearer header. Since `token` is HttpOnly this is always empty in a current session; the cookie itself is what authenticates (via `UseAuthTokenCookie`). It is a leftover from the era of a JS-readable token.
-- Response interceptor: a **401** on a URL that does not contain `/login` or `/register`, when no redirect is already in flight, calls `clearAuth()` and sets `window.location.href = "/auth/login?expired=1"`. The login page toasts "Your session expired. Please sign in again." A **403 `email_unverified`** toasts "Verify your email to continue."
+- Response interceptor: a **401** on a URL that does not contain `/login` or `/register`, when no redirect is already in flight, calls `clearAuth()` and navigates in-app (`navigate()` from `lib/navigation.ts`, backed by `RouterBridge`) to `/auth/login?expired=1`. The login page toasts "Your session expired. Please sign in again." A **403 `email_unverified`** toasts "Verify your email to continue."
 
 ### Login, register and Account UIs
 - `/auth/login`: email and password, "Forgot password?", "Continue with Google". On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).

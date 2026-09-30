@@ -19,6 +19,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * AutoDJ track management for a station.
@@ -166,6 +167,30 @@ class TrackController extends Controller
         $this->importer->destroy($track);
 
         return response()->noContent();
+    }
+
+    /**
+     * Stream the audio file to its owner, for the library's preview button.
+     *
+     * A plain file response rather than a signed URL: the dashboard's auth
+     * cookie is scoped to the site, and a media element sends it on a
+     * same-site request, so `<audio src>` can point straight here.
+     * BinaryFileResponse honours Range, which is what lets the element seek
+     * and lets a phone stop the download when the preview stops.
+     */
+    public function audio(Track $track, PlaylistFileWriter $writer): BinaryFileResponse
+    {
+        $this->authorize('view', $track);
+
+        $absolute = $writer->stationDir($track->station).'/'.$track->path;
+
+        abort_unless(is_file($absolute), 404, 'The audio file is missing on disk.');
+
+        // response()->file() marks the response public; this is one
+        // person's private library, so a shared cache must not keep it.
+        return response()->file($absolute, ['Content-Disposition' => 'inline'])
+            ->setPrivate()
+            ->setMaxAge(3600);
     }
 
     /**

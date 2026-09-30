@@ -43,6 +43,7 @@ import { Select } from "@/components/ui/select"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Track } from "@/interfaces/Track"
+import { useTrackPreview } from "@/hooks/useTrackPreview"
 import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
 
 type SortKey = "order" | "title" | "length"
@@ -101,6 +102,7 @@ export function PlaylistView({
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortKey>("order")
   const [limit, setLimit] = useState(INITIAL_LIMIT)
+  const preview = useTrackPreview()
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -330,6 +332,9 @@ export function PlaylistView({
                   onAir={track.id === nowPlayingId}
                   onEdit={onEdit}
                   onRemove={onRemove}
+                  onPreview={preview.toggle}
+                  previewing={preview.previewingId === track.id}
+                  previewBuffering={preview.buffering}
                 />
               ))}
             </SortableContext>
