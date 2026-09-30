@@ -133,3 +133,28 @@ it('ignores an unknown state value', function () {
         ->assertOk()
         ->assertSee('Any FM');
 });
+
+it('shows the browser and IP of the latest broadcast', function () {
+    $station = Station::factory()->create(['name' => 'Origin FM']);
+    $station->streamSessions()->create([
+        'started_at' => now()->subDay(),
+        'source_type' => 'browser',
+        'client' => 'Mozilla/5.0 (X11; Linux x86_64) Firefox/140.0',
+        'ip_address' => '198.51.100.1',
+        'country' => 'FR',
+    ]);
+    $station->streamSessions()->create([
+        'started_at' => now()->subHour(),
+        'source_type' => 'browser',
+        'client' => 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/153.0.0.0 Mobile Safari/537.36',
+        'ip_address' => '203.0.113.7',
+        'country' => 'EG',
+    ]);
+
+    $this->get(route('admin.stations.index'))
+        ->assertOk()
+        ->assertSee('Chrome')
+        ->assertSee('203.0.113.7')
+        ->assertSee('EG')
+        ->assertDontSee('198.51.100.1');
+});

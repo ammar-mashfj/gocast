@@ -95,6 +95,8 @@
                             <th>Plan</th>
                             <th>Power</th>
                             <th>Live</th>
+                            <th>Browser</th>
+                            <th>IP</th>
                             <th class="text-right">Tracks</th>
                             <th>Created</th>
                             <th class="text-right">Featured</th>
@@ -142,6 +144,36 @@
                                         <span class="badge badge-error badge-sm">on air</span>
                                     @else
                                         <span class="text-xs opacity-40">—</span>
+                                    @endif
+                                </td>
+                                {{-- Both from the latest live broadcast, not the latest login.
+                                     Blank for encoders' IP and for sessions from before the
+                                     origin was recorded; see BroadcastOrigin. --}}
+                                @php
+                                    $client = $station->last_broadcast_client;
+                                    $browser = $agents->browser($client);
+                                    $country = $station->last_broadcast_country;
+                                @endphp
+                                <td class="text-sm whitespace-nowrap" title="{{ $client }}">
+                                    @if ($client === null)
+                                        <span class="text-xs opacity-40">—</span>
+                                    @elseif ($browser === 'Other')
+                                        {{ \Illuminate\Support\Str::limit($client, 24) }}
+                                    @else
+                                        {{ $browser }} <span class="opacity-60">· {{ $agents->device($client) }}</span>
+                                    @endif
+                                </td>
+                                <td class="text-sm whitespace-nowrap tabular-nums">
+                                    @if ($station->last_broadcast_ip_address === null)
+                                        <span class="text-xs opacity-40">—</span>
+                                    @else
+                                        {{ $station->last_broadcast_ip_address }}
+                                        @if ($country)
+                                            <span title="{{ $country }}">
+                                                {{ implode('', array_map(fn ($letter) => mb_chr(0x1F1E6 + ord($letter) - 65), str_split($country))) }}
+                                                <span class="opacity-60">{{ $country }}</span>
+                                            </span>
+                                        @endif
                                     @endif
                                 </td>
                                 <td class="text-right tabular-nums">{{ $station->tracks_count }}</td>
@@ -256,7 +288,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="py-10 text-center opacity-60">
+                                <td colspan="10" class="py-10 text-center opacity-60">
                                     @if ($search === '' && $state === 'live' && ! $featuredOnly)
                                         No stations are live right now.
                                     @elseif ($search === '' && $state === 'running' && ! $featuredOnly)

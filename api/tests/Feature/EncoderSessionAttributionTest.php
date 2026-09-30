@@ -295,3 +295,37 @@ it('does not announce a studio broadcast that takes over from a real one', funct
 
     Queue::assertNotPushed(SendStationLiveNotifications::class);
 });
+
+it('stamps a studio session with the IP and country of its token request', function () {
+    // Harbor only sees a proxy. The real address comes from the broadcast
+    // token request the studio makes right before it connects.
+    config(['analytics.geo.country_header' => 'CF-IPCountry']);
+    $this->station->user->markEmailAsVerified();
+
+    test()->actingAs($this->station->user, 'sanctum')
+        ->withServerVariables(['REMOTE_ADDR' => '203.0.113.7'])
+        ->postJson('/api/auth/broadcast-token', ['station_slug' => 'jazz'], ['CF-IPCountry' => 'eg'])
+        ->assertOk();
+
+    liveConnected(['via' => 'browser', 'client' => 'Mozilla/5.0'])->assertOk();
+
+    $session = $this->station->streamSessions()->sole();
+
+    expect($session->ip_address)->toBe('203.0.113.7')
+        ->and($session->country)->toBe('EG');
+});
+
+it('does not give an encoder session the studio origin', function () {
+    // The owner may have opened the studio earlier, but an encoder connection
+    // did not come from that device.
+    $this->station->user->markEmailAsVerified();
+
+    test()->actingAs($this->station->user, 'sanctum')
+        ->withServerVariables(['REMOTE_ADDR' => '203.0.113.7'])
+        ->postJson('/api/auth/broadcast-token', ['station_slug' => 'jazz'])
+        ->assertOk();
+
+    liveConnected(['via' => 'external', 'client' => 'libshout/2.4.6'])->assertOk();
+
+    expect($this->station->streamSessions()->sole()->ip_address)->toBeNull();
+});

@@ -6,6 +6,7 @@ use App\Events\StationStateChanged;
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use App\Models\StationEvent;
+use App\Services\BroadcastOrigin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -241,10 +242,16 @@ class StationEventController extends Controller
         // The default is still 'browser', for containers rendered before the
         // template started reporting `via`. Those keep their old behaviour
         // until `stations:relaunch` recreates them.
+        // The origin only exists for the studio and the app, which ask for a
+        // broadcast token first. An encoder never does, so its row gets no IP.
+        $origin = $via === 'external' ? [] : app(BroadcastOrigin::class)->for($station);
+
         $session = $station->streamSessions()->create([
             'started_at' => now(),
             'source_type' => $via,
             'client' => $client,
+            'ip_address' => $origin['ip_address'] ?? null,
+            'country' => $origin['country'] ?? null,
         ]);
 
         SendStationLiveNotifications::dispatch($station->id, $session->id)

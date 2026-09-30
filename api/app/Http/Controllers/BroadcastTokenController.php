@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Station;
+use App\Services\BroadcastOrigin;
 use App\Services\BroadcastTokenService;
 use App\Services\LiquidsoapSupervisor;
 use Illuminate\Http\JsonResponse;
@@ -35,6 +36,7 @@ class BroadcastTokenController extends Controller
         Request $request,
         BroadcastTokenService $tokens,
         LiquidsoapSupervisor $supervisor,
+        BroadcastOrigin $origin,
     ): JsonResponse {
         $data = $request->validate([
             'station_slug' => ['required', 'string', 'max:255'],
@@ -49,6 +51,11 @@ class BroadcastTokenController extends Controller
         if ($station === null || $station->user_id !== $user->id) {
             return response()->json(['message' => 'You do not own this station.'], 403);
         }
+
+        // Admin monitoring: the IP and country shown on /admin/stations. This
+        // request is the last one from the broadcaster's own device before
+        // harbor connects, so it is the only place the real address exists.
+        $origin->remember($station, $request);
 
         return response()->json([
             'token' => $tokens->issue($user, $station),

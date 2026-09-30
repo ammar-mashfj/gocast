@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\StationEvent;
+use App\Models\StreamSession;
 use App\Models\User;
 use App\Notifications\ProAccessGranted;
+use App\Services\UserAgentParser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -33,7 +35,7 @@ class StationController extends Controller
      */
     private const NO_END = 'none';
 
-    public function index(Request $request): View
+    public function index(Request $request, UserAgentParser $agents): View
     {
         $search = trim((string) $request->query('search', ''));
 
@@ -49,12 +51,24 @@ class StationController extends Controller
             : null;
 
         $stations = Station::query()
+            // First: withCount/withExists below add to this select list, and
+            // a select() after them would replace it.
+            ->select('stations.*')
             ->with(['user:id,email,plan_id,plan_expires_at', 'user.plan:id,name,slug'])
             ->withCount('tracks')
             // Live-ness is derived from an open StreamSession, so calling
             // isLive() per row would be one query per station. This resolves
             // the whole page in the same round trip.
             ->withExists(['streamSessions as is_live' => fn ($query) => $query->whereNull('ended_at')])
+            // Where the latest live broadcast came from, for the Browser and
+            // IP columns. One correlated subquery per column instead of
+            // eager-loading every session a station has ever had.
+            ->addSelect(collect(['client', 'ip_address', 'country'])->mapWithKeys(fn ($column) => [
+                "last_broadcast_{$column}" => StreamSession::select($column)
+                    ->whereColumn('station_id', 'stations.id')
+                    ->latest('started_at')
+                    ->limit(1),
+            ])->all())
             ->when($search !== '', fn ($query) => $query->where(
                 fn ($group) => $group
                     ->where('name', 'like', "%{$search}%")
@@ -85,6 +99,7 @@ class StationController extends Controller
             'featuredStations' => Station::featured()->count(),
             'featuredOnAir' => Station::featured()->running()->count(),
             'railSize' => Station::FEATURED_RAIL_SIZE,
+            'agents' => $agents,
             'upgradePlans' => Plan::where('slug', '!=', 'free')->orderBy('id')->get(['id', 'name']),
             'terms' => [...array_map(fn ($term) => $term['label'], AccessRequestController::TERMS), self::NO_END => 'No end date'],
         ]);
