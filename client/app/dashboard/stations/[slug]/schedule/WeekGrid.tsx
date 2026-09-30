@@ -132,6 +132,12 @@ export function WeekGrid({
     const row = (e.currentTarget.closest("[data-day-row]") as HTMLElement | null)?.getBoundingClientRect()
     if (!row) return
     e.currentTarget.setPointerCapture(e.pointerId)
+    // The handle can vanish mid-drag: pushing an end past midnight (or a
+    // start before it) re-cuts the block into segments and the segment that
+    // carried this handle no longer does, so the captured span unmounts and
+    // its pointerup never arrives. The window still hears the release.
+    window.addEventListener("pointerup", endEdge)
+    window.addEventListener("pointercancel", endEdge)
     const [start, end] = weekSpan(block)
     drag.current = {
       kind: "edge",
@@ -150,11 +156,19 @@ export function WeekGrid({
   function moveEdge(e: ReactPointerEvent<HTMLSpanElement>) {
     const d = drag.current
     if (d?.kind !== "edge") return
+    // A hover, not a drag: the release was missed, so end it here rather
+    // than rewrite the slot under a pointer with no button down.
+    if (e.buttons === 0) {
+      endEdge()
+      return
+    }
     const value = Math.min(d.limits[1], Math.max(d.limits[0], snap(d.origin + (e.clientX - d.originX) / d.scale)))
     onChange(d.edge === "start" ? fromSpan(d.block, value, d.other) : fromSpan(d.block, d.other, value))
   }
 
   function endEdge() {
+    window.removeEventListener("pointerup", endEdge)
+    window.removeEventListener("pointercancel", endEdge)
     if (drag.current?.kind !== "edge") return
     drag.current = null
   }

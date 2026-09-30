@@ -40,15 +40,25 @@ interface Props {
 
 type SaveState = "saved" | "pending" | "saving" | "overlap" | "error" | "no-timezone"
 
-/** Weekday and minute-of-day on the station's clock. */
-function stationNow(timeZone: string): { day: number; minute: number; label: string } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date())
+/**
+ * Weekday and minute-of-day on the station's clock, or null when this browser
+ * does not know the zone (the API checks against PHP's list, which can run
+ * ahead of the browser's). The now line and banner then simply stay off,
+ * as they do before mount, instead of the page failing.
+ */
+function stationNow(timeZone: string): { day: number; minute: number; label: string } | null {
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date())
+  } catch {
+    return null
+  }
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ""
   const day = DAY_SHORT.indexOf(get("weekday"))
   const hour = parseInt(get("hour"), 10)
@@ -119,7 +129,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
   const siblings = useMemo(() => new Set(group.map((b) => b.key)), [group])
 
   // ── The station clock, for the now line and the banner ──
-  const [now, setNow] = useState<ReturnType<typeof stationNow> | null>(null)
+  const [now, setNow] = useState<ReturnType<typeof stationNow>>(null)
   useEffect(() => {
     if (!timezone) return
     const tick = () => setNow(stationNow(timezone))

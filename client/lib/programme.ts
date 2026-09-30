@@ -8,18 +8,25 @@ import type { Programme } from "@/interfaces/Station"
 export function formatSlotInstant(iso: string, timeZone: string | null): string {
   const date = new Date(iso)
   const zone = timeZone ?? undefined
-  const time = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: zone,
-  }).format(date)
+  const time = format(date, { hour: "2-digit", minute: "2-digit", hour12: false }, zone)
 
   const withinDay = date.getTime() - Date.now() < 24 * 60 * 60 * 1000
   if (withinDay) return time
 
-  const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: zone }).format(date)
+  const day = format(date, { weekday: "short" }, zone)
   return `${day} ${time}`
+}
+
+/**
+ * Formats in the station's zone, falling back to the viewer's when this
+ * browser does not recognise it: a wrong-zone time beats a crashed card.
+ */
+function format(date: Date, options: Intl.DateTimeFormatOptions, timeZone: string | undefined): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(date)
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", options).format(date)
+  }
 }
 
 /**
