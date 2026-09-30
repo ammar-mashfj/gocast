@@ -36,30 +36,32 @@ export function LiveBanner() {
   const latched = engine?.isMicLatched() ?? false
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5", tone.strip)}>
+    // Below sm the chip and the buttons share the first line and the message
+    // takes the whole second one; beside the chip and "Open studio" it was a
+    // five-line sliver on a phone.
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2.5", tone.strip)}>
       <p key={signal.code} className="sr-only" role={signal.tone === "fault" ? "alert" : "status"}>
         {signal.label}. {signal.detail}
       </p>
-      <div className="flex min-w-0 flex-1 items-center gap-3" aria-hidden>
-        <span
-          key={signal.code}
-          className={cn(
-            "lamp-settle inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-bold uppercase tracking-[0.08em]",
-            tone.chip,
-          )}
-        >
-          <span className={cn("size-1.5 rounded-full bg-current", signal.tone !== "fault" && "animate-pulse motion-reduce:animate-none")} />
-          {signal.label}
-        </span>
-        <span className={cn("min-w-0 text-sm leading-snug", tone.text)}>
-          {signal.code === "live"
-            ? touch
-              ? "You're broadcasting from this tab — switching apps or locking the screen stops the show."
-              : "You're broadcasting from this tab — closing it ends the show."
-            : signal.detail}
-        </span>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <span
+        key={`chip-${signal.code}`}
+        aria-hidden
+        className={cn(
+          "lamp-settle inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-bold uppercase tracking-[0.08em]",
+          tone.chip,
+        )}
+      >
+        <span className={cn("size-1.5 rounded-full bg-current", signal.tone !== "fault" && "animate-pulse motion-reduce:animate-none")} />
+        {signal.label}
+      </span>
+      <span aria-hidden className={cn("order-last basis-full text-sm leading-snug sm:order-none sm:min-w-0 sm:flex-1 sm:basis-0", tone.text)}>
+        {signal.code === "live"
+          ? touch
+            ? "You're broadcasting from this tab — switching apps or locking the screen stops the show."
+            : "You're broadcasting from this tab — closing it ends the show."
+          : signal.detail}
+      </span>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         {latched && (
           <button
             type="button"

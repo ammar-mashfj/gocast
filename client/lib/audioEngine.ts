@@ -229,6 +229,8 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
+  /** Slug of the station whose queue this engine persists. */
+  private readonly station: string
   private progressTimer: ReturnType<typeof setInterval> | null = null
   private pageHideHandler: (() => void) | null = null
 
@@ -246,8 +248,10 @@ export class AudioEngine {
     encoderWorker: Worker,
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
+    station: string,
   ) {
     this.ctx = ctx
+    this.station = station
     this.workletNode = workletNode
     this.encoderWorker = encoderWorker
 
@@ -354,7 +358,7 @@ export class AudioEngine {
 
   private saveProgress() {
     if (this.playing && this.currentIndex >= 0 && this.currentAudio) {
-      savePlayback({ currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
+      savePlayback(this.station, { currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
     }
   }
 
@@ -368,10 +372,15 @@ export class AudioEngine {
    * and letting the context pick the device default (often 48kHz) would emit
    * MP3 frames whose header disagrees with the actual audio, which Liquidsoap
    * decodes as the wrong pitch.
+   *
+   * @param station Slug of the station this show is for. The saved queue and
+   *   playback position are kept per station, so two stations run from one
+   *   browser no longer share a running order.
    */
   static async create(
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
+    station: string,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
@@ -404,7 +413,7 @@ export class AudioEngine {
     )
     await ready
 
-    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk)
+    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk, station)
   }
 
   /**
@@ -604,7 +613,7 @@ export class AudioEngine {
   }
 
   private persistQueue() {
-    saveQueue(this.queue.map((t) => ({ id: t.id, file: t.file, title: t.title, artist: t.artist })))
+    saveQueue(this.station, this.queue.map((t) => ({ id: t.id, file: t.file, title: t.title, artist: t.artist })))
   }
 
   /**
@@ -614,7 +623,7 @@ export class AudioEngine {
    * encoding and shipping them.
    */
   async restoreQueue(): Promise<void> {
-    const stored = await loadQueue()
+    const stored = await loadQueue(this.station)
     if (stored.length === 0) return
     // The queue is back at once; durations fill in behind it. Awaiting each
     // one here put every restored file's metadata read on the critical path
@@ -680,7 +689,7 @@ export class AudioEngine {
    *   choice on the Go Live page, for a show that shouldn't open mid-song.
    */
   async resumePlayback(options?: { fromStart?: boolean }): Promise<void> {
-    const playback = await loadPlayback()
+    const playback = await loadPlayback(this.station)
     if (!playback) return
     if (playback.currentIndex < 0 || playback.currentIndex >= this.queue.length) return
     // No clamp against track.duration here: restoreQueue fills durations in
@@ -822,7 +831,7 @@ export class AudioEngine {
     this.queue = []
     this.currentIndex = -1
     this.playing = false
-    clearStoredQueue()
+    clearStoredQueue(this.station)
     this.notify()
   }
 
@@ -962,7 +971,7 @@ export class AudioEngine {
     if (this.currentAudio !== audio) return
 
     this.playing = true
-    savePlayback({ currentIndex: index, offset })
+    savePlayback(this.station, { currentIndex: index, offset })
     this.notify()
   }
 

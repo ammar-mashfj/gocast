@@ -75,7 +75,14 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
   return (
     <div
       className={cn(
-        "flex items-center gap-3.5 rounded-[14px] border px-4 py-3 transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+        // Inline flow, not flex: the chip leads the sentence and the detail
+        // runs on after it, wrapping under the chip at the left edge when a
+        // phone runs out of width. As a flex row the detail was a two-line
+        // sliver beside the chip; stacked in two rows the chip sat alone with
+        // the width empty beside it.
+        // Smaller chip and type below sm so the step line fits beside the
+        // chip on a 375px screen instead of dropping its last word.
+        "rounded-[14px] border px-3.5 py-3 text-xs leading-snug transition-colors sm:px-4 sm:text-sm duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
         tone.strip,
       )}
     >
@@ -88,7 +95,7 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
         key={phase}
         aria-hidden
         className={cn(
-          "inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-3 text-[13px] font-bold uppercase tracking-[0.08em]",
+          "mr-2.5 inline-flex h-7 items-center gap-1.5 rounded-md px-2 align-middle text-[11px] font-bold uppercase tracking-[0.06em] sm:mr-3 sm:h-8 sm:gap-2 sm:px-3 sm:text-[13px] sm:tracking-[0.08em]",
           tone.chip,
           fault ? "animate-[pulse_0.7s_ease-in-out_3] motion-reduce:animate-none" : "lamp-settle",
         )}
@@ -96,7 +103,7 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
         <span className={cn("size-2 rounded-full bg-current", !fault && "animate-pulse motion-reduce:animate-none")} />
         {LAMP[phase].label}
       </span>
-      <span aria-hidden className={cn("min-w-0 text-sm leading-snug", tone.text)}>
+      <span aria-hidden className={cn("align-middle", tone.text)}>
         {detail}
       </span>
     </div>
@@ -528,14 +535,14 @@ export default function GoLivePage() {
   }, [slug])
 
   const refreshQueueSummary = () =>
-    loadQueueSummary()
+    loadQueueSummary(slug)
       .then(setQueueSummary)
       .catch(() => setQueueSummary(null))
 
   /** Starts the show on an empty running order. Confirmed in ClearQueueDialog. */
   const clearSavedQueue = async () => {
     try {
-      await clearQueue()
+      await clearQueue(slug)
       setQueueSummary({ trackCount: 0, bytes: 0, lastTrack: null })
     } catch {
       toast.error("Couldn't clear the queue in this browser")
@@ -545,11 +552,11 @@ export default function GoLivePage() {
 
   useEffect(() => {
     let cancelled = false
-    loadQueueSummary()
+    loadQueueSummary(slug)
       .then((summary) => { if (!cancelled) setQueueSummary(summary) })
       .catch(() => { if (!cancelled) setQueueSummary(null) })
     return () => { cancelled = true }
-  }, [])
+  }, [slug])
 
   useEffect(() => {
     api.get(`/stations/${slug}`)
@@ -651,7 +658,9 @@ export default function GoLivePage() {
 
   const activeStep = steps.find((s) => s.status === "active")
   const lampDetail =
-    phase === "live" ? `You're live. Opening the studio in ${secondsLeft}…`
+    // The heading above already says "<station> is live" and the chip says
+    // LIVE, so the line only carries what neither does.
+    phase === "live" ? `Opening the studio in ${secondsLeft}…`
       : phase === "reconnecting" ? "The connection dropped. Reconnecting…"
       : phase === "fault" ? (error || "Something stopped the broadcast from starting.")
       : activeStep ? `${activeStep.label}…`

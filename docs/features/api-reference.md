@@ -1,6 +1,6 @@
 ---
 feature: API reference (HTTP routes, middleware, scheduled commands)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/routes/api.php
   - api/routes/admin.php
@@ -135,7 +135,7 @@ sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/ListenerAnalytics.php
   - api/app/Services/AutoDjProgramme.php
-fingerprint: b5567f286c0020d6
+fingerprint: aa9f73673fe9f96f
 ---
 
 # API reference
@@ -219,7 +219,7 @@ Paths are relative to `/api`. All auth routes are inside `throttle:auth` (10/min
 | GET | `/invites/{code}` | `throttle:auth`, name `invites.show` | `InviteController@show` | public invite lookup |
 
 ### `POST /auth/register`
-Validation (`RegisterRequest`): `name` required string max 255; `email` required email max 255 `unique:users`; `password` required string min 8 `confirmed` (needs `password_confirmation`); `invite_code` nullable string max 40. Inside one DB transaction: create user (password hashed), and if `invite_code` is present `InviteRedemption::redeem` (an `InviteException` rolls the insert back and renders as 422/404 on `invite_code`). After commit: sends the 6-digit verification email, mints a Sanctum token named `auth`, returns **201** `{data: <raw User model>, message}` and sets the cookie. `User::created` also fires an admin Telegram alert (`AppServiceProvider`).
+Validation (`RegisterRequest`): `name` required string max 255; `email` required email max 255 `unique:users`; `password` required string min 8 `confirmed` (needs `password_confirmation`); `invite_code` nullable string max 40. Inside one DB transaction: create user (password hashed), and if `invite_code` is present `InviteRedemption::redeem` (an `InviteException` rolls the insert back and renders as 422/404 on `invite_code`). After commit: sends the 6-digit verification email, mints a Sanctum token named `auth`, returns **201** `{data: UserResource (plan loaded), message}` and sets the cookie. `User::created` also fires an admin Telegram alert (`AppServiceProvider`).
 
 ### `POST /auth/login`
 Validation (`LoginRequest`): `email` required email, `password` required, `device_name` nullable string max 255.
@@ -360,7 +360,7 @@ Owner checks are `TrackPolicy` and `PlaylistPolicy` (owner of the track's or pla
 
 ### Tracks
 - `index`: `kind` (`music|jingle`, default `music`). Response `{data: TrackResource[], meta:{kind, storage_used_bytes, storage_cap_bytes}}`; cap is `LIQUIDSOAP_STATION_STORAGE_BYTES` (default 3 GiB) and usage is the sum over **all** kinds.
-- `store` (`StoreTrackRequest`, multipart): `kind` sometimes `music|jingle`; `playlist_id` sometimes nullable ulid existing on this station; `files` required array 1..30; each file required, `max:307200` KB (300 MB), mimes `mp3,m4a,aac,flac,ogg,wav,mpga`. **Plan gate:** `assertAutoDjEnabled` first, so a Free plan gets 403 `autodj_not_available` for any upload including jingles. Files are imported one at a time by `TrackImporter::import` and the loop stops at the first `RuntimeException` (quota exceeded or size unreadable). Status: 201 all imported, 422 none imported, 207 partial. Body `{data: TrackResource[], errors: [{index, message}]}`. Import: row-locks the station, enforces quota inside the lock, moves the file to the station directory, reads tags (getID3), derives `Artist - Title` from the filename if tags are missing, appends to the library `position`, attaches music to the target playlist or the default playlist (`PlaylistTracks::attach`), rewrites and reloads the playlist files, queues `AnalyzeTrack` (unless `liquidsoap.analysis_enabled` is false) and records `track_uploaded`.
+- `store` (`StoreTrackRequest`, multipart): `kind` sometimes `music|jingle`; `playlist_id` sometimes nullable ulid existing on this station; `files` required array 1..30; each file required, `max:307200` KB (300 MB), mimes `mp3,m4a,aac,flac,ogg,wav,mpga`; `names` sometimes array, each `names.*` nullable string max 255. A non-blank `names[N]` (`StoreTrackRequest::nameFor`) replaces the part filename of `files[N]` for the stored `original_filename` and the title fallback only; the extension still comes from the file. The mobile library screen sends it because Expo's fetch percent-encodes part filenames; browsers never do. **Plan gate:** `assertAutoDjEnabled` first, so a Free plan gets 403 `autodj_not_available` for any upload including jingles. Files are imported one at a time by `TrackImporter::import` and the loop stops at the first `RuntimeException` (quota exceeded or size unreadable). Status: 201 all imported, 422 none imported, 207 partial. Body `{data: TrackResource[], errors: [{index, message}]}`. Import: row-locks the station, enforces quota inside the lock, moves the file to the station directory, reads tags (getID3), derives `Artist - Title` from the filename if tags are missing (the stem is cut with `Str::afterLast`/`beforeLast`, not `pathinfo`, which can drop leading multibyte characters), appends to the library `position`, attaches music to the target playlist or the default playlist (`PlaylistTracks::attach`), rewrites and reloads the playlist files, queues `AnalyzeTrack` (unless `liquidsoap.analysis_enabled` is false) and records `track_uploaded`.
 - `reorder` (`ReorderTracksRequest`): `kind` (invalid values fall back to `music`), `ids` required array min 1 of ulids existing on this station with that kind. Ids not listed keep their relative order after the listed ones. Returns the whole kind's `TrackResource` collection (no `data` wrapper beyond Laravel's default `data`).
 - `update` (`UpdateTrackRequest`): `title` sometimes string max 200; `artist` sometimes nullable string max 200. Rewrites and reloads the playlist files. 200 `{data: TrackResource}`.
 - `destroy`: deletes the file, detaches from every playlist, deletes the row, closes the gap in `position`, rewrites and reloads playlist files, records `track_deleted`. **204**.

@@ -1,6 +1,6 @@
 ---
 feature: Encoder ingest (BUTT, Mixxx, any Icecast source client)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - infra/native/station-router/ingest.js
   - infra/native/station-router/nginx.conf
@@ -45,7 +45,9 @@ sources:
   - client/contexts/AccountContext.tsx
   - client/interfaces/Station.ts
   - mobile/src/app/station/[slug]/index.tsx
-fingerprint: 6828937c30a922a9
+  - mobile/src/components/station/overview.tsx
+  - mobile/src/components/station/usePower.ts
+fingerprint: eb4837b6316cbe14
 ---
 
 # Encoder ingest
@@ -245,7 +247,7 @@ After harbor: `buffer(buffer=2., max=10.)`, then straight into `fallback(track_s
 
 **Pricing** lists encoder ingest as a Pro feature (`components/homepage/PricingSection.tsx`); Help has `broadcast-from-butt-or-mixxx` and `my-encoder-wont-connect` (`client/app/(marketing)/help/_content/`). `UserResource` exposes `plan.encoder_enabled` to the client.
 
-**Mobile**: **no encoder credentials or setup** appear in the app. It only labels an encoder broadcast: `liveSourceLabel()` in `mobile/src/app/station/[slug]/index.tsx` returns "LIVE FROM AN ENCODER" for `live_source.type === 'external'`, and its power control handles `station_is_live_external` with the same force-stop confirmation as the web.
+**Mobile**: **no encoder credentials or setup** appear in the app. It only labels an encoder broadcast: `liveSourceLabel()` in `mobile/src/components/station/overview.tsx` (the Overview tab's hero; `mobile/src/app/station/[slug]/index.tsx` decides `attached`) returns "LIVE FROM AN ENCODER" for `live_source.type === 'external'`, and its power control (`mobile/src/components/station/usePower.ts`) handles `station_is_live_external` with the same force-stop confirmation as the web ("Cut the broadcast off?" / "Cut it off", retrying the stop with `force: true`).
 
 **Admin**: the rotation appears on the station timeline as `stream_key_rotated`; `live_connected` events carry `via` and `client`.
 

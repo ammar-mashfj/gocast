@@ -33,7 +33,20 @@ export default function ScheduleLoading() {
 
         <div className="flex flex-col gap-4 rounded-xl border border-white/[0.07] bg-panel p-5">
           <h2 className="font-display text-lg font-semibold tracking-tight">This week</h2>
-          <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-1.5">
+          {/* The phone layout: the day strip, then three rows (DayList). */}
+          <div className="flex flex-col gap-4 md:hidden">
+            <div className="grid grid-cols-7 gap-1.5">
+              {DAYS.map((day) => (
+                <Skeleton key={day} className="h-16 rounded-xl" />
+              ))}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-[4.75rem] rounded-xl" />
+              <Skeleton className="h-[4.75rem] rounded-xl" />
+              <Skeleton className="h-[4.75rem] rounded-xl" />
+            </div>
+          </div>
+          <div className="hidden grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 md:grid">
             <span />
             <div className="relative mb-1 h-4 font-mono text-[10.5px] text-muted-foreground tabular-nums">
               {HOURS.map((h) => (
@@ -53,7 +66,7 @@ export default function ScheduleLoading() {
               </div>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 md:flex">
             <Skeleton className="h-4 w-40" />
             <Skeleton className="h-4 w-28" />
           </div>

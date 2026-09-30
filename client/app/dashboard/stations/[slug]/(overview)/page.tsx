@@ -138,22 +138,28 @@ export default async function StationDetailPage({
       {/* Header — identity and low-risk actions only. Anything that changes
           what listeners hear lives in the status panel below, so there is one
           place to look rather than two buttons that both mean "begin". */}
-      <header className="flex flex-col gap-4 md:flex-row md:items-start md:gap-5">
+      {/* One grid, two arrangements. On a phone the artwork sits beside the
+          name (stacked, a 64px square sat alone on its row with the width
+          empty beside it), the description and facts run the full width
+          beneath, and the actions take a row of their own. From lg (md still has the sidebar open, and the actions ran
+          past a 768px screen) the artwork spans both text rows on the left and the actions stand at
+          the right. */}
+      <header className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-rows-[auto_auto] lg:gap-x-5">
         <StationArtwork
           src={station.artwork_url}
           alt={station.name}
-          className="size-16 md:size-24 rounded-2xl shrink-0"
+          className="size-16 lg:size-24 rounded-2xl shrink-0 lg:row-span-2"
           iconSize={24}
           sizes="96px"
           priority
         />
-        <div className="flex-1 min-w-0 flex flex-col gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
-            {station.genre && (
-              <Badge variant="secondary" className="shrink-0 text-[11px]" title="genre">{station.genre}</Badge>
-            )}
-          </div>
+        <div className="flex items-center gap-2 min-w-0 self-center lg:self-auto">
+          <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
+          {station.genre && (
+            <Badge variant="secondary" className="shrink-0 text-[11px]" title="genre">{station.genre}</Badge>
+          )}
+        </div>
+        <div className="col-span-2 min-w-0 flex flex-col gap-2 lg:col-span-1 lg:col-start-2">
           {station.description && (
             <p className="max-w-[70ch] text-sm text-muted-foreground line-clamp-2">
               {station.description}
@@ -169,14 +175,14 @@ export default async function StationDetailPage({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" className="flex-1 md:flex-initial" asChild>
+        <div className="col-span-2 mt-2 flex items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1 lg:mt-0">
+          <Button variant="outline" className="flex-1 lg:flex-initial" asChild>
             <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">
               <IconExternalLink data-icon="inline-start" />
               Player page
             </a>
           </Button>
-          <StationActions station={station} mode="edit" />
+          <StationActions station={station} mode="edit" className="flex-1 lg:flex-initial" />
           <Button variant="outline" size="icon" asChild title="Station settings">
             <Link href={`/dashboard/stations/${station.slug}/settings`}>
               <IconSettings />
@@ -219,7 +225,7 @@ export default async function StationDetailPage({
       <section
         aria-label="Your shows"
         // Two columns split by a vertical rule instead of two boxes.
-        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
       >
         <StationActivity
           sessions={sessions}
@@ -231,7 +237,7 @@ export default async function StationDetailPage({
 
       <section
         aria-label="Share"
-        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
       >
         <StationShare url={playerUrl} stationName={station.name} slug={station.slug} />
         <StationChecklist

@@ -291,7 +291,7 @@ export class BroadcastManager {
           this.lastDropAt = now
           this.chunksDropped++
         }
-      })
+      }, this.stationSlug)
       // The context starts suspended under the autoplay policy, and a
       // suspended context produces no frames for the worklet to capture.
       // Resume now — we are inside the user gesture that triggered start().

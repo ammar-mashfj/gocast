@@ -1,6 +1,6 @@
 ---
 feature: Observability and events (station timeline, audit logs, Sentry, metrics, alerts)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Models/StationEvent.php
   - api/config/station_events.php
@@ -60,7 +60,7 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/app/Webhooks/Resend/EmailReceived.php
   - api/resources/views/liquidsoap/station.blade.php
-fingerprint: af02aa755a095946
+fingerprint: d3de59c91f088d7c
 ---
 
 # Observability and events

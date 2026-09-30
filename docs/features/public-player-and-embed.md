@@ -64,7 +64,7 @@ sources:
   - api/tests/Feature/PublicEmbedTest.php
   - api/tests/Feature/PublicStationSeoTest.php
   - api/tests/Feature/StationNotifySubscriptionTest.php
-fingerprint: a3e0a9b2fe67c295
+fingerprint: c77880c5050babfc
 ---
 
 # Public player page, Pro embed and listener-facing SEO

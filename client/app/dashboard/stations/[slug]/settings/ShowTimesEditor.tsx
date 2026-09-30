@@ -171,7 +171,9 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
               </div>
 
               <div role="group" aria-label="Days you're live" className="flex flex-wrap items-center gap-2">
-                <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                {/* basis-full below sm: seven 36px chips plus this label ran
+                    past a 375px column and Saturday wrapped alone. */}
+                <span className="mr-1 inline-flex basis-full items-center gap-1.5 text-xs text-muted-foreground sm:basis-auto">
                   <span className="size-1.5 rounded-full bg-live" aria-hidden="true" />
                   Live on
                 </span>

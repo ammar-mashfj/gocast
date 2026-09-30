@@ -1,6 +1,6 @@
 ---
 feature: Schedule (show times + AutoDJ slots)
-verified: 2026-09-29 against ea570df plus uncommitted work (mobile redesign; show times moved to Station settings)
+verified: 2026-09-29 against 360c382 plus uncommitted work (phone day list on the web Schedule page)
 sources:
   - api/app/Models/StationSchedule.php
   - api/app/Models/AutodjSlot.php
@@ -24,6 +24,7 @@ sources:
   - client/app/dashboard/stations/[slug]/schedule/weekModel.ts
   - client/app/dashboard/stations/[slug]/schedule/WeekGrid.tsx
   - client/app/dashboard/stations/[slug]/schedule/SlotPanel.tsx
+  - client/app/dashboard/stations/[slug]/schedule/DayList.tsx
   - client/app/dashboard/stations/[slug]/schedule/ScheduleStatus.tsx
   - client/app/station/[slug]/ScheduleBlock.tsx
   - client/app/station/[slug]/PlayerView.tsx
@@ -37,7 +38,7 @@ sources:
   - mobile/src/components/station/ScheduleEditor.tsx
   - mobile/src/app/show-times/[slug].tsx
   - mobile/src/app/station/[slug]/index.tsx
-fingerprint: 701d584474e60acd
+fingerprint: 7105c478ef206e09
 ---
 
 # Schedule
@@ -147,6 +148,7 @@ The Schedule page is a full-width week timeline that is also the editor (`WeekGr
 - **Drag along an empty stretch** to draw a block, clamped to the free space around it (`freeBounds`). A plain click makes one hour from the quarter hour clicked (`freeSpanAt`). New blocks use the first non-default playlist. The "Add slot" button adds an hour at the next free hour.
 - **Dragging a left or right edge changes that one day only.** It snaps to 15 minutes, stops at the neighbouring block (the server refuses overlaps), and a block stays between 15 minutes and 24 hours long. A drag can carry a block past midnight.
 - **Clicking a slot (or drawing a new one) opens it in a dialog** (`SlotPanel` inside the planner's `Dialog`). Edge drags deliberately don't open it, so the modal never covers the grid mid-drag. **The dialog edits every ticked day at once.** Ticking a day copies the block onto it, unticking removes that copy, and Delete removes all of them.
+- **On a phone (below the `md` breakpoint, 768px) the grid is replaced by the Android app's layout** (`DayList`): a strip of the seven days with this week's dates, then the picked day's rows top to bottom, in the app's order (show times in emerald linking to settings, then AutoDJ slots by playlist swatch, or the default playlist "All day" when none falls on that day). A slot that runs past midnight shows on the next day as "→ 02:00". Tapping a row opens the same `SlotPanel` dialog; "Add slot on Tuesday" puts an hour on the day being looked at, at the first free hour from now (today) or from 06:00. Both layouts are in the markup and CSS picks one, so the blocks and the selection survive a resize. Drawing and edge drags exist only on the grid. A sticky bar with the save state and Save appears at the bottom on phones once there are unsaved changes, because the header's Save has scrolled away by then. "NOW" on a row means the station's clock is inside it, not that it is playing; the banner says what plays.
 - **Explicit Save** (autosave was tried and dropped on 2026-09-29): the Save button next to the page title sends the same full-list `PUT /autodj-slots` without `timezone`. It's disabled when nothing changed, while blocks overlap, or while the station has no timezone, and the status beside it says which. A failed save shows the server's error. Leaving with unsaved changes triggers the browser's warning.
 - **The banner** reads the live status poll (`useStationStatus`), never the schedule: Live / On air · AutoDJ with the playlist from `programme` / Off / Starting. It also shows the next show from `next_occurrence` and the station clock. The planned playlist is refetched when `programme.until` passes.
 - **The now line** and "today" use the station's timezone, not the browser's.

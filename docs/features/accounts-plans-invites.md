@@ -1,6 +1,6 @@
 ---
 feature: Accounts, plans, Pro access, invites and the waitlist
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Http/Controllers/AccountController.php
   - api/app/Http/Controllers/InviteController.php
@@ -90,7 +90,7 @@ sources:
   - client/components/dashboard/AppSidebar.tsx
   - client/actions/auth.ts
   - mobile/src/app/account.tsx
-fingerprint: c7cb6d63f6147170
+fingerprint: e6088aad5ddbdeca
 ---
 
 # Accounts, plans, Pro access, invites, waitlist
@@ -271,7 +271,7 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 |---|---|
 | Web `/dashboard/settings` ("Account") | `PlanCard` (plan name, "Up to N listeners at once", AutoDJ sentence, "Request Pro" if AutoDJ locked; renders nothing when the plan is unknown), Profile form, Change/Set password, Danger zone with delete dialog (typed email). Reads `user` from the cookie via `getUser()`, not from the API, so name and email are as of last `saveAuth`. **`plan.expires_at` is not shown here** |
 | Web dashboard layout | Fetches `/user` once server-side and provides it through `AccountProvider`; `usePlan()` is null on a failed fetch, and the `use*Locked()` hooks treat null as "not locked" (`useAutoDjLocked`, `useAudienceLocked`, `useEmbedLocked`, `useEncoderLocked`) so a timeout never paints an upsell on a paying user. The API is the real gate |
-| Web sidebar | "Pro" badge on items with `lock: "autodj"` or `"audience"`; plan card with "Request Pro" when AutoDJ locked; "Requested" state per session |
+| Web sidebar | "Pro" badge on items with `lock: "autodj"` (AutoDJ and Schedule, since Schedule is AutoDJ slots only) or `"audience"` (Audience); the links stay live on purpose. Plan card with "Request Pro" when AutoDJ locked, "Requested" state per session; a paid plan's name is a badge next to the user's name in the footer instead |
 | Web `/auth/register?invite=CODE` | `useInvite` calls `GET /invites/{code}` and shows a banner: valid (plan and days), closed used/expired, invalid, or unchecked (lookup failed, code is still sent). Submit is disabled while the lookup is `checking`. The code is only sent when the state is valid or unchecked. `invite_used`, `invite_already_redeemed`, `invite_expired`, `invite_not_found` errors flip the banner so a retry goes without the code. Google button passes `invite` on the popup URL; the outcome toast comes from the popup message |
 | Mobile | `account.tsx` shows plan name, listeners, AutoDJ and an "Ends" date from `expires_at`; "Request Pro" (shown only when `plan.slug === 'free'`) opens the web dashboard. No invite entry anywhere; native Google sign-in supports an `invite` field but the app does not send one (no file under `mobile/src` mentions invites). |
 | Admin (boundary) | Requests queue, invites page, provision account, station upgrade: [admin-panel](admin-panel.md) |

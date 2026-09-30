@@ -81,7 +81,7 @@ sources:
   - mobile/src/lib/api.ts
   - mobile/src/lib/station.ts
   - mobile/src/lib/auth.tsx
-fingerprint: 27b688255cce2c93
+fingerprint: 56948f7812a6fdbb
 ---
 
 # Library, uploads and playlists
@@ -271,7 +271,7 @@ The Library tab: storage card, then one collapsible card per playlist (default f
 ### Not part of this feature despite the names
 
 - `client/lib/listenerLibrary.ts` is the **listener's** saved-stations and history, in `localStorage` (`gocast:saved-stations:v1` capped at 50, `gocast:history:v1` capped at 8). Used by the homepage `ListenerLibrary` and `PlayerView`. Nothing to do with tracks.
-- `client/lib/queueStore.ts` is the **web studio's** local queue: IndexedDB database `gocast` v2 (stores `queue` and `playback`), keeps `File` objects and the playback offset so a refresh keeps the queue; ordered by a saved `position`. It is separate from the server library; see [Web studio](broadcasting-web-studio.md).
+- `client/lib/queueStore.ts` is the **web studio's** local queue: IndexedDB database `gocast` v3 (stores `queue` and `playback`, both scoped by station slug), keeps `File` objects and the playback offset so a refresh keeps the queue; ordered by a saved `position`. It is separate from the server library; see [Web studio](broadcasting-web-studio.md).
 
 ## Gaps and traps
 

@@ -50,7 +50,7 @@ export function isOverlayTarget(target: EventTarget | null): boolean {
  * slides off the pad keeps the mic open until it lifts — and a touch can no
  * longer fire the mouse handlers a second time.
  */
-export function PushToTalk({ compact = false }: { compact?: boolean }) {
+export function PushToTalk() {
   const { engine, micStream, micDisabled } = useBroadcast()
   useEngineVersion(engine)
 
@@ -106,12 +106,15 @@ export function PushToTalk({ compact = false }: { compact?: boolean }) {
   const device = micStream?.getAudioTracks()[0]?.label || "Default microphone"
 
   return (
-    <div
-      className={cn(
-        "grid items-center gap-x-5 gap-y-3 transition-colors duration-200",
-        compact ? "grid-cols-[1fr_auto]" : "grid-cols-[minmax(220px,auto)_1fr_auto]",
-      )}
-    >
+    // Laid out by the width of the deck (`@container/talk` in OnAirDeck), not
+    // the viewport: at 1366px the desktop console still only gives this row
+    // ~680px, and three columns squeezed the meter to 100px so its caption
+    // wrapped four deep. Narrower than 52rem the talk pad takes the top row
+    // and the meter and mic buttons share the one beneath. Narrower than
+    // 30rem (a phone) it is three rows: talk pad, then the mic buttons right
+    // under it, then the meter across the full width — beside the buttons it
+    // was a 130px sliver with its caption stranded above.
+    <div className="grid grid-cols-1 items-center gap-x-5 gap-y-3 transition-colors duration-200 @[30rem]/talk:grid-cols-[minmax(0,1fr)_auto] @[52rem]/talk:grid-cols-[minmax(220px,auto)_minmax(0,1fr)_auto]">
       <button
         type="button"
         aria-pressed={micOpen}
@@ -134,8 +137,7 @@ export function PushToTalk({ compact = false }: { compact?: boolean }) {
         }}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          "flex min-h-[72px] touch-none select-none items-center gap-3.5 rounded-xl border px-5 text-left transition-[background-color,border-color,color,transform] duration-150",
-          compact && "col-span-2",
+          "flex min-h-[72px] touch-none select-none items-center gap-3.5 rounded-xl border px-5 text-left transition-[background-color,border-color,color,transform] duration-150 @[30rem]/talk:col-span-2 @[52rem]/talk:col-span-1",
           micOpen
             ? "scale-[0.99] border-mic bg-mic text-[#04121c]"
             : "border-white/12 bg-white/[0.03] text-foreground hover:border-white/20 hover:bg-white/[0.05]",
@@ -165,12 +167,14 @@ export function PushToTalk({ compact = false }: { compact?: boolean }) {
         </span>
       </button>
 
-      <div className={cn("flex min-w-0 flex-col gap-2", compact && "col-span-1")}>
+      <div className="order-last flex min-w-0 flex-col gap-2 @[30rem]/talk:order-none">
         <div className="flex items-baseline justify-between gap-3 text-xs">
-          <span className={micOpen ? "font-medium text-mic-text" : "text-muted-foreground"}>
+          <span className={cn("shrink-0 whitespace-nowrap", micOpen ? "font-medium text-mic-text" : "text-muted-foreground")}>
             {micOpen ? "Going out live" : "Mic check · listeners can't hear this"}
           </span>
-          {!compact && <span className="truncate text-muted-foreground">{device}</span>}
+          {/* The device name is the first thing to go: sharing this line at
+              the three-column minimum it pushed the caption onto two rows. */}
+          <span className="hidden min-w-0 truncate text-muted-foreground @[64rem]/talk:inline">{device}</span>
         </div>
         <MicMeter stream={micStream} open={micOpen} />
       </div>
@@ -182,7 +186,7 @@ export function PushToTalk({ compact = false }: { compact?: boolean }) {
           aria-keyshortcuts="L"
           title="Leave the mic on without holding anything (L)"
           onClick={() => engine?.setMicLatched(!latched)}
-          className={cn("h-11 self-center", latched && "border-mic/50 bg-mic/10 text-mic-text hover:bg-mic/15 hover:text-mic-text")}
+          className={cn("h-11 flex-1 self-center @[30rem]/talk:flex-initial", latched && "border-mic/50 bg-mic/10 text-mic-text hover:bg-mic/15 hover:text-mic-text")}
         >
           {latched ? <IconLockOpen data-icon="inline-start" /> : <IconLock data-icon="inline-start" />}
           <span>{latched ? "Mic off" : "Keep mic on"}</span>

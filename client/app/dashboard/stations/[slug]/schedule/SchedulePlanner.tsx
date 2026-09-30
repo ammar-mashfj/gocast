@@ -16,6 +16,7 @@ import api from "@/lib/axios"
 import { cn } from "@/lib/utils"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Programme, Station } from "@/interfaces/Station"
+import { DayList } from "./DayList"
 import { ScheduleStatus } from "./ScheduleStatus"
 import { SlotPanel } from "./SlotPanel"
 import { DAY_SHORT, SWATCHES, WeekGrid } from "./WeekGrid"
@@ -71,6 +72,10 @@ function stationNow(timeZone: string): { day: number; minute: number; label: str
  * Show times are not edited here. They only tell listeners when you're on and
  * program nothing, so they live in Station settings with the timezone and are
  * drawn here as dashed marks: going live takes over from any slot.
+ *
+ * Below `md` the grid gives way to the phone layout the Android app uses, a
+ * day strip and the chosen day's rows (DayList); the blocks, the dialog and
+ * Save are the same, so a schedule started on a phone finishes on a laptop.
  *
  * See docs/features/schedule.md.
  */
@@ -250,24 +255,26 @@ export function SchedulePlanner({ station, playlists }: Props) {
             What plays when you&apos;re not live. Going live always takes over.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-[0.1em]">
-          {!locked && (
-            <span role="status" className={cn("font-semibold", statusLine[saveState].tone)}>
-              {statusLine[saveState].text}
-            </span>
-          )}
-          <span className="text-muted-foreground">{timezone ?? "No timezone set"}</span>
-          <Link
-            href={settingsHref}
-            className="normal-case tracking-normal font-sans text-sm font-medium text-violet hover:underline underline-offset-2"
-          >
-            {timezone ? "Change" : "Set timezone"}
-          </Link>
+        <div className="flex w-full items-center justify-between gap-x-3 gap-y-1 sm:w-auto sm:justify-start">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-[0.1em]">
+            {!locked && (
+              <span role="status" className={cn("font-semibold", statusLine[saveState].tone)}>
+                {statusLine[saveState].text}
+              </span>
+            )}
+            <span className="text-muted-foreground">{timezone ?? "No timezone set"}</span>
+            <Link
+              href={settingsHref}
+              className="normal-case tracking-normal font-sans text-sm font-medium text-violet hover:underline underline-offset-2"
+            >
+              {timezone ? "Change" : "Set timezone"}
+            </Link>
+          </div>
           {!locked && (
             <Button
               type="button"
               size="sm"
-              className="ml-2 font-sans normal-case tracking-normal"
+              className="shrink-0"
               onClick={save}
               disabled={!dirty || saving || blockedBy !== null}
             >
@@ -334,8 +341,8 @@ export function SchedulePlanner({ station, playlists }: Props) {
               )}
             </h2>
             {!locked && (
-              <div className="flex items-center gap-3">
-                <span className="hidden text-xs text-muted-foreground md:inline">
+              <div className="hidden items-center gap-3 md:flex">
+                <span className="text-xs text-muted-foreground">
                   Drag along a day to add a slot. Drag a slot&apos;s edge to change that day.
                 </span>
                 <Button
@@ -353,23 +360,46 @@ export function SchedulePlanner({ station, playlists }: Props) {
             )}
           </div>
 
-          <WeekGrid
-            blocks={locked ? [] : blocks}
-            shows={station.schedules ?? []}
-            showsHref={settingsHref}
-            swatchFor={swatchFor}
-            nameFor={nameFor}
-            selectedKey={selectedKey}
-            siblings={siblings}
-            overlaps={overlaps}
-            now={mounted && now ? { day: now.day, minute: now.minute } : null}
-            readOnly={locked || noPlaylists}
-            onSelect={setSelectedKey}
-            onCreate={create}
-            onChange={changeOne}
-          />
+          {/* Both are in the markup and CSS picks one, so a resize never
+              loses the selection or the unsaved blocks. */}
+          <div className="md:hidden">
+            <DayList
+              blocks={locked ? [] : blocks}
+              shows={station.schedules ?? []}
+              showsHref={settingsHref}
+              playlists={playlists}
+              swatchFor={swatchFor}
+              nameFor={nameFor}
+              overlaps={overlaps}
+              now={mounted && now ? { day: now.day, minute: now.minute } : null}
+              timezone={timezone}
+              mounted={mounted}
+              locked={locked}
+              readOnly={locked || noPlaylists}
+              onSelect={setSelectedKey}
+              onCreate={create}
+            />
+          </div>
+          <div className="hidden md:block">
+            <WeekGrid
+              blocks={locked ? [] : blocks}
+              shows={station.schedules ?? []}
+              showsHref={settingsHref}
+              swatchFor={swatchFor}
+              nameFor={nameFor}
+              selectedKey={selectedKey}
+              siblings={siblings}
+              overlaps={overlaps}
+              now={mounted && now ? { day: now.day, minute: now.minute } : null}
+              readOnly={locked || noPlaylists}
+              onSelect={setSelectedKey}
+              onCreate={create}
+              onChange={changeOne}
+            />
+          </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {/* The grid's legend; the day list spells each row out instead. */}
+          <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground md:flex">
             <span className="inline-flex items-center gap-1.5">
               <span className="inline-block size-2.5 rounded-sm border border-white/[0.12] bg-white/[0.025]" />
               {locked ? "Off air unless you're live" : `${defaultPlaylist?.name ?? "Default playlist"} (everything else)`}
@@ -414,8 +444,18 @@ export function SchedulePlanner({ station, playlists }: Props) {
             </div>
           )}
         </section>
-
       </div>
+
+      {!locked && (dirty || saveError) && (
+        <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-white/[0.09] bg-panel/95 px-4 py-3 shadow-lg backdrop-blur md:hidden">
+          <span className={cn("font-mono text-[11px] font-semibold uppercase tracking-[0.1em]", statusLine[saveState].tone)}>
+            {statusLine[saveState].text}
+          </span>
+          <Button type="button" size="sm" onClick={save} disabled={!dirty || saving || blockedBy !== null}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

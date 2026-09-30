@@ -11,6 +11,7 @@ import {
   freeBounds,
   freeSpanAt,
   fromSpan,
+  segments,
   toClock,
   toMinutes,
   weekSpan,
@@ -37,31 +38,6 @@ export const SWATCHES = [
 ]
 
 export type Swatch = (typeof SWATCHES)[number]
-
-interface Segment {
-  block: Block
-  day: number
-  from: number
-  to: number
-  /** This segment carries the block's start edge (not a continuation from the day before). */
-  head: boolean
-  /** This segment carries the block's end edge. */
-  tail: boolean
-}
-
-/** A block cut at midnight, so each piece lives in one day's row. */
-function segments(block: Block): Segment[] {
-  const [start, end] = weekSpan(block)
-  const dayStart = block.day * DAY_MINUTES
-  const dayEnd = dayStart + DAY_MINUTES
-  if (end <= dayEnd) {
-    return [{ block, day: block.day, from: start - dayStart, to: end - dayStart, head: true, tail: true }]
-  }
-  return [
-    { block, day: block.day, from: start - dayStart, to: DAY_MINUTES, head: true, tail: false },
-    { block, day: (block.day + 1) % 7, from: 0, to: end - dayEnd, head: false, tail: true },
-  ]
-}
 
 interface Props {
   blocks: Block[]

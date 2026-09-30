@@ -127,7 +127,9 @@ export function SlotPanel({
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Changes here apply to every ticked day. Dragging an edge on the week changes one day only.
+          Changes here apply to every ticked day.
+          {/* Edge drags exist only on the grid, which a phone never shows. */}
+          <span className="hidden md:inline"> Dragging an edge on the week changes one day only.</span>
         </p>
       </div>
 

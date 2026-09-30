@@ -80,29 +80,29 @@ export default async function StationSettingsPage({
           <CardTitle className="text-base font-medium">Details</CardTitle>
           <StationActions station={station} mode="edit" />
         </CardHeader>
-        <CardContent className="flex gap-4">
+        {/* On a phone the description runs the full width under the name
+            instead of as a 250px column beside the artwork. */}
+        <CardContent className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 sm:gap-y-1.5">
           <StationArtwork
             src={station.artwork_url}
             alt={station.name}
-            className="size-16 rounded-xl shrink-0"
+            className="size-16 rounded-xl shrink-0 sm:row-span-2"
             iconSize={22}
             sizes="64px"
           />
-          <div className="min-w-0 flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="font-medium truncate">{station.name}</span>
-              {station.genre && (
-                <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {station.description || (
-                <span className="italic">
-                  No description yet — two lines telling listeners what you play.
-                </span>
-              )}
-            </p>
+          <div className="flex items-center gap-2 min-w-0 self-center sm:self-auto">
+            <span className="font-medium truncate">{station.name}</span>
+            {station.genre && (
+              <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
+            )}
           </div>
+          <p className="col-span-2 text-sm text-muted-foreground leading-relaxed sm:col-span-1 sm:col-start-2">
+            {station.description || (
+              <span className="italic">
+                No description yet — two lines telling listeners what you play.
+              </span>
+            )}
+          </p>
         </CardContent>
       </Card>
 

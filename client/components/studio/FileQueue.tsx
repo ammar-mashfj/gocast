@@ -91,7 +91,11 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         transition,
       }}
       className={cn(
-        "grid grid-cols-[36px_28px_minmax(0,1fr)_auto_36px] items-center gap-2 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[36px_28px_minmax(0,1fr)_auto_52px_36px]",
+        // Handle 32px, number left-aligned in a column just wide enough for
+        // two digits, 6px gaps: the old 36px handle, 8px gaps and a
+        // right-aligned digit in a 28px column left ~40px of nothing
+        // between the grip and the number on a phone.
+        "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
         isDragging && "relative z-10 bg-popover shadow-lg",
         isPlaying ? "bg-white/[0.04]" : "hover:bg-white/[0.025]",
       )}
@@ -102,16 +106,20 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         {...attributes}
         {...listeners}
         aria-label={`Move ${track.title}`}
-        className="flex size-9 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:cursor-grabbing"
       >
-        <IconGripVertical size={16} />
+        <IconGripVertical size={20} />
       </button>
-      <span className="text-right text-xs text-muted-foreground tabular-nums">
+      <span className="text-xs text-muted-foreground tabular-nums">
         {position}
       </span>
+      {/* No empty artist line: it made the text block two lines tall, so a
+          title without an artist sat above the row's centre while the
+          number and controls sat on it. min-h on the row keeps the height
+          steady between tagged and untagged tracks instead. */}
       <div className="min-w-0">
         <div className={cn("truncate text-sm", isPlaying && "font-semibold")}>{track.title}</div>
-        <div className="min-h-4 truncate text-xs text-muted-foreground">{track.artist}</div>
+        {track.artist && <div className="truncate text-xs text-muted-foreground">{track.artist}</div>}
       </div>
       <div className="whitespace-nowrap text-xs">
         {isPlaying ? (

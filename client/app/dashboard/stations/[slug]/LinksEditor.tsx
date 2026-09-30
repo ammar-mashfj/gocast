@@ -135,7 +135,10 @@ export function LinksEditor({ station }: { station: Station }) {
           const Icon = resolved?.icon
 
           return (
-            <div key={row.key} className="flex items-center gap-2">
+            // Icon and bin stay on the address line; on a phone the name
+            // field drops under the address, since the two side by side left
+            // the address 70px wide ("https:/" and nothing else).
+            <div key={row.key} className="flex items-start gap-2">
               {/* The answer to "what logo will it use", given before the save
                   rather than after it. */}
               <div
@@ -144,6 +147,7 @@ export function LinksEditor({ station }: { station: Station }) {
               >
                 {Icon ? <Icon size={18} /> : <span className="text-xs text-text-faint">—</span>}
               </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 ref={(el) => {
                   if (el) {
@@ -176,10 +180,11 @@ export function LinksEditor({ station }: { station: Station }) {
                   }
                 }}
                 placeholder={resolved?.known ? resolved.name : "Name (optional)"}
-                className="w-40 shrink-0"
+                className="sm:w-40 sm:shrink-0"
                 aria-label="Link name"
                 maxLength={30}
               />
+              </div>
               <Button
                 type="button"
                 variant="ghost"

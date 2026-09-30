@@ -1,6 +1,6 @@
 ---
 feature: Realtime events and polling
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/routes/channels.php
   - api/config/broadcasting.php
@@ -53,7 +53,7 @@ sources:
   - mobile/src/broadcast/BroadcastContext.tsx
   - mobile/src/app/station/[slug]/index.tsx
   - mobile/src/app/station/[slug]/audience.tsx
-fingerprint: f93eccb8e94197f2
+fingerprint: 5fad84a328d82856
 ---
 
 # Realtime events and polling
@@ -139,7 +139,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 | Web notification bell | Poll only (`useNotifications`) | `GET /notifications/unread-count` (`throttle:notification-poll`, 30/min per user) | 60 s |
 | Web studio pre-flight | `ensureStationOnAir` in `client/lib/broadcast.ts` first `POST /stations/{slug}/start`, then polls until `ready` | `GET /stations/{slug}/status` | 1 s (`STATION_READY_POLL_MS`), up to 20 s (`STATION_READY_TIMEOUT_MS`; 8 s on a reconnect attempt), then publishes anyway. Independent of the push |
 | Mobile station overview | Poll only (`useStationStatus` in `mobile/src/lib/station.ts`) | `GET /stations/{slug}/status` | 2 s / 10 s / 30 s, track-aware, see below |
-| Mobile station overview listener count (`useListeners`, two call sites), and the on-air effect in `BroadcastContext` | Poll only | `GET /public/stations/{slug}/listeners` | 10 s. Overview: only while the station is running and this phone is not the broadcaster. Context: only while broadcast state is `live`/`reconnecting` |
+| Mobile station overview listener count (`useListeners`, one call site in `station/[slug]/index.tsx`, shared by the hero and the stat tiles), and the on-air effect in `BroadcastContext` | Poll only | `GET /public/stations/{slug}/listeners` | 10 s. Overview: only while the station is running and this phone is not the broadcaster (live from this phone, the overview reads `broadcast.session.listeners` from the context's poll instead). Context: only while broadcast state is `live`/`reconnecting` |
 | Mobile sessions list | Poll only (`useApiData`) | `GET /stations/{slug}/sessions` | 30 s |
 | Mobile audience screen (`useApiData` with `60_000`) | Poll only | `GET /stations/{slug}/audience` | 60 s, skipped when the app is not `active` |
 | Mobile everything else (library, schedule playlists, show times) | Fetch on screen focus, no interval | various | none |

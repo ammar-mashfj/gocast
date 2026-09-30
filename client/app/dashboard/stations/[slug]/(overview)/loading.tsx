@@ -64,31 +64,33 @@ export default function StationDetailLoading() {
     // the whole page still for anyone who asked for reduced motion.
     <div className="sheet flex flex-col gap-8 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
       {/* Header — real wherever the layout already knows the answer. */}
-      <header className="flex flex-col gap-4 md:flex-row md:items-start md:gap-5">
+      {/* Same grid as page.tsx: artwork beside the name on a phone, spanning
+          both text rows from md. */}
+      <header className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-rows-[auto_auto] lg:gap-x-5">
         {station ? (
           <StationArtwork
             src={station.artwork_url}
             alt={station.name}
-            className="size-16 md:size-24 rounded-2xl shrink-0"
+            className="size-16 lg:size-24 rounded-2xl shrink-0 lg:row-span-2"
             iconSize={24}
             sizes="96px"
           />
         ) : (
-          <Skeleton className="size-16 md:size-24 rounded-2xl shrink-0" />
+          <Skeleton className="size-16 lg:size-24 rounded-2xl shrink-0 lg:row-span-2" />
         )}
 
-        <div className="flex-1 min-w-0 flex flex-col gap-2">
-          {station ? (
-            <div className="flex items-center gap-2 min-w-0">
-              <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
-              {station.genre && (
-                <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
-              )}
-            </div>
-          ) : (
-            <Skeleton className="h-8 w-48" />
-          )}
+        {station ? (
+          <div className="flex items-center gap-2 min-w-0 self-center lg:self-auto">
+            <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
+            {station.genre && (
+              <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
+            )}
+          </div>
+        ) : (
+          <Skeleton className="h-8 w-48 self-center lg:self-auto" />
+        )}
 
+        <div className="col-span-2 min-w-0 flex flex-col gap-2 lg:col-span-1 lg:col-start-2">
           {station ? (
             station.description && (
               <p className="text-sm text-muted-foreground line-clamp-2">{station.description}</p>
@@ -102,17 +104,17 @@ export default function StationDetailLoading() {
           <Skeleton className="h-5 w-80 max-w-full" />
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="col-span-2 mt-2 flex items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1 lg:mt-0">
           {/* Both links only need the slug, so they are live already. The
               edit button between them is a bar: its dialog needs the full
               station record, which is exactly what is still loading. */}
-          <Button variant="outline" className="flex-1 md:flex-initial" asChild>
+          <Button variant="outline" className="flex-1 lg:flex-initial" asChild>
             <a href={`/station/${slug}`} target="_blank" rel="noopener noreferrer">
               <IconExternalLink data-icon="inline-start" />
               Player page
             </a>
           </Button>
-          <Skeleton className="h-9 flex-1 md:flex-initial md:w-44" />
+          <Skeleton className="h-9 flex-1 lg:flex-initial lg:w-44" />
           <Button variant="outline" size="icon" asChild title="Station settings">
             <Link href={`/dashboard/stations/${slug}/settings`}>
               <IconSettings />
@@ -202,7 +204,7 @@ export default function StationDetailLoading() {
       {/* Broadcast activity | Recent broadcasts, split by a vertical rule. */}
       <section
         aria-label="Your shows"
-        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
       >
         <Card>
           <CardContent className="pt-1">
@@ -265,7 +267,7 @@ export default function StationDetailLoading() {
       {/* Share your station | Finish setting up. */}
       <section
         aria-label="Share"
-        className="grid items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
       >
         <Card>
           <CardHeader>

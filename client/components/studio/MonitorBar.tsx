@@ -30,14 +30,21 @@ export function MonitorBar() {
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {/* Outlined, not ghost: as bare text it read as a status label, and
+          nobody guessed the way to hear the music was to tap the words. */}
       <Button
-        variant="ghost"
+        variant="outline"
         size="sm"
         aria-pressed={enabled}
         aria-keyshortcuts="M"
         title="Hear the music through your speakers (M)"
         onClick={() => engine?.setMonitorEnabled(!enabled)}
-        className={cn("h-9 -ml-2", enabled ? "text-foreground" : "text-muted-foreground")}
+        className={cn(
+          "h-9",
+          enabled
+            ? "border-violet/50 bg-violet/10 text-foreground hover:bg-violet/15"
+            : "text-muted-foreground hover:text-foreground",
+        )}
       >
         {enabled ? (
           <IconHeadphones data-icon="inline-start" />

@@ -1,6 +1,6 @@
 ---
 feature: Station lifecycle (power, state model, auto-stop)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Services/StationLifecycleService.php
   - api/app/Services/StationLifecycleException.php
@@ -42,7 +42,11 @@ sources:
   - mobile/src/broadcast/broadcastManager.ts
   - mobile/src/broadcast/BroadcastContext.tsx
   - mobile/src/app/station/[slug]/index.tsx
-fingerprint: 424c38680235b5f0
+  - mobile/src/components/station/usePower.ts
+  - mobile/src/components/studio/OnAir.tsx
+  - mobile/src/app/live/[slug].tsx
+  - mobile/src/app/account.tsx
+fingerprint: 8a2cfa3321bb4307
 ---
 
 # Station lifecycle
@@ -138,7 +142,9 @@ The web studio (`client/lib/broadcast.ts` `ensureStationOnAir`) and the mobile s
 
 ### `POST /stop` after a broadcast
 
-Both studios call `stop({ releaseStation: autoDjLocked })` when the user presses End (`client/components/studio/EndBroadcast.tsx`, `mobile/src/app/studio/[slug].tsx`). If the account has no AutoDJ (`useAutoDjLocked`), the context retries `POST /stop` on 409 (delays 0, 400, 800, 1500, 2500 ms in `releaseStation`) to wait out harbor's disconnect callback, and any other status gives up (the sweep is the backstop). So for a Free account, ending the show switches the station off immediately; for a Pro account it hands back to AutoDJ and stays on.
+Both studios call `stop({ releaseStation: autoDjLocked })` when the user presses End (`client/components/studio/EndBroadcast.tsx`, `mobile/src/components/studio/OnAir.tsx`). If the account has no AutoDJ (`useAutoDjLocked`), the context retries `POST /stop` on 409 (delays 0, 400, 800, 1500, 2500 ms in `releaseStation`) to wait out harbor's disconnect callback, and any other status gives up (the sweep is the backstop). So for a Free account, ending the show switches the station off immediately; for a Pro account it hands back to AutoDJ and stays on.
+
+On mobile the show lives at module scope in `mobile/src/broadcast/BroadcastContext.tsx`, so it survives the app being swiped away, and three more things end it. The foreground notification's "End show" button (`onNotificationStop`) calls the same `stop({ releaseStation: autoDjLocked })`, with `autoDjLocked` mirrored into a module variable so it works with no screen mounted (after a swipe-away it keeps the last known plan). Signing out under a show (`mobile/src/app/account.tsx`, and the `signedOut` effect in the context when the API rejects the token) and cancelling the go-live countdown (`mobile/src/app/live/[slug].tsx` `cancel`) call `stop()` with **no** release: the station stays `running` and `stations:sweep` switches it off, after the 150 s studio-gone grace if a session had been opened, or the full silence window if the cancel landed before the socket connected (`ensureStationOnAir` has already sent `POST /start` by then, and `abandonStart` in `broadcastManager.ts` does not undo it).
 
 ## Status endpoint: `GET /stations/{slug}/status`
 
@@ -281,7 +287,7 @@ The container callback `POST /internal/station-event` (`StationEventController`,
 
 **Web dashboard.** `client/components/dashboard/StationPower.tsx` is the power card. It polls `useStationStatus(slug)` (`client/hooks/useStationStatus.ts`): 2 s before the first answer, while `starting` or during a live handover (`source`/`broadcaster` disagree), 30 s while `offline`, otherwise just after the track is due to end (floor 3 s, ceiling 10 s, or 30 s when the websocket is connected), exponential backoff up to 30 s on failure, paused while the tab is hidden. A caller-supplied `intervalMs` (the encoder go-live panel passes 2 s) replaces the self-pacing only while the websocket is down. `StationStateChanged` signals (from `RealtimeContext`, `.station.state` on `user.{id}`) are coalesced for 120 ms into an immediate refetch; a signal older than the last seen is ignored. Headlines (`HEADLINE_LABEL`): Live, On air, No sound (source silence), Off air, Starting…, Checking…, Status unknown (no answer, or 10 s with none), Not reaching listeners (degraded). Headline precedence: `degraded` then `starting` (fault/starting), then broadcaster attached (live), then off, then no answer/checking, then silent vs on air. The buttons depend on state: off air shows "Start AutoDJ" (locked accounts see a "Go live" trigger instead); running shows "Go live" (`GoLiveTrigger`) and "Turn station off"; live from this browser shows "Open studio"; live from an encoder or another browser shows "Hear your stream" (Turn off is hidden only for a browser broadcast elsewhere, so an encoder broadcast can still be cut off). "Turn station off" (asks for confirmation when AutoDJ is playing; a `station_is_live_external` refusal opens "Cut off this broadcast?" which re-posts with `force: true`). The source line reads "Live from this browser / another browser / <encoder client> / an encoder", "Handing back to AutoDJ", "AutoDJ", "Silence".
 
-**Mobile.** `mobile/src/lib/station.ts` `useStationStatus` mirrors the web cadence (2 s / 30 s / track-aware 3-10 s), refetches when the app becomes active, and has **no** websocket push. `mobile/src/app/station/[slug]/index.tsx` `usePower` calls start/stop and shows the same force confirmation for `station_is_live_external`; the Turn off control is hidden while live from this phone or from another browser. It uses the same 5-step `releaseStation` retry as web (`mobile/src/broadcast/BroadcastContext.tsx`).
+**Mobile.** `mobile/src/lib/station.ts` `useStationStatus` mirrors the web cadence (2 s / 30 s / track-aware 3-10 s), refetches when the app becomes active, and has **no** websocket push. `mobile/src/components/station/usePower.ts` (`usePower`, used by `mobile/src/app/station/[slug]/index.tsx`) calls start/stop and shows the same force confirmation for `station_is_live_external` (the overview re-posts with `force: true`); the Turn off control is hidden while live from this phone or from another browser (`canTurnOff` in `index.tsx`), and an AutoDJ station with nobody attached gets a "Turn <name> off?" confirmation first. The studio's End uses the same 5-step `releaseStation` retry as web (`mobile/src/broadcast/BroadcastContext.tsx`).
 
 **Player page / public API.** Read `is_on_air`, `is_live` and `state` from `StationResource` (cheap state only). See [Public player and embed](public-player-and-embed.md).
 

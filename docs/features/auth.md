@@ -1,6 +1,6 @@
 ---
 feature: Authentication and sessions
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Http/Controllers/AuthController.php
   - api/app/Http/Controllers/GoogleAuthController.php
@@ -72,7 +72,7 @@ sources:
   - mobile/src/app/welcome.tsx
   - mobile/src/app/_layout.tsx
   - mobile/src/app/account.tsx
-fingerprint: 0d2a257d933c188d
+fingerprint: 427b0ee7f764aa68
 ---
 
 # Authentication and sessions
@@ -250,7 +250,7 @@ After the message, the web pages call `GET /user` (login and register pages via 
 `POST /auth/google/native`: body `id_token` (required, string, max 8192), `device_name` (required, max 255), `invite` (nullable, max 40).
 
 `GoogleIdTokenVerifier::verify()` decodes locally with `firebase/php-jwt` against Google's JWKS:
-- Keys from `https://www.googleapis.com/oauth2/v3/certs`, cached 1 hour under `google-id-token-jwks` (5 s HTTP timeout). On any decode failure the cache is dropped and it retries once (key rotation).
+- Keys from `https://www.googleapis.com/oauth2/v3/certs`, cached 1 hour under `google-id-token-jwks` (5 s HTTP timeout). Key rotation is handled by reading the token's `kid` header first: only a `kid` missing from the cached set triggers a refetch, and that refetch is rate-limited (`mayRefetch`: once a minute per `kid` via a `Cache::add` marker, and at most `JWKS_REFETCHES_PER_MINUTE` = 10 across all key IDs via `RateLimiter`). The cached set is only replaced once the new one is in hand (`refetchKeys`), so a Google outage does not evict good keys, and a failed refetch hands back both the per-`kid` marker and the shared attempt. A junk, expired or badly signed token with a known `kid` costs no outbound call.
 - Leeway 60 s, so expiry and issued-at are checked with a minute of slack.
 - `iss` must be `accounts.google.com` or `https://accounts.google.com`.
 - `aud` must equal `services.google.client_id` (`GOOGLE_CLIENT_ID`) exactly, and that value must be non-empty. This is the check that rejects tokens minted for other apps. The mobile app sends the same web client ID (`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`) as the audience it asks for.
@@ -348,7 +348,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 `mobile/src/lib/auth.tsx` (`AuthProvider`), `lib/api.ts`, `app/welcome.tsx`, `app/login.tsx`, `app/_layout.tsx`, `app/account.tsx`.
 
 - **Storage:** the token is in `expo-secure-store` under key `auth-token`, and mirrored in a module variable in `lib/api.ts` that every request reads as `Authorization: Bearer`.
-- **Sign in with email:** `POST /auth/login` with `device_name = "GoCast app (<platform>)"`; reads `token` from the body, stores it, then fetches `GET /user` anyway (the login body now carries `UserResource` with the plan, but `adoptToken` is the one path that seeds the session, so it is not read).
+- **Sign in with email:** `POST /auth/login` with `device_name = "GoCast app (<platform>)"`; reads `token` from the body, stores it, then fetches `GET /user` anyway (the login body now carries `UserResource` with the plan, but `adoptToken` is the one path that seeds the session, so it is not read; its comment "Login returns the bare model" is stale).
 - **Sign in with Google:** the custom native module `gocast-google-auth` (Android Credential Manager) returns an ID token for `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`; the app posts it to `/auth/google/native`. If that env value is empty in the build, it throws "Google sign-in isn't set up in this build." A cancelled sheet resolves `false` (no error).
 - **Restore on launch:** reads the token, `GET /user`. A **401** deletes the token and signs out. Any other failure (offline) leaves the token stored but shows signed-out for that launch (state is set to `signedOut` in the catch either way), so a phone that boots offline sees the welcome screen and must retry.
 - **Mid-session 401:** `api()` and `apiUpload()` call the unauthorized handler only when the rejected token is still the current one (`sent === token`), so a slow request from a replaced session cannot sign the new one out. The provider then runs `endSession()` with no `/logout` call.

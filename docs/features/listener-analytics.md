@@ -1,6 +1,6 @@
 ---
 feature: Listener analytics (live count, sessions, Audience page)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Http/Controllers/ListenerSessionController.php
   - api/app/Http/Controllers/ListenerCountController.php
@@ -51,9 +51,12 @@ sources:
   - client/lib/milestones.ts
   - client/interfaces/Audience.ts
   - mobile/src/app/station/[slug]/audience.tsx
+  - mobile/src/app/station/[slug]/index.tsx
+  - mobile/src/components/station/audience.tsx
+  - mobile/src/broadcast/BroadcastContext.tsx
   - mobile/src/broadcast/hooks.ts
   - mobile/src/lib/station.ts
-fingerprint: b137cb488652b499
+fingerprint: 6fd3640436b5522b
 ---
 
 # Listener analytics
@@ -261,11 +264,11 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
 
 ### Mobile
 
-`mobile/src/app/station/[slug]/audience.tsx` fetches the same endpoint with `useApiData(path, 60_000)`, which reloads on screen focus and then every 60 s while the app is in the foreground. The 7/30/90 selector shows only when the plan allows more than one window.
+`mobile/src/app/station/[slug]/audience.tsx` fetches the same endpoint with `useApiData(path, 60_000)`, which reloads on screen focus and then every 60 s while the app is in the foreground; the Pro report itself is `Report` in `mobile/src/components/station/audience.tsx`. The 7/30/90 selector shows only when the plan allows more than one window.
 
 - Locked: two tiles (listening now, noted "off air" unless `station.is_on_air`; peak all-time) and a "Request Pro" button that opens `/dashboard` on the web. It says "for 90 days".
 - Report: empty state "No listeners yet" (never heard: `!stats.has_listeners && peak_all_time == 0`) or "Nobody listened in the last N days" when `sessions == 0 && listener_minutes == 0`. Otherwise a hero of `totals.listeners` plus hours (`listener_minutes / 60`, one decimal under 10), a bar chart (days paired up when there are more than 45, so a 90-day window has 45 bars), peak and average-listen tiles (average is "–" until a finished listen), and top-5 lists for countries, devices and referrers. **It has no browsers card, no "stream-only" coverage handling, and no HowWeCount note.** The country list's bar fractions are relative to the top row, the percentage label to the total.
-- The mobile live number polls `/public/stations/{slug}/listeners` every 10 s: `useListeners` on the station home while the station runs and this phone isn't the broadcaster, and `BroadcastContext` while this phone is on air (where it also tracks the show's own peak). Neither pauses in the background. **The app never opens a listener session**: nothing in `mobile/src` calls `/listen`.
+- The mobile live number polls `/public/stations/{slug}/listeners` every 10 s: one `useListeners` call on the station Overview (`mobile/src/app/station/[slug]/index.tsx`, shared by its hero and LISTENING tile) while the station runs and this phone isn't the broadcaster, and `BroadcastContext` while this phone is on air (where it also tracks the show's own peak). Neither pauses in the background. **The app never opens a listener session**: nothing in `mobile/src` calls `/listen`.
 
 ## Gaps and traps
 

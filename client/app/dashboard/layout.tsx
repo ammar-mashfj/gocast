@@ -112,7 +112,10 @@ export default async function DashboardLayout({
                 <SidebarInset>
                   <DashboardHeader />
                   <LiveBanner />
-                  <main className="flex-1 p-6">
+                  {/* The mini controller docks over the bottom of the page
+                      and flags itself on <html>; while it is there the page
+                      ends above it instead of under it. */}
+                  <main className="flex-1 p-6 [html[data-mini-controller]_&]:pb-28">
                     {children}
                   </main>
                   <BroadcastMiniController />

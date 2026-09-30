@@ -12,9 +12,12 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 interface StationActionsProps {
   station: Station
   mode: "edit" | "live"
+  /** Extra classes for the edit button — the overview stretches it across a
+      phone-width actions row; the settings card header must not. */
+  className?: string
 }
 
-export function StationActions({ station, mode }: StationActionsProps) {
+export function StationActions({ station, mode, className }: StationActionsProps) {
   const [showEdit, setShowEdit] = useState(false)
   const broadcast = useBroadcast()
   const liveHere =
@@ -24,9 +27,12 @@ export function StationActions({ station, mode }: StationActionsProps) {
   if (mode === "edit") {
     return (
       <>
-        <Button variant="outline" className="flex-1 md:flex-initial" onClick={() => setShowEdit(true)}>
+        <Button variant="outline" className={className} onClick={() => setShowEdit(true)}>
           <IconPencil data-icon="inline-start" />
-          Edit station profile
+          {/* The full label, beside "Player page" and the settings button,
+              ran about 20px past a 375px screen's content column. */}
+          <span className="sm:hidden">Edit profile</span>
+          <span className="hidden sm:inline">Edit station profile</span>
         </Button>
         <StationFormDialog
           open={showEdit}

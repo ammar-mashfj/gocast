@@ -38,8 +38,12 @@ export default function StudioPage() {
   // One console, two densities. Measured rather than left to CSS alone
   // because the deck lays out its clock and transport differently, not just
   // smaller — a tablet in portrait gets the full instrument set, stacked.
+  // The split is 1280, not the dashboard's 1024: with the sidebar open, the
+  // 340px rail left a 1024–1279 window under 430px for the deck, narrower
+  // than a phone, and the track title collapsed while the transport clipped.
+  // Keep in step with the xl: classes on the layout below.
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)")
+    const mq = window.matchMedia("(max-width: 1279px)")
     const sync = () => setCompact(mq.matches)
     sync()
     mq.addEventListener("change", sync)
@@ -92,10 +96,10 @@ export default function StudioPage() {
   return (
     // Bleeds to the edges of the dashboard's padded <main>; dvh, not vh, so
     // mobile browser chrome can't push the running order off screen.
-    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] w-[calc(100%+3rem)] min-h-0 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_minmax(0,1fr)]">
+    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] w-[calc(100%+3rem)] min-h-0 flex-col overflow-hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-rows-[auto_minmax(0,1fr)]">
       <h1 className="sr-only">Studio — {stationName}</h1>
 
-      <div className="lg:col-span-2">
+      <div className="xl:col-span-2">
         <OnAirLamp
           signal={signal}
           transport={transport}
@@ -105,7 +109,7 @@ export default function StudioPage() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 lg:p-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 xl:p-5">
         {compact && (
           <div className="flex items-center gap-2">
             <Button
@@ -123,7 +127,7 @@ export default function StudioPage() {
         <FileQueue />
       </div>
 
-      <div className="hidden min-h-0 lg:flex">
+      <div className="hidden min-h-0 xl:flex">
         <StreamPanel
           slug={slug}
           stationName={stationName}

@@ -1,6 +1,6 @@
 ---
 feature: AutoDJ (playback, rotation order, handover)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/AutoDjProgramme.php
@@ -55,7 +55,7 @@ sources:
   - client/app/dashboard/stations/[slug]/StationActions.tsx
   - api/tests/Feature/NextTrackControllerTest.php
   - api/tests/Feature/AutoDjShuffleTest.php
-fingerprint: ebb777e98930c62a
+fingerprint: cd415e0a89afa7a7
 ---
 
 # AutoDJ
@@ -229,7 +229,7 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
   - There is **no Skip button**; it was removed from the overview.
 - **`useStationStatus`** pacing: 2 s with no status yet, while `starting`, during a live tail, and during live takeover; 30 s when `offline`; otherwise 10 s (30 s while the realtime socket is connected), pulled in to `remaining * 1000 + 750 ms` (min 3 s) near a track end so the title updates just after a boundary; back-off up to 30 s on failures (2 s doubling); no reads while the tab is hidden, one on return. Realtime station signals trigger a refetch, coalesced over 120 ms.
 - **`AutoDjRotation`** card: shows the resolved playlist name, up to 4 tracks (`PREVIEW_COUNT`) with number, title, artist and duration, "N more tracks in <playlist>", and a link to `/dashboard/stations/{slug}/library` ("Add tracks" when empty, "Manage music" otherwise). The subtitle is computed on the client from the *fetched playlist tracks*, not from what the container is playing. Precedence: unavailable ("Couldn't load the rotation just now."), locked plan, empty playlist (warns about silence), slot detail, then "<playlist> • N tracks • duration • plays whenever you're not live". Locked plans read "Your station goes silent when you close the studio. AutoDJ keeps your music playing." with a Pro badge and a "See what AutoDJ does" button; when a slot is on or coming, `describeProgramme` adds "until 12:00 · then X". The tracks list is in playlist order even for a shuffled playlist, so the preview is not the airing order.
-- `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio sheets (`mobile/src/components/studio/Sheets.tsx`) to warn about an empty rotation.
+- `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio end sheet (`EndSheet` in `mobile/src/components/studio/Sheets.tsx`, fetched only when the plan has AutoDJ) to warn about an empty rotation. The mobile copy says "your library is empty", but the number is the resolved playlist's track count, not the library's.
 - `StationChecklist` is passed `trackCount={tracks.length}` from the same fetch (the length of the resolved playlist, not the library).
 - `StationActions` (`mode: "edit"` on the overview) only opens the station profile editor; the `live` mode is Go live / Open studio.
 

@@ -1,6 +1,6 @@
 ---
 feature: Data model (database schema, models, seeded plans)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - api/database/migrations/0001_01_01_000000_create_users_table.php
   - api/database/migrations/0001_01_01_000001_create_cache_table.php
@@ -140,7 +140,7 @@ sources:
   - api/app/Providers/AppServiceProvider.php
   - client/interfaces/Station.ts
   - client/interfaces/User.ts
-fingerprint: 6879d0806e0fb014
+fingerprint: cd5082dd365fa441
 ---
 
 # Data model
@@ -402,7 +402,7 @@ Every uploaded audio file, music or jingle.
 | `station_id` | uuid FK, cascade | |
 | `kind` | string(16) default `music` | `music` or `jingle` (`Track::KINDS`); model `$attributes` also defaults it |
 | `path` | string(255) | `{ulid}.{ext}` relative to the station's playlist dir |
-| `original_filename` | string(255) | shown in `TrackResource` |
+| `original_filename` | string(255) | shown in `TrackResource`; the upload part's filename, or the `names[N]` override `TrackImporter::import` accepts (mobile sends it because Expo percent-encodes part filenames), reduced to its last path segment |
 | `title` | string(255) | |
 | `artist` | string(255) null | |
 | `duration_seconds` | float default 0 | |

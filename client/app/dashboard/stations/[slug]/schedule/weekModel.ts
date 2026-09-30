@@ -72,6 +72,37 @@ export function weekSpan(block: Block): [number, number] {
   return [start, start + duration(block)]
 }
 
+/** A block cut at midnight, so each piece lives in one day. */
+export interface Segment {
+  block: Block
+  day: number
+  /** Minutes of `day`, [from, to). */
+  from: number
+  to: number
+  /** This segment carries the block's start edge (not a continuation from the day before). */
+  head: boolean
+  /** This segment carries the block's end edge. */
+  tail: boolean
+}
+
+/**
+ * The pieces a block puts on each day: one when it ends before midnight, two
+ * when it runs past it (the second on the next day, from 00:00). Both the
+ * week grid's rows and the phone's day list draw these.
+ */
+export function segments(block: Block): Segment[] {
+  const [start, end] = weekSpan(block)
+  const dayStart = block.day * DAY_MINUTES
+  const dayEnd = dayStart + DAY_MINUTES
+  if (end <= dayEnd) {
+    return [{ block, day: block.day, from: start - dayStart, to: end - dayStart, head: true, tail: true }]
+  }
+  return [
+    { block, day: block.day, from: start - dayStart, to: DAY_MINUTES, head: true, tail: false },
+    { block, day: (block.day + 1) % 7, from: 0, to: end - dayEnd, head: false, tail: true },
+  ]
+}
+
 /** Rebuild a block's day/start/end from a week-minute span. */
 export function fromSpan(block: Block, start: number, end: number): Block {
   const s = ((start % WEEK_MINUTES) + WEEK_MINUTES) % WEEK_MINUTES

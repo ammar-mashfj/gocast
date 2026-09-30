@@ -1,6 +1,6 @@
 ---
 feature: Mobile station console (Overview, Audience, Schedule, Library, Show times)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-09-29 against 360c382 plus uncommitted work
 sources:
   - mobile/src/app/station/[slug]/_layout.tsx
   - mobile/src/app/station/[slug]/index.tsx
@@ -10,12 +10,18 @@ sources:
   - mobile/src/app/show-times/[slug].tsx
   - mobile/src/app/home.tsx
   - mobile/src/components/station/parts.tsx
+  - mobile/src/components/station/overview.tsx
+  - mobile/src/components/station/usePower.ts
+  - mobile/src/components/station/audience.tsx
+  - mobile/src/components/station/library.tsx
+  - mobile/src/components/station/scheduleRows.ts
   - mobile/src/components/station/ScheduleEditor.tsx
   - mobile/src/components/LiveStrip.tsx
   - mobile/src/lib/api.ts
   - mobile/src/lib/station.ts
   - mobile/src/lib/web.ts
   - mobile/src/lib/auth.tsx
+  - mobile/src/lib/upload.ts
   - mobile/src/broadcast/hooks.ts
   - api/routes/api.php
   - api/app/Http/Controllers/StationController.php
@@ -45,7 +51,7 @@ sources:
   - api/app/Models/User.php
   - api/config/liquidsoap.php
   - api/config/analytics.php
-fingerprint: b1f8aaa2c4375a86
+fingerprint: 09478f306ffba268
 ---
 
 # Mobile station console
@@ -94,9 +100,11 @@ Going live, the studio, and the encoder are documented in [mobile-studio-and-enc
 
 **`components/station/parts.tsx`**: `StationScreen` (scroll body with pull-to-refresh; the spinner runs until the passed promise resolves), `Section`, `StatTile`/`TileRow`, `BarRow` (min fill width 2%), `ErrorNote`, `EmptyNote`, and skeletons (`OverviewSkeleton`, `ListSkeleton`, `RowsSkeleton`).
 
+**Where each tab's pieces live:** the route files under `app/station/[slug]/` load the data and lay the cards out; the cards themselves are in `components/station/`: `overview.tsx` (`Hero`, `Stats`, `LinkCard`, `RecentShows`, `TurnOff`), `usePower.ts` (start/stop calls and the force-stop confirmation), `audience.tsx` (the Pro `Report`), `library.tsx` (`GroupCard` and the track rows), `scheduleRows.ts` (`buildRows` for the Schedule tab's day list). `lib/upload.ts` prepares a picked file for upload.
+
 **Plan gate on the phone:** `useAutoDjLocked()` (`lib/auth.tsx`) is true only when the user's plan is known **and** `plan.autodj_enabled` is false. An unknown plan (null) is treated as unlocked, on purpose (mirrors the web hook). The app does not read `analytics_days`; the Audience tab lets the API's payload decide.
 
-## Overview (`index.tsx`)
+## Overview (`index.tsx`, cards in `components/station/overview.tsx`)
 
 **Data and polling**
 
@@ -105,9 +113,9 @@ Going live, the studio, and the encoder are documented in [mobile-studio-and-enc
 | Station (name, artwork, `state`, `stats`, `schedules`) | `GET /stations/{slug}` via the shell | On mount; after any power action; pull-to-refresh |
 | Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle 120/min) |
 | Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`) | Focus + every 30 s |
-| Listener count | `GET /public/stations/{slug}/listeners` via `useListeners` (`broadcast/hooks.ts`) | Every 10 s (`LISTENERS_POLL_MS`) |
+| Listener count | `GET /public/stations/{slug}/listeners` via `useListeners` (`broadcast/hooks.ts`) | Every 10 s (`LISTENERS_POLL_MS`), only while the station runs and this phone is not live |
 
-The count is polled **twice** while the station runs and this phone is not live: once in `Hero`, once in `Stats` (two hooks, same endpoint). The two hooks disagree slightly on "live here" (`Hero` counts `reconnecting`, `Stats` only `live`).
+One `useListeners` call in `Loaded` feeds both the hero and the LISTENING tile. While live from this phone the tab does not poll at all and reads `broadcast.session.listeners` (the broadcast manager's own 10 s poll) instead; when the station is not running the count is `0`; otherwise it is `null` ("-" / "Counting listeners...") until the first poll answers.
 
 **Derived flags** (in `Loaded`)
 
@@ -119,13 +127,13 @@ The count is polled **twice** while the station runs and this phone is not live:
 
 **Hero card, three shapes**
 
-1. **Attached (coral).** Label from `liveSourceLabel`: "LIVE FROM THIS PHONE", "LIVE FROM AN ENCODER" (`live_source.type==='external'`), "LIVE FROM <CLIENT>" (uppercased `live_source.client`), else "LIVE FROM ANOTHER DEVICE". A 48-px mono uptime clock, counted from the broadcast manager's `liveSince` when live here, otherwise from the open session's `started_at` (found in the sessions list; absent means no clock). Then "N listening now" (or "Counting listeners...") plus "peak N" (the broadcast session's peak when here, otherwise the open session's `peak_listeners`). Button: "Open studio" (`/studio/[slug]`) when live here, "Hear your stream" (opens `/station/{slug}` in an in-app browser) otherwise.
+1. **Attached (coral).** Label from `liveSourceLabel`: "LIVE FROM THIS PHONE", "LIVE FROM AN ENCODER" (`live_source.type==='external'`), "LIVE FROM <CLIENT>" (uppercased `live_source.client`), else "LIVE FROM ANOTHER DEVICE". A 48-px mono uptime clock, counted from the broadcast manager's `liveSince` when live here, otherwise from the open session's `started_at` (found in the sessions list; absent means no clock). Then "N listening now" (or "Counting listeners...") plus "peak N" (the broadcast session's peak when here, otherwise the open session's `peak_listeners`; shown as `max(peak, current count)` so it never reads lower than the live number; omitted when neither is known). Button: "Open studio" (`/studio/[slug]`) when live here, "Hear your stream" (opens `/station/{slug}` in an in-app browser) otherwise.
 2. **Running, no broadcaster (AutoDJ card).** Label: `degraded` -> "NOT REACHING LISTENERS"; `starting` -> "STARTING..."; no status yet -> "CHECKING..." (or "STATUS UNKNOWN" if the poll has failed); `!reachable` -> "STATUS UNKNOWN"; `source==='silence'` -> "NO SOUND"; `source==='live'` (no broadcaster) -> "HANDING BACK TO AUTODJ"; else "ON AIR - AUTODJ". `degraded` and silence use the amber palette. Shows the listener count, then the now-playing block: artwork (only if the station has one), title (falls back to "Nothing is playing" on silence, else "Waiting for the first track"), artist, and a progress bar with elapsed and remaining that **runs on between polls** by adding the drift since the last poll to `elapsed`. Progress needs both `elapsed` and `remaining` from the container. Button: "Go live" (`/live/[slug]`) and the line "AutoDJ hands over when you start, and takes back when you end."
 3. **Not running (grey).** "OFF AIR", "Nothing's playing right now.", then **Go live** and, only when `useAutoDjLocked()` is false, **Start AutoDJ**. The line under the headline is "Go live, or start AutoDJ to keep your library playing." and changes for Free to "Your station plays while you're live. AutoDJ, which keeps it going between shows, is Pro."
 
 An action error (start/stop failure) renders as a line inside the hero, not a toast, and stays until the next action.
 
-**Power controls** (`usePower`)
+**Power controls** (`usePower`, `components/station/usePower.ts`)
 
 | Action | Call | Notes |
 |---|---|---|
@@ -142,7 +150,7 @@ Errors are read from `ApiError.body.code`. The API's codes for these calls come 
 
 | Tile | Value | Note line |
 |---|---|---|
-| LISTENING | live count (`-` while unknown; `0` when not running) | `peak {stats.peak_listeners}` |
+| LISTENING | the same count as the hero (`-` while unknown; `0` when not running; this phone's own session count when live here) | `peak {stats.peak_listeners}` |
 | SHOWS | `stats.sessions` (closed sessions only) | "all time" |
 | AIRTIME | whole hours (`Nh`), else whole minutes | "N min" remainder, or "live, all time" |
 
@@ -245,13 +253,13 @@ Both list calls run on focus with no polling. The screen shows a skeleton until 
 **Upload flow** (`addFromPhone`, Pro only)
 
 1. `DocumentPicker.getDocumentAsync({type:'audio/*', multiple:true, copyToCacheDirectory:true})`. Cancel or none picked returns quietly.
-2. A staging directory `cache/upload-<timestamp>` is created; each picked file is **moved into it under its original name** (characters `/ \ : * ? " < > |` become `_`), because the picker's cache copy has a generated name and the API titles untagged tracks by filename.
-3. **One file per request**, sequentially: a `FormData` with a single `files[]` part holding an `expo-file-system` `File` (the SDK 57 global fetch rejects RN's old `{uri,name,type}` parts), `POST /stations/{slug}/tracks` via `apiUpload`. Progress reads "Uploading i of n...".
+2. A staging directory `cache/upload-<timestamp>` is created; each picked file is **moved into its own subfolder** (`<staging>/<i>/`, so two picks with the same name cannot collide) under its original name (`lib/upload.ts` `uploadable`: characters `/ \ : * ? " < > |` become `_`, an empty name becomes `track`), because the picker's cache copy has a generated name.
+3. **One file per request**, sequentially: a `FormData` with a single `files[]` part holding an `expo-file-system` `File` (the SDK 57 global fetch rejects RN's old `{uri,name,type}` parts) **plus a `names[]` part carrying the picked filename as-is**, `POST /stations/{slug}/tracks` via `apiUpload`. The extra part exists because Expo's fetch percent-encodes the part's filename ("My Song.mp3" arrives as "My%20Song.mp3") and `uploadable` has already swapped characters out; the API prefers `names[]` for the stored name and the title. Progress reads "Uploading i of n...".
 4. A response with a non-empty `errors` array throws its first message, which stops the batch at the file that tripped (typically the quota). Files already added stay.
 5. Result notice: "Added N track(s) to your default playlist." or "Added N, then stopped: <message>" or just the message. No `playlist_id` is sent, so every upload lands in the **default playlist** (jingles are not uploaded from mobile).
 6. Always (finally): clears progress, deletes the staging directory, and reloads both lists.
 
-API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `TrackImporter::import`): `files` 1 to 30 items (the phone sends 1), each up to **300 MB** (`max:307200` KB), extensions `mp3,m4a,aac,flac,ogg,wav,mpga`; the route is throttled 20/min per user (`uploads`); **Pro gate** `assertAutoDjEnabled` -> 403 `autodj_not_available` ("AutoDJ is not included in your plan..."); storage cap checked under a row lock (message "Station storage limit reached (X used of Y)."); the request answers 201 on full success, 422 when none were added, 207 on partial. Title and artist come from ID3 tags, else from the filename. The phone treats 207 as success and reads `errors`. A 422 has two sources: request validation (size, type; carries Laravel's top-level `message`), and "nothing added" (the quota tripped on the first file), whose body is only `{data: [], errors: [...]}` with **no `message`**, so `apiUpload` throws "Upload failed (422)" and the quota text is lost. Uploads also queue an `AnalyzeTrack` job for loudness/cue points when `LIQUIDSOAP_ANALYSIS_ENABLED` is on (default); the phone never sees it. Details in [library-and-playlists.md](library-and-playlists.md).
+API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `TrackImporter::import`): `files` 1 to 30 items (the phone sends 1), each up to **300 MB** (`max:307200` KB), extensions `mp3,m4a,aac,flac,ogg,wav,mpga`; the route is throttled 20/min per user (`uploads`); **Pro gate** `assertAutoDjEnabled` -> 403 `autodj_not_available` ("AutoDJ is not included in your plan..."); storage cap checked under a row lock (message "Station storage limit reached (X used of Y)."); the request answers 201 on full success, 422 when none were added, 207 on partial. `names` is an optional array (`names.*` nullable string, max 255; browsers never send it): `StoreTrackRequest::nameFor($idx)` hands the entry for `files.N` to `TrackImporter::import(..., $originalName)`, which stores it as `original_filename` and uses it for the title, while the extension still comes from the uploaded file. Title and artist come from ID3 tags, else from that name (an `Artist - Title` split, then the stem; the importer uses `Str::afterLast`/`beforeLast` rather than `basename()`/`pathinfo()`, which are locale-aware and can drop leading multibyte characters). The phone treats 207 as success and reads `errors`. A 422 has two sources: request validation (size, type; carries Laravel's top-level `message`), and "nothing added" (the quota tripped on the first file), whose body is only `{data: [], errors: [...]}` with **no `message`**, so `apiUpload` throws "Upload failed (422)" and the quota text is lost. Uploads also queue an `AnalyzeTrack` job for loudness/cue points when `LIQUIDSOAP_ANALYSIS_ENABLED` is on (default); the phone never sees it. Details in [library-and-playlists.md](library-and-playlists.md).
 
 **Delete flow** (select mode)
 
@@ -271,7 +279,7 @@ API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `Trac
 | `GET /stations/{slug}` | shell, Show times |
 | `GET /stations/{slug}/status` | Overview |
 | `GET /stations/{slug}/sessions` | Overview |
-| `GET /public/stations/{slug}/listeners` | Overview (hero and stats) |
+| `GET /public/stations/{slug}/listeners` | Overview (one poll, shared by hero and stats) |
 | `POST /stations/{slug}/start`, `POST /stations/{slug}/stop` | Overview |
 | `GET /stations/{slug}/audience[?days=]` | Audience |
 | `GET /stations/{slug}/playlists` | Schedule (Pro), Library |
@@ -303,15 +311,14 @@ All are under the `verified` middleware group except the public listeners endpoi
 6. **"NOW" and "today" use the phone's clock and date**, while slots live in the station's timezone. Away from the station's zone the badge and the selected weekday can be wrong. NOW also depends on an intent-derived `is_on_air`, not container health.
 7. **Multi-day slots edit all their days at once** (no per-day edit as on the web grid).
 8. **One station only.** `home.tsx` takes `data[0]`; a second station is invisible on mobile.
-9. **Overview polls the listeners endpoint twice** while running (Hero and Stats), and `Hero`/`Stats` differ on whether `reconnecting` counts as "live here".
-10. **AIRTIME and SHOWS are live-broadcast-only** (closed stream sessions), but sit next to a LISTENING/peak that includes AutoDJ audiences. A brand-new AutoDJ-only station shows 0 shows and 0m while having a peak.
-11. **A first-file quota failure reads "Upload failed (422)".** `TrackController::store` answers 422 with `{data: [], errors: [...]}` and no `message`; `apiUpload` only reads `message`, and reads `errors[]` only on 2xx/207. The "Station storage limit reached" text is shown only when an earlier file in the batch succeeded (207).
-12. **Stream key exposure by payload.** `GET /stations/{slug}` is the `withEncoder()` variant, so the mobile app receives the encoder host/port/password on every station fetch when the owner's plan has `encoder_enabled` and `LIQUIDSOAP_ENCODER_HOST` is configured, although no screen shows it. `Station` in `lib/station.ts` does not declare the field.
-13. **Overview stop button is hidden during a browser broadcast, and while the container is down.** An owner whose browser studio tab is live (or was lost) cannot turn the station off from the phone's Overview: only encoder broadcasts get the force option (`station_is_live_external`), and the API refuses a browser one with 409 `station_is_live`. The phone offers no way to end another device's browser broadcast.
-14. **Hand-copied API types.** `lib/station.ts` mirrors the resources by hand; a resource change will not fail a build.
-15. **Dead helpers:** `formatAgo`, `formatWhen`, `formatDays` and `DAY_SHORT` in `lib/station.ts` are referenced nowhere in `mobile/src`. `addHours` has one fallback use (an empty `end_time`, which the API never returns).
-16. **Sessions and status errors are mostly invisible on Overview.** If `GET /sessions` fails, Recent shows stays on its skeleton forever (`data` stays `null`, the error is never rendered). A failing status poll only changes the hero label to STATUS UNKNOWN.
-17. **No automated tests for any mobile screen.** No `*.test.*` or `*.spec.*` file exists under `mobile/` outside `node_modules`.
+9. **AIRTIME and SHOWS are live-broadcast-only** (closed stream sessions), but sit next to a LISTENING/peak that includes AutoDJ audiences. A brand-new AutoDJ-only station shows 0 shows and 0m while having a peak.
+10. **A first-file quota failure reads "Upload failed (422)".** `TrackController::store` answers 422 with `{data: [], errors: [...]}` and no `message`; `apiUpload` only reads `message`, and reads `errors[]` only on 2xx/207. The "Station storage limit reached" text is shown only when an earlier file in the batch succeeded (207).
+11. **Stream key exposure by payload.** `GET /stations/{slug}` is the `withEncoder()` variant, so the mobile app receives the encoder host/port/password on every station fetch when the owner's plan has `encoder_enabled` and `LIQUIDSOAP_ENCODER_HOST` is configured, although no screen shows it. `Station` in `lib/station.ts` does not declare the field.
+12. **Overview stop button is hidden during a browser broadcast, and while the container is down.** An owner whose browser studio tab is live (or was lost) cannot turn the station off from the phone's Overview: only encoder broadcasts get the force option (`station_is_live_external`), and the API refuses a browser one with 409 `station_is_live`. The phone offers no way to end another device's browser broadcast.
+13. **Hand-copied API types.** `lib/station.ts` mirrors the resources by hand; a resource change will not fail a build.
+14. **Dead helpers:** `formatAgo`, `formatWhen`, `formatDays` and `DAY_SHORT` in `lib/station.ts` are referenced nowhere in `mobile/src`. `addHours` has one fallback use (an empty `end_time`, which the API never returns).
+15. **Sessions and status errors are mostly invisible on Overview.** If `GET /sessions` fails, Recent shows stays on its skeleton forever (`data` stays `null`, the error is never rendered). A failing status poll only changes the hero label to STATUS UNKNOWN.
+16. **No automated tests for any mobile screen.** No `*.test.*` or `*.spec.*` file exists under `mobile/` outside `node_modules`.
 
 ## Tests
 

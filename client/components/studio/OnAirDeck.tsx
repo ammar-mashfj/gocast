@@ -359,8 +359,8 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
       {/* Music-only broadcasts have no mic to draw: an empty padded band here
           read as something that failed to load. */}
       {!micDisabled && (
-        <div className={cn("border-t border-white/[0.06] transition-colors duration-200", compact ? "px-4 py-4" : "px-6 py-4", micActive && "bg-mic/[0.05]")}>
-          <PushToTalk compact={compact} />
+        <div className={cn("@container/talk border-t border-white/[0.06] transition-colors duration-200", compact ? "px-4 py-4" : "px-6 py-4", micActive && "bg-mic/[0.05]")}>
+          <PushToTalk />
         </div>
       )}
 
