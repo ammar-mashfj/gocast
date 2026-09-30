@@ -130,6 +130,19 @@ class StationEvent extends Model
     public const TYPE_PLAYLIST_CHANGED = 'playlist_changed';
 
     /**
+     * Studio: the browser's own account of a dropped broadcast socket.
+     *
+     * The container's `live_disconnected` says THAT the broadcaster left and
+     * can never say why: harbor only sees a socket go away. The studio knows
+     * what the page was doing at that moment (hidden, frozen, offline, which
+     * network, how much audio was stuck unsent) and whether its reconnect
+     * worked. Reported after the fact by StudioDropController, so a row can
+     * land minutes after the drop; `dropped_at` in the properties is the
+     * phone's clock at the drop itself.
+     */
+    public const TYPE_STUDIO_DROP = 'studio_drop';
+
+    /**
      * Types a station's container is allowed to report.
      *
      * StationEventController holds the same list for its own validation. This
@@ -164,6 +177,7 @@ class StationEvent extends Model
         self::TYPE_TRACK_DELETED,
         self::TYPE_PLAYLIST_CHANGED,
         self::TYPE_STREAM_KEY_ROTATED,
+        self::TYPE_STUDIO_DROP,
     ];
 
     /** @var list<string> */

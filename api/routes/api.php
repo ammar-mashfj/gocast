@@ -29,6 +29,7 @@ use App\Http\Controllers\StationScheduleController;
 use App\Http\Controllers\StationStatusController;
 use App\Http\Controllers\StreamKeyController;
 use App\Http\Controllers\StreamSessionController;
+use App\Http\Controllers\StudioDropController;
 use App\Http\Controllers\TrackController;
 use App\Http\Controllers\UploadController;
 use App\Http\Controllers\WaitlistController;
@@ -144,6 +145,12 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('throttle:20,1');
         Route::post('/stations/{station:slug}/stop', [StationPowerController::class, 'stop'])
             ->middleware('throttle:20,1');
+
+        // The studio's account of a dropped broadcast socket: what the page
+        // was doing and whether the reconnect worked. Admin monitoring only;
+        // see StudioDropController.
+        Route::post('/stations/{station:slug}/studio-drops', StudioDropController::class)
+            ->middleware('throttle:30,1');
 
         // Skip the current AutoDJ track — a telnet command to the running
         // container, no restart involved.

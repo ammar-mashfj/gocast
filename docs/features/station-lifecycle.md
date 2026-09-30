@@ -268,6 +268,10 @@ A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is
 
 The container callback `POST /internal/station-event` (`StationEventController`, `X-Internal-Key`) also: sets `last_ready_at = now()` on `icecast_connected`; opens a `StreamSession` on `live_connected` (with `source_type` from `via`, default `browser`; reuses an already-open row; dispatches `SendStationLiveNotifications` delayed 2 min); closes all open sessions and deletes `metadata:{id}` on `live_disconnected`. It also caches the last event at `station-event:{id}` for 3600 s and records a `StationEvent` row (source `container`, with `via`/`client` properties). Validation: `slug` max 64, `event` max 32, `client` max 255, `via` must be `browser` or `external`; an unknown event is 422, an unknown or soft-deleted slug 404. It does not check whether the station is `running`.
 
+### Studio drop reports (`studio_drop`)
+
+The container's `live_disconnected` never says why a broadcaster left. The web studio fills that in: when its socket closes mid-show, `client/lib/studioDropLog.ts` snapshots the page (visible or hidden, how long hidden, Chrome `freeze`/`resume`, `navigator.onLine`, Network Information type and speed, socket `bufferedAmount` now and at peak, wake lock held, close code) and stores it in localStorage at once. When the reconnect loop ends it adds the outcome (`reconnected`, `gave_up`, `stopped`), time down and attempts, then `POST /stations/{slug}/studio-drops` (`StudioDropController`, owner only, throttle 30/min, max 20 per request, whitelisted fields). Unsent reports go out on the next broadcast or by keepalive fetch on `pagehide` (as `page_closed` if still unresolved); the API drops repeats by report `id` for 2 days. Rows are `studio_drop`, source `owner`, shown on the admin station page. Admin monitoring only. The mobile studio does not report yet.
+
 ## Data touched
 
 | Field | Where | Written by |

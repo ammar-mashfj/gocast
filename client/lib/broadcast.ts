@@ -1,5 +1,6 @@
 import { AudioEngine, assertBroadcastSupported } from './audioEngine'
 import api from './axios'
+import { captureDrop, flushDrops, resolveDrop } from './studioDropLog'
 
 export type BroadcastStep = 'station' | 'mic' | 'engine' | 'stream'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
@@ -176,6 +177,15 @@ export class BroadcastManager {
    */
   private wakeFromBackoff: (() => void) | null = null
   private visibilityHandler: (() => void) | null = null
+  /** When the current socket was accepted, for the drop report. */
+  private connectedAt = 0
+  /**
+   * Most audio queued inside the current socket, in bytes. A backlog that
+   * grows before a drop means the upload couldn't keep up with the encoder,
+   * which is a different cause from the page being frozen or the network
+   * vanishing. See studioDropLog.
+   */
+  private peakBufferedBytes = 0
   /**
    * Last metadata pushed to harbor. Harbor forgets it when the source
    * disconnects, so a reconnect that didn't re-send it would leave every
@@ -276,6 +286,8 @@ export class BroadcastManager {
       this.engine = await AudioEngine.create(this.micStream, (chunk) => {
         if (this.ws?.readyState === WebSocket.OPEN) {
           this.ws.send(chunk)
+          const buffered = this.ws.bufferedAmount
+          if (buffered > this.peakBufferedBytes) this.peakBufferedBytes = buffered
           if (!this.countersArmed) return
           this.bytesSent += chunk.byteLength
           this.chunksSent++
@@ -322,6 +334,8 @@ export class BroadcastManager {
       this.acquireWakeLock()
       this.watchVisibility()
       this.callbacks.onStateChange('live')
+      // Reports left over from an earlier broadcast that never got out.
+      void flushDrops()
     } catch (err) {
       await this.fail(err)
     }
@@ -427,6 +441,8 @@ export class BroadcastManager {
     const ws = await this.openSocket(ingestUrl, token)
 
     this.established = true
+    this.connectedAt = Date.now()
+    this.peakBufferedBytes = 0
     // Arm on the first handshake only. A reconnect must not reset the tally —
     // frames lost mid-show are exactly what it exists to report.
     this.countersArmed = true
@@ -524,12 +540,19 @@ export class BroadcastManager {
    * without the guard that stale event would tear down a healthy broadcast.
    */
   private watchForDrop(ws: WebSocket) {
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (this.ws !== ws) return
       if (this.stopping || !this.established) return
 
       this.established = false
-      void this.reconnect()
+      const dropId = captureDrop(this.stationSlug, {
+        closeEvent: event,
+        connectedAt: this.connectedAt,
+        bufferedBytes: ws.bufferedAmount,
+        peakBufferedBytes: this.peakBufferedBytes,
+        wakeLockHeld: this.wakeLock !== null,
+      })
+      void this.reconnect(dropId)
     }
     // Errors are always followed by a close, which is where the work happens.
     ws.onerror = () => { /* handled by onclose */ }
@@ -555,9 +578,10 @@ export class BroadcastManager {
    * That window is only reached by a DROPPED socket. Pressing End releases
    * such a station immediately — see releaseStation in BroadcastContext.
    */
-  private async reconnect(): Promise<void> {
+  private async reconnect(dropId: string | null = null): Promise<void> {
     if (this.reconnecting || this.stopping) return
     this.reconnecting = true
+    const droppedAt = Date.now()
 
     this.callbacks.onStateChange('reconnecting')
     // Clear any stale message so the UI shows "reconnecting", not an old error.
@@ -566,6 +590,11 @@ export class BroadcastManager {
     const deadline = Date.now() + RECONNECT_BUDGET_MS
     let attempt = 0
     let lastError: unknown = null
+    const report = (outcome: 'reconnected' | 'gave_up' | 'stopped') => resolveDrop(dropId, outcome, {
+      downMs: Date.now() - droppedAt,
+      attempts: attempt,
+      lastError: lastError instanceof Error ? lastError.message : null,
+    })
 
     while (!this.stopping && Date.now() < deadline) {
       await this.backoff(reconnectDelay(attempt))
@@ -592,6 +621,7 @@ export class BroadcastManager {
         }
 
         this.reconnecting = false
+        report('reconnected')
         // Harbor lost our metadata with the connection; without this the
         // listener's player keeps showing whatever was playing before the drop.
         if (this.lastMetadata) {
@@ -607,7 +637,12 @@ export class BroadcastManager {
 
     this.reconnecting = false
 
-    if (this.stopping) return
+    if (this.stopping) {
+      report('stopped')
+      return
+    }
+
+    report('gave_up')
 
     // Out of budget. Now — and only now — is this an error, and the broadcast
     // is genuinely over, so everything comes down.

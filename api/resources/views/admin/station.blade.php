@@ -23,6 +23,7 @@
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'badge-ghost',
         \App\Models\StationEvent::TYPE_PLAYLIST_CHANGED => 'badge-info',
         \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'badge-accent',
+        \App\Models\StationEvent::TYPE_STUDIO_DROP => 'badge-warning',
     ];
 
     /**
@@ -45,6 +46,7 @@
         \App\Models\StationEvent::TYPE_TRACK_DELETED => 'Track deleted',
         \App\Models\StationEvent::TYPE_PLAYLIST_CHANGED => 'Playlist changed',
         \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'Encoder stream key rotated',
+        \App\Models\StationEvent::TYPE_STUDIO_DROP => 'Studio lost its connection — the browser\'s side of it',
     ];
 @endphp
 
