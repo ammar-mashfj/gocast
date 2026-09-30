@@ -29,17 +29,24 @@ use Illuminate\Support\Facades\Process;
 class TrackAnalyzer
 {
     /**
+     * Ceiling on the scaled timeout: 25 minutes covers a ten-hour recording
+     * at the measured speed, and an analysis that has run longer than this is
+     * a decoder wedged on a broken file, not a long mix.
+     */
+    public const MAX_TIMEOUT_SECONDS = 1500;
+
+    /**
      * ffmpeg exits 0 on a file it cannot decode in some cases, so success is
      * judged on having parsed a loudness figure rather than on the exit code.
      */
-    public function analyze(string $absolutePath): TrackAnalysis
+    public function analyze(string $absolutePath, ?float $durationSeconds = null): TrackAnalysis
     {
         if (! is_file($absolutePath) || ! is_readable($absolutePath)) {
             return TrackAnalysis::failed('file is missing or unreadable');
         }
 
         try {
-            $result = Process::timeout($this->timeout())->run($this->command($absolutePath));
+            $result = Process::timeout(self::timeoutFor($durationSeconds))->run($this->command($absolutePath));
         } catch (\Throwable $e) {
             return TrackAnalysis::failed('analysis could not be run: '.$e->getMessage());
         }
@@ -280,9 +287,33 @@ class TrackAnalyzer
         return mb_substr($reason, 0, 255);
     }
 
-    private function timeout(): int
+    /**
+     * How long the analysis of a file this long is allowed to run.
+     *
+     * The pass is one ffmpeg process at one core, and the cost is dominated
+     * by `loudnorm` — measured at roughly 25x realtime in the station image,
+     * so a 77-minute mix takes about three minutes and a three-minute single
+     * about eight seconds. A flat limit therefore fits one or the other, never
+     * both: 120s was fine for singles and put every long mix into
+     * failed_jobs, with a worker SIGKILLed under it (Laravel's default job
+     * timeout is 60s and that used to be the only one in force).
+     *
+     * So the limit scales with the audio: one eighth of the track's length,
+     * about three times the measured cost, so a slower host still fits. The
+     * config value is the FLOOR, for short files and for when the duration
+     * is unknown, and self::MAX_TIMEOUT_SECONDS the ceiling — that ceiling is
+     * what the queue's `retry_after` has to clear (see AnalyzeTrack::$timeout
+     * and config/queue.php), so raise them together.
+     */
+    public static function timeoutFor(?float $durationSeconds): int
     {
-        return max(5, (int) config('liquidsoap.analysis_timeout_seconds', 120));
+        $floor = max(5, (int) config('liquidsoap.analysis_timeout_seconds', 120));
+
+        $scaled = $durationSeconds !== null && $durationSeconds > 0
+            ? (int) ceil($durationSeconds / 8)
+            : 0;
+
+        return min(self::MAX_TIMEOUT_SECONDS, max($floor, $scaled));
     }
 
     /**

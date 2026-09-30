@@ -68,7 +68,16 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            /*
+             * Seconds a reserved job stays invisible before another worker
+             * may take it. It only ever matters for a job whose worker died
+             * without releasing it, and it must be above the longest job
+             * timeout on this connection: AnalyzeTrack scales its own up to
+             * TrackAnalyzer::MAX_TIMEOUT_SECONDS plus 30 for a long mix. At
+             * the old 90s a second worker would have picked up a mix still
+             * being decoded and run ffmpeg on it twice.
+             */
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 1800),
 
             /*
              * Seconds the worker will BLOCK on Redis waiting for a job.

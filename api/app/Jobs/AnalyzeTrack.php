@@ -36,7 +36,34 @@ class AnalyzeTrack implements ShouldQueue
      */
     public int $tries = 2;
 
-    public function __construct(public readonly string $trackId) {}
+    /**
+     * Seconds the worker lets this run before it SIGKILLs itself.
+     *
+     * Set per job rather than left to `queue:work --timeout` (60s by
+     * default) because that default is what used to kill the worker: a
+     * 77-minute mix takes ffmpeg about three minutes, the alarm fired at 60,
+     * and the worker died with `Killed` on the console. SIGKILL does not
+     * reach the docker client either, so the ffmpeg container kept a core
+     * busy until it finished on its own — and `analyzed_at` never got set, so
+     * the backfill queued the same file again next run.
+     *
+     * The value is the process timeout for a file this long plus a margin
+     * for the container start, the DB round trips and the m3u rewrite. The
+     * process timeout is meant to be the one that fires: Symfony SIGTERMs
+     * the docker client, which forwards it to ffmpeg, and the job records the
+     * failure and moves on. This one is the backstop.
+     *
+     * It must stay below the queue's `retry_after` (config/queue.php), or
+     * a second worker would take the job mid-analysis and run ffmpeg twice.
+     */
+    public int $timeout;
+
+    public function __construct(
+        public readonly string $trackId,
+        ?float $durationSeconds = null,
+    ) {
+        $this->timeout = TrackAnalyzer::timeoutFor($durationSeconds) + 30;
+    }
 
     public function handle(TrackAnalyzer $analyzer, PlaylistFileWriter $writer): void
     {
@@ -55,7 +82,7 @@ class AnalyzeTrack implements ShouldQueue
 
         $path = $writer->stationDir($station).'/'.basename((string) $track->path);
 
-        $analysis = $analyzer->analyze($path);
+        $analysis = $analyzer->analyze($path, (float) $track->duration_seconds);
 
         if (! $analysis->succeeded()) {
             $track->forceFill([

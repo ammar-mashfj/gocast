@@ -162,7 +162,7 @@ class TrackImporter
         // file, and an upload must not wait on that. The track is playable
         // immediately and simply plays uncorrected until the job lands.
         if (config('liquidsoap.analysis_enabled', true)) {
-            AnalyzeTrack::dispatch($track->getKey());
+            AnalyzeTrack::dispatch($track->getKey(), (float) $track->duration_seconds);
         }
 
         // After the commit, so a rolled-back upload leaves no trace of having

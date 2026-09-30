@@ -219,3 +219,35 @@ it('writes filter thresholds as plain decimals whatever the locale', function ()
         return str_contains($command, 'silencedetect=noise=-47.5dB:d=0.25');
     });
 });
+
+it('scales the ffmpeg timeout with the length of the file', function () {
+    // loudnorm runs at roughly 25x realtime, so a flat limit fits either
+    // singles or long mixes, never both. One eighth of the duration, floored
+    // at the configured value and capped at the ceiling the queue's
+    // retry_after is sized against.
+    config()->set('liquidsoap.analysis_timeout_seconds', 120);
+
+    expect(TrackAnalyzer::timeoutFor(null))->toBe(120)
+        ->and(TrackAnalyzer::timeoutFor(180.0))->toBe(120)
+        ->and(TrackAnalyzer::timeoutFor(4620.4))->toBe(578)
+        ->and(TrackAnalyzer::timeoutFor(90_000.0))->toBe(TrackAnalyzer::MAX_TIMEOUT_SECONDS);
+});
+
+it('passes the scaled timeout to the process', function () {
+    config()->set('liquidsoap.analysis_timeout_seconds', 120);
+    ffmpegOutput(paddedCapture());
+
+    app(TrackAnalyzer::class)->analyze($this->path, 4620.4);
+
+    Process::assertRan(fn ($process): bool => $process->timeout === 578);
+});
+
+it('gives the queue job a timeout the process timeout fits inside', function () {
+    // The worker's own limit (queue:work --timeout, 60s by default) used to be
+    // the only one in force, and it SIGKILLed the worker under any long mix.
+    config()->set('liquidsoap.analysis_timeout_seconds', 120);
+
+    expect((new App\Jobs\AnalyzeTrack('track', 4620.4))->timeout)->toBe(608)
+        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBe(150)
+        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
+});

@@ -89,7 +89,7 @@ class AnalyzeTracksCommand extends Command
         $queued = 0;
         $query->chunkById(200, function ($tracks) use (&$queued, $bar): void {
             foreach ($tracks as $track) {
-                AnalyzeTrack::dispatch($track->getKey());
+                AnalyzeTrack::dispatch($track->getKey(), (float) $track->duration_seconds);
                 $queued++;
                 $bar->advance();
             }
