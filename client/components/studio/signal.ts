@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import type { TransportStats } from "@/lib/broadcast"
+import { BITRATE_TIERS } from "@/lib/audioEngine"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
 
 /**
@@ -78,6 +79,7 @@ export type SignalCode =
   | "suspended"
   | "silence"
   | "dropping"
+  | "slow-connection"
 
 export interface StudioSignal {
   code: SignalCode
@@ -210,6 +212,20 @@ function computeSignal(
       tone: "fault",
       label: "Dropping audio",
       detail: `Your connection is losing audio — ${lostSeconds.toFixed(1)}s lost so far. Pause other uploads if you can.`,
+    }
+  }
+  // Behind but not yet losing audio: the moment to act, before the drop.
+  if (transport?.stats?.congested) {
+    const { bitrate } = transport.stats
+    // At the lowest tier there is nothing left to step down to.
+    const remedy = bitrate === BITRATE_TIERS[BITRATE_TIERS.length - 1]
+      ? `The studio is already at its lowest quality (${bitrate} kbps).`
+      : `The studio is lowering quality to catch up (now ${bitrate} kbps).`
+    return {
+      code: "slow-connection",
+      tone: "fault",
+      label: "Slow connection",
+      detail: `Your upload can't keep up, so listeners are falling behind. ${remedy} Pause other uploads or move closer to your Wi-Fi.`,
     }
   }
   if (micOpen) {

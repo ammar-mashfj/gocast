@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -31,7 +31,9 @@ import type { BroadcastStepInfo, StepStatus } from "@/lib/broadcast"
 import { env } from "@/lib/env"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
 import { SIGNAL_TONE } from "@/components/studio/signal"
-import { QUEUE_BYTE_LIMIT } from "@/lib/audioEngine"
+import { MicMeter } from "@/components/studio/MicMeter"
+import { Select } from "@/components/ui/select"
+import { DEFAULT_BITRATE, QUEUE_BYTE_LIMIT } from "@/lib/audioEngine"
 import { toast } from "sonner"
 import { clearQueue, loadQueueSummary, type SavedQueueSummary } from "@/lib/queueStore"
 import {
@@ -45,13 +47,6 @@ import {
 import { formatBytes, formatTrackTime } from "@/lib/format"
 
 type LampPhase = "starting" | "reconnecting" | "live" | "fault"
-
-/**
- * How long the success is on screen before the studio opens. Long enough to
- * see the lamp light and grab the link, short enough that nobody has to press
- * anything to get to their controls.
- */
-const LIVE_HOLD_MS = 3000
 
 /**
  * The studio lamp's language, brought forward to the moment before the
@@ -442,8 +437,7 @@ function PreflightView({
 
         <div className="flex flex-col gap-2.5 sm:flex-row-reverse">
           <Button className="h-12 w-full text-base sm:flex-1" onClick={onConfirm}>
-            <IconBroadcast size={17} data-icon="inline-start" />
-            Go live
+            Continue
           </Button>
           <Button className="h-10 w-full text-muted-foreground sm:h-12 sm:w-auto sm:text-foreground" variant="ghost" onClick={onCancel}>
             Cancel
@@ -498,6 +492,143 @@ function AlreadyLiveView({
   )
 }
 
+/**
+ * Which microphone the Ready screen's check is hearing, and a way to change
+ * it. Names only exist once the page holds mic permission, which by `ready`
+ * it does. Hidden with a single mic: there is nothing to choose.
+ */
+function MicPicker({ micStream, onChange }: { micStream: MediaStream; onChange: (deviceId: string) => Promise<void> }) {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [switching, setSwitching] = useState(false)
+  const current = micStream.getAudioTracks()[0]?.getSettings().deviceId ?? ""
+
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      navigator.mediaDevices.enumerateDevices()
+        .then((all) => {
+          if (cancelled) return
+          // Windows lists its "communications" role as a second copy of a
+          // mic that is already there.
+          setDevices(all.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "communications"))
+        })
+        .catch(() => {})
+    }
+    load()
+    // Plugging a mic in (or pulling one out) should show up without a reload.
+    navigator.mediaDevices.addEventListener("devicechange", load)
+    return () => {
+      cancelled = true
+      navigator.mediaDevices.removeEventListener("devicechange", load)
+    }
+  }, [])
+
+  if (devices.length < 2) return null
+
+  return (
+    <Select
+      aria-label="Microphone"
+      className="w-full sm:w-56"
+      value={current}
+      disabled={switching}
+      options={devices.map((d, i) => ({ value: d.deviceId, label: d.label || `Microphone ${i + 1}` }))}
+      onChange={(deviceId) => {
+        if (deviceId === current) return
+        setSwitching(true)
+        onChange(deviceId)
+          .catch(() => toast.error("Couldn't switch to that microphone"))
+          .finally(() => setSwitching(false))
+      }}
+    />
+  )
+}
+
+interface ReadyViewProps {
+  station: Station
+  micStream: MediaStream | null
+  /** The bitrate the connection check chose. */
+  bitrate: number
+  /** Start has been pressed and the connection is being made. */
+  goingLive: boolean
+  onGoLive: () => void
+  onCancel: () => void
+  onMicChange: (deviceId: string) => Promise<void>
+}
+
+/**
+ * Every check has passed and nothing is on air. The checks read as results
+ * here, not as the progress they were a moment ago, and the mic gets a level
+ * check: the one thing worth confirming by ear before the audience hears it.
+ * The meter draws in its grey "check" colour because none of it is going out.
+ */
+function ReadyView({ station, micStream, bitrate, goingLive, onGoLive, onCancel, onMicChange }: ReadyViewProps) {
+  const slow = bitrate < DEFAULT_BITRATE
+  const results: { label: string; status: string; highlight?: boolean }[] = [
+    { label: "Connection", status: `${slow ? "Slow" : "Good"} · ${bitrate} kbps`, highlight: slow },
+    { label: "Station reachable", status: "Yes" },
+    ...(micStream ? [{ label: "Microphone access", status: "Allowed" }] : []),
+    { label: "Audio engine", status: "Ready" },
+  ]
+
+  return (
+    <div className="mx-auto w-full max-w-xl flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <p className="font-mono text-xs uppercase tracking-[0.1em] text-muted-foreground">
+          Going live on {station.name}
+        </p>
+        <h1 className="font-display text-3xl font-semibold tracking-tight">Ready when you are.</h1>
+        <p className="text-muted-foreground">Nothing goes out until you press the button.</p>
+      </div>
+
+      {micStream && (
+        // Visible overflow: the card clips by default, and the mic list
+        // drops down past its bottom edge.
+        <Card className="overflow-visible">
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-sm font-medium">Mic check</h2>
+                <p className="text-sm text-muted-foreground">Say something. The bars should move.</p>
+              </div>
+              <MicPicker micStream={micStream} onChange={onMicChange} />
+            </div>
+            <MicMeter stream={micStream} open={false} />
+          </CardContent>
+        </Card>
+      )}
+
+      <ul className="flex flex-col text-sm" aria-label="Checks">
+        {results.map((r) => (
+          <li key={r.label} className="flex items-center gap-2.5 border-b border-white/[0.07] py-3">
+            <StepIcon status="done" />
+            <span className="flex-1">{r.label}</span>
+            <span
+              className={cn(
+                "font-mono text-xs uppercase tracking-[0.08em]",
+                r.highlight ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {r.status}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex flex-col gap-3">
+        <Button className="h-12 w-full text-base" onClick={onGoLive} disabled={goingLive}>
+          {goingLive
+            ? <IconLoader2 size={17} className="animate-spin motion-reduce:animate-none" data-icon="inline-start" />
+            : <IconBroadcast size={17} data-icon="inline-start" />}
+          {goingLive ? "Going live…" : "Go live now"}
+        </Button>
+        <Button variant="ghost" className="self-end text-muted-foreground" onClick={onCancel} disabled={goingLive}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function isMicPermissionError(message: string | null): boolean {
   if (!message) return false
   return /microphone access denied|no microphone found/i.test(message)
@@ -507,7 +638,7 @@ export default function GoLivePage() {
   const params = useParams<{ slug: string }>()
   const router = useRouter()
   const slug = params.slug
-  const { state, steps, error, start, engine, liveSince } = useBroadcast()
+  const { state, steps, error, start, goLive, switchMic, stop, engine, micStream, getTransportStats } = useBroadcast()
   const [station, setStation] = useState<Station | null>(null)
   /**
    * Only read to explain a refusal, so it is fetched once rather than polled:
@@ -522,6 +653,9 @@ export default function GoLivePage() {
   // this page" from ever meaning "mic is now hot."
   const [preflightApproved, setPreflightApproved] = useState(false)
   const startedRef = useRef(false)
+  // Start was pressed: the Ready screen stays up, button busy, until the
+  // studio opens or the attempt fails.
+  const [goingLive, setGoingLive] = useState(false)
 
   useEffect(() => {
     try {
@@ -586,31 +720,22 @@ export default function GoLivePage() {
     void engine?.resume().catch(() => {})
   }, [state, engine])
 
-  // Into the studio a few seconds after the socket is up, on its own. There
-  // used to be a "You're on air" screen here that waited for one more button
-  // press, at the most adrenalised moment of the show; then it went straight
-  // through, and the success was never seen. This is the middle: the lit lamp
-  // and the link stay up for LIVE_HOLD_MS with a countdown, and nothing needs
-  // pressing. Timed from `liveSince`, so landing here mid-show (the clock
-  // already past) still goes straight through, and a reconnect inside the
-  // window doesn't hold the host out of the studio that handles it.
-  const onAir = (state === "live" || state === "reconnecting") && liveSince !== null
-  const [now, setNow] = useState(() => Date.now())
-  const openStudio = useCallback(() => {
-    router.replace(`/dashboard/stations/${slug}/studio`)
-  }, [router, slug])
+  // Into the studio as soon as the socket is up. The host chose the moment
+  // by pressing Start, and on air is where the controls have to be: a
+  // success screen held here kept them on air with none. The studio's lamp
+  // says LIVE and carries the listener link.
+  const onAir = state === "live" || state === "reconnecting"
   useEffect(() => {
-    if (!onAir || liveSince === null) return
-    const tick = setInterval(() => setNow(Date.now()), 250)
-    const go = setTimeout(openStudio, Math.max(0, liveSince + LIVE_HOLD_MS - Date.now()))
-    return () => {
-      clearInterval(tick)
-      clearTimeout(go)
-    }
-  }, [onAir, liveSince, openStudio])
-  const secondsLeft = liveSince === null
-    ? LIVE_HOLD_MS / 1000
-    : Math.min(LIVE_HOLD_MS / 1000, Math.max(1, Math.ceil((liveSince + LIVE_HOLD_MS - now) / 1000)))
+    if (onAir) router.replace(`/dashboard/stations/${slug}/studio`)
+  }, [onAir, router, slug])
+
+  // Leaving at `ready` drops the checks: the mic would otherwise stay open
+  // on every other dashboard page, for a show that never started.
+  const stateRef = useRef(state)
+  useEffect(() => { stateRef.current = state }, [state])
+  useEffect(() => () => {
+    if (stateRef.current === "ready") void stop()
+  }, [stop])
 
   // Skeleton while we fetch the station — the same shape as the connecting
   // view (heading, lamp, steps) so the swap is barely perceptible.
@@ -641,6 +766,27 @@ export default function GoLivePage() {
   const micBlocked = state === "error" && isMicPermissionError(error) && !micDisabled
 
   const inPreflight = !preflightApproved && state === "idle"
+
+  if (state === "ready" || (goingLive && state === "connecting")) {
+    return (
+      <ReadyView
+        station={station}
+        micStream={micDisabled ? null : micStream}
+        bitrate={getTransportStats()?.bitrate ?? DEFAULT_BITRATE}
+        goingLive={goingLive}
+        onGoLive={() => {
+          setGoingLive(true)
+          void goLive()
+        }}
+        onCancel={() => {
+          void stop()
+          router.push(`/dashboard/stations/${slug}`)
+        }}
+        onMicChange={switchMic}
+      />
+    )
+  }
+
   const phase: LampPhase =
     state === "live" ? "live"
       : state === "reconnecting" ? "reconnecting"
@@ -660,13 +806,11 @@ export default function GoLivePage() {
   const lampDetail =
     // The heading above already says "<station> is live" and the chip says
     // LIVE, so the line only carries what neither does.
-    phase === "live" ? `Opening the studio in ${secondsLeft}…`
+    phase === "live" ? "Opening the studio…"
       : phase === "reconnecting" ? "The connection dropped. Reconnecting…"
       : phase === "fault" ? (error || "Something stopped the broadcast from starting.")
       : activeStep ? `${activeStep.label}…`
       : "Going live…"
-  // The countdown is left out of what is announced: the region is keyed on
-  // this text, and a changing number would re-read it every second.
   const announce = phase === "fault"
     ? `Couldn't go live. ${lampDetail}`
     : phase === "live"
@@ -675,6 +819,7 @@ export default function GoLivePage() {
 
   const retry = (skipMic: boolean) => {
     startedRef.current = false
+    setGoingLive(false)
     start(station.slug, { skipMic, resumeFromStart })
   }
 
@@ -704,22 +849,6 @@ export default function GoLivePage() {
         <div className="flex flex-col gap-5">
           <GoLiveLamp phase={phase} detail={lampDetail} announce={announce} />
           <StepList steps={steps} />
-          {phase === "live" && (
-            <div className="flex flex-col gap-4 border-t border-white/[0.07] pt-5">
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-medium text-foreground">Listeners tune in at</span>
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate rounded-lg border border-white/[0.09] bg-[#08080d]/60 px-3 py-2 font-mono text-xs text-muted-foreground">
-                    {`${env.appUrl}/station/${station.slug}`.replace(/^https?:\/\//, "")}
-                  </span>
-                  <CopyLinkButton url={`${env.appUrl}/station/${station.slug}`} />
-                </div>
-              </div>
-              <Button className="h-12 w-full text-base" onClick={openStudio}>
-                Open studio now
-              </Button>
-            </div>
-          )}
         </div>
       )}
 

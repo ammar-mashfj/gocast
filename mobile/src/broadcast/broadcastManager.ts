@@ -50,7 +50,7 @@ interface BroadcastCallbacks {
   onNotificationStop: () => void;
 }
 
-/** AAC stereo. Roughly the quality of the web's 192k MP3. */
+/** AAC stereo. Matches the station's 128k MP3 output, which Liquidsoap re-encodes to anyway. */
 const BITRATE = 128_000;
 const CHANNELS = 2;
 

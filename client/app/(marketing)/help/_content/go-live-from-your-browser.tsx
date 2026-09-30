@@ -15,12 +15,18 @@ export default function Body() {
           broadcasting from this browser.
         </li>
         <li>
+          Choose mic and music or music only, then press{" "}
+          <strong>Continue</strong>. GoCast checks your connection and gets
+          your station ready.
+        </li>
+        <li>
           Your browser asks for microphone access. Say yes &mdash; this prompt
           is the whole security model, and if you dismiss it nothing can work.
         </li>
         <li>
-          The studio opens. Check the mic meter is moving when you speak, then
-          start.
+          When every check has passed, say something and check the mic meter
+          moves, then press <strong>Go live now</strong>. Nothing goes out
+          before that, and the studio opens as you go on air.
         </li>
       </ol>
       <p>

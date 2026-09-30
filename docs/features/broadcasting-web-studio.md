@@ -27,6 +27,9 @@ sources:
   - api/database/migrations/2026_09_15_140200_add_client_to_stream_sessions_table.php
   - infra/native/nginx/gocast-stream.conf
   - client/lib/broadcast.ts
+  - client/lib/uplinkProbe.ts
+  - api/app/Http/Controllers/UplinkProbeController.php
+  - api/app/Http/Controllers/UplinkCheckController.php
   - client/lib/audioEngine.ts
   - client/lib/micPrefs.ts
   - client/lib/queueStore.ts
@@ -85,9 +88,9 @@ Encoders (BUTT, Mixxx) reach the same harbor mount by a different path and crede
 ## The flow, end to end
 
 1. **Entry.** "Go live" anywhere opens `GoLiveTrigger`, a two-option dialog: *from this browser* or *from a broadcast app* (encoder). The browser option navigates to `/dashboard/stations/{slug}/live`. The sidebar "Studio" item points at `/live` when idle and `/studio` when a broadcast is running.
-2. **Pre-flight** (`live/page.tsx` `PreflightView`). Nothing starts until the person presses **Go live** (`preflightApproved`). This is where the mic is chosen and the saved queue is shown.
-3. **Start** (`BroadcastManager.start`): four steps shown as a list (`station`, `mic`, `engine`, `stream`; `mic` is omitted for music-only).
-4. **Hold**: once live, the page shows the lit lamp and the player link for `LIVE_HOLD_MS = 3000` from `liveSince`, then `router.replace`s to `/studio`. "Open studio now" skips the wait.
+2. **Pre-flight** (`live/page.tsx` `PreflightView`). Nothing starts until the person presses **Continue** (`preflightApproved`). This is where the mic is chosen and the saved queue is shown.
+3. **Checks** (`BroadcastManager.start`): the steps shown as a list (`network`, `station`, `mic`, `engine`; `mic` is omitted for music-only) run without a socket, and the state becomes `ready`. Nothing is on air.
+4. **Go live now** (`BroadcastManager.goLive`): the Ready screen shows **Go live now** / **Cancel**. Go live now connects (not a listed step; the lamp reads "Going live…"), the state becomes `live`, and the page `router.replace`s to `/studio` at once (there is no success hold; the studio's lamp shows LIVE and carries the player link).
 5. **Studio** (`studio/page.tsx`): lamp, deck, running order, side rail.
 6. **End** (`EndBroadcastButton`): confirm dialog, sign-off summary written to `sessionStorage`, socket closed, station optionally released, redirect to the overview.
 7. **Sign-off** (`ShowSignOff` on the station overview): one card, once.
@@ -99,8 +102,8 @@ Encoders (BUTT, Mixxx) reach the same harbor mount by a different path and crede
 - **What goes out** (radio cards): *Mic + music* or *Music only*. Stored per station in `localStorage["broadcast:micDisabled:{slug}"]`. Music-only never calls `getUserMedia`.
 - **Your running order** (`QueueStatus`, `loadQueueSummary`): reads the queue and playback position from IndexedDB *before* any engine exists. Shows track count, bytes of the 2 GiB cap and the last-played title. If the saved offset is at least 1 second it offers **"Pick up at m:ss"** or **"Start it over"** (`resumeFromStart`, stored in `localStorage["broadcast:resumeFromStart"]`, global, not per station). Under a second the choice is hidden because they are the same thing. "Clear queue" opens a confirm dialog and calls `clearQueue(slug)` (deletes this station's tracks and playback position only). States: skeleton while reading, "Empty. Add music files in the studio once you're live" when empty or when storage is unreadable.
 - If `station.is_on_air && !station.is_live` (AutoDJ audible) an info row says going live takes over and AutoDJ resumes on End.
-- Shows the player URL with a Copy button (`${env.appUrl}/station/{slug}`), then **Go live** / **Cancel** (Cancel returns to the overview).
-- After approval the effect calls `start(slug, { skipMic, resumeFromStart })`, guarded by `startedRef` so one approval starts once.
+- Shows the player URL with a Copy button (`${env.appUrl}/station/{slug}`), then **Continue** / **Cancel** (Cancel returns to the overview).
+- After approval the effect calls `start(slug, { skipMic, resumeFromStart })`, guarded by `startedRef` so one approval starts once. It ends at `ready`, which swaps the lamp and step list for `ReadyView`: "Ready when you are.", a **Mic check** card (the studio's `MicMeter` on the provider's `micStream`, drawn closed/grey; hidden for music-only; with two or more inputs it carries `MicPicker`, which lists `enumerateDevices()` audio inputs minus Windows' `communications` duplicate, refreshes on `devicechange`, and calls `BroadcastManager.switchMic(deviceId)`: open the new device, `AudioEngine.setMicStream()` rewires the mic chain, the old tracks stop, and the id is saved in `localStorage["broadcast:micDeviceId"]` (per browser, not per station). Devices are opened with `deviceId: { exact }` (with `ideal`, Chrome traded the chosen mono mic for a default that satisfies `channelCount: 2`). The checklist's mic step opens the saved device and, if that fails for any reason except `NotAllowedError`, opens the default instead of failing. Only at `ready`: there is no mid-show switch), the checks as results (Connection `Good`/`Slow · N kbps` from `getTransportStats().bitrate`, Station reachable `Yes`, Microphone access `Allowed`, Audio engine `Ready`), and **Go live now** / **Cancel**. Go live now calls `goLive()`; the view stays up with the button busy ("Going live…") until the studio opens or the attempt fails into the fault view. Cancel calls `stop()` (no station release, so a started container is left to the sweep) and returns to the overview. Leaving the page any other way while `ready` also calls `stop()`, so the mic is not held open on other dashboard pages.
 - **Errors:** `state === "error"` shows a red lamp with the reason and a step list. Mic denied/not found (`isMicPermissionError`, regex on the message) shows a recovery block: *Continue without mic* (sets `micDisabled` true in storage and retries music-only) or *Try again*. Other errors show *Try again* / *Back to station* and a link to `/help/go-live-from-your-browser`.
 
 ### 2. `BroadcastManager.start` (`client/lib/broadcast.ts`)
@@ -108,16 +111,23 @@ Encoders (BUTT, Mixxx) reach the same harbor mount by a different path and crede
 Order matters and is deliberate:
 
 1. `assertBroadcastSupported`: throws if `!window.isSecureContext` ("Broadcasting needs https:// or localhost") or, when not music-only, `navigator.mediaDevices` is absent. Runs before any side effect so a container is never started for an impossible broadcast.
-2. **Step `station`** `ensureStationOnAir` (up to `STATION_READY_TIMEOUT_MS` = 20 s): `POST /stations/{slug}/start` (idempotent; an already-healthy running station is left alone), then polls `GET /stations/{slug}/status` every `STATION_READY_POLL_MS` = 1 s until `data.ready`. 422/403 from `/start` is shown verbatim (plan limit `station_limit_reached`, ownership); anything else becomes "Could not bring the station on air — please try again". **A timeout is not an error**: it proceeds to publish anyway, on the theory that harbor accepts the connection when it starts listening.
-3. **Step `mic`**: `getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } })`. All three processing flags are off on purpose (they damage music that shares the mixer).
-4. **Step `engine`**: `AudioEngine.create(micStream, onChunk)`, `engine.resume()` (inside the user gesture), subscribe to the engine to push metadata, then `restoreQueue()`. Encoded chunks go to the socket only while `ws.readyState === OPEN`; otherwise they are dropped (never buffered, so a reconnect does not replay stale audio into a live show).
-5. **Step `stream`** `connectWebcast`: mint a token (`POST /auth/broadcast-token {station_slug}`; 403 becomes "You do not own this station", any other failure becomes "Not signed in — please sign in and try again"), require a non-empty `ingest_url`, then `openSocket`.
-6. After the socket is accepted: `resumePlayback({ fromStart })` (not awaited), acquire the screen wake lock, watch tab visibility, state becomes `live`.
+2. **Step `network`** ("Checking your connection", `client/lib/uplinkProbe.ts`): times an empty `POST /broadcast/uplink-probe` (round trip + server work, and warms the connection), then a 96 KB random body; upload kbps = bits ÷ (big − empty) ms. Timeout `PROBE_TIMEOUT_MS` = 10 s, which itself counts as a measurement (≈79 kbps). Tier = the best of `BITRATE_TIERS` [128, 96, 64] with `kbps ≥ tier × 1.5` (`HEADROOM`): ≥192 → 128, ≥144 → 96, ≥96 → 64. Below `MIN_UPLINK_KBPS` (96) the step fails with "Your connection is too slow to broadcast: it uploads about N kbps, and a show needs at least 96…" and nothing else runs, so no container starts; Try again re-probes. A lowered tier relabels the done step "Slow connection: sending at N kbps to keep up". A probe that fails for any other reason (network error, 5xx, the empty request timing out) fails the step with "Couldn't check your connection. Make sure you're online, then try again." and nothing else runs; no bitrate is guessed. Every check's verdict is reported fire-and-forget (`reportUplinkCheck` → `POST /stations/{slug}/uplink-checks`) as an `uplink_check` station event: `outcome` ok / lowered / blocked / failed, `kbps`, `bitrate`, and the browser's Network Information guess (`net_type`, `net_effective`, `net_downlink`, `net_rtt`) to compare against. Those rows are the only trace of a refused go-live, and what the thresholds should be tuned from. A `failed` report goes over the same broken line, so it often doesn't arrive.
+3. **Step `station`** `ensureStationOnAir` (up to `STATION_READY_TIMEOUT_MS` = 20 s): `POST /stations/{slug}/start` (idempotent; an already-healthy running station is left alone), then polls `GET /stations/{slug}/status` every `STATION_READY_POLL_MS` = 1 s until `data.ready`. 422/403 from `/start` is shown verbatim (plan limit `station_limit_reached`, ownership); anything else becomes "Could not bring the station on air — please try again". **A timeout is not an error**: it proceeds to publish anyway, on the theory that harbor accepts the connection when it starts listening.
+4. **Step `mic`**: `getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } })`. All three processing flags are off on purpose (they damage music that shares the mixer).
+5. **Step `engine`**: `AudioEngine.create(micStream, onChunk, slug, bitrate)`, `engine.resume()` (inside the user gesture), subscribe to the engine to push metadata, then `restoreQueue()`. Encoded chunks go to the socket only while `ws.readyState === OPEN` **and** the socket's unsent backlog is under `BACKLOG_CAP_MS` = 4 s of audio; otherwise they are dropped and counted as lost (never buffered, so a reconnect or a slow line does not replay stale audio into a live show).
+6. **Connect** (`connectWebcast`, not shown as a step; a failure here marks no step, the lamp carries the reason): mint a token (`POST /auth/broadcast-token {station_slug}`; 403 becomes "You do not own this station", any other failure becomes "Not signed in — please sign in and try again"), require a non-empty `ingest_url`, then `openSocket`.
+Steps 2–5 are `start()` and end in state `ready`. Step 6 onward is `goLive()`, run from the Start button, which first does the following silently (`quietSteps`: the step list on screen is not updated, the lamp just reads "Going live…"; only a failure is shown, on the step that failed):
+
+- resumes the audio context (inside the Start click);
+- if the checklist finished more than `READY_STALE_MS` (3 min) ago, or a mic track has `readyState === 'ended'`, destroys the engine and mic and runs steps 2–5 again (new connection check, new bitrate, new engine);
+- otherwise re-runs only the `station` step. `POST /start` is idempotent, so a running station costs one request; a station the sweep stopped while the host sat on Start (only a no-AutoDJ station: 10 min of silence, or 150 s after a browser show that ended in the same run) is started again.
+
+7. After the socket is accepted: `resumePlayback({ fromStart })` (not awaited), acquire the screen wake lock, watch tab visibility, state becomes `live`.
 
 `openSocket` details: `new WebSocket(ingest_url, "webcast")`, `binaryType = "arraybuffer"`, connect timeout `SOCKET_CONNECT_TIMEOUT_MS` = 10 s. On open it sends one JSON frame:
 
 ```
-{ type: "hello", data: { mime: "audio/mpeg", user: <slug>, password: <token>, audio: { channels: 2, samplerate: 44100, bitrate: 192, encoder: "libmp3lame" } } }
+{ type: "hello", data: { mime: "audio/mpeg", user: <slug>, password: <token>, audio: { channels: 2, samplerate: 44100, bitrate: <current tier>, encoder: "libmp3lame" } } }
 ```
 
 The webcast protocol has **no acknowledgement**. The socket is treated as accepted only if it survives `HELLO_GRACE_MS` = 600 ms after the hello. A close inside that window is a rejection ("The stream server rejected this broadcast — the previous connection may still be closing" for close codes 1008/4001, otherwise "…closed the connection before the broadcast started"). This is a timing heuristic, not a handshake.
@@ -167,9 +177,20 @@ A socket that closes after being accepted (`watchForDrop`, guarded by `this.ws !
 - The budget is deliberately below the API's `studio_gone_stop_seconds` (`LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS`, default 150): past that, a no-AutoDJ station whose last browser session closed is taken off air by the sweep (`StationAudioPolicy::studioHasGoneForGood`). Harbor's own `input.harbor timeout` is `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` (default 10 s): until it fires, a dead-but-not-closed source still holds the mount and reconnects are refused. Also note harbor reports the disconnect (and the session closes) when it declares the source gone, so **each drop that outlasts harbor's detection produces its own `stream_sessions` row**.
 - Out of budget: `fail(...)` with "Lost the connection to the stream server and couldn't get back on air (detail)": tears down engine, mic, wake lock; state `error`.
 
+### 5b. Fitting the upload (`sampleBacklog` in `broadcast.ts`)
+
+Once a second, driven off the encoder's own chunks rather than a timer (a hidden tab's timers can be throttled to once a minute), the manager reads `ws.bufferedAmount` as playing time at the current bitrate (`bytes × 8 ÷ kbps` = ms).
+
+- **Down a tier** after `STEP_DOWN_AFTER_SAMPLES` = 3 consecutive samples at or above `CONGESTED_BACKLOG_MS` = 2 s, then no further step for `STEP_DOWN_COOLDOWN_MS` = 10 s so the backlog can drain.
+- **Up a tier** after `STEP_UP_AFTER_CLEAR_MS` = 5 min continuously under `CLEAR_BACKLOG_MS` = 300 ms, never above 128 (so a probe-chosen 64 can climb back).
+- The switch is `engine.setBitrate` → the worker flushes the old lamejs encoder's tail and builds a new one at the same 44.1 kHz. No new hello: every MP3 frame carries its own bitrate, and harbor decodes the change cleanly (verified 2026-09-30 against `gocast/liquidsoap:latest`: 128 → 64 → 96 kbps sines came out at the right pitch with no gap).
+- Why the numbers: harbor drops a source after `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` (10 s) without data. The drop that prompted this (kerygma, 2026-09-30, browser rated 3g, 0.4 Mbps) held 8–11 s of unsent audio at each of three drops in seven minutes, at the old 192 kbps.
+
+`getTransportStats()` also returns `bitrate`, `backlogMs` and `congested` (backlog ≥ 2 s). Drop reports carry `bitrate` and `uplink_kbps` (the go-live measurement).
+
 ### 6. The audio graph (`client/lib/audioEngine.ts`)
 
-One `AudioContext` pinned to **44 100 Hz** (lamejs is built for a fixed rate). Constants: `MP3_BITRATE = 192` (stereo CBR; Liquidsoap re-encodes to the station's output), `MIC_BOOST = 3` (mic gain while open), `QUEUE_BYTE_LIMIT = 2 GiB`, `MONITOR_DEFAULT_VOLUME = 0.62`, `METADATA_TIMEOUT_MS = 4000`.
+One `AudioContext` pinned to **44 100 Hz** (lamejs is built for a fixed rate). Constants: `BITRATE_TIERS = [128, 96, 64]`, `DEFAULT_BITRATE = 128` (stereo CBR; Liquidsoap re-encodes to the station's 128k output, so more than 128 only spent the broadcaster's upload; 192 until 2026-09-30), `MIC_BOOST = 3` (mic gain while open), `QUEUE_BYTE_LIMIT = 2 GiB`, `MONITOR_DEFAULT_VOLUME = 0.62`, `METADATA_TIMEOUT_MS = 4000`.
 
 ```
 fileSource -> fileGain --------------------------------------> mixer -> limiter -> analyser -> AudioWorklet (pcm-processor)
@@ -179,7 +200,7 @@ mic -> highpass80 -> presence(3k,+3dB) -> comp -> micWet -> micGain            W
 ```
 
 - **The mixer is not connected to `ctx.destination`**, so the broadcaster does not hear the show from their speakers (feedback risk). Only `monitorGain`, tapped from `fileGain` (post-duck, never from the mic), reaches the speakers. Off by default; `M` toggles; volume slider 0-100.
-- **Capture:** `public/pcm-worklet.js` batches 128-sample frames into 4096-sample stereo blocks (about 93 ms) and transfers them over a `MessageChannel` port straight to `public/encoder-worker.js`, which converts float to Int16 and calls `lamejs.Mp3Encoder(2, 44100, 192)`. The worker imports `/lame.min.js`. A mono input is duplicated to both channels.
+- **Capture:** `public/pcm-worklet.js` batches 128-sample frames into 4096-sample stereo blocks (about 93 ms) and transfers them over a `MessageChannel` port straight to `public/encoder-worker.js`, which converts float to Int16 and calls `lamejs.Mp3Encoder(2, 44100, bitrate)`; a `bitrate` message flushes and rebuilds it. The worker imports `/lame.min.js`, **which is patched** (`q.out_samplerate=k` in `Mp3Encoder`): stock lamejs resamples on its own below ~112 kbps (96 → 32 kHz, 64 → 24 kHz), and harbor turns a mid-stream sample-rate change into silence or the wrong pitch (verified). A mono input is duplicated to both channels.
 - **Push-to-talk and ducking:** `pttDown()` sets `micGain` to 3 (time constant 0.02 s) and moves `fileGain` to the duck target; `pttUp()` reverses it. The **mic ramps are always fast; only the music follows the fade setting.** Duck levels (`micPrefs.ts` `DUCK_GAIN`): `under` 0.2 (about -14 dB), `low` 0.08 (about -22 dB), `silence` 0. Fade time constants (`FADE_TIME_CONSTANT`): `instant` 0.03 s, `smooth` 0.13 s, `slow` 0.5 s (roughly 0.1 / 0.4 / 1.5 s to settle). The duck ramp re-anchors from the current value so a press mid-fade continues smoothly.
 - **Latch** (`setMicLatched`): holds the mic open hands-free; `pttUp()` is a no-op while latched; unlatching closes it.
 - **Broadcast voice** (default on): both mic paths exist permanently and are crossfaded by gain (`micDry`/`micWet`, 0.02 s), so toggling is click-free. Chain: high-pass 80 Hz (Q 0.707), peaking 3 kHz +3 dB (Q 1), compressor threshold -20, knee 6, ratio 3, attack 5 ms, release 150 ms.
@@ -212,13 +233,14 @@ Renders nothing unless `isLive` (state `live` or `reconnecting`) **and** a signa
 | `not-sending` | Not sending | a transport sample exists and `!connected` |
 | `suspended` | Audio paused | `AudioContext` suspended |
 | `silence` | Silence | mic not open (or mic-less) and queue not playing; shown only after `SILENCE_GRACE_MS` = 4000 ms |
-| `dropping` | Dropping audio | a frame dropped within `RECENT_DROP_MS` = 5000 ms |
+| `dropping` | Dropping audio | a frame dropped within `RECENT_DROP_MS` = 5000 ms (socket closed, or backlog over 4 s) |
+| `slow-connection` | Slow connection | `stats.congested` (backlog ≥ 2 s); detail names the current bitrate |
 | `mic` | Mic open | mic open |
 | `live` | Live | otherwise |
 
 Transport health (`useTransportHealth`) samples `getTransportStats()` every `HEALTH_POLL_MS` = 2000 ms. The counters (`bytesSent`, `chunksSent`, `chunksDropped`, `droppedMs`, `lastDropAt`) only count after the first successful handshake (`countersArmed`), so startup silence is not "lost audio". `droppedMs` is a wall-clock duration of drop runs (including an open one), shown as "N.Ns of audio lost". These count what actually left the socket, not what the encoder produced.
 
-The lamp also shows uptime (from `liveSince`), listeners, and the encoder bitrate. The `live` detail copy states "Listeners hear you about 15–20 seconds after you speak" (see Gaps).
+The lamp also shows uptime (from `liveSince`), listeners, and the encoder's **current** bitrate (brighter, with a tooltip, when below 128). The `live` detail copy states "Listeners hear you about 15–20 seconds after you speak" (see Gaps).
 
 **Deck** (`OnAirDeck`): a time-left dial (`TrackDial`, canvas ring draining clockwise; goes white at 20 s left), title/artist, a read-only progress bar, "Then {next}" and time until the queue loops, transport (prev / play-pause / next), the push-to-talk strip (hidden for music-only), and the monitor bar. Position, bar, clock and loop time are written straight to the DOM from one `requestAnimationFrame` loop reading the engine every frame (not memoised; an earlier memo froze at mount). Talk-up cues at 20 s and 10 s left pulse the clock and set an sr-only status line, only when the countdown genuinely crosses the threshold.
 
@@ -266,6 +288,8 @@ Read once on mount of the overview: reads and immediately removes the `sessionSt
 | Route | Controller | Auth | Notes |
 |---|---|---|---|
 | `POST /api/auth/broadcast-token` | `BroadcastTokenController` | sanctum + verified, `throttle:30,1` | body `station_slug`; returns `token`, `expires_in` 60, `ingest_url` |
+| `POST /api/broadcast/uplink-probe` | `UplinkProbeController` | sanctum + verified, `throttle:20,1` | raw body, returns `{bytes}`; 413 over 256 KB; nothing stored |
+| `POST /api/stations/{slug}/uplink-checks` | `UplinkCheckController` | owner (`update`), `throttle:20,1` | the check's verdict → `uplink_check` event; admin monitoring only |
 | `POST /api/stations/{slug}/start` | `StationPowerController::start` | owner, `throttle:20,1` | 202; 422 `station_limit_reached`; 503 `station_start_failed` |
 | `POST /api/stations/{slug}/stop` | `StationPowerController::stop` | owner, `throttle:20,1` | 409 `station_is_live` / `station_is_live_external`; `force` only cuts encoders |
 | `GET /api/stations/{slug}/status` | `StationStatusController` | owner, `throttle:120,1` | `slug`, `state`, `desired_state`, `started_at`, `reachable`, `ready`, `icecast_connected`, `last_ready_at`, `source`, `broadcaster`, `live_source`, `now_playing`, `elapsed`, `remaining`, `playlist_length`, `up_next` (max 5) |
@@ -318,7 +342,9 @@ Related: [realtime-events.md](realtime-events.md) (`StationStateChanged`), [list
 19. **The 600 ms hello grace is a heuristic.** A slow rejection (auth callback near its 5 s timeout) closes after the studio already reports success; the drop path then handles it as a mid-broadcast disconnect.
 20. **`HarborAuthController` gates both the studio and encoders.** Changing the check order or the plan gate affects the studio's hot path (every connect and reconnect does a token verify first).
 21. **Ghost session cleanup** (a lost `live_disconnected`) is described in code comments as handled by `ReconcileStations` and by `stop()` closing sessions; `ReconcileStations::reconcileLiveFlags` (`stations:reconcile`) is the real backstop: for running stations with an open session it reads the container status (`broadcaster`, else `source === 'live'`); after `liquidsoap.stranded_session_strikes` (default 3) consecutive passes where the container says nobody is attached, it closes the open sessions. `StationLifecycleService::stop` also closes open sessions on a stop. `StreamSessionController::store` clears a ghost encoder session only when the station is not running.
-22. **Metadata is unsanitised client-side** (title/artist straight from tags or filename); the cap (500 chars) is enforced by `NowPlayingController` per the template comment, not in the studio.
+22. **The upload check times the API host, not the stream host.** Today that is the same path: both vhosts are on one box behind Cloudflare, and the socket only adds a local hop (nginx → station-router → container). If stations ever move to their own servers, the probe has to move to the stream host too, or it stops measuring the route the audio takes.
+23. **DevTools/CDP network throttling does not slow WebSockets**, so it tests the go-live check but never exercises the backlog watch. To test that, override `WebSocket.prototype.bufferedAmount` in the page (done 2026-09-30 with headless Playwright). Also: with nothing playing and the mic closed the lamp shows `silence`, which outranks both `dropping` and `slow-connection`.
+24. **Metadata is unsanitised client-side** (title/artist straight from tags or filename); the cap (500 chars) is enforced by `NowPlayingController` per the template comment, not in the studio.
 
 ## Tests
 

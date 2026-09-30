@@ -78,3 +78,14 @@ it('rejects an unknown outcome', function () {
         ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'exploded'])]])
         ->assertUnprocessable();
 });
+
+it('keeps the bitrate and measured upload speed', function () {
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['bitrate' => 96, 'uplink_kbps' => 170])]])
+        ->assertOk();
+
+    $event = StationEvent::query()->where('station_id', $this->station->id)->sole();
+
+    expect($event->properties['bitrate'])->toBe(96)
+        ->and($event->properties['uplink_kbps'])->toBe(170);
+});

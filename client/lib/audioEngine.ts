@@ -19,12 +19,19 @@ const MIC_BOOST = 3
 const SAMPLE_RATE = 44100
 
 /**
- * Ingest bitrate, stereo. Liquidsoap re-encodes to the station's Icecast
- * output (%mp3 128k today), so this only needs enough headroom that the
- * transcode isn't the weak link — 192 is comfortably above it without
- * wasting the broadcaster's upstream.
+ * Ingest bitrates, stereo, best first. Liquidsoap re-encodes to the station's
+ * Icecast output (%mp3 128k today), so anything above 128 only spends the
+ * broadcaster's upload: 192 used to be the default and was the difference
+ * between a slow line holding and dropping (kerygma, 2026-09-30).
+ *
+ * The lower two exist for slow uploads. The studio starts at whatever the
+ * go-live connection check allows and steps down (and back up) mid-show; see
+ * uplinkProbe.ts and BroadcastManager. All three stay at SAMPLE_RATE: the
+ * vendored lamejs is patched not to resample (see encoder-worker.js).
  */
-const MP3_BITRATE = 192
+export const BITRATE_TIERS = [128, 96, 64] as const
+export type Bitrate = (typeof BITRATE_TIERS)[number]
+export const DEFAULT_BITRATE: Bitrate = 128
 
 /**
  * Client-side cap on total queued audio bytes. The browser will already
@@ -202,6 +209,7 @@ export class AudioEngine {
   private micPrefs: MicPrefs = loadMicPrefs()
   private workletNode: AudioWorkletNode
   private encoderWorker: Worker
+  private bitrate: Bitrate = DEFAULT_BITRATE
 
   /**
    * Speaker monitor. Tapped off `fileGain` — post-duck, so the broadcaster
@@ -215,6 +223,8 @@ export class AudioEngine {
   private monitorVolume = MONITOR_DEFAULT_VOLUME
 
   private micSource: MediaStreamAudioSourceNode | null = null
+  /** Head of the voice chain, so a new mic can be wired into it. */
+  private micVoiceIn: BiquadFilterNode | null = null
   private isTalking = false
   private micLatched = false
   private repeatMode: RepeatMode = 'all'
@@ -327,6 +337,7 @@ export class AudioEngine {
       comp.release.value = 0.15
 
       this.micSource.connect(highpass)
+      this.micVoiceIn = highpass
       highpass.connect(presence)
       presence.connect(comp)
       comp.connect(this.micWet)
@@ -381,6 +392,7 @@ export class AudioEngine {
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     station: string,
+    bitrate: Bitrate = DEFAULT_BITRATE,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
@@ -408,20 +420,39 @@ export class AudioEngine {
     const channel = new MessageChannel()
     workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
     worker.postMessage(
-      { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+      { type: 'init', sampleRate: SAMPLE_RATE, bitrate, port: channel.port2 },
       [channel.port2],
     )
     await ready
 
-    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk, station)
+    const engine = new AudioEngine(ctx, workletNode, worker, micStream, onChunk, station)
+    engine.bitrate = bitrate
+    return engine
   }
 
   /**
    * Encoder settings, for the webcast hello frame — harbor is told what it is
-   * about to receive rather than having to sniff it.
+   * about to receive rather than having to sniff it. Harbor only reads this
+   * at connect; a later {@link setBitrate} needs no new hello, because every
+   * MP3 frame carries its own bitrate.
    */
-  static encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
-    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: MP3_BITRATE, encoder: 'libmp3lame' }
+  encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
+    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: this.bitrate, encoder: 'libmp3lame' }
+  }
+
+  getBitrate(): Bitrate {
+    return this.bitrate
+  }
+
+  /**
+   * Re-encode at a new bitrate from the next frame on. The worker flushes the
+   * old encoder's tail first, so no audio is lost, but the seam carries a few
+   * tens of ms of silence (see encoder-worker.js).
+   */
+  setBitrate(bitrate: Bitrate): void {
+    if (bitrate === this.bitrate) return
+    this.bitrate = bitrate
+    this.encoderWorker.postMessage({ type: 'bitrate', bitrate })
   }
 
   /**
@@ -995,6 +1026,19 @@ export class AudioEngine {
   /** Resume the AudioContext if suspended by the browser's autoplay policy. Safe to call repeatedly. */
   async resume(): Promise<void> {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
+  }
+
+  /**
+   * Feed the mic chain from a different microphone. Only an engine built
+   * with a mic has a chain to feed; music-only ignores this. The caller owns
+   * both streams, including stopping the old one.
+   */
+  setMicStream(stream: MediaStream): void {
+    if (!this.micSource || !this.micVoiceIn) return
+    this.micSource.disconnect()
+    this.micSource = this.ctx.createMediaStreamSource(stream)
+    this.micSource.connect(this.micDry)
+    this.micSource.connect(this.micVoiceIn)
   }
 
   /** Tear down the audio graph and close the AudioContext. */

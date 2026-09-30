@@ -1,6 +1,6 @@
 "use client"
 
-import { AudioEngine } from "@/lib/audioEngine"
+import { DEFAULT_BITRATE } from "@/lib/audioEngine"
 import { formatClock } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { SIGNAL_TONE, type StudioSignal, type TransportHealth } from "./signal"
@@ -83,7 +83,12 @@ export function OnAirLamp({
         <div className="flex items-baseline gap-1.5">
           <dt className="sr-only">Encoder</dt>
           <dd className="whitespace-nowrap font-mono text-muted-foreground tabular-nums">
-            {AudioEngine.encoderInfo().bitrate} kbps
+            <span
+              className={cn(transport.stats && transport.stats.bitrate < DEFAULT_BITRATE && "text-foreground")}
+              title={transport.stats && transport.stats.bitrate < DEFAULT_BITRATE ? "Lowered to keep up with your connection" : undefined}
+            >
+              {transport.stats?.bitrate ?? DEFAULT_BITRATE} kbps
+            </span>
             {lost > 0 && (
               <span className={cn("ml-1.5", transport.droppingNow ? "text-fault-text" : "text-foreground")}>
                 · {lost.toFixed(1)}s {compact ? "lost" : "of audio lost"}

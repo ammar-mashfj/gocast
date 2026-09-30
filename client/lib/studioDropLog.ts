@@ -51,6 +51,10 @@ export interface DropReport {
   peak_buffered_bytes?: number | null
   wake_lock?: boolean
   standalone?: boolean
+  /** Ingest bitrate at the drop, in kbps. */
+  bitrate?: number | null
+  /** Upload speed the go-live check measured, in kbps. */
+  uplink_kbps?: number | null
 }
 
 interface StoredDrop {
@@ -65,6 +69,8 @@ export interface DropContext {
   bufferedBytes: number | null
   peakBufferedBytes: number
   wakeLockHeld: boolean
+  bitrate: number
+  uplinkKbps: number | null
 }
 
 const STORAGE_KEY = 'gocast:studio-drops:v1'
@@ -178,6 +184,8 @@ export function captureDrop(slug: string, ctx: DropContext): string | null {
       peak_buffered_bytes: ctx.peakBufferedBytes,
       wake_lock: ctx.wakeLockHeld,
       standalone: typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches,
+      bitrate: ctx.bitrate,
+      uplink_kbps: ctx.uplinkKbps,
     }
     writeStore([...readStore(), { slug, report }])
     return report.id

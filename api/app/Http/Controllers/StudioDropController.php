@@ -41,6 +41,7 @@ class StudioDropController extends Controller
         'visibility', 'hidden_for_ms', 'shown_ago_ms', 'resumed_ago_ms', 'frozen',
         'online', 'offline_ago_ms', 'net_type', 'net_effective', 'net_downlink', 'net_rtt', 'save_data',
         'buffered_bytes', 'peak_buffered_bytes', 'wake_lock', 'standalone',
+        'bitrate', 'uplink_kbps',
     ];
 
     public function __invoke(Request $request, Station $station): JsonResponse
@@ -75,6 +76,8 @@ class StudioDropController extends Controller
             'drops.*.peak_buffered_bytes' => ['nullable', 'integer', 'min:0'],
             'drops.*.wake_lock' => ['nullable', 'boolean'],
             'drops.*.standalone' => ['nullable', 'boolean'],
+            'drops.*.bitrate' => ['nullable', 'integer', 'min:0', 'max:320'],
+            'drops.*.uplink_kbps' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $recorded = 0;
