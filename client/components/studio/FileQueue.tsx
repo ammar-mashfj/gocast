@@ -97,7 +97,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         // between the grip and the number on a phone.
         "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
         isDragging && "relative z-10 bg-popover shadow-lg",
-        isPlaying ? "bg-white/[0.04]" : "hover:bg-white/[0.025]",
+        isPlaying ? "bg-foreground/[0.05]" : "hover:bg-foreground/[0.03]",
       )}
     >
       <button
@@ -123,7 +123,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
       </div>
       <div className="whitespace-nowrap text-xs">
         {isPlaying ? (
-          <span className="rounded-full border border-white/15 px-2 py-0.5 font-medium text-foreground">
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
             Playing
           </span>
         ) : airsAt ? (
@@ -293,8 +293,10 @@ export function FileQueue() {
       }}
       onDrop={handleDrop}
       className={cn(
-        "flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-2xl border bg-panel transition-colors",
-        dragOver ? "border-violet/60" : "border-white/[0.09]",
+        // A card like the rest of the console; the edge only appears while a
+        // file is dragged over it.
+        "flex min-h-[180px] flex-1 flex-col overflow-hidden rounded-3xl border bg-card transition-colors",
+        dragOver ? "border-foreground/40" : "border-transparent",
       )}
     >
       <input
@@ -309,9 +311,9 @@ export function FileQueue() {
         }}
       />
 
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/[0.06] px-4 py-3 sm:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-5">
         <div className="min-w-0">
-          <h2 id="running-order-title" className="text-sm font-semibold">Running order</h2>
+          <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
             Your show&apos;s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
@@ -329,7 +331,7 @@ export function FileQueue() {
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
               whether it moves on to the next track or holds this one. */}
-          <div role="group" aria-label="When a track ends" className="flex rounded-lg border border-white/10 p-0.5">
+          <div role="group" aria-label="When a track ends" className="flex gap-[3px] rounded-xl bg-background p-[3px]">
             {(["all", "one"] as const).map((mode) => (
               <button
                 key={mode}
@@ -347,9 +349,10 @@ export function FileQueue() {
                 // strong enough to read at a glance — Clarity showed people
                 // toggling this four to six times to find out which was on.
                 className={cn(
-                  "h-8 whitespace-nowrap rounded-md px-2 text-xs font-medium transition-colors sm:px-2.5",
+                  // The design system's Segmented: the choice is off-white.
+                  "h-8 whitespace-nowrap rounded-[9px] px-2 text-xs font-semibold transition-colors sm:px-2.5",
                   repeatMode === mode
-                    ? "bg-primary/20 text-foreground ring-1 ring-inset ring-primary/50"
+                    ? "bg-foreground text-background"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -388,7 +391,7 @@ export function FileQueue() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/12 text-center transition-colors hover:border-white/25"
+            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-input text-center transition-colors hover:border-foreground/30"
           >
             <IconUpload size={20} className="text-muted-foreground" />
             <span className="text-sm font-medium">Drop audio files here, or browse</span>
@@ -425,7 +428,7 @@ export function FileQueue() {
       </div>
 
       {queue.length > 0 && (
-        <p className="border-t border-white/[0.06] px-5 py-2 text-xs text-muted-foreground">
+        <p className="border-t border-border px-5 py-2 text-xs text-muted-foreground">
           {dragOver ? "Drop to add to the end of the running order" : "Drag files anywhere onto this panel to add them"}
         </p>
       )}

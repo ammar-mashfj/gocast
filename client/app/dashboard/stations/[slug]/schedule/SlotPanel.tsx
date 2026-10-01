@@ -78,7 +78,7 @@ export function SlotPanel({
                 onClick={() => onChange({ playlistId: p.id })}
                 className={cn(
                   "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors motion-reduce:transition-none",
-                  on ? "bg-white/[0.07] text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                  on ? "bg-foreground/[0.08] font-semibold text-foreground" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
                 )}
               >
                 <span className={cn("size-3 shrink-0 rounded-[3px]", swatchFor(p.id).dot)} aria-hidden="true" />
@@ -157,7 +157,7 @@ function TimeStepper({ label, value, onChange }: { label: string; value: string;
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="flex h-11 items-center rounded-lg border border-white/[0.09] bg-white/[0.03]">
+      <div className="flex h-11 items-center rounded-xl bg-background">
         <button
           type="button"
           onClick={() => step(-SNAP)}

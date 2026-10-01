@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Bricolage_Grotesque, JetBrains_Mono, Onest } from "next/font/google";
+import { Bricolage_Grotesque, IBM_Plex_Mono, JetBrains_Mono, Onest } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
@@ -45,6 +45,16 @@ const display = Bricolage_Grotesque({
 const mono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-mono-face',
+  display: 'swap',
+  preload: false,
+});
+/* The dashboard's mono (docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md): clocks,
+   counters and status labels. globals.css points --font-mono-face at it only
+   inside the dashboard, so marketing never downloads it. */
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-plex-mono',
   display: 'swap',
   preload: false,
 });
@@ -160,6 +170,7 @@ export default function RootLayout({
         body.variable,
         display.variable,
         mono.variable,
+        plexMono.variable,
       )}
     >
       <head>

@@ -21,9 +21,9 @@ const BREAKDOWNS = ["Countries", "Devices", "Browsers", "Where they came from"]
  * chart and four breakdowns). It draws the complete shape, because guessing
  * short would make the locked page the one that jumps.
  *
- * Same wrappers as the page — `sheet sheet-rules`, one Card per section, the
+ * Same wrappers as the page — a card stack, one Card per section, the
  * breakdowns as a 2×2 grid whose cells each open on their own hairline — so
- * the flat sheet does not arrive as a stack of boxes and then flatten. The
+ * the page does not arrive in one shape and then settle into another. The
  * previous version drew boxed cards and a two-cell grid, and the whole page
  * visibly re-laid itself out on every load.
  */
@@ -31,10 +31,10 @@ export default function AudienceLoading() {
   return (
     // The Skeleton primitive pulses unconditionally; stopping it here keeps
     // the page still for anyone who asked for reduced motion.
-    <div className="sheet sheet-rules flex flex-col gap-6 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+    <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <h1 className="font-display flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
             Audience
             <HelpLink
               article="read-your-audience-page"
@@ -48,7 +48,7 @@ export default function AudienceLoading() {
 
         {/* The range switcher: the bordered pill group, with its buttons
             pending because how many there are depends on the plan. */}
-        <div className="flex items-center gap-1 rounded-lg border border-white/[0.09] p-1 shrink-0">
+        <div className="flex items-center gap-[3px] rounded-xl bg-card p-[3px] shrink-0">
           <Skeleton className="h-6 w-10" />
           <Skeleton className="h-6 w-10" />
           <Skeleton className="h-6 w-10" />
@@ -72,7 +72,7 @@ export default function AudienceLoading() {
           {/* AudienceChart: title row, the 112px bars, the date axis. */}
           <div className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between gap-4">
-              <h2 className="text-sm font-medium">Listening time</h2>
+              <h2 className="text-base font-bold">Listening time</h2>
               <Skeleton className="h-4 w-20" />
             </div>
             <Skeleton className="h-28 w-full" />
@@ -81,12 +81,12 @@ export default function AudienceLoading() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-2 [&>[data-slot=card]]:border-t [&>[data-slot=card]]:border-white/[0.07] [&>[data-slot=card]]:pt-6">
+      <div className="grid gap-4 md:grid-cols-2">
         {BREAKDOWNS.map((title) => (
           <Card key={title}>
             <CardContent>
               <div className="flex flex-col gap-3 min-w-0">
-                <h2 className="text-sm font-medium">{title}</h2>
+                <h2 className="text-base font-bold">{title}</h2>
                 <div className="flex flex-col gap-2">
                   {[0, 1, 2].map((row) => (
                     <div key={row} className="flex flex-col gap-1">

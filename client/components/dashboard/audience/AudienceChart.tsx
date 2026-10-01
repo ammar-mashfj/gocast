@@ -59,7 +59,7 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
   return (
     <div className="relative flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-sm font-medium">Listening time</h2>
+        <h2 className="text-base font-bold">Listening time</h2>
         {/* The hovered day replaces the range caption rather than floating
             over the bars: at 90 bars a positioned tooltip spends most of its
             life covering the data it describes. */}
@@ -96,10 +96,12 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
             <div
               className={cn(
                 "w-full rounded-t-sm transition-colors",
+                // The mobile Audience chart: past days AutoDJ's dim violet,
+                // the day under the pointer (or today) lit violet.
                 d.listener_minutes > 0
-                  ? hovered === i
-                    ? "bg-white/70"
-                    : "bg-white/45"
+                  ? hovered === i || (hovered === null && i === daily.length - 1)
+                    ? "bg-on-air"
+                    : "bg-on-air-dim"
                   : "bg-muted",
               )}
               style={{

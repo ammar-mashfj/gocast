@@ -253,7 +253,7 @@ components:
 
 GoCast looks like the inside of a small station after dark: a near-black room, one violet desk lamp, and a station that powers on the moment it has a name. The marketing site, help, blog and dashboard share the ground, the violet accent and the three typefaces. The homepage sets out the system through one interaction. The visitor types a name, and a player-page preview beside the field goes from OFF AIR to LIVE: the initials tile lights violet, the name turns white, the level meter moves and the mono link fills in with their slug. Every section after that shows something Free does today. Pro appears once, as an optional extra, and says so with an inline tag.
 
-Inside, the dashboard is the station's control room and the studio is its console. One lamp answers "is it working?" for the whole room: a full-width strip that is emerald while a person is live, sky while the mic is open, and red only when listeners are not hearing what the host thinks they are. The same lamp follows the host onto every other dashboard page as a banner. The console borrows radio's own instruments rather than a generic card grid: a track dial draining around the time left on the track, a dBFS mic meter with peak hold, a push-to-talk pad, a numbered running order with on-air times. A show ends with a sign-off card, not a redirect.
+Inside, the dashboard is the station's control room and the studio is its console. Since 2026-10-01 it wears the **GoCast Design System** (the Claude Design project of that name, shared with the mobile app; see "The dashboard: GoCast Design System" under Colors and Typography, and `docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md`). Where this document describes dashboard colour or type differently, that section wins. One lamp answers "is it working?" for the whole room: a band whose fill is the state: a dim warm band with a red LIVE chip while music goes out, a red-tinted LIVE · MIC band while the host talks, and an amber SILENCE band when listeners are not hearing what the host thinks they are. On every other dashboard page a solid red bar (the mobile app's LiveStrip) says LIVE with the uptime and a way back to the studio, or RECONNECTING in amber; the detail stays in the studio. The console borrows radio's own instruments rather than a generic card grid: a track dial draining around the time left on the track, a dBFS mic meter with peak hold, a push-to-talk pad, a numbered running order with on-air times. A show ends with a sign-off card, not a redirect.
 
 Colour is vocabulary rather than decoration. Emerald means a person is live. Violet is the brand, the primary action, AutoDJ on air and the Free plan. Amber means Pro. Sky means the mic is open. Red means a fault. Grey and unlit fills mean off air. Each hue answers "who is on air?", "is the mic open?", "is something wrong?" or "which plan is this?", so the system turns away any accent that carries no meaning.
 
@@ -300,7 +300,22 @@ A dark, near-neutral ground with one violet voice and four semantic signals: eme
 - **Text ladder**: `text-primary` for headings, lit names and values. `text-secondary` for marketing body copy. `text-muted` (`--muted-foreground`) for supporting copy, captions and field labels. `text-faint` for hints, small panel labels and anything off air.
 - **Scrollbars** are white at 14% on a transparent track, so native chrome belongs to the room.
 
+### The dashboard: GoCast Design System
+Everything above describes marketing. Inside `/dashboard` the palette is the GoCast Design System's, scoped in `client/app/globals.css` under `.dark:has([data-surface="dashboard"])` (shared primitives use the `ds:` variant or the `--btn-h` / `--field-h` / `--control-radius` / `--card-radius` variables). Values match `mobile/src/lib/theme.ts`.
+
+- **Warm near-black ladder:** ground `#0E0D0C`, card `#181614`, raised `#1D1A17`, control `#221F1C`, track `#2A2723`, popover / sheet `#1B1916`. Hierarchy comes from these lightness steps, not borders or shadows; cards are borderless. Hairlines are warm off-white at 6–8%, 14% for field and outline-button edges.
+- **Text:** `#F4F1EC` (never pure white), muted `#A39D94`, faint `#6F6A63`. No cool greys.
+- **Primary action:** off-white `#F4F1EC` with dark ink `#0E0D0C`. Violet is not the primary colour here.
+- **Live red** `#FF5A4E` (`live`, text `#FF8A80`, tint `#3A1714`, ink `#1A0806`): you are live, or your mic is open. There is no separate mic hue. The status band carries the difference: LIVE on music is a dim band `#221A18` with a muted message, LIVE · MIC is the red tint `#3A1714` with a pale-red message `#FFB3AC`, SILENCE is the amber tint with a pale-amber message. Bands have no edge. Red is also the confirm button of an irreversible action (End broadcast, Delete), always inside a confirm dialog beside a subtle "Keep …" cancel, as the design system and the mobile app draw it. Switches are red when on.
+- **AutoDJ violet** `#9B7BFF` (`on-air`, text `#C9B8FF`, tint `#1E1A2B`): the station plays itself. The legacy `violet-*` classes resolve to this violet inside the dashboard.
+- **Amber** `#FFB547` (text `#FFD48A`, tint `#33260F`, ink `#1A1206`): silence and faults (`fault`), and Pro (`pro`, a solid amber tag with dark ink). Pro shows as a tag, a fault as a message, so they don't collide.
+- **Green** `#5FD39A` (`ok`): a check passed, something saved. Never on air.
+- **Off air:** warm grey.
+- Text on a solid red or amber fill is dark ink (`live-ink`, `pro-ink`), never white.
+
 ### Named Rules
+In the dashboard, the design system's rule replaces the two rules below: **red means you are live** (and confirms an irreversible step), violet means AutoDJ, amber means silence, a fault or Pro, green means OK, grey means off air.
+
 **The One Meaning Rule.** Every hue names a state, a fault, a plan or the mic. Emerald is LIVE. Violet is the brand, ON AIR and Free. Sky is an open mic. Red is a fault. Amber is Pro. Grey is OFF AIR. If a new colour carries no meaning, keep the element neutral.
 
 **The Red Means Wrong Rule.** Red is reserved for something wrong: listeners not hearing what the host thinks, dead air, clipping, an error, a clash, or the confirm step of an irreversible action. A healthy broadcast is never red, and neither is the button that opens a destructive flow; End broadcast is neutral and only its confirm is red.
@@ -330,6 +345,15 @@ A dark, near-neutral ground with one violet voice and four semantic signals: eme
 - **Plan tag** (Onest 600, 10px, uppercase, 0.2em, trailing padding trimmed to offset the tracking): homepage Free and Pro tags and pricing status tags.
 - **Mono** (JetBrains Mono 400, 0.75–0.875rem in the dashboard, 15px for the homepage link, tabular numerals): uptime, elapsed and duration, on-air times in the running order, broadcast start times, kbps, the player link, stream keys, meter scale labels.
 - **Console clock** (JetBrains Mono 500, 26px, 20px compact, tabular, full white): time left on the track, inside the track dial, prefixed with a true minus.
+
+### The dashboard: GoCast Design System
+Inside `/dashboard` the faces change (the next/font variables are re-pointed in the dashboard scope; marketing keeps Onest and JetBrains Mono):
+
+- **Bricolage Grotesque for everything**, body included. Titles 700–800 with negative tracking (dialog and sheet titles 800, -0.03em; card titles 700). Buttons 700.
+- **IBM Plex Mono** for clocks, counters and status labels. Status labels are UPPERCASE mono at +0.08em: the lamp chip (LIVE, LIVE · MIC, SILENCE, …), the sidebar's LIVE marker, the mini controller's state, the Pro tag. This replaces the Lamp chip and Pro tag rows above, and extends the Mono Means Machine Rule to counts shown as instruments (listeners in the lamp).
+- **Wordmark:** there is no logo file in the design system. The sidebar sets "Go" off-white + "Cast" violet + ".fm" faint, Bricolage 700.
+- **Sizes, scaled for desktop:** buttons and fields 40px (44 large), controls 12px corners, chips 8px, cards and dialogs ~22px. Press is scale(.98).
+- **Voice:** a calm studio engineer, second person, sentence case; UPPERCASE only for mono status labels. Tell consequences, not states. No emoji.
 
 ### Named Rules
 **The Mono Means Machine Rule.** JetBrains Mono is only for URLs, slugs, times, durations, keys and data values. Never use it for headings, labels, counts, list numbers or decoration.

@@ -19,7 +19,7 @@ import { ROW_GRID } from "./TrackRow"
  * simply stay put when the real page arrives. Only the counts, the rail
  * entries and the track list are genuinely pending.
  *
- * The geometry is LibraryView's, wrapper for wrapper: the `.sheet` ground,
+ * The geometry is LibraryView's, wrapper for wrapper: the card ground,
  * the rail flat on it, and ONE raised panel for the track table with the
  * page's own edge, fill and shadow. The rows use ROW_GRID and the real row
  * height (a 32px action button inside `py-2`), so the list does not grow or
@@ -31,10 +31,10 @@ export default function LibraryLoading() {
     <div>
       {/* The Skeleton primitive pulses unconditionally; stopping it here
           keeps the page still for anyone who asked for reduced motion. */}
-      <div className="sheet flex flex-col gap-5 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+      <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
         <div className="flex flex-col gap-4">
           <header className="flex flex-wrap items-center gap-2.5">
-            <h1 className="font-display flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
               AutoDJ
               <HelpLink
                 article="playlists-and-the-rotation"
@@ -62,17 +62,17 @@ export default function LibraryLoading() {
           {/* PlaylistRail — a column from md up, a chip row on a phone. The
               two section labels and "All tracks" are fixed copy. */}
           <div className="flex min-w-0 max-w-full md:flex-col gap-1 md:w-56 shrink-0 overflow-hidden pb-1 md:pb-0">
-            <span className="hidden md:block px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none">
+            <span className="hidden md:block px-3 pb-1 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint select-none">
               Library
             </span>
-            <div className="flex min-h-9 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground shrink-0 md:shrink min-w-0 max-w-[14rem] md:max-w-none">
+            <div className="flex min-h-11 items-center gap-2.5 rounded-2xl px-3 py-2 text-sm text-muted-foreground shrink-0 md:shrink min-w-0 max-w-[14rem] md:max-w-none">
               <span className="shrink-0 inline-flex">
                 <IconMusic size={15} />
               </span>
               <span className="truncate flex-1">All tracks</span>
               <Skeleton className="h-3 w-5 shrink-0" />
             </div>
-            <span className="hidden md:block px-2.5 pb-1 md:pt-3 text-xs font-medium text-muted-foreground select-none">
+            <span className="hidden md:block px-3 pb-1 md:pt-3 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint select-none">
               Playlists
             </span>
             <Skeleton className="h-9 w-32 md:w-full shrink-0 rounded-md" />
@@ -81,7 +81,7 @@ export default function LibraryLoading() {
           </div>
 
           {/* The one raised panel. */}
-          <div className="flex-1 min-w-0 w-full rounded-2xl border border-white/[0.09] bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)]">
+          <div className="flex-1 min-w-0 w-full rounded-3xl border border-transparent bg-card">
             {/* Playlist title bar */}
             <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2.5 min-w-0 flex-1">

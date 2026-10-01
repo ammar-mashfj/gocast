@@ -59,7 +59,7 @@ export default async function BroadcastsPage() {
     return (
       <div className="flex max-w-2xl flex-col items-start gap-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Broadcasts</h1>
+          <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Broadcasts</h1>
           <p className="mt-1 max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
             Nothing on the log yet. Every time you go live, the show lands here with
             how long you were on and the most people listening at once.
@@ -78,7 +78,7 @@ export default async function BroadcastsPage() {
 
   // Every row is a person on the mic — a session is only written for a human
   // broadcaster (see StreamSession) — so each duration is drawn as an
-  // emerald bar, the same live bar as Broadcast activity on the overview,
+  // live-red bar, the same live bar as Broadcast activity on the overview,
   // scaled to the longest show on the list — but never to more than three
   // hours, so one forgotten all-day tab can't flatten every real show into a
   // sliver. Anything longer simply fills the track.
@@ -89,9 +89,10 @@ export default async function BroadcastsPage() {
   const last = finished[0]
 
   return (
-    <div className="sheet">
+    // Cards on the page, like the rest of the dashboard (no `.sheet`).
+    <div>
       <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Broadcasts</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Broadcasts</h1>
         <p className="mt-1 text-sm text-muted-foreground tabular-nums">
           {total > sessions.length ? (
             <>
@@ -111,20 +112,20 @@ export default async function BroadcastsPage() {
       <Card className="mb-4">
         <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
           <div className="col-span-2 sm:col-span-1">
-            <div className="text-xs text-muted-foreground">Last show</div>
-            <div className="mt-1 font-mono text-sm tabular-nums">{formatDateTime(last.started_at)}</div>
+            <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">Last show</div>
+            <div className="mt-1.5 font-mono text-sm tabular-nums">{formatDateTime(last.started_at)}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">On air</div>
-            <div className="mt-1 font-mono text-sm tabular-nums">{formatDateRange(last.started_at, last.ended_at!)}</div>
+            <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">On air</div>
+            <div className="mt-1.5 font-display text-[26px] font-bold leading-none tabular-nums">{formatDateRange(last.started_at, last.ended_at!)}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Peak listeners</div>
-            <div className="mt-1 text-sm tabular-nums">{last.peak_listeners}</div>
+            <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">Peak listeners</div>
+            <div className="mt-1.5 font-display text-[26px] font-bold leading-none tabular-nums">{last.peak_listeners}</div>
           </div>
           <div className="hidden sm:block">
-            <div className="text-xs text-muted-foreground">Source</div>
-            <div className="mt-1 truncate text-sm" title={last.client ?? undefined}>
+            <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">Source</div>
+            <div className="mt-1.5 truncate text-sm font-semibold" title={last.client ?? undefined}>
               {SOURCE_LABEL[last.source_type] ?? last.source_type}
             </div>
           </div>
@@ -154,7 +155,7 @@ export default async function BroadcastsPage() {
             return (
               <div
                 key={s.id}
-                className={`${ROW} items-center py-2.5 border-t border-white/[0.06] text-sm`}
+                className={`${ROW} items-center py-2.5 border-t border-border text-sm`}
               >
                 <span className="truncate font-mono tabular-nums">{formatDateTime(s.started_at)}</span>
                 <span className="hidden text-muted-foreground md:block" title={s.client ?? undefined}>
@@ -164,9 +165,10 @@ export default async function BroadcastsPage() {
                   <span className="font-mono tabular-nums text-muted-foreground md:w-16 md:shrink-0">
                     {formatDateRange(s.started_at, s.ended_at!)}
                   </span>
-                  <span className="block h-1.5 w-full rounded-full bg-white/[0.06]" aria-hidden="true">
+                  {/* The mobile Recent shows bar: live red on the dark track. */}
+                  <span className="block h-[5px] w-full overflow-hidden rounded-full bg-border-subtle" aria-hidden="true">
                     <span
-                      className="block h-full rounded-full bg-live/60"
+                      className="block h-full bg-live"
                       style={{ width: `${Math.max(share, 2)}%` }}
                     />
                   </span>

@@ -29,7 +29,6 @@ import { env } from "@/lib/env"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { BroadcastStats } from "@/hooks/useBroadcastStats"
-import { EndBroadcastButton } from "./EndBroadcast"
 
 const SHORTCUTS = [
   { action: "Push to talk (hold)", key: "Space", micOnly: true },
@@ -59,7 +58,7 @@ function Sparkline({ history, peak }: { history: number[]; peak: number }) {
           key={i}
           className={cn(
             "flex-1 rounded-[2px]",
-            v === null ? "bg-white/[0.05]" : v > 0 ? "bg-white/70" : "bg-white/15",
+            v === null ? "bg-foreground/5" : v > 0 ? "bg-foreground/70" : "bg-foreground/15",
           )}
           style={{ height: v === null || v === 0 ? "3px" : `${Math.max(12, (v / max) * 100)}%` }}
         />
@@ -114,15 +113,17 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
     : "—"
 
   return (
-    <aside aria-label="This broadcast" className="flex h-full w-full flex-col gap-7 overflow-y-auto border-l border-white/[0.06] bg-[#0b0b12] p-5">
+    // A column of cards on the page, like the console beside it (it used to
+    // be a darker strip of its own).
+    <aside aria-label="This broadcast" className="flex h-full w-full flex-col gap-2.5 overflow-y-auto">
       {/* Listeners */}
-      <section aria-labelledby="rail-listeners" className="flex flex-col gap-3">
-        <h2 id="rail-listeners" className="text-xs font-medium text-muted-foreground">Listening now</h2>
+      <section aria-labelledby="rail-listeners" className="flex flex-col gap-3 rounded-3xl bg-card p-4">
+        <h2 id="rail-listeners" className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">Listening now</h2>
         <div className="flex items-baseline gap-2.5">
-          <span className="font-display text-5xl font-semibold leading-none tracking-tight tabular-nums">
+          <span className="font-display text-5xl font-extrabold leading-none tracking-[-0.03em] tabular-nums">
             {stats.listeners === null ? "—" : stats.listeners.toLocaleString()}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="font-mono text-xs text-muted-foreground">
             peak <span className="text-foreground tabular-nums">{stats.peak.toLocaleString()}</span>
           </span>
         </div>
@@ -139,9 +140,9 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
       </section>
 
       {/* Player link */}
-      <section aria-labelledby="rail-link" className="flex flex-col gap-2.5">
-        <h2 id="rail-link" className="text-xs font-medium text-muted-foreground">Player link</h2>
-        <div className="flex items-center gap-2 rounded-lg border border-white/[0.09] bg-[#08080d]/60 py-1.5 pl-3 pr-1.5">
+      <section aria-labelledby="rail-link" className="flex flex-col gap-2.5 rounded-3xl bg-card p-4">
+        <h2 id="rail-link" className="text-sm font-bold">Your link</h2>
+        <div className="flex items-center gap-2 rounded-xl bg-background py-1.5 pl-3 pr-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
             {playerUrl.replace(/^https?:\/\//, "")}
           </span>
@@ -198,8 +199,8 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
       </section>
 
       {/* This broadcast */}
-      <section aria-labelledby="rail-show" className="flex flex-col gap-1">
-        <h2 id="rail-show" className="mb-1 text-xs font-medium text-muted-foreground">This broadcast</h2>
+      <section aria-labelledby="rail-show" className="flex flex-col gap-1 rounded-3xl bg-card p-4">
+        <h2 id="rail-show" className="mb-1 text-sm font-bold">This broadcast</h2>
         <dl className="flex flex-col">
           {[
             { k: "Started", v: startedLabel },
@@ -207,7 +208,7 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
           ].map((row) => (
             <div
               key={row.k}
-              className="flex items-center justify-between gap-2.5 border-b border-white/[0.06] py-2 text-sm last:border-b-0"
+              className="flex items-center justify-between gap-2.5 border-b border-border py-2 text-sm last:border-b-0"
             >
               <dt className="text-muted-foreground">{row.k}</dt>
               <dd className="font-mono text-xs tabular-nums">{row.v}</dd>
@@ -217,7 +218,7 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
       </section>
 
       {/* Shortcuts: always one key away, but not always on screen. */}
-      <details className="group rounded-lg border border-white/[0.06] px-3 py-2 text-xs">
+      <details className="group rounded-3xl bg-card px-4 py-2.5 text-xs">
         <summary className="flex cursor-pointer list-none items-center justify-between py-1 text-muted-foreground marker:hidden hover:text-foreground">
           Keyboard shortcuts
           <IconPlus size={13} className="shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-open:rotate-45 motion-reduce:transition-none" aria-hidden />
@@ -227,7 +228,7 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
             <div key={sc.action} className="flex items-center justify-between gap-2.5">
               <dt className="text-muted-foreground">{sc.action}</dt>
               <dd>
-                <kbd className="rounded border border-white/15 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                <kbd className="rounded-md bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                   {sc.key}
                 </kbd>
               </dd>
@@ -249,9 +250,6 @@ export function StreamPanel({ slug, stationName, stats, bytesSent }: StreamPanel
         How the studio works
       </a>
 
-      <div className="mt-auto pt-2">
-        <EndBroadcastButton className="w-full" />
-      </div>
     </aside>
   )
 }

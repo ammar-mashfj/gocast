@@ -7,11 +7,9 @@ import {
   IconCheck,
   IconX,
   IconLoader2,
-  IconPlaylist,
   IconMicrophoneOff,
   IconMicrophone,
   IconMusic,
-  IconBroadcast,
   IconLink,
   IconRefresh,
   IconPlayerPlay,
@@ -30,7 +28,7 @@ import type { StationStatus } from "@/interfaces/StationStatus"
 import type { BroadcastStepInfo, StepStatus } from "@/lib/broadcast"
 import { env } from "@/lib/env"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
-import { SIGNAL_TONE } from "@/components/studio/signal"
+import { LAMP_LABEL, SIGNAL_TONE } from "@/components/studio/signal"
 import { MicMeter } from "@/components/studio/MicMeter"
 import { Select } from "@/components/ui/select"
 import { DEFAULT_BITRATE, QUEUE_BYTE_LIMIT } from "@/lib/audioEngine"
@@ -51,9 +49,9 @@ type LampPhase = "starting" | "reconnecting" | "live" | "fault"
 /**
  * The studio lamp's language, brought forward to the moment before the
  * studio exists. Unlit while the connection is being made ("Starting" pulses
- * neutral — never amber, never violet), emerald with the LIVE chip once a
- * person is actually on air, and a red edge with the honest reason when it
- * fails. Same chips, same tints, same near-black chip text as OnAirLamp, so
+ * neutral — never amber, never violet), the red LIVE chip once a person is
+ * actually on air, and an amber band with the honest reason when it fails.
+ * Same chips, same bands, same dark chip ink as OnAirLamp, so
  * the lamp the host sees next in the studio is the one they just watched
  * light up.
  */
@@ -77,7 +75,7 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
         // the width empty beside it.
         // Smaller chip and type below sm so the step line fits beside the
         // chip on a 375px screen instead of dropping its last word.
-        "rounded-[14px] border px-3.5 py-3 text-xs leading-snug transition-colors sm:px-4 sm:text-sm duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+        "rounded-3xl border px-3.5 py-3 text-xs leading-snug transition-colors sm:px-4 sm:text-sm duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
         tone.strip,
       )}
     >
@@ -90,7 +88,8 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
         key={phase}
         aria-hidden
         className={cn(
-          "mr-2.5 inline-flex h-7 items-center gap-1.5 rounded-md px-2 align-middle text-[11px] font-bold uppercase tracking-[0.06em] sm:mr-3 sm:h-8 sm:gap-2 sm:px-3 sm:text-[13px] sm:tracking-[0.08em]",
+          "mr-2.5 inline-flex h-7 items-center gap-1.5 rounded-md px-2 align-middle text-[11px] sm:mr-3 sm:h-8 sm:gap-2 sm:px-3 sm:text-xs",
+          LAMP_LABEL,
           tone.chip,
           fault ? "animate-[pulse_0.7s_ease-in-out_3] motion-reduce:animate-none" : "lamp-settle",
         )}
@@ -105,24 +104,27 @@ function GoLiveLamp({ phase, detail, announce }: { phase: LampPhase; detail: str
   )
 }
 
+/**
+ * The mobile pre-flight's check glyph (components/live/parts.tsx): a green
+ * tick for a check that passed — green is "all good", not live — amber for
+ * one that failed, a quiet dash-circle for one still to come.
+ */
 function StepIcon({ status }: { status: StepStatus }) {
-  const base = "size-5 rounded-full flex items-center justify-center shrink-0"
-  // Done is neutral on purpose: emerald means a person is live, and nobody is
-  // yet. The lamp is what lights up.
-  if (status === "done") return <span className={cn(base, "bg-white/[0.08] text-foreground")}><IconCheck size={13} /></span>
-  if (status === "active") return <span className={cn(base, "text-foreground")}><IconLoader2 size={15} className="animate-spin motion-reduce:animate-none" /></span>
-  if (status === "error") return <span className={cn(base, "bg-fault/15 text-fault-text")}><IconX size={13} /></span>
-  return <span className={cn(base, "border border-white/[0.08]")} />
+  const base = "size-[26px] rounded-full flex items-center justify-center shrink-0"
+  if (status === "done") return <span className={cn(base, "bg-ok text-background")}><IconCheck size={15} stroke={3} /></span>
+  if (status === "active") return <span className={cn(base, "bg-secondary text-foreground")}><IconLoader2 size={15} className="animate-spin motion-reduce:animate-none" /></span>
+  if (status === "error") return <span className={cn(base, "bg-fault text-pro-ink")}><IconX size={15} stroke={3} /></span>
+  return <span className={cn(base, "bg-secondary")} />
 }
 
 function StepList({ steps }: { steps: BroadcastStepInfo[] }) {
   return (
-    <ol className="flex flex-col gap-2.5 text-sm" aria-label="Steps">
+    <ol className="flex flex-col rounded-3xl bg-card px-4 py-1 text-[15px]" aria-label="Steps">
       {steps.map((step) => (
         <li
           key={step.id}
           className={cn(
-            "flex items-center gap-2.5",
+            "flex items-center gap-3.5 border-t border-border py-[11px] first:border-t-0",
             step.status === "done" ? "text-muted-foreground"
               : step.status === "active" ? "text-foreground"
               : step.status === "error" ? "text-fault-text"
@@ -162,22 +164,25 @@ function ChoiceGroup<T>({ labelledBy, options, value, onChange }: {
       {options.map((opt) => {
         const selected = value === opt.value
         return (
+          // The mobile pre-flight's Mode card: the chosen one is off-white
+          // with dark ink, a radio dot in the corner.
           <button
             key={opt.title}
             type="button"
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(opt.value)}
-            className={`flex min-h-[56px] items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors min-[480px]:min-h-[64px] ${
-              selected
-                ? "border-violet/60 bg-primary/10"
-                : "border-white/10 hover:border-white/20"
-            }`}
+            className={cn(
+              "flex flex-col items-start gap-4 rounded-[22px] p-3.5 text-left transition-colors",
+              selected ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80",
+            )}
           >
-            <opt.icon size={18} className={cn("shrink-0", selected ? "text-violet" : "text-muted-foreground")} />
-            <span className="flex min-w-0 flex-col">
-              <span className="font-medium">{opt.title}</span>
-              <span className="text-xs text-muted-foreground">{opt.note}</span>
+            <span aria-hidden className="flex size-[22px] items-center justify-center rounded-full border-2 border-current">
+              {selected && <span className="size-2.5 rounded-full bg-current" />}
+            </span>
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="text-[17px] font-bold">{opt.title}</span>
+              <span className="text-[13px] font-medium opacity-70">{opt.note}</span>
             </span>
           </button>
         )
@@ -221,7 +226,7 @@ function QueueStatus({ summary, resumeFromStart, onResumeFromStartChange }: {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="flex flex-col gap-1 rounded-lg border border-white/[0.09] bg-[#08080d]/60 px-3 py-2.5">
+      <div className="flex flex-col gap-1 rounded-xl bg-background px-3 py-2.5">
         <span className="text-xs text-muted-foreground tabular-nums">
           {trackCount} track{trackCount !== 1 ? "s" : ""} saved in this browser · {formatBytes(bytes)} of {formatBytes(QUEUE_BYTE_LIMIT)}
         </span>
@@ -384,7 +389,7 @@ function PreflightView({
       <CardContent className="flex flex-col gap-6 max-sm:px-0 sm:py-3">
         <ul className="flex flex-col gap-5 text-sm" role="list">
           <li className="flex flex-col gap-2.5">
-            <span id="source-label" className="font-medium text-foreground">What goes out</span>
+            <span id="source-label" className="font-bold text-foreground">What goes out</span>
             <ChoiceGroup
               labelledBy="source-label"
               value={micDisabled}
@@ -403,7 +408,7 @@ function PreflightView({
 
           <li className="flex flex-col gap-2.5">
             <div className="flex min-h-9 items-center justify-between gap-3">
-              <span id="queue-label" className="font-medium text-foreground">Your running order</span>
+              <span id="queue-label" className="font-bold text-foreground">Your running order</span>
               {!!queueSummary?.trackCount && (
                 <ClearQueueDialog trackCount={queueSummary.trackCount} onClear={onClearQueue} />
               )}
@@ -416,18 +421,18 @@ function PreflightView({
           </li>
 
           {autoDjOnAir && (
-            <li className="flex items-start gap-3 rounded-xl border border-on-air/25 bg-on-air/[0.06] px-3.5 py-3">
-              <IconPlaylist size={16} className="mt-0.5 shrink-0 text-on-air" />
-              <p className="text-sm leading-relaxed">
+            <li className="flex items-start gap-3">
+              <span aria-hidden className="mt-[7px] size-2 shrink-0 rounded-full bg-on-air" />
+              <p className="text-[13px] font-medium leading-relaxed text-muted-foreground">
                 AutoDJ is on air right now. Going live takes over from it, and AutoDJ picks back up when you end your show.
               </p>
             </li>
           )}
 
           <li className="flex flex-col gap-1.5">
-            <span className="font-medium text-foreground">Listeners tune in at</span>
+            <span className="font-bold text-foreground">Listeners tune in at</span>
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate rounded-lg border border-white/[0.09] bg-[#08080d]/60 px-3 py-2 font-mono text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate rounded-xl bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
                 {playerUrl.replace(/^https?:\/\//, "")}
               </span>
               <CopyLinkButton url={playerUrl} />
@@ -465,13 +470,12 @@ function AlreadyLiveView({
   const client = liveSource?.client
 
   return (
-    <Card className="border-live/25 bg-live/[0.04]">
-      <CardContent className="flex flex-col items-center text-center py-10">
-        <div className="size-12 rounded-full bg-live/10 flex items-center justify-center mb-4">
-          <IconBroadcast size={18} className="text-live-text" />
-        </div>
-        <h2 className="text-base font-medium mb-2">This station is already live</h2>
-        <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+    // The mobile pre-flight's Notice: an amber band, because this is a
+    // "can't right now", not a live state of yours.
+    <Card className="bg-fault-tint">
+      <CardContent className="flex flex-col items-start py-2">
+        <h2 className="text-base font-bold text-fault-text mb-2">This station is already live</h2>
+        <p className="text-sm text-fault-text/85 mb-5 max-w-md leading-relaxed">
           {fromEncoder
             ? `${client || "An external encoder"} is broadcasting to this station. Only one source can be connected at a time, so disconnect it there before broadcasting from the studio.`
             : "Someone is live from another browser or computer, and a station takes one broadcast at a time. Press End broadcast in the studio there, then come back and go live here."}
@@ -576,7 +580,7 @@ function ReadyView({ station, micStream, bitrate, goingLive, onGoLive, onCancel,
         <p className="font-mono text-xs uppercase tracking-[0.1em] text-muted-foreground">
           Going live on {station.name}
         </p>
-        <h1 className="font-display text-3xl font-semibold tracking-tight">Ready when you are.</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Ready when you are.</h1>
         <p className="text-muted-foreground">Nothing goes out until you press the button.</p>
       </div>
 
@@ -587,21 +591,21 @@ function ReadyView({ station, micStream, bitrate, goingLive, onGoLive, onCancel,
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col gap-1">
-                <h2 className="text-sm font-medium">Mic check</h2>
+                <h2 className="text-base font-bold">Mic check</h2>
                 <p className="text-sm text-muted-foreground">Say something. The bars should move.</p>
               </div>
               <MicPicker micStream={micStream} onChange={onMicChange} />
             </div>
-            <MicMeter stream={micStream} open={false} />
+            <MicMeter stream={micStream} open={false} className="text-muted-foreground" />
           </CardContent>
         </Card>
       )}
 
-      <ul className="flex flex-col text-sm" aria-label="Checks">
+      <ul className="flex flex-col rounded-3xl bg-card px-4 py-1 text-[15px]" aria-label="Checks">
         {results.map((r) => (
-          <li key={r.label} className="flex items-center gap-2.5 border-b border-white/[0.07] py-3">
+          <li key={r.label} className="flex items-center gap-3.5 border-t border-border py-[11px] first:border-t-0">
             <StepIcon status="done" />
-            <span className="flex-1">{r.label}</span>
+            <span className="flex-1 font-semibold">{r.label}</span>
             <span
               className={cn(
                 "font-mono text-xs uppercase tracking-[0.08em]",
@@ -615,10 +619,11 @@ function ReadyView({ station, micStream, bitrate, goingLive, onGoLive, onCancel,
       </ul>
 
       <div className="flex flex-col gap-3">
-        <Button className="h-12 w-full text-base" onClick={onGoLive} disabled={goingLive}>
+        {/* The one red button before the show: it puts you on air. */}
+        <Button variant="live" className="h-16 w-full rounded-[20px] text-lg" onClick={onGoLive} disabled={goingLive}>
           {goingLive
-            ? <IconLoader2 size={17} className="animate-spin motion-reduce:animate-none" data-icon="inline-start" />
-            : <IconBroadcast size={17} data-icon="inline-start" />}
+            ? <IconLoader2 size={18} className="animate-spin motion-reduce:animate-none" data-icon="inline-start" />
+            : <span aria-hidden className="size-2.5 rounded-full bg-current" data-icon="inline-start" />}
           {goingLive ? "Going live…" : "Go live now"}
         </Button>
         <Button variant="ghost" className="self-end text-muted-foreground" onClick={onCancel} disabled={goingLive}>
@@ -756,7 +761,7 @@ export default function GoLivePage() {
   if (station.is_live && state === "idle") {
     return (
       <div className="mx-auto w-full max-w-xl flex flex-col gap-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">{station.name} is already live</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">{station.name} is already live</h1>
         <AlreadyLiveView station={station} liveSource={liveSource} />
       </div>
     )
@@ -797,7 +802,7 @@ export default function GoLivePage() {
   // deciding, "Going live…" while the connection is in flight, and a plain
   // statement once it has either worked or not.
   const heading = inPreflight
-    ? <>Go live on <span className="text-violet">{station.name}</span></>
+    ? <>Ready to go live on {station.name}?</>
     : phase === "live" ? <>{station.name} is live</>
     : phase === "fault" ? <>{station.name} didn&rsquo;t go live</>
     : <>Going live on {station.name}…</>
@@ -825,7 +830,7 @@ export default function GoLivePage() {
 
   return (
     <div className="mx-auto w-full max-w-xl flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-semibold tracking-tight">{heading}</h1>
+      <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">{heading}</h1>
 
       {inPreflight ? (
         <PreflightView
@@ -853,12 +858,12 @@ export default function GoLivePage() {
       )}
 
       {micBlocked && (
-        <section aria-labelledby="mic-blocked-title" className="flex flex-col gap-4 border-t border-white/[0.07] pt-5">
+        <section aria-labelledby="mic-blocked-title" className="flex flex-col gap-4 rounded-3xl bg-fault-tint p-5">
           <div className="flex items-start gap-3">
             <IconMicrophoneOff size={18} className="mt-0.5 shrink-0 text-fault-text" aria-hidden />
             <div className="flex flex-col gap-1">
-              <h2 id="mic-blocked-title" className="text-sm font-medium">Microphone access blocked</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <h2 id="mic-blocked-title" className="text-base font-bold text-fault-text">Microphone access blocked</h2>
+              <p className="text-sm text-fault-text/85 leading-relaxed">
                 Allow the microphone for this site in your browser&rsquo;s settings and try again, or go live with music only.
               </p>
             </div>

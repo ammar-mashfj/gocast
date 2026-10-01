@@ -124,8 +124,8 @@ export function DayList({
               onClick={() => setPicked(weekday)}
               className={cn(
                 "flex h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl transition-colors motion-reduce:transition-none",
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
-                on ? "bg-foreground text-background" : "bg-white/[0.04] text-foreground hover:bg-white/[0.07]",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                on ? "bg-foreground text-background" : "bg-card text-foreground hover:bg-card/80",
               )}
             >
               <span className={cn("font-mono text-[10.5px] font-semibold tracking-[0.08em]", !on && "text-muted-foreground")}>
@@ -144,7 +144,7 @@ export function DayList({
       </div>
 
       {empty ? (
-        <p className="rounded-xl bg-white/[0.03] px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="rounded-2xl bg-card px-4 py-6 text-center text-sm text-muted-foreground">
           {locked
             ? `Nothing on ${DAY_NAMES[day]}.`
             : `Nothing on ${DAY_NAMES[day]} yet. ${defaultPlaylist?.name ?? "Your default playlist"} plays all day.`}
@@ -156,7 +156,7 @@ export function DayList({
               <Link
                 href={showsHref}
                 title="Edit in Station settings"
-                className="flex gap-3.5 rounded-xl bg-white/[0.03] p-3.5 hover:bg-white/[0.05]"
+                className="flex gap-3.5 rounded-2xl bg-card p-3.5 hover:bg-card/80"
               >
                 <span aria-hidden="true" className="w-1 shrink-0 rounded-full bg-live" />
                 <Row time={show.start_time} title={show.label || "Show time"} sub="Show time · on your player page" />
@@ -175,8 +175,8 @@ export function DayList({
                   disabled={readOnly}
                   onClick={() => onSelect(s.block.key)}
                   className={cn(
-                    "flex w-full gap-3.5 rounded-xl bg-white/[0.03] p-3.5 text-left",
-                    !readOnly && "cursor-pointer hover:bg-white/[0.05]",
+                    "flex w-full gap-3.5 rounded-2xl bg-card p-3.5 text-left",
+                    !readOnly && "cursor-pointer hover:bg-card/80",
                     clash && "outline-2 outline-offset-1 outline-fault",
                   )}
                 >
@@ -198,7 +198,7 @@ export function DayList({
           })}
 
           {!locked && daySegments.length === 0 && (
-            <li className="flex gap-3.5 rounded-xl bg-white/[0.03] p-3.5">
+            <li className="flex gap-3.5 rounded-2xl bg-card p-3.5">
               <span aria-hidden="true" className="w-1 shrink-0 rounded-full bg-on-air/50" />
               <Row
                 time="All day"

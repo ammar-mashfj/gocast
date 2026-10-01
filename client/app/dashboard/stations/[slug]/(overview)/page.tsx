@@ -132,7 +132,11 @@ export default async function StationDetailPage({
   ].filter(Boolean) as string[]
 
   return (
-    <div className="sheet flex flex-col gap-8">
+    // Cards on the ground, as the design system and the mobile Overview
+    // stack them: each section is its own borderless card, a lightness step
+    // above the page. (This page used to be a `.sheet` of hairline-divided
+    // sections with no fill; that read as one flat surface.)
+    <div className="flex flex-col gap-4">
       <ShowSignOff slug={station.slug} />
 
       {/* Header — identity and low-risk actions only. Anything that changes
@@ -154,7 +158,7 @@ export default async function StationDetailPage({
           priority
         />
         <div className="flex items-center gap-2 min-w-0 self-center lg:self-auto">
-          <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
+          <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] truncate">{station.name}</h1>
           {station.genre && (
             <Badge variant="secondary" className="shrink-0 text-[11px]" title="genre">{station.genre}</Badge>
           )}
@@ -192,10 +196,10 @@ export default async function StationDetailPage({
         </div>
       </header>
 
-      {/* The control room: one continuous sheet in two groups — what is on
+      {/* The control room, as a stack of cards in two groups — what is on
           air now (with how to get it heard), and how the shows went — divided by hairline
           rules like the homepage, not stacked under kicker labels. */}
-      <section aria-label="On air now" className="flex flex-col gap-6">
+      <section aria-label="On air now" className="mt-4 flex flex-col gap-4">
         {/* One poll, one strip: can anyone hear this station, what are they
             hearing, and how many of them are there. */}
         <StationPower
@@ -220,7 +224,6 @@ export default async function StationDetailPage({
             station.stats?.has_listeners ?? (station.stats?.peak_listeners ?? 0) > 0
           }
         />
-        <div className="border-t border-white/[0.07] pt-6">
         <AutoDjRotation
           slug={station.slug}
           tracks={tracks}
@@ -230,13 +233,12 @@ export default async function StationDetailPage({
           defaultName={defaultName}
           unavailable={tracksUnavailable}
         />
-        </div>
       </section>
 
       <section
         aria-label="Your shows"
-        // Two columns split by a vertical rule instead of two boxes.
-        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
+        // Two cards side by side on wide screens.
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)]"
       >
         <StationActivity
           sessions={sessions}

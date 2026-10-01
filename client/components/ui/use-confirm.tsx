@@ -66,7 +66,9 @@ export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, Re
           {options?.description && <DialogDescription>{options.description}</DialogDescription>}
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" className="h-10" onClick={() => settle(false)}>
+          {/* The design system's confirm: a subtle cancel beside the
+              action. Callers should name what is kept ("Keep them"). */}
+          <Button variant="secondary" className="h-10" onClick={() => settle(false)}>
             {options?.cancelLabel ?? "Cancel"}
           </Button>
           <Button

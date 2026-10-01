@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -199,7 +198,12 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
-                <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="h-4 w-auto" priority />
+                {/* The design system has no logo file: the brand is a type
+                    wordmark, "Go" off-white, "Cast" AutoDJ violet, ".fm"
+                    faint, Bricolage 700. */}
+                <span className="font-display text-lg font-bold leading-none tracking-[-0.03em]">
+                  Go<span className="text-on-air">Cast</span><span className="text-text-faint">.fm</span>
+                </span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -227,7 +231,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                         <item.icon size={18} />
                         <span className="text-sm">{item.title}</span>
                         {studioLive && (
-                          <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-live-text">
+                          <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-live-text">
                             <span className="size-1.5 rounded-full bg-live animate-pulse motion-reduce:animate-none" />
                             Live
                           </span>
@@ -254,9 +258,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
             a question people have while looking at the nav, not while looking
             for a sign-out button. */}
         {locked && (
-          <div className="mx-1 mb-1 rounded-lg border border-primary/20 bg-primary/[0.06] p-3">
+          <div className="mx-1 mb-1 rounded-2xl bg-card p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">{plan?.name ?? "Free"} plan</span>
+              <span className="text-xs font-bold">{plan?.name ?? "Free"} plan</span>
               {/* Opens the request form rather than navigating. This button
                   sits on every dashboard route, and sending someone to the
                   library page first would interrupt whatever they were doing
@@ -266,7 +270,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                 type="button"
                 onClick={proRequest.open}
                 disabled={proRequest.requested}
-                className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-input bg-input/30 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-input/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring disabled:opacity-60 disabled:hover:bg-input/30"
+                className="inline-flex min-h-7 items-center gap-1.5 rounded-lg bg-foreground/8 px-2 py-1 text-[11px] font-bold text-foreground transition-colors hover:bg-foreground/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring disabled:opacity-60 disabled:hover:bg-foreground/8"
               >
                 {proRequest.requested ? (
                   <>

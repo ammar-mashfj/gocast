@@ -15,7 +15,7 @@ export function CreateStationButton() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} className="text-sm cursor-pointer">
+      <Button size="lg" onClick={() => setOpen(true)} className="cursor-pointer px-6 text-[15px]">
         <IconPlus size={16} data-icon="inline-start" />
         Create station
       </Button>

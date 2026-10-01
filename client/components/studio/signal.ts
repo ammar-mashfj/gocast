@@ -8,17 +8,27 @@ import { BITRATE_TIERS } from "@/lib/audioEngine"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
 
 /**
- * The One Meaning Rule palette for every lamp: emerald live, sky mic, red
- * fault, grey for the in-between states the go-live page shows. The studio
- * lamp, the banner on other pages and the go-live lamp each used to carry
- * their own copy of this table.
+ * The GoCast Design System's studio status band, for every lamp. The band's
+ * fill carries the state; there is no edge:
+ *   mic   — LIVE · MIC: red tint, pale-red message. You are talking.
+ *   live  — LIVE on music: a dim warm band, plain muted message. The red
+ *           chip alone says live, so a healthy show stays calm.
+ *   fault — SILENCE and every other "listeners aren't hearing what you
+ *           think": amber tint, pale-amber message.
+ *   idle  — the go-live page's in-between states: a plain card.
+ * Chip text on a red or amber fill is dark ink. The studio lamp, the banner
+ * on other pages and the go-live lamp each used to carry their own copy of
+ * this table.
  */
 export const SIGNAL_TONE = {
-  idle: { strip: "bg-white/[0.03] border-white/[0.08]", chip: "bg-white/[0.07] text-muted-foreground", text: "text-muted-foreground" },
-  live: { strip: "bg-live/[0.08] border-live/25", chip: "bg-live text-[#03140d]", text: "text-live-text" },
-  mic: { strip: "bg-mic/[0.10] border-mic/30", chip: "bg-mic text-[#04121c]", text: "text-mic-text" },
-  fault: { strip: "bg-fault/[0.12] border-fault/40", chip: "bg-fault text-[#1f0404]", text: "text-fault-text" },
+  idle: { strip: "bg-card border-transparent", chip: "bg-foreground/[0.07] text-muted-foreground", text: "text-muted-foreground" },
+  live: { strip: "bg-live-dim border-transparent", chip: "bg-live text-live-ink", text: "text-muted-foreground" },
+  mic: { strip: "bg-live-tint border-transparent", chip: "bg-live text-live-ink", text: "text-live-soft" },
+  fault: { strip: "bg-fault-tint border-transparent", chip: "bg-fault text-pro-ink", text: "text-fault-text" },
 } as const
+
+/** The lamp chip's type: the design system's mono status label. */
+export const LAMP_LABEL = "font-mono font-bold uppercase tracking-[0.08em]"
 
 /** How often the send-path readout samples the transport. */
 const HEALTH_POLL_MS = 2000
@@ -191,19 +201,19 @@ function computeSignal(
     }
   }
   if (!micOpen && !playing) {
+    // Worded as the mobile band words it: what is (not) going out, then the
+    // one thing to do — which depends on whether there is music to play.
+    const queued = (engine?.getQueue().length ?? 0) > 0
+    const play = input === "touch" ? "tap play" : input === "keys" ? "press play (K)" : "open the studio and press play"
+    const talk = input === "touch" ? "hold the talk pad" : input === "keys" ? "hold Space to talk" : "talk"
+    const doThis = micDisabled
+      ? queued ? play : "add music to play"
+      : queued ? `${play} or ${talk}` : `add music or ${talk}`
     return {
       code: "silence",
       tone: "fault",
       label: "Silence",
-      detail: micDisabled
-        ? `Nothing is playing. Listeners are connected and hearing nothing — ${
-            input === "touch" ? "tap play" : input === "keys" ? "press play (K)" : "open the studio and press play"
-          }.`
-        : input === "touch"
-          ? "Nothing is playing and your mic is closed. Tap play, or press and hold the talk button."
-          : input === "keys"
-            ? "Nothing is playing and your mic is closed. Press play (K) or hold Space to talk."
-            : "Nothing is playing and your mic is closed. Open the studio to press play or talk.",
+      detail: `Nothing is going out. ${doThis.charAt(0).toUpperCase()}${doThis.slice(1)}.`,
     }
   }
   if (transport?.droppingNow) {
@@ -232,12 +242,14 @@ function computeSignal(
     return {
       code: "mic",
       tone: "mic",
-      label: "Mic open",
+      label: "Live · Mic",
+      // The mobile band's words. The latch is the "Keep mic open" switch
+      // under the talk pad (L on a keyboard).
       detail: engine?.isMicLatched()
         ? input === "keys"
-          ? "Your voice is going out live and the mic stays on. Press L or Mic off to close it."
-          : `Your voice is going out live and the mic stays on. ${input === "touch" ? "Tap" : "Press"} Mic off to close it.`
-        : "Your voice is going out live. The music dips underneath you.",
+          ? "Mic stays open. Switch off Keep mic open (L) to close."
+          : "Mic stays open. Switch off Keep mic open to close."
+        : "You\u2019re talking. Music dips under you. Let go to close.",
     }
   }
   return liveSignal(touch)

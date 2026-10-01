@@ -123,15 +123,15 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
     <Card>
       <CardContent className="pt-1">
         <div className="flex items-baseline justify-between mb-5">
-          <h2 className="text-base font-medium">Broadcast activity</h2>
+          <h2 className="text-base font-bold">Broadcast activity</h2>
           <span className="text-xs text-muted-foreground">Last 14 days</span>
         </div>
 
         <div className="grid grid-cols-2 gap-5 md:grid-cols-4 mb-6">
           {metrics.map((m) => (
             <div key={m.label} className="flex flex-col gap-1">
-              <div className="text-xs text-muted-foreground">{m.label}</div>
-              <div className="text-2xl font-medium tracking-tight tabular-nums">{m.value}</div>
+              <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">{m.label}</div>
+              <div className="font-display text-[26px] font-bold leading-none tracking-tight tabular-nums">{m.value}</div>
               <div className={cn("text-xs text-muted-foreground", m.hintClass)}>{m.hint}</div>
             </div>
           ))}
@@ -144,7 +144,7 @@ export function StationActivity({ sessions, stats, truncated }: StationActivityP
               title={`${axis(b.date)} — ${b.seconds > 0 ? formatAirtime(b.seconds) : "no live airtime"}`}
               className={cn(
                 "flex-1 rounded-sm",
-                // Flat emerald, not a violet gradient: every bar is LIVE
+                // Flat live red, not a violet gradient: every bar is LIVE
                 // airtime (a person broadcasting), and violet is AutoDJ's.
                 b.seconds > 0 ? "bg-live/60" : "bg-muted",
               )}

@@ -27,17 +27,18 @@ export default async function DashboardPage() {
     <div className="max-w-2xl flex flex-col gap-8 py-4">
       <div className="flex flex-col items-start gap-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">
+          <h1 className="font-display text-[38px] font-extrabold leading-none tracking-[-0.04em]">
             Create your station
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-2.5 text-[15px] text-muted-foreground">
             Pick a name. Artwork, genre and a description are optional and can change any time.
           </p>
         </div>
         <CreateStationButton />
       </div>
 
-      <p className="max-w-[60ch] border-t border-white/[0.06] pt-5 text-sm leading-relaxed text-muted-foreground">
+      {/* What happens next, as its own card on the page. */}
+      <p className="max-w-[60ch] rounded-3xl bg-card p-5 text-sm leading-relaxed text-muted-foreground">
         Next you get a player page link to share, and you can go live from the
         Studio right here in your browser. Nothing to install, and listeners
         don&apos;t need an account to tune in.

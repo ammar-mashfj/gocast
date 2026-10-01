@@ -32,7 +32,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
   const request = useProRequest()
 
   return (
-    <div className="rounded-xl border border-white/[0.09] bg-panel overflow-hidden">
+    <div className="rounded-3xl bg-card overflow-hidden">
       <div>
         {/* Decorative: the real message is the copy below, and a screen reader
             reading out twenty invented numbers would be actively misleading. */}
@@ -40,7 +40,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           {SAMPLE.map((height, i) => (
             <div
               key={i}
-              className="flex-1 rounded-t-sm bg-primary"
+              className="flex-1 rounded-t-sm bg-on-air"
               style={{ height: `${height}%` }}
             />
           ))}
@@ -51,7 +51,8 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <IconLock size={15} className="text-pro-text shrink-0" />
-            <h2 className="text-lg font-medium">See who&apos;s listening to {stationName}</h2>
+            <span className="font-mono text-[11px] font-semibold tracking-[0.1em] text-pro">PRO</span>
+            <h2 className="mt-1.5 text-xl font-extrabold tracking-[-0.02em]">See who&apos;s listening to {stationName}</h2>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
             We&apos;ve been recording your audience since the day this station went up —
@@ -62,7 +63,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           <ul className="mt-4 flex flex-col gap-1.5 list-none p-0">
             {SELLING_POINTS.map((point) => (
               <li key={point} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" />
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground" />
                 {point}
               </li>
             ))}
@@ -72,9 +73,9 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           </p>
         </div>
 
-        <div className="shrink-0 md:w-56 md:border-l md:border-white/[0.06] md:pl-8">
+        <div className="shrink-0 md:w-56 md:border-l md:border-border md:pl-8">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-semibold">${PRO_PRICE_USD}</span>
+            <span className="text-3xl font-extrabold tracking-[-0.03em]">${PRO_PRICE_USD}</span>
             <span className="text-sm text-muted-foreground">/ month</span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -86,10 +87,10 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
             type="button"
             onClick={request.open}
             disabled={request.requested}
-            className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
+            className="mt-4 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-pro px-3 text-sm font-bold text-pro-ink transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
           >
             {request.requested ? <IconCheck size={14} /> : <IconSparkles size={14} />}
-            <span>{request.requested ? "Requested" : "Upgrade to Pro"}</span>
+            <span>{request.requested ? "Requested" : "Request Pro"}</span>
           </button>
         </div>
       </div>

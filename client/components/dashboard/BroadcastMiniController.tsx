@@ -59,17 +59,17 @@ export function BroadcastMiniController() {
       <div
         className={cn(
           "flex h-16 items-center gap-2 rounded-xl border bg-panel pe-1.5 shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)]",
-          micOpen ? "border-mic/50" : "border-white/[0.1]",
+          micOpen ? "border-live/50" : "border-border",
         )}
       >
         <Link
           href={studioHref}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-1.5 no-underline transition-colors hover:bg-white/[0.04]"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-1.5 no-underline transition-colors hover:bg-foreground/[0.04]"
         >
           <span
             className={cn(
               "flex size-9 shrink-0 items-center justify-center rounded-md",
-              micOpen ? "bg-mic text-[#04121c]" : "bg-live/15 text-live-text",
+              micOpen ? "bg-live text-live-ink" : "bg-live/15 text-live-text",
             )}
           >
             {micOpen ? <IconMicrophone size={18} /> : <IconBroadcast size={18} />}
@@ -77,12 +77,12 @@ export function BroadcastMiniController() {
           <span className="min-w-0">
             <span
               className={cn(
-                "block text-[11px] font-bold uppercase leading-none tracking-[0.08em]",
-                micOpen ? "text-mic-text" : "text-live-text",
+                "block font-mono text-[11px] font-semibold uppercase leading-none tracking-[0.08em]",
+                "text-live-text",
               )}
             >
-              {micOpen ? "Mic open" : "Live"}
-              <span className="ml-1.5 font-medium normal-case tracking-normal text-muted-foreground">
+              {micOpen ? "Live · Mic" : "Live"}
+              <span className="ml-1.5 font-sans font-medium normal-case tracking-normal text-muted-foreground">
                 · {stats.listeners === null ? "—" : stats.listeners} listening
               </span>
             </span>

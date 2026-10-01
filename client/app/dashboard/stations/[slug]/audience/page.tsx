@@ -70,12 +70,13 @@ export default async function StationAudiencePage({
   const playerUrl = `${env.appUrl}/station/${station.slug}`
 
   return (
-    <div className="sheet sheet-rules flex flex-col gap-6">
+    // Cards on the page, as the mobile Audience tab stacks them.
+    <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         {/* No back link: the sidebar and breadcrumb already name the station,
             and a third copy rendered the raw station name as "← test". */}
         <div className="min-w-0">
-          <h1 className="font-display flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
             Audience
             <HelpLink
               article="read-your-audience-page"
@@ -91,7 +92,9 @@ export default async function StationAudiencePage({
 
         {!audience.locked && (
           <nav
-            className="flex items-center gap-1 rounded-lg border border-white/[0.09] p-1 shrink-0"
+            // The design system's Segmented: a card track, the chosen range
+            // off-white with dark ink.
+            className="flex items-center gap-[3px] rounded-xl bg-card p-[3px] shrink-0"
             aria-label="Time range"
           >
             {AUDIENCE_WINDOWS.filter((w) => w <= audience.plan_days).map((window) => {
@@ -103,12 +106,10 @@ export default async function StationAudiencePage({
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     // Onest, not mono: a range is a choice, not a machine value.
-                    "rounded-md px-3 py-1 text-xs font-medium tabular-nums transition-colors",
-                    // Neutral, not filled violet: this is a view toggle, and
-                    // the filled primary is reserved for a view's one action.
+                    "rounded-[9px] px-3 py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
                     active
-                      ? "bg-white/[0.08] text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {window}d
@@ -310,7 +311,7 @@ function AudienceReportView({
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-2 [&>[data-slot=card]]:border-t [&>[data-slot=card]]:border-white/[0.07] [&>[data-slot=card]]:pt-6">
+      <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardContent>
             <Breakdown
@@ -395,8 +396,8 @@ function AudienceReportView({
 function Tile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="flex flex-col gap-1 min-w-0">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-medium tracking-tight tabular-nums">{value}</div>
+      <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">{label}</div>
+      <div className="font-display text-[26px] font-bold leading-none tabular-nums">{value}</div>
       {/* Two lines, not truncate: on a phone's two-column grid a one-line
           hint cut "most listening together · 12 all time" to "most listen…". */}
       <div className="text-xs text-muted-foreground leading-snug line-clamp-2" title={hint}>{hint}</div>

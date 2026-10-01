@@ -116,7 +116,7 @@ export function StationChecklist({ station, trackCount, hasListeners }: StationC
             const body = (
               <div className="flex items-start gap-3 text-left">
                 <span
-                  className="size-4 mt-0.5 rounded-full shrink-0 border border-white/[0.18]"
+                  className="size-4 mt-0.5 rounded-full shrink-0 border border-input"
                   aria-hidden="true"
                 />
                 <div className="min-w-0">

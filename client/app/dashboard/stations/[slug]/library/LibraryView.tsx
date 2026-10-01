@@ -592,7 +592,7 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
           panel the files are landing in, and above the bar that is about to
           move because of them. */}
       {progress && (
-        <UploadProgressBar progress={progress} className="border-b border-border bg-primary/5 px-4 py-2.5" />
+        <UploadProgressBar progress={progress} className="border-b border-border bg-foreground/[0.04] px-4 py-2.5" />
       )}
 
       {/* Storage, reduced to the one pixel row it earns. */}
@@ -601,7 +601,9 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
         title={`${formatBytes(meta.storage_used_bytes)} of ${formatBytes(meta.storage_cap_bytes)} used`}
       >
         <div
-          className={cn("h-full transition-all", usagePct >= 90 ? "bg-foreground" : "bg-primary")}
+          // The mobile Library's storage bar: violet (AutoDJ's library),
+          // red once it is nearly full.
+          className={cn("h-full transition-all", usagePct >= 95 ? "bg-live" : "bg-on-air")}
           style={{ width: `${Math.max(usagePct, usagePct > 0 ? 0.4 : 0)}%` }}
         />
       </div>
@@ -668,12 +670,13 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
   )
 
   return (
-    <div className="sheet flex flex-col gap-5">
+    // Cards on the page, as the rest of the dashboard (no `.sheet`).
+    <div className="flex flex-col gap-4">
       {/* Headed "AutoDJ" to match the sidebar item that leads here. The
           schedule used to be a second tab under it; it is its own item now. */}
       <div className="flex flex-col gap-4">
         <header className="flex flex-wrap items-center gap-2.5">
-          <h1 className="font-display flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
             AutoDJ
             {/* Inline in the heading, per DESIGN.md's plan-tag rule. The
                 request itself lives once, in the AutoDjUpsell panel below. */}
@@ -798,10 +801,9 @@ export function LibraryView({ station, initialTracks, initialMeta, initialPlayli
           // the rounded corners (the top toolbar and the bottom footer have
           // no background), so clipping bought nothing.
           className={cn(
-            // The page's one raised panel: the track table is the instrument
-            // the rest of the AutoDJ sheet describes.
-            "flex-1 min-w-0 w-full rounded-2xl border shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] transition-colors",
-            dragOver ? "border-violet/60 bg-primary/5" : "border-white/[0.09] bg-panel",
+            // The track table, a card; an edge only while files are dragged in.
+            "flex-1 min-w-0 w-full rounded-3xl border bg-card transition-colors",
+            dragOver ? "border-foreground/40" : "border-transparent",
           )}
         >
           {currentPlaylist ? (

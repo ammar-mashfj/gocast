@@ -5,7 +5,7 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-2.5!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-[var(--chip-radius,9999px)] border border-transparent px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-2.5!",
   {
     variants: {
       variant: {
@@ -19,8 +19,10 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-violet-muted underline-offset-4 hover:underline",
-        // The plan tag. Amber names the plan (DESIGN.md's plan-tag rule).
-        pro: "border-pro/30 bg-pro/10 px-1.5 font-semibold uppercase tracking-wider text-pro-text",
+        // The plan tag. Amber names the plan (DESIGN.md's plan-tag rule). In
+        // the dashboard: solid amber with dark ink, mono caps, as the design
+        // system draws Pro.
+        pro: "border-pro/30 bg-pro/10 px-1.5 font-semibold uppercase tracking-wider text-pro-text ds:border-transparent ds:bg-pro ds:text-pro-ink ds:font-mono",
       },
     },
     defaultVariants: {

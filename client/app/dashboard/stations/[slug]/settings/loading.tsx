@@ -20,7 +20,7 @@ import { useStationBySlug } from "@/contexts/StationContext"
  * explanatory copy are constants and stay as text, which keeps the page's
  * outline readable while it fills.
  *
- * The wrappers are the page's own — `sheet sheet-rules max-w-3xl` around one
+ * The wrappers are the page's own — the two-column card grid around one
  * Card per section — so every section is already flat and already opened by
  * its hairline. Each editor's body copies the editor's own rows (the tinted
  * show-time card, the link row with its icon box, the label/value facts), not
@@ -35,9 +35,11 @@ export default function SettingsLoading() {
   return (
     // The Skeleton primitive pulses unconditionally; stopping it here keeps
     // the page still for anyone who asked for reduced motion.
-    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
-      <h1 className="font-display text-2xl font-semibold tracking-tight">Station settings</h1>
+    <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+      <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Station settings</h1>
 
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base font-medium">Details</CardTitle>
@@ -110,6 +112,9 @@ export default function SettingsLoading() {
         </CardContent>
       </Card>
 
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-medium">Stream</CardTitle>
@@ -166,9 +171,11 @@ export default function SettingsLoading() {
       {/* DeleteStation: its own bordered strip, not a Card, so it takes no
           rule. Neutral here — the danger colour belongs to the real control,
           not to a placeholder for it. */}
-      <div className="border border-white/[0.07] rounded-xl p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+      <div className="rounded-3xl bg-card p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
         <Skeleton className="h-5 w-80 max-w-full" />
         <Skeleton className="h-8 w-full md:w-32 shrink-0" />
+      </div>
+      </div>
       </div>
     </div>
   )

@@ -260,7 +260,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="flex flex-col gap-1.5">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Schedule</h1>
+          <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Schedule</h1>
           <p className="text-sm text-muted-foreground max-w-[62ch]">
             What plays when you&apos;re not live. Going live always takes over.
           </p>
@@ -339,10 +339,10 @@ export function SchedulePlanner({ station, playlists }: Props) {
       <div>
         <section
           aria-labelledby="schedule-week"
-          className="flex min-w-0 flex-col gap-4 rounded-xl border border-white/[0.07] bg-panel p-5"
+          className="flex min-w-0 flex-col gap-4 rounded-3xl bg-card p-5"
         >
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 id="schedule-week" className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight">
+            <h2 id="schedule-week" className="flex items-center gap-2 font-display text-lg font-bold tracking-[-0.01em]">
               This week
               {locked ? (
                 <Badge variant="pro">Pro</Badge>
@@ -411,7 +411,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
           {/* The grid's legend; the day list spells each row out instead. */}
           <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground md:flex">
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-2.5 rounded-sm border border-white/[0.12] bg-white/[0.025]" />
+              <span className="inline-block size-2.5 rounded-sm border border-input bg-background" />
               {locked ? "Off air unless you're live" : `${defaultPlaylist?.name ?? "Default playlist"} (everything else)`}
             </span>
             {(station.schedules ?? []).length > 0 && (
@@ -457,7 +457,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
       </div>
 
       {!locked && (dirty || saveError) && (
-        <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-white/[0.09] bg-panel/95 px-4 py-3 shadow-lg backdrop-blur md:hidden">
+        <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-2xl bg-popover px-4 py-3 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.6)] md:hidden">
           <span className={cn("font-mono text-[11px] font-semibold uppercase tracking-[0.1em]", statusLine[saveState].tone)}>
             {statusLine[saveState].text}
           </span>

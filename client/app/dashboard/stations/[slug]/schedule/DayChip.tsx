@@ -13,9 +13,10 @@ import { cn } from "@/lib/utils"
  * overlapping. The two editors looked at 32–36px targets on a touch screen,
  * the one place a volunteer is most likely to be fixing a schedule.
  *
- * `tone` is the One Meaning Rule: violet for AutoDJ airtime, emerald for a
- * person live. It is a tint, not a fill — seven solid discs per row drowned
- * out the page's one filled button.
+ * `tone` is the colour rule: violet for AutoDJ airtime, red for a person
+ * live. Filled, as the mobile editor's day picker is (it was a tint while
+ * the page's filled button was violet too; now that button is off-white, the
+ * discs no longer compete with it).
  */
 export function DayChip({
   on,
@@ -40,12 +41,14 @@ export function DayChip({
       className={cn(
         "relative size-9 shrink-0 cursor-pointer rounded-full border text-xs transition-colors motion-reduce:transition-none",
         "after:absolute after:-inset-1 after:rounded-full",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        // Mobile's day picker: a chosen day is filled with the kind's colour
+        // (red for your shows, violet for AutoDJ) with dark ink.
         on
           ? tone === "live"
-            ? "border-live/50 bg-live/15 text-live-text"
-            : "border-on-air/50 bg-on-air/15 text-violet"
-          : "border-white/[0.09] bg-transparent text-muted-foreground hover:text-foreground",
+            ? "border-live bg-live font-bold text-live-ink"
+            : "border-on-air bg-on-air font-bold text-background"
+          : "border-transparent bg-background text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

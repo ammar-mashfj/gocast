@@ -577,7 +577,7 @@ function ConnectionWatcher({
         Starting {stationName} — give it a few seconds, then connect.
       </div>
     ) : (
-      <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex flex-col gap-2 rounded-xl bg-background p-3">
         <div className="text-xs text-muted-foreground leading-relaxed">
           <span className="text-foreground font-medium">{stationName} is off air.</span>{" "}
           Your encoder connects to the station itself, so there is nothing

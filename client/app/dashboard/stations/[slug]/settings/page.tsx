@@ -72,9 +72,15 @@ export default async function StationSettingsPage({
     // It used to be a centred max-w-2xl column, the only page in the shell
     // that moved its left edge away from the sidebar. No back link either:
     // the sidebar and breadcrumb already name the station.
-    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-semibold tracking-tight">Station settings</h1>
+    // Cards on the page, like the rest of the dashboard (no `.sheet`). Two
+    // columns on a wide screen — what listeners see on the left, how the
+    // audio gets in and out on the right — rather than one 768px column
+    // leaving half the page empty beside it.
+    <div className="flex flex-col gap-4">
+      <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Station settings</h1>
 
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base font-medium">Details</CardTitle>
@@ -91,7 +97,7 @@ export default async function StationSettingsPage({
             sizes="64px"
           />
           <div className="flex items-center gap-2 min-w-0 self-center sm:self-auto">
-            <span className="font-medium truncate">{station.name}</span>
+            <span className="font-bold truncate">{station.name}</span>
             {station.genre && (
               <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
             )}
@@ -130,6 +136,9 @@ export default async function StationSettingsPage({
         </CardContent>
       </Card>
 
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-medium">Stream</CardTitle>
@@ -137,9 +146,9 @@ export default async function StationSettingsPage({
         <CardContent className="flex flex-col gap-4">
           {streamFacts.map((fact) => (
             <div key={fact.label} className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-              <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">{fact.label}</div>
+              <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint md:w-32 md:shrink-0">{fact.label}</div>
               <div className="min-w-0">
-                <code className="text-xs break-all">{fact.value}</code>
+                <code className="font-mono text-xs break-all">{fact.value}</code>
                 {fact.hint && (
                   <div className="text-xs text-muted-foreground mt-0.5">{fact.hint}</div>
                 )}
@@ -154,6 +163,8 @@ export default async function StationSettingsPage({
       <EncoderSection station={station} />
 
       <DeleteStation slug={station.slug} name={station.name} />
+      </div>
+      </div>
     </div>
   )
 }

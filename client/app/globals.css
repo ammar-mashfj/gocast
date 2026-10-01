@@ -4,6 +4,12 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+/* `ds:` — the GoCast Design System, dashboard only. Shared primitives in
+   components/ui are also used by marketing and auth, so their design-system
+   styling is written as `ds:*` and only applies under the dashboard's
+   `data-surface`. `:is()` carries the (0,2,0) specificity of its argument, so
+   a `ds:` class beats the `dark:` one it replaces regardless of order. */
+@custom-variant ds (&:is(.dark:has([data-surface="dashboard"]) *));
 
 @theme inline {
   --color-background: var(--background);
@@ -22,19 +28,24 @@
   --font-heading: var(--font-display-face), var(--font-body), ui-sans-serif, sans-serif;
 
   /* Brand color tokens used across the marketing site.
-     Defined as solid colors so Tailwind's /opacity modifiers work. */
-  --color-violet-full: #8b5cf6;
-  --color-violet-muted: #a78bfa;
-  --color-violet: #c4b5fd;
-  --color-violet-subtle: #1f1145;
-  --color-violet-border: #8b5cf6;
-  --color-emerald-live: #10b981;
-  --color-text-primary: #fafafa;
-  --color-text-secondary: #d4d4d8;
-  --color-text-muted: #a1a1aa;
-  --color-text-faint: #7d7d87;
-  --color-border-subtle: #27272a;
-  --color-dark: #08080d;
+     Defined as solid colors so Tailwind's /opacity modifiers work.
+     Every colour token below reads a `--ds-*` variable first and falls back
+     to the marketing value: `@theme inline` bakes the value into each
+     utility, so a token that isn't a variable can't be overridden per
+     surface. The dashboard sets the `--ds-*` variables (see the
+     `[data-surface="dashboard"]` block below); marketing sets none. */
+  --color-violet-full: var(--ds-violet-full, #8b5cf6);
+  --color-violet-muted: var(--ds-violet-muted, #a78bfa);
+  --color-violet: var(--ds-violet, #c4b5fd);
+  --color-violet-subtle: var(--ds-violet-subtle, #1f1145);
+  --color-violet-border: var(--ds-violet-border, #8b5cf6);
+  --color-emerald-live: var(--ds-emerald-live, #10b981);
+  --color-text-primary: var(--ds-text-primary, #fafafa);
+  --color-text-secondary: var(--ds-text-secondary, #d4d4d8);
+  --color-text-muted: var(--ds-text-muted, #a1a1aa);
+  --color-text-faint: var(--ds-text-faint, #7d7d87);
+  --color-border-subtle: var(--ds-border-subtle, #27272a);
+  --color-dark: var(--ds-dark, #08080d);
 
   /* Station-state vocabulary (PRODUCT.md, DESIGN.md "The One Meaning Rule").
      Every hue in the dashboard answers one question and nothing else:
@@ -44,16 +55,37 @@
        fault  — listeners are not hearing what you think (red)
        pro    — a Pro plan capability (amber)
      Red is reserved for faults. A healthy broadcast is never drawn in it. */
-  --color-live: #34d399;
-  --color-live-text: #6ee7b7;
-  --color-on-air: #a78bfa;
-  --color-mic: #38bdf8;
-  --color-mic-text: #7dd3fc;
-  --color-fault: var(--destructive);
-  --color-fault-text: #fca5a5;
-  --color-pro: #f59e0b;
-  --color-pro-text: #fcd34d;
-  --color-panel: #101018;
+  --color-live: var(--ds-live, #34d399);
+  --color-live-text: var(--ds-live-text, #6ee7b7);
+  --color-on-air: var(--ds-on-air, #a78bfa);
+  --color-mic: var(--ds-mic, #38bdf8);
+  --color-mic-text: var(--ds-mic-text, #7dd3fc);
+  --color-fault: var(--ds-fault, var(--destructive));
+  --color-fault-text: var(--ds-fault-text, #fca5a5);
+  --color-pro: var(--ds-pro, #f59e0b);
+  --color-pro-text: var(--ds-pro-text, #fcd34d);
+  --color-panel: var(--ds-panel, #101018);
+  /* Added with the GoCast Design System (dashboard only in practice; the
+     fallbacks keep them usable anywhere):
+       live-ink / pro-ink — text ON a solid live or amber fill (never white)
+       *-tint             — the low-lightness wash behind a state's panel
+       on-air-text        — violet readable as text
+       ok                 — a check passed, something saved. Not on air. */
+  --color-live-ink: var(--ds-live-ink, #052e1c);
+  --color-live-tint: var(--ds-live-tint, #0b2a1f);
+  --color-live-soft: var(--ds-live-soft, #a7f3d0);
+  --color-live-dim: var(--ds-live-dim, #0f1a16);
+  --color-on-air-text: var(--ds-on-air-text, #c4b5fd);
+  --color-on-air-tint: var(--ds-on-air-tint, #1f1145);
+  /* AutoDJ's two dark violets (mobile theme autodjDim / autodjArtA): the
+     audience chart's past days and the schedule's quieter playlist shades. */
+  --color-on-air-dim: var(--ds-on-air-dim, #3b0764);
+  --color-on-air-deep: var(--ds-on-air-deep, #2e1065);
+  --color-pro-ink: var(--ds-pro-ink, #1a1206);
+  --color-pro-tint: var(--ds-pro-tint, #33260f);
+  --color-fault-tint: var(--ds-fault-tint, #3a1418);
+  --color-ok: var(--ds-ok, #34d399);
+  --color-ok-text: var(--ds-ok-text, #6ee7b7);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -194,6 +226,129 @@
   --sidebar-ring: #c4b5fd;
 }
 
+/* ── GoCast Design System: the dashboard ──────────────────────────────────
+   The Claude Design project "GoCast Design System" (same palette as the
+   mobile app, mobile/src/lib/theme.ts), applied to /dashboard only; rollout
+   tracked in docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md. The dashboard layout
+   marks its wrapper `data-surface="dashboard"`; `:has()` lifts the scope to
+   <html>, so dialogs, popovers and toasts portalled to <body> wear it too.
+   Marketing never matches and keeps the block above.
+
+   One meaning per colour:
+     red    #FF5A4E — you are live / the mic is open. Also the confirm button
+                      of a destructive action, always inside a dialog.
+     violet #9B7BFF — AutoDJ: the station plays itself
+     amber  #FFB547 — silence, faults (listeners aren't hearing what you
+                      think), and Pro
+     green  #5FD39A — a check passed, something saved
+     warm greys     — everything else, including off air
+   Text on a red or amber fill is dark ink, never white. */
+.dark:has([data-surface="dashboard"]) {
+  /* Warm near-black ladder: hierarchy comes from lightness steps, not
+     borders or shadows. */
+  --background: #0E0D0C;
+  --foreground: #F4F1EC;
+  --card: #181614;
+  --card-foreground: #F4F1EC;
+  --popover: #1B1916;
+  --popover-foreground: #F4F1EC;
+  /* The primary action is off-white with dark ink, not a hue: colour is
+     kept for meaning. */
+  --primary: #F4F1EC;
+  --primary-foreground: #0E0D0C;
+  --secondary: #221F1C;
+  --secondary-foreground: #F4F1EC;
+  --muted: #1D1A17;
+  --muted-foreground: #A39D94;
+  --accent: #221F1C;
+  --accent-foreground: #F4F1EC;
+  --destructive: #FF5A4E;
+  --border: rgb(244 241 236 / 8%);
+  --input: rgb(244 241 236 / 14%);
+  --ring: #A39D94;
+  --sidebar: #0E0D0C;
+  --sidebar-foreground: #F4F1EC;
+  --sidebar-primary: #F4F1EC;
+  --sidebar-primary-foreground: #0E0D0C;
+  --sidebar-accent: #1D1A17;
+  --sidebar-accent-foreground: #F4F1EC;
+  --sidebar-border: rgb(244 241 236 / 6%);
+  --sidebar-ring: #A39D94;
+
+  /* Desktop-scaled radii: the design system's 14px controls and 22px cards,
+     a step down. 12px base → lg 12 (controls), xl ~17, 2xl ~22 (cards). */
+  --radius: 0.75rem;
+  /* Control sizes the shared primitives read (components/ui): buttons and
+     fields 40px (44 for lg), controls 12px corners, chips 8px, cards ~22px
+     and borderless. Variables rather than `ds:` classes so a call site's own
+     `h-11` / `rounded-full` / `ring-1` still wins through tailwind-merge. */
+  --btn-h: 2.5rem;
+  --btn-h-lg: 2.75rem;
+  --field-h: 2.5rem;
+  --control-radius: var(--radius);
+  --chip-radius: 0.5rem;
+  --card-radius: calc(var(--radius) * 1.8);
+  --card-ring: 0px;
+
+  /* Type: Bricolage Grotesque for everything, IBM Plex Mono for clocks,
+     counters and status labels. Overrides the next/font variables that
+     `font-sans` / `font-mono` resolve through (layout.tsx). */
+  --font-body: var(--font-display-face);
+  --font-mono-face: var(--font-plex-mono);
+
+  /* State colours */
+  --ds-live: #FF5A4E;
+  --ds-live-text: #FF8A80;
+  --ds-live-ink: #1A0806;
+  --ds-live-tint: #3A1714;
+  /* The studio band while live on music alone: barely warmer than a card,
+     so the red chip carries the state and the band stays calm. */
+  --ds-live-dim: #221A18;
+  --ds-live-soft: #FFB3AC;
+  --ds-mic: #FF5A4E;
+  --ds-mic-text: #FF8A80;
+  --ds-on-air: #9B7BFF;
+  --ds-on-air-text: #C9B8FF;
+  --ds-on-air-tint: #1E1A2B;
+  --ds-on-air-dim: #3A3350;
+  --ds-on-air-deep: #2B2540;
+  --ds-fault: #FFB547;
+  --ds-fault-text: #FFD48A;
+  --ds-fault-tint: #33260F;
+  --ds-pro: #FFB547;
+  --ds-pro-text: #FFD48A;
+  --ds-pro-ink: #1A1206;
+  --ds-pro-tint: #33260F;
+  --ds-ok: #5FD39A;
+  --ds-ok-text: #5FD39A;
+  --ds-panel: #181614;
+
+  /* The marketing brand tokens, as the dashboard still uses them. Violet is
+     AutoDJ's colour here, so these land on the design system's violet; the
+     text greys land on its warm greys. */
+  --ds-violet-full: #9B7BFF;
+  --ds-violet-muted: #C9B8FF;
+  --ds-violet: #C9B8FF;
+  --ds-violet-subtle: #1E1A2B;
+  --ds-violet-border: #9B7BFF;
+  --ds-emerald-live: #FF5A4E;
+  --ds-text-primary: #F4F1EC;
+  --ds-text-secondary: #D6D1C9;
+  --ds-text-muted: #A39D94;
+  --ds-text-faint: #6F6A63;
+  --ds-border-subtle: #2A2723;
+  --ds-dark: #0E0D0C;
+
+  /* Empty artwork: the design system's striped placeholder
+     (components/StationArtwork.tsx reads it). */
+  --artwork-placeholder: repeating-linear-gradient(135deg, #2A2723 0 7px, #221F1C 7px 14px);
+
+  --ds-selection: rgb(244 241 236 / 0.18);
+  --ds-caret: #F4F1EC;
+  --ds-focus: #A39D94;
+  --ds-scrollbar: rgb(244 241 236 / 0.14);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -211,21 +366,51 @@
 }
 
 html, body, #root {
-  background: #08080d;
+  background: var(--background);
   min-height: 100vh;
 }
 
 /* The parts of the page no component draws still belong to the system. */
 .dark ::selection {
-  background: rgb(139 92 246 / 0.35);
-  color: #fafafa;
+  background: var(--ds-selection, rgb(139 92 246 / 0.35));
+  color: var(--foreground);
 }
 .dark {
-  caret-color: #c4b5fd;
-  scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+  caret-color: var(--ds-caret, #c4b5fd);
+  scrollbar-color: var(--ds-scrollbar, rgb(255 255 255 / 0.14)) transparent;
 }
 .dark :focus-visible {
-  outline-color: #c4b5fd;
+  outline-color: var(--ds-focus, #c4b5fd);
+}
+
+/* ── A solid live surface ─────────────────────────────────────────────────
+   The design system's live hero (mobile's Overview while someone is on air):
+   a card filled with live red, everything on it in dark ink. Rather than a
+   second set of classes for every child, the card re-points the tokens its
+   children already use — foreground, muted, borders, the primary button
+   (ink with red text, mobile's `liveInk` button) and the state colours —
+   so a stat, a link or a button placed on it comes out right on its own. */
+.surface-live {
+  background-color: #FF5A4E;
+  color: #1A0806;
+  --foreground: #1A0806;
+  --card-foreground: #1A0806;
+  --muted-foreground: rgb(26 8 6 / 0.72);
+  --primary: #1A0806;
+  --primary-foreground: #FF5A4E;
+  --secondary: rgb(26 8 6 / 0.12);
+  --secondary-foreground: #1A0806;
+  --muted: rgb(26 8 6 / 0.14);
+  --accent: rgb(26 8 6 / 0.1);
+  --accent-foreground: #1A0806;
+  --border: rgb(26 8 6 / 0.16);
+  --input: rgb(26 8 6 / 0.28);
+  --ring: #1A0806;
+  --ds-live: #1A0806;
+  --ds-live-text: #1A0806;
+  --ds-on-air: #1A0806;
+  --ds-on-air-text: #1A0806;
+  --ds-text-faint: rgb(26 8 6 / 0.55);
 }
 
 /* ── Motion grammar ───────────────────────────────────────────────────────
@@ -302,7 +487,7 @@ html, body, #root {
    a hairline rule, so un-boxed sections still read as separate. Direct
    children only: a card nested inside a section never draws one. */
 .sheet-rules > [data-slot="card"]:not(:first-child) {
-  border-top: 1px solid rgb(255 255 255 / 0.07);
+  border-top: 1px solid var(--border);
   padding-top: 1.5rem;
 }
 

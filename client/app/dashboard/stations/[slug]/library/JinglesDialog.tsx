@@ -338,7 +338,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
               if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
             }}
             className={`flex flex-col items-center gap-2 rounded-lg border border-dashed py-5 text-center transition-colors ${
-              dragOver ? "border-violet/60 bg-violet-full/[0.06]" : "border-white/[0.12]"
+              dragOver ? "border-foreground/40 bg-foreground/[0.04]" : "border-input"
             }`}
           >
             {/* While files are moving the meter replaces the icon and the

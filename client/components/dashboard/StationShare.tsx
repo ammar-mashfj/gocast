@@ -110,23 +110,23 @@ export function StationShare({ url, appUrl, stationName, slug }: StationSharePro
     <>
       <div
         aria-label="Share your station"
-        className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-white/[0.09] bg-panel px-5 py-3.5"
+        // The mobile Overview's "Your link" card: a title, the link in an
+        // inset well, the ways to hand it out, and one plain line under them.
+        className="flex flex-col gap-3 rounded-3xl bg-card p-5"
       >
-        <div className="min-w-0 flex-1 basis-[16rem]">
-          <div className="text-xs text-muted-foreground">
-            Share your station · anyone with this link can tune in, no app or signup
-          </div>
-          <code className="mt-0.5 block truncate text-sm text-foreground">{url}</code>
-        </div>
+        <h2 className="text-base font-bold">Your link</h2>
+        <div className="flex flex-wrap items-center gap-2">
+        <code className="flex h-10 min-w-0 flex-1 basis-[16rem] items-center truncate rounded-xl bg-background px-3.5 font-mono text-sm text-foreground">
+          {url}
+        </code>
         <div className="flex flex-wrap items-center gap-2">
           <CopyButton text={copyUrl} title={stationName} variant="outline" />
-          <Button variant="outline" size="sm" onClick={() => setShowQr(true)}>
+          <Button variant="outline" onClick={() => setShowQr(true)}>
             <IconQrcode data-icon="inline-start" />
             Tune-in code
           </Button>
           <Button
             variant="outline"
-            size="sm"
             onClick={() => (embedLocked ? proRequest.open() : setShowEmbed(true))}
           >
             <IconCode data-icon="inline-start" />
@@ -136,6 +136,8 @@ export function StationShare({ url, appUrl, stationName, slug }: StationSharePro
             )}
           </Button>
         </div>
+        </div>
+        <p className="text-[13px] text-text-faint">Listeners open it in any browser. No app, no account.</p>
       </div>
 
       <EmbedDialog

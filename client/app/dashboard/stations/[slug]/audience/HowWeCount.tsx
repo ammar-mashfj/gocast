@@ -7,7 +7,7 @@ import { IconChevronRight } from "@tabler/icons-react"
  */
 export function HowWeCount() {
   return (
-    <details className="group border-t border-white/[0.07] pt-4 text-xs text-muted-foreground">
+    <details className="group rounded-3xl bg-card px-4 py-3 text-xs text-muted-foreground">
       <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet [&::-webkit-details-marker]:hidden">
         <IconChevronRight
           size={14}

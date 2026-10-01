@@ -26,15 +26,17 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const HOUR_LABELS = Array.from({ length: 13 }, (_, i) => i * 2)
 
 /**
- * Every slot is AutoDJ airtime, so every swatch is a step on the on-air
- * violet ramp (DESIGN.md, the One Meaning Rule) rather than a rainbow, with
- * the ink that reads on it. Indexed by playlist order.
+ * Every slot is AutoDJ airtime, so every swatch is a step on AutoDJ's violet
+ * (the design system's colour rule) rather than a rainbow, with the ink that
+ * reads on it. The steps are the design system's own violets
+ * (mobile/src/lib/theme.ts: autodjArtA, autodj, autodjText, autodjDim).
+ * Indexed by playlist order.
  */
 export const SWATCHES = [
-  { fill: "bg-violet-950 ring-1 ring-inset ring-violet-400/40", ink: "text-violet-100", dot: "bg-violet-950 ring-1 ring-violet-400/60" },
-  { fill: "bg-violet-full/75", ink: "text-white", dot: "bg-violet-full" },
-  { fill: "bg-indigo-300/85", ink: "text-indigo-950", dot: "bg-indigo-300" },
-  { fill: "bg-violet-200/90", ink: "text-violet-950", dot: "bg-violet-200" },
+  { fill: "bg-on-air-deep ring-1 ring-inset ring-on-air/40", ink: "text-on-air-text", dot: "bg-on-air-deep ring-1 ring-on-air/60" },
+  { fill: "bg-on-air", ink: "text-background", dot: "bg-on-air" },
+  { fill: "bg-on-air-text", ink: "text-on-air-tint", dot: "bg-on-air-text" },
+  { fill: "bg-on-air-dim", ink: "text-on-air-text", dot: "bg-on-air-dim" },
 ]
 
 export type Swatch = (typeof SWATCHES)[number]
@@ -260,13 +262,13 @@ export function WeekGrid({
                   setGhost(null)
                 }}
                 className={cn(
-                  "relative h-12 touch-pan-x touch-pan-y rounded-md bg-white/[0.025] select-none",
-                  isToday && "bg-white/[0.045]",
+                  "relative h-12 touch-pan-x touch-pan-y rounded-md bg-background select-none",
+                  isToday && "bg-foreground/[0.045]",
                   !readOnly && "cursor-crosshair",
                 )}
                 // Hour lines; the six-hourly ones are drawn stronger below.
                 style={{
-                  backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px)",
+                  backgroundImage: "linear-gradient(to right, rgb(244 241 236 / 0.05) 1px, transparent 1px)",
                   backgroundSize: "calc(100% / 24) 100%",
                 }}
               >
@@ -274,7 +276,7 @@ export function WeekGrid({
                   <span
                     key={h}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 w-px bg-white/[0.09]"
+                    className="pointer-events-none absolute inset-y-0 w-px bg-foreground/[0.1]"
                     style={{ left: pct(h * 60) }}
                   />
                 ))}
@@ -294,8 +296,8 @@ export function WeekGrid({
                           "absolute inset-y-1 overflow-hidden rounded-md",
                           swatch.fill,
                           swatch.ink,
-                          selected && "z-10 outline-2 outline-offset-1 outline-white",
-                          sibling && "outline-1 outline-offset-1 outline-white/45",
+                          selected && "z-10 outline-2 outline-offset-1 outline-foreground",
+                          sibling && "outline-1 outline-offset-1 outline-foreground/45",
                           clash && "outline-2 outline-offset-1 outline-fault",
                         )}
                         style={{ left: pct(s.from), width: pct(s.to - s.from) }}
@@ -308,7 +310,7 @@ export function WeekGrid({
                           className={cn(
                             "flex h-full w-full min-w-0 flex-col justify-center px-2.5 text-left leading-tight",
                             !readOnly && "cursor-pointer",
-                            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white",
+                            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground",
                           )}
                         >
                           <span className="truncate text-[12px] font-semibold">{nameFor(s.block)}</span>

@@ -140,7 +140,7 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
       {rows.length > 0 && (
         // Rows split by hairlines, not emerald boxes: the chips and the
         // "Live on" label carry the meaning.
-        <ul className="m-0 flex list-none flex-col divide-y divide-white/[0.06] border-y border-white/[0.06] p-0">
+        <ul className="m-0 flex list-none flex-col divide-y divide-border border-y border-border p-0">
           {rows.map((row) => (
             <li key={row.key} className="flex flex-col gap-3 py-4">
               <div className="flex items-center gap-2">

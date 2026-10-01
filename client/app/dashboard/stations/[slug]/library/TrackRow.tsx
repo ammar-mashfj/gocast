@@ -381,7 +381,7 @@ export function TrackRow({
           <div className="flex flex-wrap gap-1 mt-1">
             {chips.length === 0 ? (
               <span
-                className="rounded-full border border-dashed border-white/25 px-1.5 py-px text-[11px] text-foreground"
+                className="rounded-full border border-dashed border-input px-1.5 py-px text-[11px] text-foreground"
                 title="A track in no playlist never plays."
               >
                 not in any playlist

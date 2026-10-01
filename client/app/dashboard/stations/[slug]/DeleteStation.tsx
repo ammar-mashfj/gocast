@@ -43,9 +43,9 @@ export function DeleteStation({ slug, name }: DeleteStationProps) {
   }
 
   return (
-    <div className="border border-fault/20 rounded-xl p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+    <div className="rounded-3xl bg-card p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
       <div className="text-sm text-muted-foreground">
-        <span className="text-fault-text font-medium">Danger zone</span> — permanently delete this station and all its data
+        <span className="font-bold text-foreground">Delete this station</span> — permanently, with all its data
       </div>
       {/* Neutral on purpose: this only opens the confirm. The one red button
           is the confirm itself, after the consequence has been read. */}
@@ -72,7 +72,7 @@ export function DeleteStation({ slug, name }: DeleteStationProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" disabled={deleting} onClick={() => setOpen(false)}>
+            <Button variant="secondary" disabled={deleting} onClick={() => setOpen(false)}>
               Keep station
             </Button>
             <Button variant="destructive" disabled={deleting} onClick={handleDelete}>

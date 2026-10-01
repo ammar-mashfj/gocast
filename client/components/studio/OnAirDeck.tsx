@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useMemo, type RefObject } from "react"
+import { useEffect, useRef, useMemo } from "react"
 import {
   IconPlayerPlayFilled,
   IconPlayerPauseFilled,
@@ -9,31 +9,19 @@ import {
 } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatTrackTime as formatTime } from "@/lib/format"
 import { PushToTalk } from "./PushToTalk"
-import { MonitorBar } from "./MonitorBar"
-import { TrackDial } from "./TrackDial"
+import { StudioControls } from "./StudioControls"
 
-/** Under this many seconds the clock steps up: time to be ready at the mic. */
-const ENDING_SOON_S = 20
+/** Under this many seconds the time left turns amber: time to talk it up. */
+const ENDING_SOON_S = 15
 
 /**
  * Talk-up cues: the moments a host needs to be at the mic before the song
  * ends ("hitting the post"). Each fires once as the countdown crosses it.
  */
 const CUES_S = [20, 10]
-
-/** "1h 10m" / "4m" — how much audio is left, not a clock time. */
-function formatRemaining(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds))
-  const h = Math.floor(total / 3600)
-  const m = Math.round((total % 3600) / 60)
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  if (m > 0) return `${m}m`
-  return "under a minute"
-}
 
 type Engine = NonNullable<ReturnType<typeof useBroadcast>["engine"]>
 
@@ -70,61 +58,41 @@ function useEngineFrame(engine: Engine | null, onFrame: (engine: Engine) => void
 }
 
 /**
- * Read-only position display for the track on air.
+ * The studio console, laid out as the mobile studio is
+ * (mobile/src/components/studio/Console.tsx): the Now playing card, the talk
+ * pad, and the row of mic and monitor controls — three cards, not one panel.
  *
- * Deliberately not scrubbable. The element behind this bar feeds the live
- * mixer, so moving its playhead is an audible gap and a click for every
- * listener — and an on-air deck has no cue channel to do that on.
- *
- * Pure markup: the deck owns these nodes and writes them straight from
- * {@link useEngineFrame}, because this ticks sixty times a second and nothing
- * on the page needs to re-render for it.
+ * State (live / mic open / faults) is not drawn here — the band above owns
+ * it, so the console never contradicts it.
  */
-function ProgressRow({
-  ducked,
-  barRef,
-  elapsedRef,
-  durationLabel,
-}: {
-  ducked: boolean
-  barRef: RefObject<HTMLDivElement | null>
-  elapsedRef: RefObject<HTMLSpanElement | null>
-  durationLabel: string
-}) {
+export function OnAirDeck() {
+  const { micDisabled } = useBroadcast()
   return (
-    <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums">
-      <span ref={elapsedRef} className="w-10 shrink-0">0:00</span>
-      <div className="h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-white/[0.07]">
-        <div
-          ref={barRef}
-          className={cn(
-            "h-full rounded-full bg-white/80 transition-opacity duration-200",
-            ducked && "opacity-35",
-          )}
-          style={{ width: "0%" }}
-        />
-      </div>
-      <span className="w-10 shrink-0 text-right">{durationLabel}</span>
+    // shrink-0: in the phone layout this sits in a scrolling column beside
+    // the running order, and flex let it squash until the talk pad was cut.
+    <div className="@container/deck flex shrink-0 flex-col gap-2.5">
+      <NowPlaying />
+      {micDisabled ? <MusicOnlyPad /> : <PushToTalk />}
+      <StudioControls />
     </div>
   )
 }
 
 /**
- * The on-air console: time left, what is playing, transport, the mic strip
- * and the speaker monitor, as one panel.
+ * What is playing, how long it has left, what comes next, and the transport:
+ * the mobile studio's NowPlaying card.
  *
- * State (live / mic open / faults) is not drawn here any more — the lamp
- * above owns it, so the deck never contradicts it. The deck used to say
- * "On air — listeners are hearing this" in red, beneath a green banner, and
- * kept saying it through dead air.
+ * The bar is read-only. The element behind it feeds the live mixer, so
+ * moving its playhead is an audible gap and a click for every listener — and
+ * an on-air deck has no cue channel to do that on.
  */
-export function OnAirDeck({ compact = false }: { compact?: boolean }) {
+function NowPlaying() {
   const { engine, micDisabled } = useBroadcast()
   const version = useEngineVersion(engine)
 
   const track = engine?.getCurrentTrack() ?? null
   const playing = engine?.isPlaying() ?? false
-  const micActive = engine?.isMicActive() ?? false
+  const micActive = !micDisabled && (engine?.isMicActive() ?? false)
   // The engine mutates its queue array in place, so `version` is the real
   // dependency — memoising on it keeps the identity stable between changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,36 +102,27 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
 
   // Written by the rAF loop below, not rendered by React.
   const barRef = useRef<HTMLDivElement>(null)
-  const elapsedRef = useRef<HTMLSpanElement>(null)
   const clockRef = useRef<HTMLSpanElement>(null)
   const clockWrapRef = useRef<HTMLDivElement>(null)
-  const loopInRef = useRef<HTMLSpanElement>(null)
   const cueRef = useRef<HTMLParagraphElement>(null)
   const prevLeft = useRef<number | null>(null)
 
-  // Repeat has no 'off' mode, so the queue never runs out — there is no dead
-  // air to count down to, only a loop point. With 'one' the current track is
-  // also the next one, and under 'all' a single-track queue wraps onto itself;
-  // in both cases naming a "next" track would just repeat the title on air.
-  const nextTrack = repeatMode === "all" && queue.length > 1 && currentIndex >= 0
-    ? queue[(currentIndex + 1) % queue.length]
-    : null
+  // What plays after this track, in the running order's own words (mobile's
+  // upNextOf). Repeat has no 'off' mode, so the queue never runs out.
+  let nextText: string
+  if (queue.length === 0) nextText = "Add music"
+  else if (repeatMode === "one") nextText = "Holding this track"
+  else if (queue.length === 1) nextText = "Looping this track"
+  else {
+    const next = queue[(Math.max(0, currentIndex) + 1) % queue.length]
+    const label = [next.title, next.artist].filter(Boolean).join(" — ")
+    nextText = currentIndex + 1 >= queue.length ? `${label} (from the top)` : label
+  }
+  const upcoming = Math.max(0, queue.length - Math.max(0, currentIndex) - 1)
 
-  // Everything queued after the current track. `version` is the real
-  // dependency, as with `queue` above.
-  const restSeconds = useMemo(
-    () =>
-      currentIndex < 0
-        ? 0
-        : queue.slice(currentIndex + 1).reduce((sum, t) => sum + t.duration, 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [queue, currentIndex, version],
-  )
-
-  // The playhead is read per frame, never memoised. Every dependency such a
+  // The playhead is read per frame, never memoised: every dependency such a
   // memo could take keeps a stable identity for the life of the deck, so it
-  // would compute once at mount and then freeze: that is how the loop line
-  // sat at "9m" for an hour while the track actually had 41m left.
+  // would compute once at mount and then freeze.
   useEngineFrame(engine, (eng) => {
     const current = eng.getCurrentTrack()
     const elapsed = eng.getElapsed()
@@ -174,12 +133,11 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
       const pct = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0
       barRef.current.style.width = `${pct}%`
     }
-    if (elapsedRef.current) elapsedRef.current.textContent = formatTime(elapsed)
     if (clockRef.current) {
-      clockRef.current.textContent = duration > 0 ? `−${formatTime(left)}` : "−:––"
+      clockRef.current.textContent = duration > 0 ? formatTime(left) : "–:––"
     }
     if (clockWrapRef.current) {
-      const soon = duration > 0 && left <= ENDING_SOON_S
+      const soon = duration > 0 && eng.isPlaying() && left < ENDING_SOON_S
       if (clockWrapRef.current.dataset.soon !== String(soon)) {
         clockWrapRef.current.dataset.soon = String(soon)
       }
@@ -196,180 +154,124 @@ export function OnAirDeck({ compact = false }: { compact?: boolean }) {
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         if (!reduce) {
           clockWrapRef.current?.animate(
-            [
-              { transform: "scale(1)", filter: "brightness(1)" },
-              { transform: "scale(1.06)", filter: "brightness(1.6)" },
-              { transform: "scale(1)", filter: "brightness(1)" },
-            ],
+            [{ transform: "scale(1)" }, { transform: "scale(1.12)" }, { transform: "scale(1)" }],
             { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
           )
         }
         if (cueRef.current) cueRef.current.textContent = `${cue} seconds left on this track`
       }
     }
-
-    // 'one' never advances, so nothing but the current track stands between
-    // here and the loop point.
-    if (!loopInRef.current) return
-    const label = formatRemaining(repeatMode === "one" ? left : restSeconds + left)
-    // This one sits in a wrapping sentence and changes width ("9m" -> "1h
-    // 34m"), so writing it every frame would reflow the line sixty times a
-    // second for a value that moves once a minute. Compared against the DOM,
-    // not a remembered value: a re-render puts React's "—" back in the node,
-    // and a cached "already wrote it" left the dash there for good.
-    if (loopInRef.current.textContent !== label) loopInRef.current.textContent = label
   })
 
   return (
-    <section
-      aria-label="On-air deck"
-      // shrink-0: in the phone layout this sits in a scrolling column beside
-      // the running order, and flex let it squash until the talk pad was cut.
-      className="shrink-0 overflow-hidden rounded-2xl border border-white/[0.09] bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)]"
-    >
-      <div
-        className={cn(
-          "grid items-center gap-x-6 gap-y-4",
-          compact
-            ? "grid-cols-[auto_1fr] px-4 py-4"
-            : "grid-cols-[auto_minmax(0,1fr)_auto] px-6 py-5",
-        )}
-      >
-        {/* Time left on the track — the number a broadcaster actually waits
-            on — inside the ring that drains with it. */}
+    <section aria-label="Now playing" className="flex flex-col gap-3 rounded-3xl bg-card p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <h2 className="truncate text-lg font-bold leading-tight tracking-[-0.01em]">
+            {track?.title ?? "Nothing queued"}
+          </h2>
+          <p className="truncate text-[13px] font-medium text-muted-foreground">
+            {track ? track.artist || "Unknown artist" : "Add music from the running order"}
+          </p>
+        </div>
         <div
           ref={clockWrapRef}
           data-soon="false"
-          className={cn("group", !compact && "border-r border-white/[0.06] pr-6")}
+          className="group flex shrink-0 flex-col items-end gap-0.5"
         >
-          <TrackDial size={compact ? 116 : 148}>
-            <span
-              ref={clockRef}
-              className={cn(
-                "font-mono font-medium leading-none tracking-tight tabular-nums text-foreground",
-                compact ? "text-[20px]" : "text-[26px]",
-              )}
-            >
-              −:––
-            </span>
-            <span className="mt-1 text-[11px] text-muted-foreground group-data-[soon=true]:font-semibold group-data-[soon=true]:text-foreground">
-              <span className="group-data-[soon=true]:hidden">left</span>
-              <span className="hidden group-data-[soon=true]:inline">get ready</span>
-            </span>
-          </TrackDial>
+          <span
+            ref={clockRef}
+            className="font-mono text-[26px] font-semibold leading-7 tracking-[-0.03em] tabular-nums text-foreground group-data-[soon=true]:text-pro"
+          >
+            –:––
+          </span>
+          <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-text-faint">LEFT</span>
           <p ref={cueRef} className="sr-only" role="status" />
         </div>
-
-        <div className="flex min-w-0 flex-col gap-2.5">
-          <div className="min-w-0">
-            <h2 className="truncate text-xl font-semibold leading-tight tracking-tight">
-              {track?.title ?? "Nothing queued"}
-            </h2>
-            {/* min-h: an untagged track has no artist, and the line collapsing
-                under the title would shift the whole deck. */}
-            <p className="min-h-5 truncate text-sm text-muted-foreground">
-              {track ? track.artist : "Add files below to start playing"}
-            </p>
-          </div>
-
-          {track && (
-            <ProgressRow
-              ducked={micActive}
-              barRef={barRef}
-              elapsedRef={elapsedRef}
-              durationLabel={formatTime(track.duration)}
-            />
-          )}
-
-          <p className={cn("text-xs", micActive ? "text-mic-text" : "text-muted-foreground")}>
-            {/* Keyed spans, not fragments: this line flips on every mic press,
-                and page translation makes swapping bare text nodes throw
-                (see instrumentation-client). A new key replaces the whole span. */}
-            {micActive ? (
-              <span key="mic">Music dipped while you talk</span>
-            ) : queue.length === 0 ? (
-              <span key="empty">Nothing queued</span>
-            ) : currentIndex < 0 ? (
-              // Reachable: a queue restored from disk with no saved playhead
-              // never auto-starts, and there is a frame after the first add
-              // before playIndex(0) lands. Neither has a loop point yet.
-              <span key="loaded">Queue loaded — nothing playing yet</span>
-            ) : (
-              <span key="playing">
-                {repeatMode === "one" ? (
-                  <span key="hold">Holding this track</span>
-                ) : nextTrack ? (
-                  <span key="next">
-                    Then <span className="text-foreground">{nextTrack.title}</span>
-                  </span>
-                ) : (
-                  <span key="loop">Looping this track</span>
-                )}
-                <span>
-                  {" · "}
-                  <span ref={loopInRef} className="text-foreground tabular-nums">
-                    —
-                  </span>{" "}
-                  {nextTrack ? "until the queue loops" : "until it restarts"}
-                </span>
-              </span>
-            )}
-          </p>
-        </div>
-
-        <div className={cn("flex items-center gap-2", compact ? "col-span-2 justify-center" : "shrink-0")}>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-11"
-            onClick={() => engine?.prev()}
-            disabled={queue.length === 0}
-            aria-label="Previous track"
-            aria-keyshortcuts="P"
-            title="Previous track (P)"
-          >
-            <IconPlayerSkipBackFilled />
-          </Button>
-          <Button
-            size="icon"
-            className="size-14 rounded-full shadow-[0_8px_18px_-8px_rgba(0,0,0,0.8)]"
-            onClick={() => engine?.togglePlay()}
-            disabled={queue.length === 0}
-            aria-label={playing ? "Pause" : "Play"}
-            aria-keyshortcuts="K"
-            title={playing ? "Pause (K)" : "Play (K)"}
-          >
-            {playing ? <IconPlayerPauseFilled className="size-6" /> : <IconPlayerPlayFilled className="size-6" />}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-11"
-            onClick={() => engine?.next()}
-            disabled={queue.length === 0}
-            aria-label="Next track"
-            aria-keyshortcuts="N"
-            title="Next track (N)"
-          >
-            <IconPlayerSkipForwardFilled />
-          </Button>
-        </div>
       </div>
 
-      {/* Music-only broadcasts have no mic to draw: an empty padded band here
-          read as something that failed to load. */}
-      {!micDisabled && (
-        <div className={cn("@container/talk border-t border-white/[0.06] transition-colors duration-200", compact ? "px-4 py-4" : "px-6 py-4", micActive && "bg-mic/[0.05]")}>
-          <PushToTalk />
-        </div>
-      )}
+      <div className="h-[5px] overflow-hidden rounded-full bg-foreground/8" aria-hidden>
+        <div
+          ref={barRef}
+          className={cn("h-full bg-foreground transition-opacity duration-200", micActive && "opacity-35")}
+          style={{ width: "0%" }}
+        />
+      </div>
 
-      <div className={cn("flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06]", compact ? "px-4 py-3" : "px-6 py-3")}>
-        <MonitorBar />
-        {micDisabled && (
-          <span className="text-xs text-muted-foreground">Music only — no mic in this broadcast</span>
-        )}
+      <div className="flex items-center gap-2">
+        <div className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-[14px] bg-background px-3">
+          <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-text-faint">NEXT</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{nextText}</span>
+          <span className="rounded-md bg-muted-foreground px-1.5 py-0.5 font-mono text-[11px] font-semibold text-background tabular-nums">
+            {upcoming}
+          </span>
+        </div>
+        <TransportButton
+          label="Previous track"
+          shortcut="P"
+          disabled={queue.length === 0}
+          onClick={() => engine?.prev()}
+        >
+          <IconPlayerSkipBackFilled size={20} />
+        </TransportButton>
+        <TransportButton
+          label="Next track"
+          shortcut="N"
+          disabled={queue.length < 2}
+          onClick={() => engine?.next()}
+        >
+          <IconPlayerSkipForwardFilled size={20} />
+        </TransportButton>
+        <button
+          type="button"
+          onClick={() => engine?.togglePlay()}
+          disabled={queue.length === 0}
+          aria-label={playing ? "Pause" : "Play"}
+          aria-keyshortcuts="K"
+          title={playing ? "Pause (K)" : "Play (K)"}
+          className="flex h-12 w-16 shrink-0 items-center justify-center rounded-[14px] bg-foreground text-background transition-transform active:scale-[0.96] disabled:opacity-40"
+        >
+          {playing ? <IconPlayerPauseFilled size={22} /> : <IconPlayerPlayFilled size={22} />}
+        </button>
       </div>
     </section>
+  )
+}
+
+function TransportButton({
+  label,
+  shortcut,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  shortcut: string
+  disabled: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-keyshortcuts={shortcut}
+      title={`${label} (${shortcut})`}
+      className="flex size-12 shrink-0 items-center justify-center rounded-[14px] bg-background text-foreground transition-opacity hover:opacity-80 disabled:opacity-40"
+    >
+      {children}
+    </button>
+  )
+}
+
+/** A music-only show: the pad's place, dimmed, saying why there is no mic. */
+function MusicOnlyPad() {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-[28px] bg-card/50 p-5">
+      <span className="text-[34px] font-extrabold leading-9 tracking-[-0.035em] text-text-faint">Music only</span>
+      <span className="text-sm font-medium text-text-faint">You picked a music-only show. The mic stays closed.</span>
+    </div>
   )
 }

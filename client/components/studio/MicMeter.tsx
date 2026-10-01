@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 /** Bottom of the scale. Anything quieter reads as no signal at all. */
 const FLOOR_DB = -60
-const SEGMENTS = 40
+const SEGMENTS = 30
 /** How long the peak marker holds before it starts to fall. */
 const PEAK_HOLD_MS = 1200
 /** Fall rates, in dB per second — fast enough to follow speech, slow enough to read. */
@@ -16,13 +16,20 @@ const ARIA_EVERY_MS = 750
 
 const SCALE = [-48, -24, -12, -6, 0]
 
+/**
+ * The mobile talk pad's meter (Console.tsx). On a dark card it is a traffic
+ * light: green, amber from −12 dB, red from −6. On a solid red surface
+ * (`onRed`) it is drawn in the red's dark ink, the hottest segments in a
+ * warm white.
+ */
 const COLORS = {
-  unlit: "rgba(255,255,255,0.06)",
-  // Level check: the mic is hearing you, but none of it is going out.
-  check: "rgba(255,255,255,0.32)",
-  open: "#38bdf8",
-  hot: "#e0f2fe",
-  clip: "#ff6467",
+  unlit: "#2A2723",
+  ok: "#5FD39A",
+  warm: "#FFB547",
+  hot: "#FF5A4E",
+  openUnlit: "rgba(26,8,6,0.22)",
+  openOn: "#1A0806",
+  openHot: "#FFF1E0",
 }
 
 function toPct(db: number) {
@@ -35,8 +42,8 @@ function toPct(db: number) {
  * It taps the MediaStream rather than the mixer, before the talk-button gain,
  * so it answers "is it hearing me?" whether or not the mic is open — the
  * broadcaster can check their level with nothing going out, which the old
- * meter (zeroed until the mic opened) could never do. Closed, it draws in
- * grey; open, in the mic's sky.
+ * meter (zeroed until the mic opened) could never do. See COLORS for how
+ * each state is drawn.
  *
  * Drawn on a canvas from its own rAF loop. The previous meter pushed levels
  * through React state sixty times a second, which re-rendered the whole deck
@@ -45,19 +52,24 @@ function toPct(db: number) {
 export function MicMeter({
   stream,
   open,
+  onRed = false,
   className,
 }: {
   stream: MediaStream | null
   open: boolean
+  /** Drawn on a solid red surface: ink segments instead of the traffic light. */
+  onRed?: boolean
   className?: string
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const meterRef = useRef<HTMLDivElement>(null)
+  const meterRef = useRef<HTMLSpanElement>(null)
   const openRef = useRef(open)
+  const onRedRef = useRef(onRed)
 
   useEffect(() => {
     openRef.current = open
-  }, [open])
+    onRedRef.current = onRed
+  }, [open, onRed])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -138,32 +150,26 @@ export function MicMeter({
       }
 
       const isOpen = openRef.current
+      const red = onRedRef.current
       g.clearRect(0, 0, width, height)
-      const gap = 2
+      const gap = 3
       const segW = (width - gap * (SEGMENTS - 1)) / SEGMENTS
       const lit = Math.round(toPct(level) * SEGMENTS)
       for (let i = 0; i < SEGMENTS; i++) {
         const segDb = FLOOR_DB + ((i + 1) / SEGMENTS) * -FLOOR_DB
-        let color = COLORS.unlit
-        if (i < lit) {
-          if (!isOpen) color = COLORS.check
-          else if (segDb > -1) color = COLORS.clip
-          else if (segDb > -6) color = COLORS.hot
-          else color = COLORS.open
-        }
+        const on = i < lit
+        const hot = segDb > -6
+        const color = red
+          ? on ? (hot ? COLORS.openHot : COLORS.openOn) : COLORS.openUnlit
+          : on ? (hot ? COLORS.hot : segDb > -12 ? COLORS.warm : COLORS.ok) : COLORS.unlit
         g.fillStyle = color
-        // Hot and clipping segments glow while the mic is open — the level a
-        // host should back off from is the one that catches the eye.
-        g.shadowColor = color
-        g.shadowBlur = isOpen && i < lit && segDb > -6 ? 6 : 0
         g.beginPath()
-        g.roundRect(i * (segW + gap), 0, segW, height, 1.5)
+        g.roundRect(i * (segW + gap), 0, segW, height, 2)
         g.fill()
       }
-      g.shadowBlur = 0
       if (peak > FLOOR_DB + 1) {
         const x = toPct(peak) * width
-        g.fillStyle = !isOpen ? "rgba(255,255,255,0.6)" : peak > -1 ? COLORS.clip : "#ffffff"
+        g.fillStyle = red ? COLORS.openOn : peak > -1 ? COLORS.hot : "#F4F1EC"
         g.fillRect(Math.min(width - 2, x - 1), 0, 2, height)
       }
 
@@ -194,7 +200,8 @@ export function MicMeter({
   }, [stream])
 
   return (
-    <div
+    // Spans, not divs: the meter sits inside the talk pad, which is a button.
+    <span
       ref={meterRef}
       role="meter"
       aria-label="Microphone level"
@@ -203,8 +210,9 @@ export function MicMeter({
       aria-valuenow={FLOOR_DB}
       className={cn("@container flex flex-col gap-1.5", className)}
     >
-      <canvas ref={canvasRef} className="block h-4 w-full" />
-      <div className="relative h-3.5 font-mono text-[11px] leading-none text-muted-foreground tabular-nums" aria-hidden>
+      <canvas ref={canvasRef} className="block h-6 w-full" />
+      {/* The scale takes its colour from the pad around it. */}
+      <span className="relative block h-3.5 font-mono text-[11px] leading-none tabular-nums" aria-hidden>
         {SCALE.map((db) => (
           <span
             key={db}
@@ -216,7 +224,7 @@ export function MicMeter({
             {db}
           </span>
         ))}
-      </div>
-    </div>
+      </span>
+    </span>
   )
 }

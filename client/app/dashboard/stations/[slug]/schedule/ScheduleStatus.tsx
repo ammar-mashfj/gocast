@@ -82,21 +82,23 @@ export function ScheduleStatus({ slug, locked, programme, timezone, defaultName,
   const sub = [detail, nextShow].filter(Boolean).join(" ")
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-white/[0.07] bg-panel px-5 py-4 sm:flex-row sm:items-center sm:gap-5">
+    <div className="flex flex-col gap-3 rounded-3xl bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-5">
       <span
         className={cn(
-          "inline-flex w-fit shrink-0 items-center gap-2 rounded-md px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.12em]",
-          pill.tone === "live" && "bg-live text-black",
-          pill.tone === "autodj" && "bg-on-air text-black",
-          pill.tone === "off" && "border border-white/[0.12] text-muted-foreground",
-          pill.tone === "fault" && "border border-fault/50 text-fault",
+          // The design system's StatusLamp, solid: dark ink on red, violet
+          // and amber; off air a quiet outline.
+          "inline-flex w-fit shrink-0 items-center gap-2 rounded-[10px] px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em]",
+          pill.tone === "live" && "bg-live text-live-ink",
+          pill.tone === "autodj" && "bg-on-air text-live-ink",
+          pill.tone === "off" && "border border-input text-muted-foreground",
+          pill.tone === "fault" && "bg-fault text-pro-ink",
         )}
       >
         <span
           aria-hidden="true"
           className={cn(
             "size-1.5 rounded-full",
-            pill.tone === "off" ? "bg-muted-foreground" : pill.tone === "fault" ? "bg-fault" : "bg-black",
+            pill.tone === "off" ? "bg-text-faint" : "bg-current",
           )}
         />
         {pill.text}

@@ -96,44 +96,48 @@ export default function StudioPage() {
   return (
     // Bleeds to the edges of the dashboard's padded <main>; dvh, not vh, so
     // mobile browser chrome can't push the running order off screen.
-    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] w-[calc(100%+3rem)] min-h-0 flex-col overflow-hidden xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-rows-[auto_minmax(0,1fr)]">
+    // One spacing for the whole studio, as the mobile studio has it: a 16px
+    // edge and a 10px gap between every card, the band included. Fixed to
+    // the window (dvh, so mobile browser chrome can't push the running order
+    // off screen); the running order takes the height that is left and
+    // scrolls inside itself.
+    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] w-[calc(100%+3rem)] min-h-0 flex-col gap-2.5 overflow-hidden p-4">
       <h1 className="sr-only">Studio — {stationName}</h1>
 
-      <div className="xl:col-span-2">
-        <OnAirLamp
-          signal={signal}
-          transport={transport}
-          uptime={stats.elapsed}
-          listeners={stats.listeners}
-          compact={compact}
-        />
-      </div>
+      <OnAirLamp
+        signal={signal}
+        transport={transport}
+        uptime={stats.elapsed}
+        listeners={stats.listeners}
+        action={<EndBroadcastButton band />}
+      />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 xl:p-5">
-        {compact && (
-          <div className="flex items-center gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Below xl the column scrolls as a whole (a tablet can't fit the
+            console and a usable running order). */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto xl:overflow-hidden">
+          {compact && (
             <Button
               variant="outline"
-              className="h-11 flex-1"
+              className="h-11 shrink-0"
               onClick={() => shareOrCopy(playerUrl, stationName)}
             >
               <IconShare data-icon="inline-start" />
               Share player link
             </Button>
-            <EndBroadcastButton compact className="px-5" />
-          </div>
-        )}
-        <OnAirDeck compact={compact} />
-        <FileQueue />
-      </div>
+          )}
+          <OnAirDeck />
+          <FileQueue />
+        </div>
 
-      <div className="hidden min-h-0 xl:flex">
-        <StreamPanel
-          slug={slug}
-          stationName={stationName}
-          stats={stats}
-          bytesSent={transport.stats?.bytesSent ?? 0}
-        />
+        <div className="hidden min-h-0 xl:flex">
+          <StreamPanel
+            slug={slug}
+            stationName={stationName}
+            stats={stats}
+            bytesSent={transport.stats?.bytesSent ?? 0}
+          />
+        </div>
       </div>
     </div>
   )

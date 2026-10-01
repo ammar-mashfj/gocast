@@ -89,7 +89,7 @@ export function AutoDjRotation({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <div className="text-base font-medium">AutoDJ rotation</div>
+              <div className="text-base font-bold">AutoDJ rotation</div>
               {locked && (
                 <Badge variant="pro">
                   Pro

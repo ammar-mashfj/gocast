@@ -4,7 +4,6 @@ import { useEffect, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
-import { IconAlertTriangle } from "@tabler/icons-react"
 import api from "@/lib/axios"
 import { saveAuth, clearAuth, getUser } from "@/actions/auth"
 import { Button } from "@/components/ui/button"
@@ -12,7 +11,6 @@ import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/common/PasswordInput"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Dialog,
@@ -170,11 +168,11 @@ export default function SettingsPage() {
 
   if (!user) {
     return (
-      <div className="max-w-3xl flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <Skeleton className="h-8 w-28" />
-          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-9 w-40" />
         </div>
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         {[0, 1].map((i) => (
           <Card key={i}>
             <CardHeader className="flex flex-col gap-1.5">
@@ -194,8 +192,8 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         ))}
-        <Separator />
-        <Card className="border-fault/30 bg-fault/[0.03]">
+        </div>
+        <Card>
           <CardHeader className="flex flex-col gap-1.5">
             <Skeleton className="h-5 w-28" />
             <Skeleton className="h-4 w-72 max-w-full" />
@@ -214,14 +212,19 @@ export default function SettingsPage() {
   const confirmMatches = deleteConfirm.trim().toLowerCase() === user.email.toLowerCase()
 
   return (
-    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
+    // Cards on the page (no `.sheet`), two columns on a wide screen: the
+    // plan and who you are on the left, sign-in and leaving on the right —
+    // not one 768px column with half the page empty beside it.
+    <div className="flex flex-col gap-4">
       <div>
         {/* "Account", not "Settings": the station has its own "Station
             settings" page one click away in the same sidebar, and two pages
             titled Settings left nobody sure which one they were on. */}
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Account</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Account</h1>
       </div>
 
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
       <PlanCard />
 
       <Card>
@@ -268,6 +271,9 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{hasPassword ? "Change password" : "Set password"}</CardTitle>
@@ -304,10 +310,10 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-fault-text flex items-center gap-2">
-            <IconAlertTriangle size={16} />
-            Danger zone
-          </CardTitle>
+          {/* Plain, not "Danger zone" in the fault colour: faults are amber
+              now, which reads as a warning. The weight is carried by the
+              confirm, whose button is the red one. */}
+          <CardTitle className="text-base">Delete account</CardTitle>
           <CardDescription>
             Deleting your account permanently removes your stations and broadcast history. This cannot be undone.
           </CardDescription>
@@ -320,6 +326,8 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+      </div>
+      </div>
 
       <VerifyEmailDialog
         open={verifyOpen}
@@ -381,7 +389,7 @@ export default function SettingsPage() {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={deleteLoading} onClick={() => setDeleteOpen(false)}>Cancel</Button>
+              <Button type="button" variant="secondary" disabled={deleteLoading} onClick={() => setDeleteOpen(false)}>Keep my account</Button>
               <Button type="submit" variant="destructive" disabled={deleteLoading || !confirmMatches}>
                 {deleteLoading ? "Deleting…" : "Delete forever"}
               </Button>
@@ -412,7 +420,7 @@ function PlanCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <span className="font-medium">{plan.name}</span>
+          <span className="text-lg font-extrabold tracking-[-0.02em]">{plan.name}</span>
           <p className="text-sm text-muted-foreground">
             {locked
               ? `Up to ${plan.max_listeners.toLocaleString()} listeners at once. Your station plays only while you're broadcasting.`
@@ -421,7 +429,7 @@ function PlanCard() {
         </div>
         {locked && (
           <Button
-            variant="outline"
+            variant="pro"
             className="self-start sm:self-auto"
             onClick={proRequest.open}
             disabled={proRequest.requested}

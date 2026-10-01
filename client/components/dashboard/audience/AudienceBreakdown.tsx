@@ -48,7 +48,7 @@ export function AudienceBreakdown({
 
   return (
     <div className="flex flex-col gap-3 min-w-0">
-      <h2 className="text-sm font-medium">{title}</h2>
+      <h2 className="text-base font-bold">{title}</h2>
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground leading-relaxed">{empty}</p>
@@ -69,9 +69,9 @@ export function AudienceBreakdown({
                 {/* A lit white bar on an unlit track, like a meter held at
                     level. Neutral on purpose: no hue here names a state
                     (DESIGN.md, the One Meaning Rule). */}
-                <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                <div className="h-1.5 rounded-full bg-background overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-white/45"
+                    className="h-full rounded-full bg-foreground/60"
                     style={{ width: `${Math.max(share, 2)}%` }}
                   />
                 </div>

@@ -30,10 +30,12 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
   return (
     // A plain panel, not a violet-washed one: violet is the brand and the
     // on-air colour, and a tinted box read as AutoDJ already running.
-    <div className="rounded-xl border border-white/[0.09] bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] overflow-hidden">
+    <div className="rounded-3xl bg-card overflow-hidden">
       <div className="flex flex-col gap-6 p-5 md:flex-row md:items-center md:gap-8 md:p-6">
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-medium">
+          {/* The mobile Library's Pro card label. */}
+          <span className="font-mono text-[11px] font-semibold tracking-[0.1em] text-pro">PRO</span>
+          <h2 className="mt-1.5 text-xl font-extrabold tracking-[-0.02em]">
             Keep {stationName} on air when you&apos;re not
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
@@ -51,9 +53,9 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           </ul>
         </div>
 
-        <div className="shrink-0 md:w-56 md:border-l md:border-white/[0.06] md:pl-8">
+        <div className="shrink-0 md:w-56 md:border-l md:border-border md:pl-8">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-semibold">${PRO_PRICE_USD}</span>
+            <span className="text-3xl font-extrabold tracking-[-0.03em]">${PRO_PRICE_USD}</span>
             <span className="text-sm text-muted-foreground">/ month</span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -63,7 +65,7 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           </p>
 
           {request.requested ? (
-            <div className="mt-4 flex items-center gap-2 text-sm text-violet-muted">
+            <div className="mt-4 flex items-center gap-2 text-sm text-ok-text">
               <IconCheck size={16} />
               Request sent
             </div>
@@ -71,7 +73,7 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
             // The page's one filled button and its only request action (the
             // header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
             // the amber Pro tag). "Request", not "Upgrade" — Pro is granted by hand.
-            <Button className="mt-4 w-full" onClick={request.open}>
+            <Button variant="pro" className="mt-4 w-full" onClick={request.open}>
               Request Pro
             </Button>
           )}

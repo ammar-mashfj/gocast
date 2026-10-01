@@ -21,9 +21,9 @@ export default function BroadcastsLoading() {
   return (
     // The Skeleton primitive pulses unconditionally; stopping it here keeps
     // the page still for anyone who asked for reduced motion.
-    <div className="sheet motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+    <div className="motion-reduce:[&_[data-slot=skeleton]]:animate-none">
       <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Broadcasts</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Broadcasts</h1>
         <Skeleton className="mt-1 h-5 w-52 max-w-full" />
       </div>
 
@@ -40,7 +40,7 @@ export default function BroadcastsLoading() {
           </div>
 
           {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className={`${ROW} items-center py-2.5 border-t border-white/[0.06]`}>
+            <div key={i} className={`${ROW} items-center py-2.5 border-t border-border`}>
               <Skeleton className="h-5 w-32 max-w-full" />
               <Skeleton className="hidden md:block h-5 w-16" />
               <div className="flex min-w-0 flex-col gap-1 md:flex-row-reverse md:items-center md:gap-3">

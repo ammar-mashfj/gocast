@@ -106,11 +106,11 @@ export function LiveListeners({ slug, isOnAir, peakListeners = 0, bare = false }
   if (bare) {
     return (
       <section aria-label="Listeners" className="flex flex-1 flex-col gap-1.5">
-        <h2 className="text-xs font-medium text-muted-foreground">Listening now</h2>
+        <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Listening now</h2>
         <div className="flex items-baseline gap-2">
           <span
             className={cn(
-              "font-display text-4xl font-semibold leading-none tracking-tight tabular-nums transition-colors duration-500",
+              "font-display text-4xl font-extrabold leading-none tracking-[-0.03em] tabular-nums transition-colors duration-500",
               hasAudience ? "text-foreground" : "text-muted-foreground",
             )}
           >

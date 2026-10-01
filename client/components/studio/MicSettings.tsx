@@ -43,7 +43,7 @@ function Choice<T extends string>({
         <span id={id} className="text-sm font-medium text-foreground">{label}</span>
         <span className="text-xs text-muted-foreground">{hint}</span>
       </div>
-      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-3 gap-1 rounded-lg bg-white/[0.04] p-1">
+      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-3 gap-[3px] rounded-[14px] bg-background p-1">
         {options.map((o) => (
           <button
             key={o.value}
@@ -52,10 +52,12 @@ function Choice<T extends string>({
             aria-checked={value === o.value}
             onClick={() => onChange(o.value)}
             className={cn(
-              "h-8 rounded-md text-xs font-medium transition-colors",
+              // The design system's Segmented: the choice is off-white with
+              // dark ink, the others muted on the track.
+              "h-9 rounded-[11px] text-[13px] font-semibold transition-colors",
               value === o.value
-                ? "bg-white/[0.12] text-foreground"
-                : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {o.label}
@@ -82,14 +84,14 @@ export function MicSettings() {
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon"
-          className="size-11 self-center"
+          className="size-[52px] rounded-2xl bg-card hover:bg-card/80"
           aria-label="Mic settings"
           title="Mic settings"
           disabled={!engine}
         >
-          <IconAdjustmentsHorizontal />
+          <IconAdjustmentsHorizontal className="size-[22px]" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 gap-5 p-4">
@@ -111,7 +113,7 @@ export function MicSettings() {
           value={prefs.fade}
           onChange={(fade) => engine?.setMicPrefs({ fade })}
         />
-        <div className="flex items-start justify-between gap-4 border-t border-white/[0.06] pt-4">
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-4">
           <label htmlFor={switchId} className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-foreground">Broadcast voice</span>
             <span className="text-xs text-muted-foreground">

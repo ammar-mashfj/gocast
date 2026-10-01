@@ -181,13 +181,13 @@ export function PlaylistView({
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-base font-medium truncate">{playlist.name}</h2>
+              <h2 className="text-base font-bold truncate">{playlist.name}</h2>
               {/* Neutral: "default" is a role the playlist has, not a
                   station state, so it gets none of the state colours. */}
               {playlist.is_default && (
                 <Badge
                   variant="outline"
-                  className="border-white/[0.09] bg-transparent px-1.5 text-[11px] text-muted-foreground shrink-0"
+                  className="border-input bg-transparent px-1.5 text-[11px] text-muted-foreground shrink-0"
                   title="Plays whenever nothing else is scheduled, and where uploads land by default."
                 >
                   Default

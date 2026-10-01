@@ -85,16 +85,37 @@ const HEADLINE_LABEL: Record<Headline, string> = {
   fault: "Not reaching listeners",
 }
 
-/** StateBadge tints (DESIGN.md): LIVE emerald 10/25, ON AIR violet 10/30, fault red 10/40, the rest unlit. */
+/**
+ * The state label's colour (the design system's StatusLamp, "dot" variant:
+ * a mono caps word after a dot, no pill). Live is ink because the whole
+ * card is red then — see HEADLINE_SURFACE.
+ */
 const HEADLINE_CLASS: Record<Headline, string> = {
-  live: "border-live/25 bg-live/10 text-live-text",
-  on_air: "border-on-air/30 bg-on-air/10 text-on-air",
-  silent: "border-white/10 text-muted-foreground",
-  off_air: "border-white/10 text-muted-foreground",
-  starting: "border-white/10 text-muted-foreground",
-  checking: "border-white/10 text-muted-foreground",
-  no_answer: "border-white/10 text-muted-foreground",
-  fault: "border-fault/40 bg-fault/10 text-fault-text",
+  live: "text-foreground",
+  on_air: "text-on-air-text",
+  silent: "text-fault-text",
+  off_air: "text-muted-foreground",
+  starting: "text-muted-foreground",
+  checking: "text-muted-foreground",
+  no_answer: "text-muted-foreground",
+  fault: "text-fault-text",
+}
+
+/**
+ * The card's fill, as mobile's Overview hero draws it: solid red while a
+ * person is on air (everything on it turns ink — `.surface-live` in
+ * globals.css), AutoDJ's violet tint while the station plays itself, amber
+ * tint when listeners can't hear it, and a plain card otherwise.
+ */
+const HEADLINE_SURFACE: Record<Headline, string> = {
+  live: "surface-live",
+  on_air: "bg-on-air-tint",
+  silent: "bg-fault-tint",
+  off_air: "bg-card",
+  starting: "bg-card",
+  checking: "bg-card",
+  no_answer: "bg-card",
+  fault: "bg-fault-tint",
 }
 
 /**
@@ -103,10 +124,10 @@ const HEADLINE_CLASS: Record<Headline, string> = {
  * fault holds still.
  */
 const HEADLINE_DOT: Record<Headline, string> = {
-  live: "bg-live animate-pulse motion-reduce:animate-none",
+  live: "bg-current animate-pulse motion-reduce:animate-none",
   on_air: "bg-on-air",
-  silent: "bg-muted-foreground/40",
-  off_air: "bg-muted-foreground/40",
+  silent: "bg-fault",
+  off_air: "bg-text-faint",
   starting: "bg-foreground/60 animate-pulse motion-reduce:animate-none",
   checking: "bg-muted-foreground/40",
   no_answer: "bg-muted-foreground/40",
@@ -333,7 +354,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
     broadcasterAttached
       ? "text-live-text"
       : status?.source === "autodj"
-        ? "text-on-air"
+        ? "text-on-air-text"
         : "text-muted-foreground"
 
   // Without AutoDJ there is no unattended arm: the station's AutoDJ source is
@@ -488,7 +509,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
 
   const stopButton = (
     <Button
-      variant="outline"
+      variant="ghost"
       onClick={() =>
         // Only AutoDJ has listeners to drop. The drain of a finished show is
         // seconds from over, and a silent station has nothing to cut off.
@@ -509,6 +530,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
 
   const startButton = (
     <Button
+      variant="on-air"
       onClick={() => act("start", "Station is coming on air")}
       disabled={pending !== null}
       className={actionClass}
@@ -740,15 +762,9 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
     // red when listeners can't hear it).
     <div
       className={cn(
-        "@container/cards overflow-hidden rounded-2xl border bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] transition-colors duration-300",
-        // Follows the pill, so "Checking…" does not sit in a lit ON AIR edge.
-        headline === "fault"
-          ? "border-fault/40"
-          : headline === "live"
-            ? "border-live/30"
-            : headline === "on_air"
-              ? "border-on-air/25"
-              : "border-white/[0.09]",
+        "@container/cards overflow-hidden rounded-3xl transition-colors duration-300",
+        // Follows the label, so "Checking…" does not sit on a lit card.
+        HEADLINE_SURFACE[headline],
       )}
     >
       <div
@@ -796,11 +812,11 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
                 {/* A state pill (DESIGN.md StateBadge), not a kicker. */}
                 <span
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider",
+                    "inline-flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-[0.1em]",
                     HEADLINE_CLASS[headline],
                   )}
                 >
-                  <span className={cn("size-1.5 rounded-full shrink-0", dotClass)} />
+                  <span className={cn("size-2 rounded-full shrink-0", dotClass)} />
                   {HEADLINE_LABEL[headline]}
                 </span>
                 {/* Announced once per change of headline, the lamp's rule:
@@ -824,7 +840,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
                 />
               </div>
 
-              <span className="text-lg font-medium line-clamp-2">{powerDetail}</span>
+              <span className="text-xl font-extrabold leading-tight tracking-[-0.02em] line-clamp-2">{powerDetail}</span>
 
               {powerHint && (
                 <div className="mt-auto pt-1 text-sm text-muted-foreground line-clamp-2">{powerHint}</div>
@@ -871,33 +887,24 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
                     Open studio
                   </Link>
                 </Button>
-              ) : isRunning ? (
-                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
-                  <Button className={actionClass} disabled={statusUnknown}>
-                    <IconBroadcast size={14} data-icon="inline-start" />
-                    Go live
-                  </Button>
-                </GoLiveTrigger>
-              ) : autoDjLocked ? (
-                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
-                  <Button className={actionClass}>
-                    <IconBroadcast size={14} data-icon="inline-start" />
-                    Go live
-                  </Button>
-                </GoLiveTrigger>
               ) : (
-                startButton
+                // Go live leads in every state, as on mobile: the primary
+                // button with a red dot. Off air it also starts the station
+                // (ensureStationOnAir), so it needs no Start first.
+                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
+                  <Button className={actionClass} disabled={isRunning && statusUnknown}>
+                    <span aria-hidden className="size-2.5 rounded-full bg-live" data-icon="inline-start" />
+                    Go live
+                  </Button>
+                </GoLiveTrigger>
               )}
 
+              {/* Then AutoDJ's own control: start it (violet, off air) or turn
+                  the station off (quiet, while it runs). */}
               {liveElsewhere ? null : isRunning ? (
                 stopButton
               ) : autoDjLocked ? null : (
-                <GoLiveTrigger station={station} isRunning={isRunning} onStatusChanged={syncFromDialog}>
-                  <Button variant="outline" className={actionClass}>
-                    <IconBroadcast size={14} data-icon="inline-start" />
-                    Go live
-                  </Button>
-                </GoLiveTrigger>
+                startButton
               )}
             </div>
           </div>
@@ -911,10 +918,10 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
         {isRunning && (
           <section
             aria-label="Now playing"
-            className="flex flex-col gap-1.5 border-t border-white/[0.06] p-5 @3xl/cards:border-l @3xl/cards:border-t-0"
+            className="flex flex-col gap-1.5 border-t border-border p-5 @3xl/cards:border-l @3xl/cards:border-t-0"
           >
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h2 className="text-xs font-medium text-muted-foreground">Now playing</h2>
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Now playing</h2>
               {sourceLabel && (
                 <>
                   <span className="text-xs text-muted-foreground/50" aria-hidden="true">·</span>
@@ -930,7 +937,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
                   <span className="sr-only">Not known yet</span>
                 </span>
               ) : (
-                <span className="text-lg font-medium line-clamp-2 [overflow-wrap:anywhere]">{nowPlayingLine}</span>
+                <span className="text-lg font-bold tracking-[-0.01em] line-clamp-2 [overflow-wrap:anywhere]">{nowPlayingLine}</span>
               )}
             </div>
 
@@ -951,7 +958,7 @@ export function StationPower({ station, compact = false, aside }: StationPowerPr
         {aside && (
           <div
             className={cn(
-              "flex flex-col border-t border-white/[0.06] p-5",
+              "flex flex-col border-t border-border p-5",
               isRunning
                 ? "@3xl/cards:col-span-2 @5xl/cards:col-span-1 @5xl/cards:border-l @5xl/cards:border-t-0"
                 : "@3xl/cards:border-l @3xl/cards:border-t-0",

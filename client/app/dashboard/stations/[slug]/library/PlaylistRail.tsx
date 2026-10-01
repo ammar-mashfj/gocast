@@ -85,7 +85,7 @@ export function PlaylistRail({
         onClick={onCreate}
         disabled={locked}
         title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-        className="h-9 justify-start text-muted-foreground shrink-0"
+        className="h-11 justify-start rounded-2xl px-3 text-muted-foreground shrink-0"
       >
         <IconPlus size={15} data-icon="inline-start" />
         New playlist
@@ -99,7 +99,7 @@ function RailLabel({ children, className }: { children: React.ReactNode; classNa
   return (
     <span
       className={cn(
-        "hidden md:block px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none",
+        "hidden md:block px-3 pb-1 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint select-none",
         className,
       )}
     >
@@ -134,14 +134,14 @@ function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps
       title={title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-h-9 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
+        "flex min-h-11 items-center gap-2.5 rounded-2xl px-3 py-2 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
         "min-w-0 max-w-[14rem] md:max-w-none",
-        active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+        active ? "bg-card font-semibold text-foreground" : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
       )}
     >
       <span className="shrink-0 inline-flex">{icon}</span>
       <span className="truncate flex-1">{label}</span>
-      <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">{detail}</span>
+      <span className="font-mono text-[11px] font-normal tabular-nums text-text-faint shrink-0">{detail}</span>
     </button>
   )
 }

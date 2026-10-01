@@ -38,7 +38,7 @@ export default function DashboardError({
       <div className="flex flex-col gap-3">
         {/* No "Page error" pill above this: it was a kicker (DESIGN.md bans
             them), and the heading already says the same thing. */}
-        <h1 className="font-display text-2xl font-semibold tracking-tight">This page didn&apos;t load</h1>
+        <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">This page didn&apos;t load</h1>
         <p className="max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
           {/* Keyed spans, not fragments: page translation moves bare text
               nodes, and swapping them in place throws (instrumentation-client). */}
@@ -72,7 +72,7 @@ export default function DashboardError({
         </Button>
       </div>
 
-      <details className="max-w-[60ch] border-t border-white/[0.07] pt-4 text-xs text-muted-foreground">
+      <details className="max-w-[60ch] rounded-2xl bg-card px-4 py-3 text-xs text-muted-foreground">
         <summary className="cursor-pointer hover:text-foreground">Details for support</summary>
         <p className="mt-2 font-mono break-words">
           {error.message || "No message"}

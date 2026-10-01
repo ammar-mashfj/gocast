@@ -43,7 +43,16 @@ export const signOffKey = (slug: string) => `gocast:signoff:${slug}`
  * stray thumb cut every listener off. Now both layouts open the same dialog,
  * and both leave the same summary behind for the station overview.
  */
-export function EndBroadcastButton({ className, compact = false }: { className?: string; compact?: boolean }) {
+export function EndBroadcastButton({
+  className,
+  compact = false,
+  band = false,
+}: {
+  className?: string
+  compact?: boolean
+  /** Inside the studio band: the mobile band's small subtle "End". */
+  band?: boolean
+}) {
   const router = useRouter()
   const { stop, stationSlug, liveSince, getTransportStats } = useBroadcast()
   // No AutoDJ means there is nothing for the station to fall back to, so
@@ -103,17 +112,25 @@ export function EndBroadcastButton({ className, compact = false }: { className?:
 
   return (
     <>
-      <Button
-        variant="outline"
-        onClick={() => setOpen(true)}
-        // Neutral on purpose: on a healthy studio the only red thing must be
-        // a fault. The consequence is carried by the dialog, whose confirm is
-        // the one destructive button.
-        className={cn("h-11", className)}
-      >
-        <IconPlayerStopFilled data-icon="inline-start" />
-        {compact ? "End" : "End broadcast"}
-      </Button>
+      {/* Neutral on purpose: the consequence is carried by the dialog, whose
+          confirm is the one red button. */}
+      {band ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn(
+            "h-[34px] shrink-0 rounded-[11px] bg-foreground/10 px-3.5 text-[13px] font-bold transition-colors hover:bg-foreground/15",
+            className,
+          )}
+        >
+          End
+        </button>
+      ) : (
+        <Button variant="outline" onClick={() => setOpen(true)} className={cn("h-11", className)}>
+          <IconPlayerStopFilled data-icon="inline-start" />
+          {compact ? "End" : "End broadcast"}
+        </Button>
+      )}
 
       {/* A dialog, not an inline confirm: the consequence has to be read
           before the only irreversible action in the studio. Not dismissable
@@ -133,7 +150,7 @@ export function EndBroadcastButton({ className, compact = false }: { className?:
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" className="h-11" disabled={ending} onClick={() => setOpen(false)}>
+            <Button variant="secondary" className="h-11" disabled={ending} onClick={() => setOpen(false)}>
               Keep going
             </Button>
             <Button variant="destructive" className="h-11" disabled={ending} onClick={end}>

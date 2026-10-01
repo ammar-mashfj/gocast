@@ -17,11 +17,11 @@ export default function ScheduleLoading() {
   return (
     // The Skeleton primitive pulses unconditionally; stopping it here keeps
     // the page still for anyone who asked for reduced motion.
-    <div className="sheet motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+    <div className="motion-reduce:[&_[data-slot=skeleton]]:animate-none">
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="flex flex-col gap-1.5">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">Schedule</h1>
+            <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Schedule</h1>
             <p className="text-sm text-muted-foreground max-w-[62ch]">
               What plays when you&apos;re not live. Going live always takes over.
             </p>
@@ -31,7 +31,7 @@ export default function ScheduleLoading() {
 
         <Skeleton className="h-[4.5rem] w-full rounded-xl" />
 
-        <div className="flex flex-col gap-4 rounded-xl border border-white/[0.07] bg-panel p-5">
+        <div className="flex flex-col gap-4 rounded-3xl bg-card p-5">
           <h2 className="font-display text-lg font-semibold tracking-tight">This week</h2>
           {/* The phone layout: the day strip, then three rows (DayList). */}
           <div className="flex flex-col gap-4 md:hidden">

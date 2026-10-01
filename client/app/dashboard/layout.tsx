@@ -107,7 +107,7 @@ export default async function DashboardLayout({
           {/* Inside AccountProvider: the dialog prefills from the account. */}
           <ProRequestProvider>
             <StationProvider station={station}>
-              <SidebarProvider>
+              <SidebarProvider data-surface="dashboard">
                 <AppSidebar user={user} />
                 <SidebarInset>
                   <DashboardHeader />

@@ -58,7 +58,7 @@ export function TrackProgress({ status }: { status: StationStatus | null }) {
     <div ref={wrapRef} className="flex items-center gap-2.5 pt-1" style={{ display: "none" }}>
       <span
         ref={elapsedRef}
-        className="text-xs text-muted-foreground tabular-nums shrink-0"
+        className="font-mono text-xs text-muted-foreground tabular-nums shrink-0"
         // aria-hidden on the whole row: it retimes itself every frame, and a
         // screen reader announcing a clock that never stops changing would
         // bury the track name beside it. The title and "up next" carry the
@@ -68,11 +68,11 @@ export function TrackProgress({ status }: { status: StationStatus | null }) {
         0:00
       </span>
       <div className="flex-1 min-w-[80px] h-1 rounded-full bg-muted overflow-hidden" aria-hidden="true">
-        <div ref={barRef} className="h-full rounded-full bg-primary/70" style={{ width: "0%" }} />
+        <div ref={barRef} className="h-full rounded-full bg-on-air" style={{ width: "0%" }} />
       </div>
       <span
         ref={remainingRef}
-        className="text-xs text-muted-foreground tabular-nums shrink-0"
+        className="font-mono text-xs text-muted-foreground tabular-nums shrink-0"
         aria-hidden="true"
       >
         --:--

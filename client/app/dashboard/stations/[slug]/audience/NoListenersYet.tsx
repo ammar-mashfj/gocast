@@ -26,7 +26,7 @@ export function NoListenersYet({ playerUrl, stationName, message, wider }: NoLis
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs text-muted-foreground">Listeners tune in at</span>
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.09] bg-[#08080d]/60 py-1 pl-3 pr-1">
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-background py-1 pl-3 pr-1">
           <code className="truncate font-mono text-xs text-muted-foreground">
             {playerUrl.replace(/^https?:\/\//, "")}
           </code>

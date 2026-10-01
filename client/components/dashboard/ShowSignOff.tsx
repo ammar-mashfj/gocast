@@ -46,10 +46,10 @@ export function ShowSignOff({ slug }: { slug: string }) {
   return (
     <section
       aria-labelledby="signoff-title"
-      className="signoff-rise relative flex flex-col gap-5 rounded-2xl border border-white/[0.09] bg-panel px-6 py-5 shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] md:flex-row md:items-center md:gap-10"
+      className="signoff-rise relative flex flex-col gap-5 rounded-3xl bg-card px-6 py-5 md:flex-row md:items-center md:gap-10"
     >
       <div className="flex min-w-0 flex-col gap-1">
-        <h2 id="signoff-title" className="font-display text-xl font-semibold tracking-tight">
+        <h2 id="signoff-title" className="font-display text-2xl font-extrabold tracking-[-0.03em]">
           That&apos;s a wrap.
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -67,8 +67,8 @@ export function ShowSignOff({ slug }: { slug: string }) {
             className="signoff-rise flex flex-col gap-0.5"
             style={{ animationDelay: `${180 + i * 70}ms` }}
           >
-            <dt className="text-xs text-muted-foreground">{f.label}</dt>
-            <dd className="text-lg font-semibold tabular-nums">{f.value}</dd>
+            <dt className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">{f.label}</dt>
+            <dd className="font-mono text-lg font-semibold tabular-nums">{f.value}</dd>
           </div>
         ))}
       </dl>

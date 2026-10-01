@@ -26,12 +26,12 @@ import { useStationBySlug } from "@/contexts/StationContext"
  * fixed copy — section titles, column heads, the "Listening now" label — which
  * is text here, not bars.
  *
- * GEOMETRY IS COPIED, NOT APPROXIMATED. The page is a flat `.sheet` with one
- * raised panel (the control strip), and the old skeleton drew the layout
+ * GEOMETRY IS COPIED, NOT APPROXIMATED. The page is a stack of cards led by
+ * the control strip, and an older skeleton drew the layout
  * before that: a boxed two-column grid with a listener dial in a sidebar. On
  * every load the whole page visibly rearranged itself into a different one.
- * So this file reuses the page's own wrappers — `.sheet`, the same Card
- * structure, the same hairline sections and container queries — and a
+ * So this file reuses the page's own wrappers — the same Card structure,
+ * the same card grid and container queries — and a
  * geometry change to page.tsx or the components it renders has to be made
  * here too.
  *
@@ -62,7 +62,7 @@ export default function StationDetailLoading() {
   return (
     // The Skeleton primitive pulses unconditionally; stopping it here keeps
     // the whole page still for anyone who asked for reduced motion.
-    <div className="sheet flex flex-col gap-8 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
+    <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
       {/* Header — real wherever the layout already knows the answer. */}
       {/* Same grid as page.tsx: artwork beside the name on a phone, spanning
           both text rows from md. */}
@@ -81,7 +81,7 @@ export default function StationDetailLoading() {
 
         {station ? (
           <div className="flex items-center gap-2 min-w-0 self-center lg:self-auto">
-            <h1 className="font-display text-2xl font-semibold truncate">{station.name}</h1>
+            <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] truncate">{station.name}</h1>
             {station.genre && (
               <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
             )}
@@ -124,11 +124,11 @@ export default function StationDetailLoading() {
         </div>
       </header>
 
-      <section aria-label="On air now" className="flex flex-col gap-6">
+      <section aria-label="On air now" className="mt-4 flex flex-col gap-4">
         {/* The control strip — StationPower's panel, the one raised surface
             on the page. Container names and column tracks are StationPower's
             own, so the parts break at the same widths as the real strip. */}
-        <div className="@container/cards overflow-hidden rounded-2xl border border-white/[0.09] bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)]">
+        <div className="@container/cards overflow-hidden rounded-3xl bg-card">
           <div className="grid grid-cols-[minmax(0,1fr)] @3xl/cards:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @5xl/cards:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,15rem)]">
             {/* Power: state pill, what it means, then the two actions. */}
             <div className="@container/power p-5">
@@ -146,16 +146,16 @@ export default function StationDetailLoading() {
             </div>
 
             {/* Now playing. */}
-            <div className="flex flex-col gap-1.5 border-t border-white/[0.06] p-5 @3xl/cards:border-l @3xl/cards:border-t-0">
-              <h2 className="text-xs font-medium text-muted-foreground">Now playing</h2>
+            <div className="flex flex-col gap-1.5 border-t border-border p-5 @3xl/cards:border-l @3xl/cards:border-t-0">
+              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Now playing</h2>
               <Skeleton className="h-7 w-52 max-w-full" />
               <Skeleton className="h-5 w-40 max-w-full" />
             </div>
 
             {/* Listening now — LiveListeners `bare`. */}
-            <div className="border-t border-white/[0.06] p-5 @3xl/cards:col-span-2 @5xl/cards:col-span-1 @5xl/cards:border-l @5xl/cards:border-t-0">
+            <div className="border-t border-border p-5 @3xl/cards:col-span-2 @5xl/cards:col-span-1 @5xl/cards:border-l @5xl/cards:border-t-0">
               <div className="flex flex-col gap-1.5">
-                <h2 className="text-xs font-medium text-muted-foreground">Listening now</h2>
+                <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Listening now</h2>
                 <Skeleton className="h-9 w-14" />
                 <Skeleton className="h-5 w-40 max-w-full" />
                 <Link
@@ -170,8 +170,8 @@ export default function StationDetailLoading() {
           </div>
         </div>
 
-        {/* AutoDjRotation, flat on the sheet under a hairline. */}
-        <div className="border-t border-white/[0.07] pt-6">
+        {/* AutoDjRotation, its own card. */}
+        <div>
           <Card className="@container/autodj gap-0 overflow-hidden">
             <CardContent className="flex flex-col items-start gap-3 pb-4 @2xl/autodj:flex-row @2xl/autodj:items-center @2xl/autodj:justify-between @2xl/autodj:gap-4">
               <div className="flex items-center gap-3 min-w-0 w-full">
@@ -201,10 +201,10 @@ export default function StationDetailLoading() {
         </div>
       </section>
 
-      {/* Broadcast activity | Recent broadcasts, split by a vertical rule. */}
+      {/* Broadcast activity | Recent broadcasts, two cards. */}
       <section
         aria-label="Your shows"
-        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] xl:gap-0 xl:divide-x xl:divide-white/[0.07] xl:[&>*:first-child]:pr-8 xl:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,30rem)]"
       >
         <Card>
           <CardContent className="pt-1">
@@ -267,7 +267,7 @@ export default function StationDetailLoading() {
       {/* Share your station | Finish setting up. */}
       <section
         aria-label="Share"
-        className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 border-t border-white/[0.07] pt-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-white/[0.07] md:[&>*:first-child]:pr-8 md:[&>*+*]:pl-8"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 md:grid-cols-2"
       >
         <Card>
           <CardHeader>
@@ -293,7 +293,7 @@ export default function StationDetailLoading() {
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-start gap-3">
                 <span
-                  className="size-4 mt-0.5 rounded-full shrink-0 border border-white/[0.18]"
+                  className="size-4 mt-0.5 rounded-full shrink-0 border border-input"
                   aria-hidden="true"
                 />
                 <div className="min-w-0 flex-1 flex flex-col gap-1">
