@@ -1,29 +1,14 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useConfirm } from "@/components/ui/use-confirm"
-import {
-  IconDotsVertical,
-  IconMusic,
-  IconPlaylistAdd,
-  IconSearch,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react"
+import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { DndContext } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
+import { Button } from "@/components/ds/Button"
 import type { Track } from "@/interfaces/Track"
-import { cn } from "@/lib/utils"
 import { useTrackPreview } from "@/hooks/useTrackPreview"
 import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
+import { LibraryFooter, LibraryToolbar } from "./LibraryToolbar"
 
 type SortKey = "added" | "title" | "length"
 
@@ -157,7 +142,7 @@ export function AllTracksView({
       title: ids.length === 1 ? "Delete this track?" : `Delete ${ids.length} tracks?`,
       description: `${ids.length === 1 ? "It leaves" : "They leave"} every playlist too. This can't be undone.`,
       confirmLabel: ids.length === 1 ? "Delete track" : `Delete ${ids.length} tracks`,
-      destructive: true,
+      keepLabel: ids.length === 1 ? "Keep it" : "Keep them",
     })
     if (!ok) return
 
@@ -171,93 +156,46 @@ export function AllTracksView({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3 p-3 border-b border-border">
-        <div className="relative flex-1 min-w-[220px]">
-          <IconSearch
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-          />
-          <Input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setLimit(INITIAL_LIMIT)
-            }}
-            placeholder="Search title or artist"
-            className="h-9 pl-9 pr-16 text-sm"
-          />
-          {q !== "" && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-              {visible.length} found
-            </span>
-          )}
-        </div>
-
-        {/* Same shape as the playlist toolbar: search, one sort control and
-            a ⋯. Uploading is the header's "Add tracks" or a drop anywhere on
-            this panel; the dashed "Drop files or browse" button that sat
-            here was a second copy of the same action. */}
-        <Select
-          aria-label="Sort tracks"
-          value={sort}
-          onChange={setSort}
-          options={SORTS}
-          className="w-40 [&>button]:h-9"
-        />
-
-        {menuItems && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Library actions">
-                <IconDotsVertical size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {menuItems}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+      <div className="flex flex-col gap-1 px-5.5 pt-5 pb-3.5">
+        <h2 className="font-display text-title-sm">All tracks</h2>
+        <p className="text-body-sm text-text-faint">Every file you own. Upload, delete and fix tags here.</p>
       </div>
 
-      {/* The selection bar. It replaces nothing and pushes nothing around —
-          it appears between the toolbar and the storage meter only while
-          something is selected, so the resting state of the panel is exactly
-          what it was before multi-select existed. */}
+      <LibraryToolbar
+        query={query}
+        onQuery={(next) => {
+          setQuery(next)
+          setLimit(INITIAL_LIMIT)
+        }}
+        found={q !== "" ? visible.length : null}
+        placeholder="Search title or artist"
+        sort={sort}
+        onSort={setSort}
+        sorts={SORTS}
+        menuLabel="Library actions"
+        menu={menuItems}
+      />
+
+      {/* Only while something is selected, so the resting panel is unchanged. */}
       {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-primary/5">
-          <span className="text-xs tabular-nums font-medium">
-            {selected.size} selected
-          </span>
-
+        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-raised px-5.5 py-2.5">
+          <span className="font-mono text-body-sm font-semibold tabular-nums">{selected.size} selected</span>
           <span className="flex-1" />
-
           <Button
-            variant="outline"
+            size="sm"
+            variant="subtle"
             onClick={() => onBulkAdd(pickedInOrder())}
             disabled={locked || deleting}
             title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
           >
-            <IconPlaylistAdd size={15} data-icon="inline-start" />
             Add to playlist
           </Button>
-
-          {/* Deleting stays available on every plan — the same rule the
-              per-row button and the API already follow. A downgrade must
-              never trap someone's files behind a paywall. */}
-          <Button variant="outline" onClick={() => void deletePicked()} disabled={deleting}>
-            <IconTrash size={15} data-icon="inline-start" className="text-fault-text" />
+          {/* Deleting stays on every plan: a downgrade never traps files. */}
+          <Button size="sm" variant="subtle" onClick={() => void deletePicked()} disabled={deleting}>
             {deleting ? "Deleting…" : `Delete ${selected.size}`}
           </Button>
-
-          <Button
-            size="icon"
-            variant="ghost"
-            className="text-muted-foreground"
-            onClick={() => setPicked(new Set())}
-            disabled={deleting}
-            aria-label="Clear selection"
-          >
-            <IconX size={15} />
+          <Button size="sm" variant="quiet" onClick={() => setPicked(new Set())} disabled={deleting}>
+            Clear
           </Button>
         </div>
       )}
@@ -265,18 +203,18 @@ export function AllTracksView({
       {belowToolbar}
 
       {tracks.length === 0 ? (
-        <div className="flex flex-col items-center text-center py-14 gap-2">
-          <IconMusic size={28} className="text-muted-foreground" />
-          <div className="text-sm font-medium">No tracks yet</div>
-          <p className="text-xs text-muted-foreground">
+        <div className="flex flex-col items-center gap-1.5 border-t border-line px-5.5 py-14 text-center">
+          <p className="text-body font-semibold">No tracks yet</p>
+          <p className="text-body-sm text-muted-foreground">
             {locked
               ? "This is where your music lives once Pro is on."
-              : "Drag audio files anywhere onto this panel to start the AutoDJ."}
+              : "Drop audio files anywhere on this card, or use Add tracks."}
           </p>
         </div>
       ) : (
         <>
           <TrackListHeader
+            fourth="In playlists"
             selectable
             allSelected={allShownPicked}
             someSelected={selected.size > 0}
@@ -309,32 +247,18 @@ export function AllTracksView({
             </SortableContext>
           </DndContext>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border text-xs text-muted-foreground">
-            <span>
-              {q !== ""
-                ? `Showing ${shown.length} of ${visible.length} matches`
-                : `Showing ${shown.length} of ${tracks.length}`}
-              {orphans > 0 && (
-                <span className="ml-2 font-medium text-foreground">
-                  · {orphans} in no playlist — {orphans === 1 ? "it" : "they"} never play
-                </span>
-              )}
-            </span>
-            <span className="flex items-center gap-3">
-              {/* Select-all reaches past the painted rows, so say so rather
-                  than letting the bar's count look wrong. */}
-              {selected.size > shown.length && (
-                <span className={cn("tabular-nums", "text-muted-foreground")}>
-                  {selected.size} selected, including rows below
-                </span>
-              )}
-              {shown.length < visible.length && (
-                <Button variant="outline" size="sm" onClick={() => setLimit(visible.length)}>
-                  Show all {visible.length}
-                </Button>
-              )}
-            </span>
-          </div>
+          {q !== "" && visible.length === 0 && (
+            <p className="border-t border-line px-5.5 py-8 text-body text-muted-foreground">Nothing matches “{query.trim()}”.</p>
+          )}
+
+          <LibraryFooter showAll={shown.length < visible.length ? { count: visible.length, onClick: () => setLimit(visible.length) } : undefined}>
+            {q !== "" ? `Showing ${shown.length} of ${visible.length} matches` : `Showing ${shown.length} of ${tracks.length}`}
+            {orphans > 0 && (
+              <span className="text-fault-text"> · {orphans} in no playlist — {orphans === 1 ? "it" : "they"} never play</span>
+            )}
+            {/* Select-all reaches past the painted rows, so say so. */}
+            {selected.size > shown.length && <span> · {selected.size} selected, including rows below</span>}
+          </LibraryFooter>
         </>
       )}
       {confirmDialog}

@@ -7,29 +7,6 @@ import type { TransportStats } from "@/lib/broadcast"
 import { BITRATE_TIERS } from "@/lib/audioEngine"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
 
-/**
- * The GoCast Design System's studio status band, for every lamp. The band's
- * fill carries the state; there is no edge:
- *   mic   — LIVE · MIC: red tint, pale-red message. You are talking.
- *   live  — LIVE on music: a dim warm band, plain muted message. The red
- *           chip alone says live, so a healthy show stays calm.
- *   fault — SILENCE and every other "listeners aren't hearing what you
- *           think": amber tint, pale-amber message.
- *   idle  — the go-live page's in-between states: a plain card.
- * Chip text on a red or amber fill is dark ink. The studio lamp, the banner
- * on other pages and the go-live lamp each used to carry their own copy of
- * this table.
- */
-export const SIGNAL_TONE = {
-  idle: { strip: "bg-card border-transparent", chip: "bg-foreground/[0.07] text-muted-foreground", text: "text-muted-foreground" },
-  live: { strip: "bg-live-dim border-transparent", chip: "bg-live text-live-ink", text: "text-muted-foreground" },
-  mic: { strip: "bg-live-tint border-transparent", chip: "bg-live text-live-ink", text: "text-live-soft" },
-  fault: { strip: "bg-fault-tint border-transparent", chip: "bg-fault text-pro-ink", text: "text-fault-text" },
-} as const
-
-/** The lamp chip's type: the design system's mono status label. */
-export const LAMP_LABEL = "font-mono font-bold uppercase tracking-[0.08em]"
-
 /** How often the send-path readout samples the transport. */
 const HEALTH_POLL_MS = 2000
 

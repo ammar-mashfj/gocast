@@ -5,9 +5,9 @@ import { IconAdjustmentsHorizontal } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { DEFAULT_MIC_PREFS, type DuckLevel, type FadeSpeed } from "@/lib/micPrefs"
-import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ds/Button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ds/Menu"
+import { Switch } from "@/components/ds/Switch"
 import { cn } from "@/lib/utils"
 
 const DUCK_OPTIONS: { value: DuckLevel; label: string }[] = [
@@ -43,7 +43,7 @@ function Choice<T extends string>({
         <span id={id} className="text-sm font-medium text-foreground">{label}</span>
         <span className="text-xs text-muted-foreground">{hint}</span>
       </div>
-      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-3 gap-[3px] rounded-[14px] bg-background p-1">
+      <div role="radiogroup" aria-labelledby={id} className="grid grid-cols-3 gap-0.75 rounded-control bg-background p-1">
         {options.map((o) => (
           <button
             key={o.value}
@@ -54,7 +54,7 @@ function Choice<T extends string>({
             className={cn(
               // The design system's Segmented: the choice is off-white with
               // dark ink, the others muted on the track.
-              "h-9 rounded-[11px] text-[13px] font-semibold transition-colors",
+              "h-9 rounded-item text-body-sm font-semibold transition-colors",
               value === o.value
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground",
@@ -84,14 +84,14 @@ export function MicSettings() {
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon"
-          className="size-[52px] rounded-2xl bg-card hover:bg-card/80"
+          className="size-13 rounded-button bg-card text-foreground hover:bg-card/80"
           aria-label="Mic settings"
           title="Mic settings"
           disabled={!engine}
         >
-          <IconAdjustmentsHorizontal className="size-[22px]" />
+          <IconAdjustmentsHorizontal className="size-5.5" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 gap-5 p-4">
@@ -121,6 +121,7 @@ export function MicSettings() {
             </span>
           </label>
           <Switch
+            tone="live"
             id={switchId}
             checked={prefs.broadcastVoice}
             onCheckedChange={(broadcastVoice) => engine?.setMicPrefs({ broadcastVoice })}

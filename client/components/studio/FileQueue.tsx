@@ -23,7 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import { QUEUE_BYTE_LIMIT, type QueueTrack, type RepeatMode } from "@/lib/audioEngine"
 import { formatBytes, formatTrackTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -95,7 +95,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         // two digits, 6px gaps: the old 36px handle, 8px gaps and a
         // right-aligned digit in a 28px column left ~40px of nothing
         // between the grip and the number on a phone.
-        "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
+        "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-chip py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
         isDragging && "relative z-10 bg-popover shadow-lg",
         isPlaying ? "bg-foreground/[0.05]" : "hover:bg-foreground/[0.03]",
       )}
@@ -106,7 +106,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         {...attributes}
         {...listeners}
         aria-label={`Move ${track.title}`}
-        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-tag text-muted-foreground hover:text-foreground active:cursor-grabbing"
       >
         <IconGripVertical size={20} />
       </button>
@@ -123,7 +123,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
       </div>
       <div className="whitespace-nowrap text-xs">
         {isPlaying ? (
-          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground">
+          <span className="font-mono text-micro font-semibold uppercase tracking-widest text-foreground">
             Playing
           </span>
         ) : airsAt ? (
@@ -134,9 +134,9 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         {formatTrackTime(track.duration)}
       </div>
       <Button
-        variant="ghost"
+        variant="quiet"
         size="icon"
-        className="size-9 text-muted-foreground"
+        className="size-9"
         onClick={onRemove}
         aria-label={`Remove ${track.title}`}
         title="Remove from the running order"
@@ -295,7 +295,7 @@ export function FileQueue() {
       className={cn(
         // A card like the rest of the console; the edge only appears while a
         // file is dragged over it.
-        "flex min-h-[180px] flex-1 flex-col overflow-hidden rounded-3xl border bg-card transition-colors",
+        "flex max-h-136 min-h-45 flex-col overflow-hidden rounded-card border bg-card transition-colors",
         dragOver ? "border-foreground/40" : "border-transparent",
       )}
     >
@@ -316,7 +316,7 @@ export function FileQueue() {
           <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
-            Your show&apos;s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
+            Your show’s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
             {queue.length > 0 && (
               <span>
                 {" · "}
@@ -331,7 +331,7 @@ export function FileQueue() {
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
               whether it moves on to the next track or holds this one. */}
-          <div role="group" aria-label="When a track ends" className="flex gap-[3px] rounded-xl bg-background p-[3px]">
+          <div role="group" aria-label="When a track ends" className="flex gap-0.75 rounded-item bg-background p-0.75">
             {(["all", "one"] as const).map((mode) => (
               <button
                 key={mode}
@@ -350,7 +350,7 @@ export function FileQueue() {
                 // toggling this four to six times to find out which was on.
                 className={cn(
                   // The design system's Segmented: the choice is off-white.
-                  "h-8 whitespace-nowrap rounded-[9px] px-2 text-xs font-semibold transition-colors sm:px-2.5",
+                  "h-8 whitespace-nowrap rounded-segment px-2 text-xs font-semibold transition-colors sm:px-2.5",
                   repeatMode === mode
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:text-foreground",
@@ -367,9 +367,9 @@ export function FileQueue() {
             // nothing upcoming: mounting it as the first track started moved
             // Add files out from under the pointer.
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
-              className={cn("h-9 text-muted-foreground", upcoming === 0 && "invisible")}
+              className={cn("h-9", upcoming === 0 && "invisible")}
               title="Clear upcoming"
               disabled={upcoming === 0}
               aria-hidden={upcoming === 0 || undefined}
@@ -379,7 +379,7 @@ export function FileQueue() {
               <span className="max-sm:sr-only">Clear upcoming</span>
             </Button>
           )}
-          <Button variant="outline" size="sm" className="ml-auto h-9 sm:ml-0" onClick={() => fileInputRef.current?.click()}>
+          <Button variant="ghost" size="sm" className="ml-auto h-9 sm:ml-0" onClick={() => fileInputRef.current?.click()}>
             <IconPlus data-icon="inline-start" />
             Add files
           </Button>
@@ -391,7 +391,7 @@ export function FileQueue() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-input text-center transition-colors hover:border-foreground/30"
+            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-item border border-dashed border-input text-center transition-colors hover:border-foreground/30"
           >
             <IconUpload size={20} className="text-muted-foreground" />
             <span className="text-sm font-medium">Drop audio files here, or browse</span>

@@ -34,6 +34,7 @@ class StreamSession extends Model
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
             'peak_listeners' => 'integer',
+            'peak_at' => 'datetime',
         ];
     }
 

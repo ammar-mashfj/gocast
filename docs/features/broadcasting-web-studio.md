@@ -1,6 +1,6 @@
 ---
 feature: Broadcasting from the web studio
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/routes/api.php
   - api/app/Http/Controllers/BroadcastTokenController.php
@@ -49,24 +49,12 @@ sources:
   - client/app/dashboard/stations/[slug]/live/layout.tsx
   - client/app/dashboard/stations/[slug]/studio/page.tsx
   - client/app/dashboard/stations/[slug]/studio/layout.tsx
-  - client/app/dashboard/stations/[slug]/StationActions.tsx
   - client/components/studio/EndBroadcast.tsx
   - client/components/studio/FileQueue.tsx
   - client/components/studio/MicMeter.tsx
   - client/components/studio/MicSettings.tsx
-  - client/components/studio/MonitorBar.tsx
-  - client/components/studio/OnAirDeck.tsx
-  - client/components/studio/OnAirLamp.tsx
   - client/components/studio/PushToTalk.tsx
   - client/components/studio/signal.ts
-  - client/components/studio/StreamPanel.tsx
-  - client/components/studio/TrackDial.tsx
-  - client/components/dashboard/GoLiveTrigger.tsx
-  - client/components/dashboard/BroadcastMiniController.tsx
-  - client/components/dashboard/LiveBanner.tsx
-  - client/components/dashboard/ShowSignOff.tsx
-  - client/components/dashboard/RecentBroadcasts.tsx
-  - client/components/dashboard/TrackProgress.tsx
   - client/components/dashboard/EncoderConnection.tsx
   - client/components/dashboard/AppSidebar.tsx
   - client/interfaces/StreamSession.ts
@@ -74,37 +62,52 @@ sources:
   - api/tests/Feature/BroadcastTokenControllerTest.php
   - api/tests/Feature/BroadcastTokenServiceTest.php
   - api/tests/Feature/EncoderSessionAttributionTest.php
-fingerprint: 4e89ccb16898058a
+  - client/app/dashboard/stations/[slug]/studio/wrap/page.tsx
+  - client/components/dashboard/golive/CheckList.tsx
+  - client/components/dashboard/golive/MicCheckCard.tsx
+  - client/components/dashboard/golive/RunningOrderCard.tsx
+  - client/hooks/useMicPreview.ts
+  - client/hooks/usePreflightQueue.ts
+  - client/lib/preflightQueue.ts
+  - client/lib/mic.ts
+  - client/components/studio/NowPlaying.tsx
+  - client/components/studio/StudioControls.tsx
+  - client/components/studio/StudioStats.tsx
+  - client/components/dashboard/shell/StationBand.tsx
+  - client/lib/airState.ts
+  - client/components/dashboard/overview/YourLinkCard.tsx
+fingerprint: c7fdb85bc25ea9e4
 ---
 
 # Broadcasting from the web studio
 
 A station owner goes on air from a browser tab. The tab captures the microphone and a queue of local audio files, mixes them in the Web Audio API, encodes the mix to MP3 in a Web Worker, and sends the frames over one WebSocket straight into the station's own Liquidsoap container (`input.harbor`, "webcast" protocol). There is no server-side studio: **the whole broadcast lives in the browser tab**, in a React context (`BroadcastProvider`) mounted once for the entire dashboard. Close the tab and the show ends.
 
-The one thing people get wrong: **the API never sees the audio and never opens the studio's session.** The API's only jobs are to mint a 60-second token, hand out the WebSocket address, and start the station container. The "live" state, the `StreamSession` row, the Recent Broadcasts entry and the airtime all come from Liquidsoap's `live_connected` / `live_disconnected` callbacks. `POST /stations/{slug}/sessions` exists and is tested, but **nothing in this repository calls it** (see Gaps).
+The one thing people get wrong: **the API never sees the audio and never opens the studio's session.** The API's only jobs are to mint a 60-second token, hand out the WebSocket address, and start the station container. The "live" state, the `StreamSession` row, the Your shows entry and the airtime all come from Liquidsoap's `live_connected` / `live_disconnected` callbacks. `POST /stations/{slug}/sessions` exists and is tested, but **nothing in this repository calls it** (see Gaps).
 
 Encoders (BUTT, Mixxx) reach the same harbor mount by a different path and credential. That is [encoder-ingest.md](encoder-ingest.md). The station container itself is in [liquidsoap-station-script.md](liquidsoap-station-script.md); power on/off and the sweep are in [station-lifecycle.md](station-lifecycle.md). The mobile app reuses the same token endpoint from its own manager ([mobile-studio-and-encoder.md](mobile-studio-and-encoder.md)); this doc covers the web client only.
 
 ## The flow, end to end
 
-1. **Entry.** "Go live" anywhere opens `GoLiveTrigger`, a two-option dialog: *from this browser* or *from a broadcast app* (encoder). The browser option navigates to `/dashboard/stations/{slug}/live`. The sidebar "Studio" item points at `/live` when idle and `/studio` when a broadcast is running.
-2. **Pre-flight** (`live/page.tsx` `PreflightView`). Nothing starts until the person presses **Continue** (`preflightApproved`). This is where the mic is chosen and the saved queue is shown.
-3. **Checks** (`BroadcastManager.start`): the steps shown as a list (`network`, `station`, `mic`, `engine`; `mic` is omitted for music-only) run without a socket, and the state becomes `ready`. Nothing is on air.
-4. **Go live now** (`BroadcastManager.goLive`): the Ready screen shows **Go live now** / **Cancel**. Go live now connects (not a listed step; the lamp reads "Going live…"), the state becomes `live`, and the page `router.replace`s to `/studio` at once (there is no success hold; the studio's lamp shows LIVE and carries the player link).
-5. **Studio** (`studio/page.tsx`): lamp, deck, running order, side rail.
-6. **End** (`EndBroadcastButton`): confirm dialog, sign-off summary written to `sessionStorage`, socket closed, station optionally released, redirect to the overview.
-7. **Sign-off** (`ShowSignOff` on the station overview): one card, once.
+1. **Entry.** "Go live" anywhere (the overview hero, the status band, the sidebar's Studio item while idle, the phone tab bar) goes straight to `/dashboard/stations/{slug}/live`. There is no picker any more; an encoder just connects with the Station settings values ([encoder-ingest.md](encoder-ingest.md)). The sidebar "Studio" item points at `/live` when idle and `/studio` while this tab broadcasts.
+2. **Pre-flight** (`live/page.tsx`, "Ready when you are."): what goes out, the mic check and the running order, all with nothing going out.
+3. **One press**: "Go live on {station}" runs the checks (`BroadcastManager.start`: `network`, `station`, `mic`, `engine`; `mic` omitted for music-only) on screen as a checklist, the state reaches `ready`, and the page immediately calls `goLive()` (an effect keyed on `ready` after the press). There is no separate "Go live now" step.
+4. **Live**: `goLive()` connects; the state becomes `live` and the page `router.replace`s to `/studio`.
+5. **Studio** (`studio/page.tsx`): talk pad and controls on the left; now playing, the show's numbers, running order, your link and End show on the right. Live state is the status band's.
+6. **End** (`EndBroadcastButton`, "End show"): confirm, summary written to `sessionStorage`, socket closed, station optionally released, `router.replace` to `/studio/wrap`.
+7. **That's a wrap** (`studio/wrap/page.tsx`): the show's numbers once, then back to the station.
 
 ### 1. Pre-flight (`client/app/dashboard/stations/[slug]/live/page.tsx`)
 
 - Fetches `GET /stations/{slug}` (failure: `router.push("/dashboard")`) and, best-effort and once, `GET /stations/{slug}/status` for `live_source`, used only to explain a refusal.
-- If `station.is_live && state === "idle"` it shows **"already live"** (`AlreadyLiveView`) instead of pre-flight: encoder wording when `live_source.type === "external"` (names `live_source.client`), otherwise "Someone is live from another browser or computer…". `is_live` is the API's derived flag (see below).
-- **What goes out** (radio cards): *Mic + music* or *Music only*. Stored per station in `localStorage["broadcast:micDisabled:{slug}"]`. Music-only never calls `getUserMedia`.
-- **Your running order** (`QueueStatus`, `loadQueueSummary`): reads the queue and playback position from IndexedDB *before* any engine exists. Shows track count, bytes of the 2 GiB cap and the last-played title. If the saved offset is at least 1 second it offers **"Pick up at m:ss"** or **"Start it over"** (`resumeFromStart`, stored in `localStorage["broadcast:resumeFromStart"]`, global, not per station). Under a second the choice is hidden because they are the same thing. "Clear queue" opens a confirm dialog and calls `clearQueue(slug)` (deletes this station's tracks and playback position only). States: skeleton while reading, "Empty. Add music files in the studio once you're live" when empty or when storage is unreadable.
-- If `station.is_on_air && !station.is_live` (AutoDJ audible) an info row says going live takes over and AutoDJ resumes on End.
-- Shows the player URL with a Copy button (`${env.appUrl}/station/{slug}`), then **Continue** / **Cancel** (Cancel returns to the overview).
-- After approval the effect calls `start(slug, { skipMic, resumeFromStart })`, guarded by `startedRef` so one approval starts once. It ends at `ready`, which swaps the lamp and step list for `ReadyView`: "Ready when you are.", a **Mic check** card (the studio's `MicMeter` on the provider's `micStream`, drawn closed/grey; hidden for music-only; with two or more inputs it carries `MicPicker`, which lists `enumerateDevices()` audio inputs minus Windows' `communications` duplicate, refreshes on `devicechange`, and calls `BroadcastManager.switchMic(deviceId)`: open the new device, `AudioEngine.setMicStream()` rewires the mic chain, the old tracks stop, and the id is saved in `localStorage["broadcast:micDeviceId"]` (per browser, not per station). Devices are opened with `deviceId: { exact }` (with `ideal`, Chrome traded the chosen mono mic for a default that satisfies `channelCount: 2`). The checklist's mic step opens the saved device and, if that fails for any reason except `NotAllowedError`, opens the default instead of failing. Only at `ready`: there is no mid-show switch), the checks as results (Connection `Good`/`Slow · N kbps` from `getTransportStats().bitrate`, Station reachable `Yes`, Microphone access `Allowed`, Audio engine `Ready`), and **Go live now** / **Cancel**. Go live now calls `goLive()`; the view stays up with the button busy ("Going live…") until the studio opens or the attempt fails into the fault view. Cancel calls `stop()` (no station release, so a started container is left to the sweep) and returns to the overview. Leaving the page any other way while `ready` also calls `stop()`, so the mic is not held open on other dashboard pages.
-- **Errors:** `state === "error"` shows a red lamp with the reason and a step list. Mic denied/not found (`isMicPermissionError`, regex on the message) shows a recovery block: *Continue without mic* (sets `micDisabled` true in storage and retries music-only) or *Try again*. Other errors show *Try again* / *Back to station* and a link to `/help/go-live-from-your-browser`.
+- If `station.is_live && state === "idle"` and nothing was pressed, it shows "{station} is already live" with a `Notice` instead: encoder wording when `live_source.type === "external"` (names `live_source.client`: "… is broadcasting to this station. Only one source can be on at a time, so disconnect it there first."), otherwise "Someone is live from another browser or computer…". Actions: "Hear your stream ↗", "Back to station". `is_live` is the API's derived flag (see below).
+- **What goes out** (`ds/ChoiceCards`): *Mic + music* or *Music only*. Stored per station in `localStorage["broadcast:micDisabled:{slug}"]`, read on first render. Music-only never calls `getUserMedia`.
+- **Your microphone** (`golive/MicCheckCard`, mic mode only; `hooks/useMicPreview.ts`): "Check your mic" opens the mic (straight away if the browser has already granted it), shows `MicMeter` drawn grey (nothing is going out), and, with more than one input, a `ds/Select` of devices (`enumerateDevices()` audio inputs minus Windows' `communications` duplicate). The choice is saved (`lib/mic.ts`, `localStorage["broadcast:micDeviceId"]`, per browser) and the go-live checks open the same device; the preview is released before they run. Blocked: "This browser isn't allowed to use your microphone…" with "Go live with music only"; none: "No microphone found…". This is the only place the mic can be changed: there is no mid-show switch.
+- **Your running order** (`golive/RunningOrderCard`, `hooks/usePreflightQueue.ts`, `lib/preflightQueue.ts`): the saved queue from IndexedDB, edited before any engine exists: Remove per track, "+ Add files" and drag-and-drop (files past the 2 GiB cap are skipped, `fitFiles`), "Clear" (confirm "Clear your running order?"). When the last show stopped part-way through a song: "Pick up where you stopped" / "Start over" (`resumeFromStart`, `localStorage["broadcast:resumeFromStart"]`, global). Removing a song keeps the playback record pointing at the same song. Storage blocked (private mode): "This browser won't let GoCast keep files…".
+- Title line: "AutoDJ hands over when you start, and takes back when you end." when AutoDJ is audible (`is_on_air && !is_live`), else "Nothing goes out until you press the button."
+- **Go live on {station}** (xl primary button with a red dot), "Listeners tune in at {player url}", and "Not now" (back to the overview).
+- **After the press** the page shows "Going live on {station}…" and `golive/CheckList` (tick, spinner, amber failure, circle for what's to come) with a Cancel. `start(slug, { skipMic, resumeFromStart })` runs; at `ready` the page calls `goLive()` once; at `live` it replaces itself with `/studio`. Leaving the page (or Cancel) while `ready` or `connecting` calls `stop()`, so the mic isn't held open on other pages; a container `/start` already brought up is left to the sweep.
+- **Errors:** "Couldn't go live." with a `Notice` saying why and "Nobody heard anything." Mic denied/not found (`isMicError`): "Go live with music only" or "Try again". Other errors: "Try again" / "Back", and a link to `/help/go-live-from-your-browser`.
 
 ### 2. `BroadcastManager.start` (`client/lib/broadcast.ts`)
 
@@ -115,12 +118,12 @@ Order matters and is deliberate:
 3. **Step `station`** `ensureStationOnAir` (up to `STATION_READY_TIMEOUT_MS` = 20 s): `POST /stations/{slug}/start` (idempotent; an already-healthy running station is left alone), then polls `GET /stations/{slug}/status` every `STATION_READY_POLL_MS` = 1 s until `data.ready`. 422/403 from `/start` is shown verbatim (plan limit `station_limit_reached`, ownership); anything else becomes "Could not bring the station on air — please try again". **A timeout is not an error**: it proceeds to publish anyway, on the theory that harbor accepts the connection when it starts listening.
 4. **Step `mic`**: `getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } })`. All three processing flags are off on purpose (they damage music that shares the mixer).
 5. **Step `engine`**: `AudioEngine.create(micStream, onChunk, slug, bitrate)`, `engine.resume()` (inside the user gesture), subscribe to the engine to push metadata, then `restoreQueue()`. Encoded chunks go to the socket only while `ws.readyState === OPEN` **and** the socket's unsent backlog is under `BACKLOG_CAP_MS` = 4 s of audio; otherwise they are dropped and counted as lost (never buffered, so a reconnect or a slow line does not replay stale audio into a live show).
-6. **Connect** (`connectWebcast`, not shown as a step; a failure here marks no step, the lamp carries the reason): mint a token (`POST /auth/broadcast-token {station_slug}`; 403 becomes "You do not own this station", any other failure becomes "Not signed in — please sign in and try again"), require a non-empty `ingest_url`, then `openSocket`.
-Steps 2–5 are `start()` and end in state `ready`. Step 6 onward is `goLive()`, run from the Start button, which first does the following silently (`quietSteps`: the step list on screen is not updated, the lamp just reads "Going live…"; only a failure is shown, on the step that failed):
+6. **Connect** (`connectWebcast`, not shown as a step; a failure here marks no step; the "Couldn't go live." notice carries the reason): mint a token (`POST /auth/broadcast-token {station_slug}`; 403 becomes "You do not own this station", any other failure becomes "Not signed in — please sign in and try again"), require a non-empty `ingest_url`, then `openSocket`.
+Steps 2–5 are `start()` and end in state `ready`. Step 6 onward is `goLive()`, which the go-live page calls the moment `ready` is reached after the press. It first does the following silently (`quietSteps`: the step list on screen is not updated; only a failure is shown, on the step that failed):
 
 - resumes the audio context (inside the Start click);
-- if the checklist finished more than `READY_STALE_MS` (3 min) ago, or a mic track has `readyState === 'ended'`, destroys the engine and mic and runs steps 2–5 again (new connection check, new bitrate, new engine);
-- otherwise re-runs only the `station` step. `POST /start` is idempotent, so a running station costs one request; a station the sweep stopped while the host sat on Start (only a no-AutoDJ station: 10 min of silence, or 150 s after a browser show that ended in the same run) is started again.
+- if the checklist finished more than `READY_STALE_MS` (3 min) ago, or a mic track has `readyState === 'ended'`, destroys the engine and mic and runs steps 2–5 again (with the one-press flow, `ready` is never left waiting, so in practice only the ended-track case can trigger this);
+- otherwise re-runs only the `station` step. `POST /start` is idempotent, so a running station costs one request.
 
 7. After the socket is accepted: `resumePlayback({ fromStart })` (not awaited), acquire the screen wake lock, watch tab visibility, state becomes `live`.
 
@@ -165,11 +168,11 @@ Harbor's `on_connect` / `on_disconnect` (`station.blade.php`, `live_in.on_connec
 
 So a browser broadcast's session row is created by harbor about when the socket is accepted, not by the studio. `live_source` in `GET /stations/{slug}/status` is the newest open session's `{type, client}`. `Station::isLive()` is "any open `stream_sessions` row"; `StationResource.is_live` is `isRunning() && that`, and `is_on_air` is `isRunning()` alone (true for AutoDJ too).
 
-`stream_sessions` columns: `id` uuid, `station_id`, `started_at`, `ended_at` (null while live), `peak_listeners` (uint, default 0), `source_type` enum `browser|electron|external` (default `browser`; `electron` is reserved and written by nothing), `client` (nullable string), timestamps. The old `total_listener_minutes` column was dropped. **`peak_listeners` is written only by `SweepListenerSessions::recordPeak`** (about once a minute, only when the sampled count exceeds the stored peak, only for the currently open session), not by anything in the studio.
+`stream_sessions` columns: `id` uuid, `station_id`, `started_at`, `ended_at` (null while live), `peak_listeners` (uint, default 0), `source_type` enum `browser|electron|external` (default `browser`; `electron` is reserved and written by nothing), `client` (nullable string), `ip_address` and `country` (nullable; the broadcaster's origin, taken from the `POST /auth/broadcast-token` request just before the connection by `BroadcastOrigin` and attached when harbor opens the session; null for encoders, which never ask for a token; admin monitoring only), `peak_at` (nullable timestamp), timestamps. The old `total_listener_minutes` column was dropped. **`peak_listeners` and `peak_at` are written only by `SweepListenerSessions::recordPeak`** (about once a minute, only when the sampled count exceeds the stored peak, only for the currently open session; `peak_at` is when the peak was first reached), not by anything in the studio.
 
 ### 5. Reconnect
 
-A socket that closes after being accepted (`watchForDrop`, guarded by `this.ws !== ws`, `stopping` and `established`) starts `reconnect()`; state becomes `reconnecting` and the lamp turns red.
+A socket that closes after being accepted (`watchForDrop`, guarded by `this.ws !== ws`, `stopping` and `established`) starts `reconnect()`; state becomes `reconnecting` and the status band says Reconnecting (amber).
 
 - Everything except the socket stays up: the engine, mic, queue position, push-to-talk, wake lock. The encoder keeps encoding and frames are dropped (counted as lost audio).
 - Budget `RECONNECT_BUDGET_MS` = 120 000 ms. Delays between attempts `[1000, 2000, 4000, 8000, 15000]` ms, last repeated, each jittered by +/-20 %. The pause is cut short when the tab becomes visible or the user presses stop.
@@ -223,9 +226,9 @@ mic -> highpass80 -> presence(3k,+3dB) -> comp -> micWet -> micGain            W
 
 ### 7. Studio screen (`studio/page.tsx`)
 
-Renders nothing unless `isLive` (state `live` or `reconnecting`) **and** a signal exists. Two layouts from one tree, chosen by `matchMedia("(max-width: 1279px)")` and matching `xl:` classes: below 1280 px the deck stacks, the Share/End buttons move to the top, and the `StreamPanel` rail is hidden; from 1280 px a 340 px right rail. (Was 1024 px: with the sidebar open the rail left the deck under 430 px.) Independently of that, the talk row in `OnAirDeck` is a `@container/talk`: `PushToTalk` puts the talk pad above the meter and mic buttons until the deck is 52 rem wide, and only shows the device name from 64 rem. Tab title becomes `● LIVE · {station} | GoCast` while live.
+Renders nothing unless `isLive` (state `live` or `reconnecting`). One grid, two columns of at least 23.75 rem (`repeat(auto-fit, minmax(min(100%, 23.75rem), 1fr))`), so it stacks on narrow screens. Left: the talk pad (`PushToTalk`, or `MusicOnlyPad` for a music-only show), a hint line ("Hold the pad or Space to talk. Press L to keep it open." / "Hold the pad to talk." on touch / "Music only — the mic stays closed.") and "Listeners hear you about 15–20 s late.", the `MicLatchButton` ("Keep mic open" / red "Close mic") and `StudioControls` (Monitor with its volume slider, and `MicSettings`). Right: `NowPlaying`, `StudioStats`, `FileQueue`, the overview's `YourLinkCard` (link, Tune-in code, Embed, Share…) and `EndBroadcastButton`. The page's `h1` is screen-reader only. Tab title becomes `● LIVE · {station} | GoCast` while live. When the state returns to `idle` it goes to `/studio/wrap` (if it had been live) or `/live`.
 
-**The lamp** (`OnAirLamp` fed by `useStudioSignal` in `components/studio/signal.ts`) is the single answer to "is it working". Ranked states, first match wins:
+**The status band is the lamp.** The studio no longer draws its own (`OnAirLamp` is gone): `StationBand` feeds `useStudioSignal` (`components/studio/signal.ts`, with `inStudio`) into `airState`, and the band shows the result above every page, studio included. The signal's ranked states, first match wins:
 
 | Code | Label | Condition |
 |---|---|---|
@@ -238,35 +241,35 @@ Renders nothing unless `isLive` (state `live` or `reconnecting`) **and** a signa
 | `mic` | Mic open | mic open |
 | `live` | Live | otherwise |
 
-Transport health (`useTransportHealth`) samples `getTransportStats()` every `HEALTH_POLL_MS` = 2000 ms. The counters (`bytesSent`, `chunksSent`, `chunksDropped`, `droppedMs`, `lastDropAt`) only count after the first successful handshake (`countersArmed`), so startup silence is not "lost audio". `droppedMs` is a wall-clock duration of drop runs (including an open one), shown as "N.Ns of audio lost". These count what actually left the socket, not what the encoder produced.
+The band turns red for the mic, amber for the faults, and shows the show's uptime and listeners; off the studio page it adds play/pause and next for the queue and, with a latched mic, "Close mic".
 
-The lamp also shows uptime (from `liveSince`), listeners, and the encoder's **current** bitrate (brighter, with a tooltip, when below 128). The `live` detail copy states "Listeners hear you about 15–20 seconds after you speak" (see Gaps).
+Transport health (`useTransportHealth`) samples `getTransportStats()` every `HEALTH_POLL_MS` = 2000 ms. The counters (`bytesSent`, `chunksSent`, `chunksDropped`, `droppedMs`, `lastDropAt`) only count after the first successful handshake (`countersArmed`), so startup silence is not "lost audio". `droppedMs` is a wall-clock duration of drop runs (including an open one). These count what actually left the socket, not what the encoder produced. The `live` detail copy states "Listeners hear you about 15–20 seconds after you speak" (see Gaps).
 
-**Deck** (`OnAirDeck`): a time-left dial (`TrackDial`, canvas ring draining clockwise; goes white at 20 s left), title/artist, a read-only progress bar, "Then {next}" and time until the queue loops, transport (prev / play-pause / next), the push-to-talk strip (hidden for music-only), and the monitor bar. Position, bar, clock and loop time are written straight to the DOM from one `requestAnimationFrame` loop reading the engine every frame (not memoised; an earlier memo froze at mount). Talk-up cues at 20 s and 10 s left pulse the clock and set an sr-only status line, only when the countdown genuinely crosses the threshold.
+**Now playing** (`NowPlaying`, the mobile studio's card): title/artist, time left (turns amber under 15 s, `ENDING_SOON_S`), a read-only progress bar, "Next" and the transport (prev / play-pause / next). Position, bar and clock are written straight to the DOM from one `requestAnimationFrame` loop reading the engine every frame (not memoised; an earlier memo froze at mount). Talk-up cues pulse the clock and set an sr-only status line only when the countdown genuinely crosses the threshold.
 
-**Push to talk** (`PushToTalk`): pointer events with capture (a finger sliding off keeps the mic open until lift), `Space` anywhere except in a text field or inside a dialog/menu/toast/sortable handle (`isTypingTarget`, `isOverlayTarget`); `Enter` on the focused pad also works; window blur or the tab hiding releases the mic. A focused button does not get a click from Space keyup. "Keep mic on" latches (`L`). `MicMeter` is a 40-segment dBFS peak meter (floor -60 dB) tapping the `MediaStream` before the talk gain, so the level can be checked with the mic closed (grey when closed, sky when open, clip at -1 dB). `MicSettings` popover: music level (Under you / Low / Silent), fade (Instant / Smooth / Slow), Broadcast voice switch.
+**Show numbers** (`StudioStats`): three `StatTile`s, On air (uptime), Listening (with "peak N"), Audio lost ("0 s" in green while none).
+
+**Push to talk** (`PushToTalk`): one big card that is the button, with `MicMeter` inside it; solid red with dark ink while the mic is open, a speaker-grille dot pattern (`grille` / `grille-live` utilities) and an idle "● LIVE WHILE HELD" marker. Pointer events with capture (a finger sliding off keeps the mic open until lift), `Space` anywhere except in a text field or inside a dialog/menu/toast/sortable handle (`isTypingTarget`, `isOverlayTarget`); `Enter` on the focused pad also works; window blur or the tab hiding releases the mic. A focused button does not get a click from Space keyup. `L` latches. `MicMeter` is a 40-segment dBFS peak meter (floor -60 dB) tapping the `MediaStream` before the talk gain, so the level can be checked with the mic closed. `MicSettings` popover: music level (Under you / Low / Silent), fade (Instant / Smooth / Slow), Broadcast voice switch (`ds/Switch`).
 
 **Keyboard** (bound in `studio/page.tsx`, ignored with modifiers, repeats, typing targets and overlays): `K` play/pause, `N` next and `P` previous (only when the queue has more than one track), `R` cycle repeat, `M` monitor, `L` latch (not in music-only). `Space` is push-to-talk (in `PushToTalk`).
 
 **Running order** (`FileQueue`): drag-and-drop reorder (dnd-kit with pointer, touch (150 ms hold) and keyboard sensors), drop audio files anywhere on the panel or use Add files (`accept="audio/*"`), per-row remove, Clear upcoming, per-row projected air time (wall clock, null while nothing plays or in repeat-one; drifts after any skip/pause/mic), total duration and bytes vs the 2 GiB cap (emphasised above 90 %), repeat toggle.
 
-**Side rail** (`StreamPanel`, wide screens only): listeners now, peak and a 24-sample sparkline; player link with Copy; Embed (Pro; Free sees a Pro badge that opens the upgrade request) and QR code; "This broadcast" (started time, data sent); collapsible shortcut list; link to `/help/using-the-studio`; End broadcast.
-
-**Statistics** (`useBroadcastStats`): listeners come from the **public** endpoint `GET /public/stations/{slug}/listeners` via the shared feed in `usePublicStationStats.ts` (one timer per slug per tab, `POLL_MS` = 10 s, `pauseWhenHidden: false` here as the one exception). Peak and history are module-scope, keyed `slug:liveSince`, so a trip to the library and back resumes the same numbers; `HISTORY_LENGTH` = 24 samples with `MIN_SAMPLE_GAP_MS` = 5000 between them. It toasts "First listener tuned in" and milestone counts once per show (`fireOnce`). The public count is the Redis-backed `ListenerAnalytics::liveCount`; its Icecast half is refreshed by `stations:sync-listeners` once a minute, so the number moves in minute-sized steps however often it is polled. The peak here is the **client's** own; the Recent Broadcasts peak is the server's `peak_listeners`. They can differ.
+**Statistics** (`useBroadcastStats`): listeners come from the **public** endpoint `GET /public/stations/{slug}/listeners` via the shared feed in `usePublicStationStats.ts` (one timer per slug per tab, `POLL_MS` = 10 s, `pauseWhenHidden: false` here). Peak and history are module-scope, keyed `slug:liveSince`, so a trip to the library and back resumes the same numbers (the status band keeps them ticking off the studio page). It toasts "First listener tuned in" and milestone counts once per show (`fireOnce`). The public count's Icecast half is refreshed by `stations:sync-listeners` once a minute, so the number moves in minute-sized steps however often it is polled. The peak here is the **client's** own; Your shows shows the server's `peak_listeners` and `peak_at`. They can differ.
 
 ### 8. Elsewhere in the dashboard while live
 
 - `BroadcastProvider` (`app/dashboard/layout.tsx`; `start()` ignores a second call while one is in flight and stops any previous manager first, so "Try again" always builds a fresh one; the first ever live show fires a one-time "You're live for the first time" toast) wraps the whole dashboard so navigating between dashboard pages (via `<Link>`, never a full load) keeps the show alive. A `beforeunload` handler warns on refresh/close while `live` or `reconnecting`.
-- `LiveBanner` (below the header, every page except the studio): the same lamp plus "Open studio" and a **Mic off** button when the mic is latched.
-- `BroadcastMiniController` (fixed bottom bar, not on the studio): title, mic/live state, listener count, play/pause and next. It also keeps `useBroadcastStats` polling while the studio is unmounted and sets `data-mini-controller` on `<html>` so toasts lift clear of it.
-- `dashboard/error.tsx`: the layout stays mounted, so a page crash mid-show says "Your broadcast is still on air".
-- `StationActions` (overview button): if `station.is_live` and this tab is the broadcaster it shows "Open studio"; if live but not from this tab it shows a passive "Live from another browser or encoder."; else it wraps a Go live button in `GoLiveTrigger`.
+- The **status band** (`shell/StationBand.tsx`) on every page: the studio signal, uptime, listeners, and off the studio page play/pause, next, "Close mic" (latched) or "Open studio".
+- The sidebar's Studio item shows a pulsing red "Live" lamp and links to the broadcasting station's studio; the phone tab bar's Studio tab gets a red dot.
+- `dashboard/error.tsx`: the layout stays mounted, so a page crash mid-show says the broadcast is still on air and links back to the studio.
+- The overview hero: "You're live." with Open studio, while this tab broadcasts.
 
 ### 9. End broadcast (`EndBroadcast.tsx`, `BroadcastContext.stop`)
 
-Confirm dialog (not dismissable while ending). Wording depends on `after`: `off_air` (plan has no AutoDJ: `useAutoDjLocked()`), `silence` (AutoDJ plan but `status.playlist_length === 0`, read from a status poll that runs only while the dialog is open), else `autodj`. An unknown plan or status keeps the AutoDJ wording.
+"End show" opens `ConfirmDialog` "End your show?" (Keep going / End show; not dismissable while ending). Wording depends on `after`: `off_air` (plan has no AutoDJ: `useAutoDjLocked()`), `silence` (AutoDJ plan but `status.playlist_length === 0`, read from the status poll, which runs only while the dialog is open), else `autodj`. An unknown plan or status keeps the AutoDJ wording.
 
-On confirm: build a `ShowSummary` (duration from `liveSince`, `getSessionPeak`, `droppedMs`, `after`) and write it to `sessionStorage["gocast:signoff:{slug}"]` **before** `stop()`; then `stop({ releaseStation: autoDjLocked })`; then `router.push` to the overview and `router.refresh()`.
+On confirm: build a `ShowSummary` (duration from `liveSince`, `getSessionPeak`, `droppedMs`, `tracksPlayed` from `AudioEngine.getTracksPlayed()`, `after`) and write it to `sessionStorage["gocast:signoff:{slug}"]` **before** `stop()` (the studio moves to the wrap screen the moment the socket closes); then `stop({ releaseStation: autoDjLocked })`; then `router.replace` to `/studio/wrap`.
 
 `BroadcastManager.stop()`: sets `stopping` (which aborts any in-flight reconnect), flushes the encoder if the socket is open, closes the socket with code 1000 "broadcast ended" (harbor sees a source disconnect and posts `live_disconnected`), destroys the engine, stops mic tracks, releases the wake lock, state `idle`. `BroadcastProvider.stop` clears `stationSlug`, `liveSince`, mic/engine refs and removes `broadcast:micDisabled:{slug}`.
 
@@ -274,13 +277,13 @@ On confirm: build a `ShowSummary` (duration from `liveSince`, `getSessionPeak`, 
 
 `StationPowerController::stop` refuses (409) while a session is open unless `force` is set **and** the open session is `external` (`station_is_live_external`); a browser broadcast is never force-stoppable from the API.
 
-### 10. Sign-off (`ShowSignOff`)
+### 10. That's a wrap (`studio/wrap/page.tsx`)
 
-Read once on mount of the overview: reads and immediately removes the `sessionStorage` entry, shows it only if it is under `FRESH_MS` = 30 minutes old. "That's a wrap." plus On air, Peak listeners, Audio lost ("None" when 0), and one sentence per `after`. Dismissable. Storage failures mean no card; nothing else breaks.
+Reads and immediately removes the `sessionStorage` entry; shows it only if it is under `FRESH_MS` = 30 minutes old, otherwise goes to the overview. "That's a wrap." with an eyebrow per `after` ("Show ended · AutoDJ has the station" / "… AutoDJ has nothing to play" plus a line about adding tracks / "… Station off air"), then `StatTile`s: On air, Peak ("listening at once"), Tracks (when counted), Audio lost ("0 s" green when none), and "Back to station". Storage failures mean no summary; it just goes to the overview.
 
 ### 11. History pages
 
-- **Recent broadcasts** on the overview (`RecentBroadcasts`, last 5) and the **Broadcasts** page (`/dashboard/broadcasts`) both read `GET /stations/{slug}/sessions` (`StreamSessionController::index`: `authorize('view')`, `latest('started_at')->paginate(20)`). Source label map: `browser` Studio, `electron` Desktop, `external` Encoder; the `client` string is a tooltip. The Broadcasts page uses the caller's single station (`getMyStation`), keeps only finished sessions, shows "Your latest N shows" when `total > page size`, and scales each duration bar to the longest show capped at 3 hours. Empty state shows a Go live action.
+- **Recent shows** on the overview (last 5 of the loaded 20) and **Your shows** (`/dashboard/broadcasts`) both read `GET /stations/{slug}/sessions` (`StreamSessionController::index`: `authorize('view')`, `latest('started_at')->paginate(20)`, `?finished=1` to leave the open show out, plus `summary`). Times are on the station's clock. Your shows pages with "Show more", opens a row to show `peak_at`, and summarises every finished show with a trend sentence ([station-management-dashboard.md](station-management-dashboard.md)).
 - Live airtime only: a station that only ever ran AutoDJ has no rows.
 
 ## Endpoints
@@ -293,7 +296,7 @@ Read once on mount of the overview: reads and immediately removes the `sessionSt
 | `POST /api/stations/{slug}/start` | `StationPowerController::start` | owner, `throttle:20,1` | 202; 422 `station_limit_reached`; 503 `station_start_failed` |
 | `POST /api/stations/{slug}/stop` | `StationPowerController::stop` | owner, `throttle:20,1` | 409 `station_is_live` / `station_is_live_external`; `force` only cuts encoders |
 | `GET /api/stations/{slug}/status` | `StationStatusController` | owner, `throttle:120,1` | `slug`, `state`, `desired_state`, `started_at`, `reachable`, `ready`, `icecast_connected`, `last_ready_at`, `source`, `broadcaster`, `live_source`, `now_playing`, `elapsed`, `remaining`, `playlist_length`, `up_next` (max 5) |
-| `GET /api/stations/{slug}/sessions` | `StreamSessionController::index` | owner (`view`) | paginated, 20 |
+| `GET /api/stations/{slug}/sessions` | `StreamSessionController::index` | owner (`view`) | paginated, 20; `?finished=1`; `summary {shows, live_seconds}` over every finished show |
 | `POST /api/stations/{slug}/sessions` | `StreamSessionController::store` | owner (`update`) | **not called by any client here**; see Gaps |
 | `DELETE /api/stations/{slug}/sessions/{session}` | `StreamSessionController::destroy` | owner (`update`) | **not called**; does not check the session belongs to the station |
 | `POST /api/internal/harbor-auth` | `HarborAuthController` | `X-Internal-Key`, 300/min/IP | 200 allow / 403 refuse |
@@ -308,12 +311,12 @@ Config and env: `LIQUIDSOAP_INGEST_URL`, `LIQUIDSOAP_HARBOR_INPUT_PORT` (8090), 
 
 | Surface | What |
 |---|---|
-| `GoLiveTrigger` dialog | pick browser vs broadcast app (Pro-locked, opens `EncoderView`; connection details via `EncoderConnection`, a poll every 2 s via `useStationStatus(..., 2000)` to say when an encoder connects) |
-| `/dashboard/stations/{slug}/live` | pre-flight, connection steps, lamp, 3 s hold, then redirect to the studio |
-| `/dashboard/stations/{slug}/studio` | the studio (redirects to `/live` if idle and never live, to the overview once a live show returns to idle) |
-| Every dashboard page | `LiveBanner`, `BroadcastMiniController`, sidebar "Studio Live" marker, tab-close warning |
-| Overview | `ShowSignOff`, `RecentBroadcasts`, `StationActions`; `TrackProgress` is the AutoDJ (not studio) progress bar, driven by `useTrackProgress` from the status poll |
-| `/dashboard/broadcasts` | session history |
+| `/dashboard/stations/{slug}/live` | pre-flight (mode, mic check, running order), then one press: the checks, then on air and a redirect to the studio |
+| `/dashboard/stations/{slug}/studio` | the studio (redirects to `/live` if idle and never live, to `/studio/wrap` once a live show returns to idle) |
+| `/dashboard/stations/{slug}/studio/wrap` | "That's a wrap." |
+| Every dashboard page | the status band (signal, uptime, listeners, transport), sidebar "Studio Live" lamp, phone tab-bar dot, tab-close warning |
+| Overview | hero "You're live." + Open studio; Recent shows |
+| `/dashboard/broadcasts` | Your shows: session history |
 | Help | `/help/go-live-from-your-browser`, `/help/using-the-studio`, `/help/my-encoder-wont-connect` |
 | Mobile | separate manager against the same token endpoint; see [mobile-studio-and-encoder.md](mobile-studio-and-encoder.md) |
 
@@ -323,22 +326,22 @@ Related: [realtime-events.md](realtime-events.md) (`StationStateChanged`), [list
 
 1. **`StreamSessionController::store` and `destroy` are dead in practice.** No client here calls them (the web studio opens no session; harbor does). The controller docblock says so. `BroadcastStateService` (Redis `broadcast:station:{id}` keys, statuses `starting`/`live`/`reconnecting`, TTLs 60/90/45 s) is used **only** by `store`/`destroy`; `markLive`, `markReconnecting`, `isLive` and `isLiveFromState` are never called anywhere. `EncoderSessionAttributionTest` and `StationNotifySubscriptionTest` exercise `POST /sessions` as a "studio", which the real studio never does. `destroy` also does not check `$session` belongs to `$station`.
 2. **`electron` source type is reserved and written by nothing**, but is in the enum, the TypeScript union and the label map ("Desktop").
-3. **The studio goes blank when a broadcast dies.** `studio/page.tsx` returns `null` unless `isLive && signal`, and its redirect effect only handles `state === "idle"`. After reconnect exhaustion `fail()` leaves `state = "error"`: the studio renders nothing, no redirect, no banner, and the only notice is on the `/live` page. `BroadcastProvider` also does not clear `engine`/`micStream` on `error` (only on `idle`), so they keep pointing at a destroyed engine.
-4. **Each drop can split a show into several `stream_sessions` rows.** A drop that harbor detects closes the session; the reconnect opens a new one with `peak_listeners` reset. The client's `liveSince`, uptime and sign-off duration span the whole show, so sign-off duration and the Broadcasts page can disagree.
-5. **`peak_listeners` is sampled once a minute by another command** (`listeners:sweep`, `SweepListenerSessions::recordPeak`), only while the session is open, so a peak that rises and falls between two runs can be missed. The studio rail's peak is the client's own 10 s polling.
+3. **The studio goes blank when a broadcast dies.** `studio/page.tsx` returns `null` unless `isLive`, and its redirect effect only handles `state === "idle"`. After reconnect exhaustion `fail()` leaves `state = "error"`: the studio renders nothing and doesn't redirect, and the status band falls back to the poll's view of the station. `BroadcastProvider` also does not clear `engine`/`micStream` on `error` (only on `idle`), so they keep pointing at a destroyed engine.
+4. **Each drop can split a show into several `stream_sessions` rows.** A drop that harbor detects closes the session; the reconnect opens a new one with `peak_listeners` reset. The client's `liveSince`, uptime and wrap-screen duration span the whole show, so the wrap screen and Your shows can disagree.
+5. **`peak_listeners` (and `peak_at`) are sampled once a minute by another command** (`listeners:sweep`, `SweepListenerSessions::recordPeak`), only while the session is open, so a peak that rises and falls between two runs can be missed. The studio's peak is the client's own 10 s polling.
 6. **Reloading the studio tab strands you for about 10 s.** The socket closes uncleanly; until harbor's timeout (default 10 s) the session stays open, so `station.is_live` is true and the `/live` page shows "Someone is live from another browser or computer" although it was this browser. The queue survives (IndexedDB), the show does not.
-7. **Comment/code disagreement on the mic choice.** `GoLiveTrigger.tsx` says the last mic-off choice "survives to the next broadcast", but `BroadcastProvider.stop()` removes `broadcast:micDisabled:{slug}`, so it resets after every show. (`broadcast:resumeFromStart` is never removed.)
-8. **The latency claim in the lamp copy is hard-coded** ("about 15–20 seconds") in `signal.ts`. The code shows harbor `buffer=5.`, a further 2 s live buffer, then HLS 4 s segments (`segment_duration = 4.`, `segments = 5`) plus the player's own buffering. That sums to roughly 5 s harbor + 2 s buffer + up to 5 x 4 s HLS window before the player's own buffering; the 15-20 s figure is an estimate that cannot be confirmed without a live Liquidsoap and player.
-9. **`useAudioLevels.ts`, `AudioEngine.getAnalyser()`, `AudioEngine.clearQueue()` (the engine method) and `BroadcastManager.getSessionId()` are unused.** The engine builds and connects an analyser nobody reads. The go-live page clears the queue through `queueStore.clearQueue()` directly.
+7. **The mic-off choice resets after every show.** The go-live page reads `broadcast:micDisabled:{slug}` as the last-used mode, but `BroadcastProvider.stop()` removes it, so each show starts on Mic + music. (`broadcast:resumeFromStart` is never removed.)
+8. **The latency claim is hard-coded** ("about 15–20 seconds") in `signal.ts` and as "about 15–20 s late" on the studio page. The code shows harbor `buffer=5.`, a further 2 s live buffer, then HLS 4 s segments (`segment_duration = 4.`, `segments = 5`) plus the player's own buffering. That sums to roughly 5 s harbor + 2 s buffer + up to 5 x 4 s HLS window before the player's own buffering; the 15-20 s figure is an estimate that cannot be confirmed without a live Liquidsoap and player.
+9. **`useAudioLevels.ts`, `AudioEngine.getAnalyser()`, `AudioEngine.clearQueue()` (the engine method) and `BroadcastManager.getSessionId()` are unused.** The engine builds and connects an analyser nobody reads. The go-live page clears the queue through `queueStore.clearQueue()` directly (`hooks/usePreflightQueue.ts`).
 10. **The queue is per browser profile and station, not per account.** Two users who share a browser and open the same station share its queue. Files stay on that machine; a different device starts empty. The 2 GiB cap in `audioEngine.ts` is per engine, so with several stations the real ceiling is the browser's origin quota across all of them.
 11. **Repeat mode is not persisted** and paused positions are not saved (only playing state is written every 5 s).
 12. **The broadcast token does not check that the station is running or that the caller's plan allows anything**, and the token's `user_id` is never compared to the current owner at harbor-auth (the MAC binds it to the slug for 60 s). Consequences are limited (owner-only mint, 60 s TTL) but the token is a slug bearer, not an ownership proof.
 13. **The first-start timeout is silently accepted.** If the container is not `ready` after 20 s the studio publishes anyway; the first seconds can be lost with no message.
 14. **Auto-stop interplay.** A no-AutoDJ station is taken off air by the sweep 150 s after its last browser session closed; `RECONNECT_BUDGET_MS` (120 s) must stay below that. The client (`broadcast.ts`) and the API (`StationAudioPolicy`) agree only through comments; nothing enforces the ordering.
 15. **Release-on-End is best effort.** `releaseStation` gives up after about 5.2 s of 409 retries or on any other status; the sweep cleans up later. It runs only when the plan lacks AutoDJ; an unknown plan (`usePlan()` null) never releases.
-16. **The End dialog's "silence" wording depends on a status poll** that only runs while the dialog is open; if it hasn't returned, the AutoDJ wording is shown and the sign-off card may say the wrong thing.
+16. **The End dialog's "silence" wording depends on the status poll** (read only while the dialog is open); if it hasn't returned, the AutoDJ wording is shown and the wrap screen may say the wrong thing.
 17. **Mixed content in dev.** With `LIQUIDSOAP_INGEST_URL` unset the studio gets `ws://<bridge-ip>:8090/<slug>`, which a page on `https://` cannot open. `infra/native/README.md` describes leaving it empty, while `api/.env.example` and `infra/native/env/api.env.example` set `wss://stream.gocast.fm/broadcast/{slug}`; the README and the env examples disagree.
-18. **Secure context required.** Over plain http on a LAN address `AudioWorklet` and `mediaDevices` do not exist. `assertBroadcastSupported` throws a readable error, but it fires before any step is active, so no step shows the error, only the lamp.
+18. **Secure context required.** Over plain http on a LAN address `AudioWorklet` and `mediaDevices` do not exist. `assertBroadcastSupported` throws a readable error, but it fires before any step is active, so no step shows the error, only the "Couldn't go live." notice.
 19. **The 600 ms hello grace is a heuristic.** A slow rejection (auth callback near its 5 s timeout) closes after the studio already reports success; the drop path then handles it as a mid-broadcast disconnect.
 20. **`HarborAuthController` gates both the studio and encoders.** Changing the check order or the plan gate affects the studio's hot path (every connect and reconnect does a token verify first).
 21. **Ghost session cleanup** (a lost `live_disconnected`) is described in code comments as handled by `ReconcileStations` and by `stop()` closing sessions; `ReconcileStations::reconcileLiveFlags` (`stations:reconcile`) is the real backstop: for running stations with an open session it reads the container status (`broadcaster`, else `source === 'live'`); after `liquidsoap.stranded_session_strikes` (default 3) consecutive passes where the container says nobody is attached, it closes the open sessions. `StationLifecycleService::stop` also closes open sessions on a stop. `StreamSessionController::store` clears a ghost encoder session only when the station is not running.
@@ -352,7 +355,7 @@ Related: [realtime-events.md](realtime-events.md) (`StationStateChanged`), [list
 - `api/tests/Feature/HarborAuthTest.php`: token path, stream-key path, plan gate, refusal reasons.
 - `api/tests/Feature/EncoderSessionAttributionTest.php`: `live_connected` opens sessions with `via`/`client`, the `station_already_live` refusal, ghost sessions, cut-off (`force`) rules, `live_source` in `/status`.
 - `api/tests/Feature/StationEventBroadcastTest.php`, `StationSweepTest.php`, `SweepListenerSessionsTest.php`, `LiquidsoapTemplateTest.php`: adjacent (event push, studio-gone stop, peak sampling, template output). `StationEventBroadcastTest` covers which events are pushed and that the session opens before the push; `StationSweepTest` covers the studio-gone stop (stops soon after a browser show ends, keeps the container inside the grace, never stops AutoDJ stations); `SweepListenerSessionsTest` covers peak raising; `LiquidsoapTemplateTest` asserts harbor `buffer` 5 s and the timeout rendering.
-- No client unit tests exist for `broadcast.ts`, `audioEngine.ts` or the studio components. `client/tests/e2e` holds only `auth.spec.ts` and `help-screenshots.spec.ts`. The browser path is verified by hand; automation tabs are hidden and HLS/feed behaviour differs there.
+- Client: `lib/preflightQueue.test.ts` (pre-flight queue edits keep the playback record on the right song), `lib/airState.test.ts` (the band's reading of the studio signal). No unit tests for `broadcast.ts`, `audioEngine.ts` or the studio components. `client/tests/e2e/dashboard-visual.spec.ts` captures the go-live page (not live; going live in a headless run really starts a station). The live path is verified by hand; automation tabs are hidden and HLS/feed behaviour differs there.
 
 ## History
 

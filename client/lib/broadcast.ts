@@ -1,3 +1,4 @@
+import { openMic, rememberMicDevice, savedMicDeviceId } from './mic'
 import { AudioEngine, BITRATE_TIERS, DEFAULT_BITRATE, assertBroadcastSupported, type Bitrate } from './audioEngine'
 import api from './axios'
 import { captureDrop, flushDrops, resolveDrop } from './studioDropLog'
@@ -170,38 +171,6 @@ function reconnectDelay(attempt: number): number {
  * socket is rebuilt — so a broadcaster who walks out of wifi range comes back
  * mid-sentence rather than losing their show. See {@link reconnect}.
  */
-/** The chosen microphone, per browser: a device belongs to the machine, not a station. */
-const MIC_DEVICE_KEY = 'broadcast:micDeviceId'
-
-function savedMicDeviceId(): string | undefined {
-  try { return localStorage.getItem(MIC_DEVICE_KEY) ?? undefined } catch { return undefined }
-}
-
-/**
- * Open a microphone: exactly `deviceId` when given, else the default.
- *
- * `exact`, never `ideal`. The browser weighs an ideal device against the
- * other preferences below, and a mono laptop or headset mic loses to a
- * default that can do `channelCount: 2`: picking a mic quietly reopened the
- * default every time.
- */
-function openMic(deviceId?: string): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia({
-    audio: {
-      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-      // All three OFF deliberately. They are tuned for speech on a call:
-      // autoGainControl rides the level of anything it hears, and
-      // noiseSuppression treats sustained tones as noise — between them
-      // they audibly chew music. A radio broadcaster's mic sits in the
-      // same mixer as the queue, so this must stay clean.
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      channelCount: 2,
-    },
-  })
-}
-
 export class BroadcastManager {
   private stationSlug: string
   private callbacks: BroadcastCallbacks
@@ -1026,7 +995,7 @@ export class BroadcastManager {
     this.engine.setMicStream(next)
     this.micStream.getTracks().forEach((t) => t.stop())
     this.micStream = next
-    try { localStorage.setItem(MIC_DEVICE_KEY, deviceId) } catch { /* storage blocked */ }
+    rememberMicDevice(deviceId)
     return next
   }
 

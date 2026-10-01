@@ -133,7 +133,7 @@ export function Select<T extends string | number>({
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openAt(options.findIndex((o) => o.value === value)))}
         onKeyDown={onKeyDown}
-        className="flex h-[var(--field-h,2rem)] w-full items-center justify-between gap-2 rounded-[var(--control-radius,calc(var(--radius)*0.8))] border border-input bg-input/30 px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="truncate">{selected?.label ?? ""}</span>
         <IconChevronDown size={14} className="shrink-0 text-muted-foreground" aria-hidden />
@@ -144,7 +144,7 @@ export function Select<T extends string | number>({
           ref={listRef}
           id={listboxId}
           role="listbox"
-          className="absolute z-50 mt-1 max-h-56 w-full min-w-max list-none overflow-y-auto rounded-[var(--control-radius,calc(var(--radius)*0.8))] border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          className="absolute z-50 mt-1 max-h-56 w-full min-w-max list-none overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
         >
           {options.map((option, index) => (
             <li

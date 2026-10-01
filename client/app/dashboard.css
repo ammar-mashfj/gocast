@@ -1,0 +1,370 @@
+/* ── The dashboard's design tokens ────────────────────────────────────────
+   GoCast Design System (docs/design/dashboard-prototype/styles.css is the
+   source), applied to /dashboard only. Rollout: docs/DASHBOARD-DESIGN-SYSTEM-
+   ROLLOUT.md.
+
+   This file holds two things:
+   1. A type scale, radii and surface colours as Tailwind theme tokens, so
+      dashboard code writes `text-display` / `rounded-card` / `bg-surface-
+      raised` instead of re-deriving a size, weight and tracking each time.
+      They are new names, so marketing (which never uses them) is untouched.
+      Each one is registered with tailwind-merge in lib/utils.ts; a token
+      missing there gets silently dropped next to a colour class.
+   2. The dashboard scope: the block that re-points the shared colour
+      variables while a `data-surface="dashboard"` element is on the page. */
+
+@theme {
+  /* Display: Bricolage 800, tight. The two largest scale down on phones. */
+  --text-hero: clamp(2.5rem, 1.75rem + 2.5vw, 3.5rem);           /* 56 */
+  --text-hero--line-height: 0.95;
+  --text-hero--letter-spacing: -0.045em;
+  --text-hero--font-weight: 800;
+  --text-page: clamp(2rem, 1.55rem + 1.5vw, 2.625rem);           /* 42: page title */
+  --text-page--line-height: 1;
+  --text-page--letter-spacing: -0.04em;
+  --text-page--font-weight: 800;
+  --text-display: clamp(1.75rem, 1.5rem + 0.9vw, 2.125rem);      /* 34: hero line */
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 800;
+  --text-title-lg: 1.875rem;                                     /* 30 */
+  --text-title-lg--line-height: 1;
+  --text-title-lg--letter-spacing: -0.03em;
+  --text-title-lg--font-weight: 800;
+  --text-title: 1.5rem;                                          /* 24: dialog title */
+  --text-title--line-height: 1.1;
+  --text-title--letter-spacing: -0.03em;
+  --text-title--font-weight: 800;
+  --text-title-sm: 1.375rem;                                     /* 22 */
+  --text-title-sm--line-height: 1.1;
+  --text-title-sm--letter-spacing: -0.02em;
+  --text-title-sm--font-weight: 800;
+  --text-heading: 1.125rem;                                      /* 18: card title */
+  --text-heading--line-height: 1.25;
+  --text-heading--letter-spacing: -0.01em;
+  --text-heading--font-weight: 700;
+
+  /* Body: 500 is the design system's regular weight. */
+  --text-lead: 1.0625rem;                                        /* 17 */
+  --text-lead--line-height: 1.45;
+  --text-lead--font-weight: 400;
+  --text-body: 0.9375rem;                                        /* 15 */
+  --text-body--line-height: 1.45;
+  --text-body--font-weight: 500;
+  --text-body-sm: 0.8125rem;                                     /* 13 */
+  --text-body-sm--line-height: 1.45;
+  --text-body-sm--font-weight: 500;
+  --text-caption: 0.75rem;                                       /* 12 */
+  --text-caption--line-height: 1.35;
+  --text-caption--font-weight: 500;
+  --text-micro: 0.6875rem;                                       /* 11: mono figures on axes and chips */
+  --text-micro--line-height: 1.2;
+
+  /* Mono numbers: clocks, counters, meters. Used with `font-mono`. */
+  --text-meter-sm: 1.125rem;                                     /* 18 */
+  --text-meter-sm--line-height: 1;
+  --text-meter-sm--letter-spacing: -0.01em;
+  --text-meter-sm--font-weight: 600;
+  --text-meter: 1.625rem;                                        /* 26 */
+  --text-meter--line-height: 1;
+  --text-meter--font-weight: 600;
+  --text-meter-lg: 3rem;                                         /* 48 */
+  --text-meter-lg--line-height: 1;
+  --text-meter-lg--letter-spacing: -0.03em;
+  --text-meter-lg--font-weight: 700;
+  --text-meter-xl: clamp(3rem, 2.4rem + 2vw, 4rem);              /* 64 */
+  --text-meter-xl--line-height: 1;
+  --text-meter-xl--letter-spacing: -0.04em;
+  --text-meter-xl--font-weight: 700;
+
+  /* Radii, largest first. Hero and card are the page's surfaces; panel is
+     anything floating (dialogs, menus); well is a surface inside a card. */
+  --radius-hero: 1.875rem;    /* 30 */
+  --radius-card: 1.625rem;    /* 26 */
+  --radius-panel: 1.375rem;   /* 22 */
+  --radius-well: 1.125rem;    /* 18 */
+  --radius-button-xl: 1.25rem; /* 20: 64px buttons */
+  --radius-button: 1rem;      /* 16: 52px buttons */
+  --radius-control: 0.875rem; /* 14: 40px buttons, fields, segmented */
+  --radius-item: 0.75rem;     /* 12: nav and menu items */
+  --radius-chip: 0.625rem;    /* 10: status chip, tags */
+  --radius-segment: 0.5625rem; /* 9: segments inside a small segmented control */
+  --radius-tag: 0.375rem;     /*  6: the PRO tag, checkboxes */
+  --radius-swatch: 0.25rem;   /*  4: playlist swatches, legend keys, chart bars */
+
+  /* Floating panels (menus, popovers, dialogs). The page itself has no
+     shadows: hierarchy is lightness steps. */
+  --shadow-panel: 0 20px 40px -10px rgb(0 0 0 / 0.6);
+}
+
+/* The one stroke weight: ghost buttons, outline cards, dashed drop zones,
+   a focused field. Registered with tailwind-merge as a border width. */
+@utility border-stroke {
+  border-width: 1.5px;
+}
+
+/* The talk pad's speaker grille: a 9px dot grid, warm grey idle, dark ink on
+   red while the mic is open. The one exception to "backgrounds are solid"
+   (see the design-system notes in docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md). */
+@utility grille {
+  background-image: radial-gradient(circle, rgb(244 241 236 / 0.075) 1.1px, transparent 1.5px);
+  background-size: 9px 9px;
+  background-position: center;
+}
+@utility grille-live {
+  background-image: radial-gradient(circle, rgb(26 8 6 / 0.16) 1.1px, transparent 1.5px);
+  background-size: 9px 9px;
+  background-position: center;
+}
+
+/* A one-time code, read digit by digit: wide tracking, with a matching
+   indent so the trailing space after the last digit doesn't pull a centred
+   code off centre. */
+@utility code-spaced {
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+}
+
+/* Mono caps labels: "LISTENING NOW", "UP NEXT", lamp text. A utility rather
+   than theme tokens because the family and case are part of the role. */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;      /* 11 */
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+@utility eyebrow-sm {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;       /* 10 */
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Surfaces: the warm ladder, by role. Marketing values are the closest
+   existing neutrals, never used there. */
+@theme inline {
+  --color-surface-inset: var(--ds-surface-inset, var(--background));   /* wells inside a card */
+  --color-surface-raised: var(--ds-surface-raised, var(--muted));      /* hover, selected row */
+  --color-surface-control: var(--ds-surface-control, var(--secondary));/* menus, chips, inputs */
+  --color-surface-strong: var(--ds-surface-strong, var(--accent));     /* switch track, artwork stripes */
+  --color-line: var(--ds-line, var(--border));                         /* hairlines */
+  --color-line-strong: var(--ds-line-strong, var(--input));           /* ghost button edge */
+  --color-fault-ink: var(--ds-pro-ink, #1a1206);                       /* text on an amber fill */
+  --color-error: var(--ds-error, #fca5a5);                             /* field errors, Delete forever */
+  --color-live-deep: var(--ds-live-deep, #4a1510);                     /* the seam inside the live hero */
+
+  /* The page's side gutter (`px-gutter`): 18px on phones, 36px from 640px.
+     Shared by the top bar, the status band and the page body so their
+     edges line up. */
+  --spacing-gutter: var(--page-gutter, 1.5rem);
+}
+
+@theme {
+  /* The page body's measure (`max-w-page`). */
+  --container-page: 77.5rem; /* 1240 */
+}
+
+/* ── GoCast Design System: the dashboard ──────────────────────────────────
+   The Claude Design project "GoCast Design System" (same palette as the
+   mobile app, mobile/src/lib/theme.ts), applied to /dashboard only; rollout
+   tracked in docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md. The dashboard layout
+   marks its wrapper `data-surface="dashboard"`; `:has()` lifts the scope to
+   <html>, so dialogs, popovers and toasts portalled to <body> wear it too.
+   Marketing never matches and keeps the block above.
+
+   One meaning per colour:
+     red    #FF5A4E — you are live / the mic is open. Also the confirm button
+                      of a destructive action, always inside a dialog.
+     violet #9B7BFF — AutoDJ: the station plays itself
+     amber  #FFB547 — silence, faults (listeners aren't hearing what you
+                      think), and Pro
+     green  #5FD39A — a check passed, something saved
+     warm greys     — everything else, including off air
+   Text on a red or amber fill is dark ink, never white. */
+.dark:has([data-surface="dashboard"]) {
+  /* Warm near-black ladder: hierarchy comes from lightness steps, not
+     borders or shadows. */
+  --background: #0E0D0C;
+  --foreground: #F4F1EC;
+  --card: #181614;
+  --card-foreground: #F4F1EC;
+  --popover: #1B1916;
+  --popover-foreground: #F4F1EC;
+  /* The primary action is off-white with dark ink, not a hue: colour is
+     kept for meaning. */
+  --primary: #F4F1EC;
+  --primary-foreground: #0E0D0C;
+  --secondary: #221F1C;
+  --secondary-foreground: #F4F1EC;
+  --muted: #1D1A17;
+  --muted-foreground: #A39D94;
+  --accent: #221F1C;
+  --accent-foreground: #F4F1EC;
+  --destructive: #FF5A4E;
+  --border: rgb(244 241 236 / 8%);
+  --input: rgb(244 241 236 / 14%);
+  --ring: #A39D94;
+  --sidebar: #0E0D0C;
+  --sidebar-foreground: #F4F1EC;
+  --sidebar-primary: #F4F1EC;
+  --sidebar-primary-foreground: #0E0D0C;
+  --sidebar-accent: #1D1A17;
+  --sidebar-accent-foreground: #F4F1EC;
+  --sidebar-border: rgb(244 241 236 / 6%);
+  --sidebar-ring: #A39D94;
+
+  /* Desktop-scaled radii: the design system's 14px controls and 22px cards,
+     a step down. 12px base → lg 12 (controls), xl ~17, 2xl ~22 (cards). */
+  --radius: 0.75rem;
+  /* Type: Bricolage Grotesque for everything, IBM Plex Mono for clocks,
+     counters and status labels. Overrides the next/font variables that
+     `font-sans` / `font-mono` resolve through (layout.tsx). */
+  --font-body: var(--font-display-face), var(--font-plex-arabic);
+  --font-mono-face: var(--font-plex-mono);
+
+  --page-gutter: 1.125rem;
+
+  /* Surface ladder (see the @theme block above) */
+  --ds-surface-inset: #0E0D0C;
+  --ds-surface-raised: #1D1A17;
+  --ds-surface-control: #221F1C;
+  --ds-surface-strong: #2A2723;
+  --ds-line: rgb(244 241 236 / 6%);
+  --ds-line-strong: rgb(244 241 236 / 14%);
+
+  /* State colours */
+  --ds-live: #FF5A4E;
+  --ds-live-text: #FF8A80;
+  --ds-live-ink: #1A0806;
+  --ds-live-tint: #3A1714;
+  /* The studio band while live on music alone: barely warmer than a card,
+     so the red chip carries the state and the band stays calm. */
+  --ds-live-dim: #221A18;
+  --ds-live-soft: #FFB3AC;
+  --ds-mic: #FF5A4E;
+  --ds-mic-text: #FF8A80;
+  --ds-on-air: #9B7BFF;
+  --ds-on-air-text: #C9B8FF;
+  --ds-on-air-tint: #1E1A2B;
+  --ds-on-air-dim: #3A3350;
+  --ds-on-air-deep: #2B2540;
+  --ds-fault: #FFB547;
+  --ds-fault-text: #FFD48A;
+  --ds-fault-tint: #33260F;
+  --ds-pro: #FFB547;
+  --ds-pro-text: #FFD48A;
+  --ds-pro-ink: #1A1206;
+  --ds-pro-tint: #33260F;
+  --ds-ok: #5FD39A;
+  --ds-error: #FF8177;
+  --ds-live-deep: #4A1510;
+  --ds-ok-text: #5FD39A;
+  --ds-panel: #181614;
+
+  /* The marketing brand tokens, as the dashboard still uses them. Violet is
+     AutoDJ's colour here, so these land on the design system's violet; the
+     text greys land on its warm greys. */
+  --ds-violet-full: #9B7BFF;
+  --ds-violet-muted: #C9B8FF;
+  --ds-violet: #C9B8FF;
+  --ds-violet-subtle: #1E1A2B;
+  --ds-violet-border: #9B7BFF;
+  --ds-emerald-live: #FF5A4E;
+  --ds-text-primary: #F4F1EC;
+  --ds-text-secondary: #D6D1C9;
+  --ds-text-muted: #A39D94;
+  --ds-text-faint: #6F6A63;
+  --ds-border-subtle: #2A2723;
+  --ds-dark: #0E0D0C;
+
+  /* Empty artwork: the design system's striped placeholder
+     (components/StationArtwork.tsx reads it). */
+  --artwork-placeholder: repeating-linear-gradient(135deg, #2A2723 0 7px, #221F1C 7px 14px);
+
+  --ds-selection: rgb(244 241 236 / 0.18);
+  --ds-caret: #F4F1EC;
+  --ds-focus: #A39D94;
+  --ds-scrollbar: rgb(244 241 236 / 0.14);
+}
+
+/* Anchored sections land below the sticky top bar and status band, whose
+   height DashboardShell publishes. */
+.dark:has([data-surface="dashboard"]) {
+  scroll-padding-top: var(--chrome-h, 0px);
+}
+
+@media (min-width: 40rem) {
+  .dark:has([data-surface="dashboard"]) {
+    --page-gutter: 2.25rem;
+  }
+}
+
+/* ── Toasts ───────────────────────────────────────────────────────────────
+   The prototype's toast: a #2A2723 pill-ish card, 600 14px, and a status
+   dot where sonner draws an icon (green done, red failed, amber warning).
+   The Toaster is shared with marketing (app/layout.tsx), so this is scoped;
+   the variables go on each toast because the toaster's own inline style
+   would beat them there. */
+.dark:has([data-surface="dashboard"]) [data-sonner-toast] {
+  --normal-bg: var(--ds-surface-strong);
+  --normal-border: transparent;
+  --normal-text: var(--foreground);
+  --border-radius: 1rem;
+  padding: 0.875rem 1.125rem;
+  box-shadow: var(--shadow-panel);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.dark:has([data-surface="dashboard"]) [data-sonner-toast] [data-icon] {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+}
+.dark:has([data-surface="dashboard"]) [data-sonner-toast] [data-icon] > * {
+  display: none;
+}
+.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="success"] [data-icon] { background: var(--ds-ok); }
+.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="error"] [data-icon] { background: var(--ds-error); }
+.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="warning"] [data-icon] { background: var(--ds-fault); }
+.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="loading"] [data-icon] { animation: pulse 1.2s ease-in-out infinite; }
+
+/* ── A solid live surface ─────────────────────────────────────────────────
+   The design system's live hero (mobile's Overview while someone is on air):
+   a card filled with live red, everything on it in dark ink. Rather than a
+   second set of classes for every child, the card re-points the tokens its
+   children already use — foreground, muted, borders, the primary button
+   (ink with red text, mobile's `liveInk` button) and the state colours —
+   so a stat, a link or a button placed on it comes out right on its own. */
+.surface-live {
+  background-color: #FF5A4E;
+  color: #1A0806;
+  --foreground: #1A0806;
+  --card-foreground: #1A0806;
+  --muted-foreground: rgb(26 8 6 / 0.72);
+  --primary: #1A0806;
+  --primary-foreground: #FF5A4E;
+  --secondary: rgb(26 8 6 / 0.12);
+  --secondary-foreground: #1A0806;
+  --muted: rgb(26 8 6 / 0.14);
+  --accent: rgb(26 8 6 / 0.1);
+  --accent-foreground: #1A0806;
+  --border: rgb(26 8 6 / 0.16);
+  --input: rgb(26 8 6 / 0.28);
+  --ring: #1A0806;
+  --ds-live: #1A0806;
+  --ds-live-text: #1A0806;
+  --ds-on-air: #1A0806;
+  --ds-on-air-text: #1A0806;
+  --ds-text-faint: rgb(26 8 6 / 0.55);
+  --ds-line: rgb(26 8 6 / 0.14);
+  --ds-line-strong: rgb(26 8 6 / 0.3);
+  /* For ds Button's `ink` variant: ink fill, red words. */
+  --ink: #1A0806;
+  --paper: #FF5A4E;
+}

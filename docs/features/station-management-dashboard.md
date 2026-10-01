@@ -1,6 +1,6 @@
 ---
 feature: Station management dashboard (shell, overview, station CRUD, settings)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - client/app/dashboard/layout.tsx
   - client/app/dashboard/page.tsx
@@ -17,32 +17,13 @@ sources:
   - client/app/dashboard/stations/[slug]/settings/loading.tsx
   - client/app/dashboard/stations/[slug]/(overview)/loading.tsx
   - client/app/dashboard/broadcasts/page.tsx
-  - client/app/dashboard/stations/[slug]/DeleteStation.tsx
-  - client/app/dashboard/stations/[slug]/StationActions.tsx
-  - client/app/dashboard/stations/[slug]/LinksEditor.tsx
-  - client/app/dashboard/stations/[slug]/TimezoneCombobox.tsx
   - client/app/dashboard/settings/layout.tsx
   - client/app/dashboard/settings/page.tsx
   - client/components/dashboard/AppSidebar.tsx
-  - client/components/dashboard/DashboardHeader.tsx
-  - client/components/dashboard/CreateStationButton.tsx
   - client/components/dashboard/StationFormDialog.tsx
-  - client/components/dashboard/StationChecklist.tsx
-  - client/components/dashboard/StationActivity.tsx
-  - client/components/dashboard/StationPower.tsx
-  - client/components/dashboard/StationShare.tsx
-  - client/components/dashboard/AutoDjRotation.tsx
-  - client/components/dashboard/RecentBroadcasts.tsx
-  - client/components/dashboard/ShowSignOff.tsx
   - client/components/dashboard/HelpLink.tsx
-  - client/components/dashboard/CopyButton.tsx
-  - client/components/dashboard/LiveListeners.tsx
-  - client/components/dashboard/TrackProgress.tsx
   - client/components/dashboard/EncoderConnection.tsx
   - client/components/dashboard/EmbedDialog.tsx
-  - client/components/dashboard/GoLiveTrigger.tsx
-  - client/components/dashboard/NotificationBell.tsx
-  - client/components/dashboard/LiveBanner.tsx
   - client/contexts/StationContext.tsx
   - client/contexts/AccountContext.tsx
   - client/contexts/ProRequestContext.tsx
@@ -87,18 +68,64 @@ sources:
   - api/routes/api.php
   - api/routes/console.php
   - api/config/liquidsoap.php
-fingerprint: b18e897023eca1ca
+  - client/app/dashboard/design-system/page.tsx
+  - client/app/dashboard/stations/[slug]/settings/ProfileCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/LinksCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/StreamCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/DeleteStation.tsx
+  - client/app/dashboard/stations/[slug]/settings/TimezoneCombobox.tsx
+  - client/app/dashboard/broadcasts/loading.tsx
+  - client/components/dashboard/shell/DashboardShell.tsx
+  - client/components/dashboard/shell/TopBar.tsx
+  - client/components/dashboard/shell/StationBand.tsx
+  - client/components/dashboard/shell/TabBar.tsx
+  - client/components/dashboard/shell/UpdatesMenu.tsx
+  - client/components/dashboard/overview/OverviewHeader.tsx
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/overview/NowPlayingWell.tsx
+  - client/components/dashboard/overview/YourLinkCard.tsx
+  - client/components/dashboard/overview/ComingUpCard.tsx
+  - client/components/dashboard/overview/SetupChecklist.tsx
+  - client/components/dashboard/overview/LiveShowsCard.tsx
+  - client/components/dashboard/overview/RecentShowsCard.tsx
+  - client/components/dashboard/share/TuneInCodeDialog.tsx
+  - client/components/dashboard/share/ShareDialog.tsx
+  - client/components/dashboard/shows/ShowsList.tsx
+  - client/components/dashboard/station-form/StationForm.tsx
+  - client/components/dashboard/station-form/ArtworkDrop.tsx
+  - client/components/dashboard/account/PlanCard.tsx
+  - client/components/dashboard/account/ProfileForm.tsx
+  - client/components/dashboard/account/PasswordForm.tsx
+  - client/components/dashboard/account/DeleteAccount.tsx
+  - client/components/dashboard/account/VerifyEmailDialog.tsx
+  - client/components/dashboard/ProRequestDialog.tsx
+  - client/contexts/StationStatusContext.tsx
+  - client/hooks/useStationStatusPoll.ts
+  - client/hooks/useStationPower.ts
+  - client/lib/dashboardNav.ts
+  - client/lib/airState.ts
+  - client/lib/stationHero.ts
+  - client/lib/comingUp.ts
+  - client/lib/liveShows.ts
+  - client/lib/showsTrend.ts
+  - client/lib/share.ts
+  - client/app/dashboard.css
+  - client/eslint.config.mjs
+  - client/hooks/useAccessRequest.ts
+  - client/hooks/useEmailVerification.ts
+  - client/lib/navigation.ts
+fingerprint: f49c214fa50b160c
 ---
 
 # Station management dashboard
 
-The signed-in web shell for one broadcaster: the sidebar and header, the station Overview, station create/edit/delete, and the Station settings and Account pages. **A user has one station.** The client enforces that by always resolving "the" station as the oldest one the account owns (`client/lib/station-server.ts` `getMyStation`). The API does **not** enforce it: the plan row still allows one station on Free and five on Pro (`plans.max_stations`, created in `2026_04_16_131050_create_plans_table.php`, never lowered by a later migration). The UI hides that, so a second station made by API is invisible in the dashboard.
+The signed-in web shell for one broadcaster: the sidebar, top bar, status band and phone tab bar, the station Overview, Your shows, station create/edit/delete, and the Station settings and Account pages. Everything is drawn with the dashboard design system (`components/ds/`, tokens in `client/app/dashboard.css`); `components/ui` is the marketing kit and only five of its primitives (skeleton, sidebar, slider, scroll-area, avatar) are used here, enforced by lint (see [Dev environment and testing](dev-environment-and-testing.md)). **A user has one station.** The client enforces that by always resolving "the" station as the oldest one the account owns (`client/lib/station-server.ts` `getMyStation`). The API does **not** enforce it: the plan row still allows one station on Free and five on Pro (`plans.max_stations`, created in `2026_04_16_131050_create_plans_table.php`, never lowered by a later migration). The UI hides that, so a second station made by API is invisible in the dashboard.
 
 Other things that surprise people:
 
 - **Editing the station profile on a running station restarts its Liquidsoap container.** `name`, `slug`, `description`, `genre` and `artwork_url` are in `StationObserver::LIQ_RELEVANT_COLUMNS`, so a changed value re-renders the `.liq` and calls `supervisor->up()`, which "always re-renders the .liq and restarts the container ... a restart drops connected listeners" (`LiquidsoapSupervisor::up` docblock). Show times, timezone, social links, `theme_config` are not in that list and never restart anything.
 - **"Delete station" is a soft delete.** The container comes down at once; the row, audio and history stay for 30 days and are then erased by `stations:prune-deleted`. The dialog says "This can't be undone", and in the product that is true (no restore UI or endpoint exists), but the data is not gone for a month.
-- **The station has two "states" on the same screen** with different sources of truth: the server-rendered Overview page carries the cheap intent-derived `state`, while `StationPower` polls `/stations/{slug}/status` and paints the real one. See Overview below.
+- **The station has two "states"** with different sources of truth: the server-rendered pages carry the cheap intent-derived `state`, while the status band, sidebar lamp and overview hero read the shared `/stations/{slug}/status` poll and paint the real one. See the shell and Overview below.
 
 Everything about going on and off air, the studio, the library, the schedule and the audience is owned elsewhere: [Station lifecycle](station-lifecycle.md), [Web studio](broadcasting-web-studio.md), [Library and playlists](library-and-playlists.md), [AutoDJ](autodj.md), [Schedule](schedule.md), [Listener analytics](listener-analytics.md), [Encoder ingest](encoder-ingest.md), [Public player and embed](public-player-and-embed.md), [Accounts, plans, invites](accounts-plans-invites.md), [Auth](auth.md). This doc covers their entry points into the shell and what the shell itself does.
 
@@ -108,18 +135,19 @@ All under `client/app/dashboard/`. Every route is inside `layout.tsx` and `error
 
 | URL | File | What it is |
 |---|---|---|
-| `/dashboard` | `page.tsx` | Resolves the station. Has one: `redirect` to `/dashboard/stations/{slug}`. Has none: the onboarding page ("Create your station" + `CreateStationButton`). A failed `/stations` fetch throws to `error.tsx`. |
+| `/dashboard` | `page.tsx` | Resolves the station. Has one: `redirect` to `/dashboard/stations/{slug}`. Has none: the create page ("Create your station" with `StationForm` right on the page). A failed `/stations` fetch throws to `error.tsx`. |
 | `/dashboard/stations` | `stations/page.tsx` | Dead URL kept for old bookmarks. Always `redirect("/dashboard")`. |
 | `/dashboard/library` | `library/page.tsx` | Forwarder. Station: redirect to `.../library`; none: `/dashboard`. Exists only because the sidebar's slugless AutoDJ fallback points here. |
 | `/dashboard/station/{...path}` | `station/[[...path]]/page.tsx` | Slug-free deep link (singular "station"). Looks up the viewer's own station and redirects. Allowlist `STATION_PAGES = studio, live, library, audience, settings`; anything else (including `schedule`, multi-segment paths and typos) lands on the station Overview. No station: `/dashboard`. Built for announcement buttons (one payload for every account). |
 | `/dashboard/stations/{slug}` | `stations/[slug]/(overview)/page.tsx` | The Overview (below). |
-| `/dashboard/stations/{slug}/settings` | `.../settings/page.tsx` | Station settings (below). Anchors `#links`, `#show-times`, `#encoder` are deep-linked from the checklist and elsewhere. |
-| `/dashboard/stations/{slug}/live`, `/studio` | own docs | Pre-flight and studio. The sidebar's Studio item and `StationActions` link here. |
+| `/dashboard/stations/{slug}/settings` | `.../settings/page.tsx` | Station settings (below). Anchors `#links` and `#show-times` are deep-linked from the checklist and elsewhere. |
+| `/dashboard/stations/{slug}/live`, `/studio`, `/studio/wrap` | own docs | Go live, the studio and "That's a wrap". The sidebar's Studio item and the band link here. |
 | `.../library`, `.../schedule`, `.../audience` | own docs | Library, Schedule, Audience. |
-| `/dashboard/broadcasts` | `broadcasts/page.tsx` | Session history for the resolved station: one API page (`/stations/{slug}/sessions`, newest 20), finished sessions only, a "Last show" card (started, on air, peak listeners, source) above the table, then columns Started / Source / On air (bar capped at 3 h) / Peak. **Any** failure (including a 5xx or timeout) becomes `notFound()`, unlike the per-station pages. Empty: "Nothing on the log yet" plus `StationActions mode="live"` (Go live / Open studio), or "Create your station" with no station. Header says "Your latest N shows" when the page is truncated. |
+| `/dashboard/broadcasts` | `broadcasts/page.tsx` | **Your shows** (below). |
 | `/dashboard/settings` | `settings/page.tsx` | **Account** page (not station settings). Tab title "Account" via `settings/layout.tsx`. |
+| `/dashboard/design-system` | `design-system/page.tsx` | The ds component gallery; `notFound()` in production. |
 
-Per-station pages call `apiFetch('/stations/{slug}')` themselves and treat **403 and 404 the same**: `notFound()`. Rationale in code: a 403 from `StationPolicy::view` should not confirm that someone else's slug exists. Any other failure (timeout after 10 s, 401, 5xx) is logged and rethrown to `error.tsx` (`client/lib/api-server.ts`: `TIMEOUT_MS = 10_000`, `no-store`, bearer token from the `token` cookie; it does **not** redirect on 401). The browser-side axios instance (`client/lib/axios.ts`) does: any 401 outside `/login`/`/register` runs `clearAuth()` and sets `window.location` to `/auth/login?expired=1` once; a 403 with `code: "email_unverified"` toasts "Verify your email to continue.".
+Per-station pages call `apiFetch('/stations/{slug}')` themselves and treat **403 and 404 the same**: `notFound()`. Rationale in code: a 403 from `StationPolicy::view` should not confirm that someone else's slug exists. Any other failure (timeout after 10 s, 401, 5xx) is logged and rethrown to `error.tsx` (`client/lib/api-server.ts`: `TIMEOUT_MS = 10_000`, `no-store`, bearer token from the `token` cookie; it does **not** redirect on 401). The browser-side axios instance (`client/lib/axios.ts`) does: any 401 outside `/login`/`/register` runs `clearAuth()` and navigates in-app (`lib/navigation.ts` `navigate`, no reload) to `/auth/login?expired=1`, at most once per 2 s; a 403 with `code: "email_unverified"` toasts "Verify your email to continue.".
 
 ## The shell (`layout.tsx`)
 
@@ -129,131 +157,138 @@ A server component. In order:
 2. `user.email_verified_at` falsy (from the cookie): `redirect("/auth/login")`. The login page reopens the verify modal from the dangling cookie.
 3. Two parallel fetches, each with its own failure fallback (logged, never fatal):
    - `GET /user` into `Account { email, plan }`. On failure `plan` is `null`, and every plan hook then answers "unlocked/unknown", never "Free".
-   - `getMyStation()` (React `cache()`d, one `/stations` request per render) into `CurrentStation { slug, name, artwork_url, genre, description }`. On failure `null`.
-4. Renders providers outermost to innermost: `RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider` > `ProRequestProvider` > `StationProvider` > `SidebarProvider`, then `AppSidebar`, `SidebarInset` containing `DashboardHeader`, `LiveBanner`, `<main className="flex-1 p-6">`, and `BroadcastMiniController`.
+   - `getMyStation()` (React `cache()`d, one `/stations` request per render) into `CurrentStation { slug, name, artwork_url, genre, description, timezone }`. On failure `null`.
+4. Renders providers outermost to innermost: `RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider` > `ProRequestProvider` > `StationProvider` > `StationStatusProvider` > `SidebarProvider data-surface="dashboard"`, then `AppSidebar` and `DashboardShell` (`components/dashboard/shell/`), which holds the sticky chrome (`TopBar` over `StationBand`), the page body (`px-gutter`, capped at `max-w-page`) and the phone `TabBar`.
 5. Metadata: title default "Dashboard", template `%s — GoCast`, `robots: noindex, nofollow`.
 
-The broadcast (mic, mixer, encoder) lives in `BroadcastProvider`, above every page in the shell, so navigating between dashboard pages does not end a show. Anything that does a full page load (`<a href>`, `window.location`) does. That is why `StationActions`, `LiveBanner`, `error.tsx` and the sidebar use `Link` for studio links and `HelpLink` always opens a new tab.
+`data-surface="dashboard"` is what scopes the dashboard design system: `app/dashboard.css` lifts it to `<html>` with `.dark:has([data-surface="dashboard"])`, so dialogs and menus portalled outside the tree still get the dashboard tokens. `DashboardShell` measures the chrome and publishes its height as `--chrome-h` on `<html>`, which the dashboard scope uses as `scroll-padding-top`, so `#links` / `#show-times` anchors land below the sticky bar.
+
+The broadcast (mic, mixer, encoder) lives in `BroadcastProvider`, above every page in the shell, so navigating between dashboard pages does not end a show. Anything that does a full page load (`<a href>`, `window.location`) does. That is why studio links use `Link` and Help opens in a new tab.
 
 ### Contexts
 
 | Context | Holds | Notes |
 |---|---|---|
-| `StationContext` (`useCurrentStation`, `useStationBySlug`) | Identity only: slug, name, artwork, genre, description | Set once per layout render. `useStationBySlug(slug)` returns null when the route slug differs from the resolved station, so the header never shows the wrong name. Goes stale after an edit until something re-renders the layout (`router.refresh()` does). |
+| `StationContext` (`useCurrentStation`, `useStationBySlug`) | Identity: slug, name, artwork, genre, description, timezone | Set once per layout render. `useStationBySlug(slug)` returns null when the route slug differs from the resolved station. Goes stale after an edit until something re-renders the layout (`router.refresh()` does). |
+| `StationStatusContext` (`StationStatusProvider`, `useSharedStationStatus`) | One `useStationStatusPoll` for the account's station | Everything that asks for that station's status through `useStationStatus(slug)` (band, sidebar lamp, overview hero, library) shares this one poll. A caller passing its own `intervalMs`, or another slug, runs its own poll. Passthrough when there is no station. |
 | `AccountContext` (`useAccount`, `usePlan`) | `{ email, plan }` | Not refreshed mid-session except by a layout re-render. |
 | Lock hooks | `useAutoDjLocked` = plan known and `!autodj_enabled`; `useAudienceLocked` = plan known and `analytics_days <= 0`; `useEmbedLocked` = `!embed_enabled`; `useEncoderLocked` = `!encoder_enabled` | All return `false` when the plan is `null`. UI gates only; the API enforces. |
-| `ProRequestContext` (`useProRequest`) | `open()` and `requested` | Owns one `ProAccessDialog` (`plan="pro"`, prefilled with the account email). `requested` flips true after a submit and is per page-load state, not persisted. Every "Request Pro" button in the shell reads it. Pro is granted by hand: `PRO_AVAILABLE = false` in `client/interfaces/Plan.ts`, `PRO_PRICE_USD = 15`. |
+| `ProRequestContext` (`useProRequest`) | `open()` and `requested` | Owns one `ProRequestDialog` (`components/dashboard/ProRequestDialog.tsx`, ds kit, prefilled with the account email). The form's rules are `hooks/useAccessRequest.ts`, shared with the marketing `ProAccessDialog`. `requested` flips true after a submit and is per page-load state, not persisted. Pro is granted by hand: `PRO_AVAILABLE = false` in `client/interfaces/Plan.ts`, `PRO_PRICE_USD = 15`. |
+
+### Navigation (`lib/dashboardNav.ts`)
+
+One list, `NAV_ITEMS`, drives the sidebar, the phone tab bar and the top bar's breadcrumb. Each item has a slugless fallback `href` and, once a station is resolved, a `stationHref`.
+
+| Item | With station | Fallback | Lock |
+|---|---|---|---|
+| Overview | `/dashboard/stations/{slug}` | `/dashboard` | |
+| Studio | `.../live` (the **broadcasting** station's `.../studio` while this tab broadcasts) | `/dashboard` | |
+| AutoDJ | `.../library` | `/dashboard/library` | AutoDJ |
+| Schedule | `.../schedule` | `/dashboard` | AutoDJ |
+| Audience | `.../audience` | `/dashboard` | Audience |
+| Your shows | `/dashboard/broadcasts` | same | |
+| Settings (station) | `.../settings` | `/dashboard` | |
+
+`activeNav(pathname)` maps `/dashboard` and a bare station path to Overview, `/dashboard/library` to AutoDJ, `/dashboard/broadcasts` to Your shows, and the station sub-segment through `SEGMENT_TO_KEY` (`live`/`studio` Studio, `library`, `schedule`, `audience`, `settings`); anything else is null (no item lit). `pageLabel` gives the breadcrumb's page name: null on the overview, "Account" for `/dashboard/settings`, "Design system" for the gallery, else the item's label. Covered by `lib/dashboardNav.test.ts`.
 
 ### Sidebar (`AppSidebar.tsx`)
 
-Items, in order (`NAV_ITEMS`). Each has a slugless fallback `href` and, once the layout resolved a station, a direct `stationHref`.
-
-| Item | With station | Fallback | Active when | Lock badge |
-|---|---|---|---|---|
-| Overview | `/dashboard/stations/{slug}` | `/dashboard` | path is `/dashboard`, or any `/dashboard/stations/{x}...` **except** `library|schedule|audience|settings|live|studio` | none |
-| Studio | `.../live` (or `.../studio` of the **broadcasting** station while this tab is broadcasting, with a pulsing "Live" tag) | `/dashboard` | `.../live` or `.../studio` | none |
-| AutoDJ | `.../library` | `/dashboard/library` | `/dashboard/library` or `.../library` | "Pro" when `useAutoDjLocked` |
-| Schedule | `.../schedule` | `/dashboard` | `.../schedule` | "Pro" when AutoDJ-locked |
-| Audience | `.../audience` | `/dashboard` | `.../audience` | "Pro" when `useAudienceLocked` |
-| Broadcasts | `/dashboard/broadcasts` | same | path starts with it | none |
-| Settings (station) | `.../settings` | `/dashboard` | `.../settings` | none |
-
-Locked items stay clickable on purpose; the destination explains the feature. The Overview matcher is a hand-maintained list: adding a new station sub-page requires adding it to the subtraction regex, or Overview stays lit on it.
+Header: the GoCast logo (to `/dashboard`) and, with a station, a station card (artwork, name, and a `StatusLamp` with the band's coarse state from `airState`). Items: the table above. A locked item stays clickable and carries an amber **PRO** tag. Studio shows a pulsing red "Live" lamp while this tab broadcasts or the station is live; AutoDJ shows a violet "On" lamp while AutoDJ is on air. Below 1024 px (`useIsMobile(1024)`, matching the sidebar's `lg:` classes) the sidebar is a drawer, closed on every route change.
 
 Footer:
-- **Plan card**, only when `useAutoDjLocked` (in practice: Free, plan known). Shows "{plan name} plan", a small button reading "Request" plus an amber Pro badge (`proRequest.open`; becomes "Requested", with the line "Request sent - we'll be in touch.", once requested), and "Your station goes silent when you stop broadcasting."
-- **Account menu** (avatar, name, email). A plan badge with the plan name appears next to the name when a plan is known **and** AutoDJ is not locked (so any AutoDJ-enabled plan shows its name). Menu: Account (`/dashboard/settings`), Help (`/help`, new tab), Sign out. Signing out while `isBroadcasting` (from `useSignOut`) first asks "Sign out and end your broadcast?" (Stay signed in / End and sign out, which calls `signOut("/", { confirmed: true })`).
-- Logo links to `/dashboard`.
+- **Plan card**, only when `useAutoDjLocked` (Free, plan known): "{plan name} plan", an amber "Request Pro" button (becomes "Requested"), and "Your station goes silent when you stop broadcasting." (after a request: "Request sent — we'll be in touch.").
+- **Account menu** (avatar, name, email; a PRO tag when a plan is known and AutoDJ isn't locked). Menu: "Account and plan" (`/dashboard/settings`), Help (`/help`, new tab), Sign out. Signing out while broadcasting first asks "Sign out and end your broadcast?" (Stay signed in / End and sign out).
 
-### Header (`DashboardHeader.tsx`)
+### Top bar (`shell/TopBar.tsx`)
 
-`SidebarTrigger`, a breadcrumb from the URL, and `NotificationBell` on the right (a popover; `useNotifications` polls `/notifications/unread-count` every 60 s, see [Notifications](notifications-and-email.md)). Breadcrumb rules: the `stations` segment is skipped; the slug segment shows the station name from `StationContext` (falls back to the raw slug); labels come from `SEGMENT_LABELS` (`broadcasts` Broadcasts, `settings` Settings, `library` **AutoDJ**, `schedule`, `audience`, `live` **Go live**, `studio`); unknown segments are capitalised. `/dashboard/settings` is labelled **Account**. On `/dashboard` itself there are no crumbs.
+Sidebar toggle, a breadcrumb "{station name} › {page}" (the station name links to the overview), the **station clock** ("THU 14:37 · LONDON", `formatStationClock` in the station's timezone, rendered after mount, re-read each minute, hidden below `sm`, absent when the station has no timezone) and **Updates** (`shell/UpdatesMenu.tsx`, the notification popover; [Notifications](notifications-and-email.md)).
 
-### Live banner (`LiveBanner.tsx`)
+### Status band (`shell/StationBand.tsx`)
 
-Rendered under the header on every page except the studio, only while this tab is broadcasting (`state` `live` or `reconnecting`). Shows the studio's signal lamp (`useStudioSignal`/`useTransportHealth`, `SIGNAL_TONE`), copy that differs on touch devices ("switching apps or locking the screen stops the show" vs "closing it ends the show"), an "Mic off" button when the mic is latched (`engine.setMicLatched(false)`), and "Open studio". Detail belongs to [Web studio](broadcasting-web-studio.md).
+Under the top bar on every page while a station exists. What it says comes from `airState` (`lib/airState.ts`, pure, `airState.test.ts`), which ranks this tab's own broadcast above the poll:
+
+| Band (label) | When | Action |
+|---|---|---|
+| LIVE / LIVE · MIC / fault label (amber) | This tab is live or reconnecting; tone and sentence from the studio signal | Close mic (mic latched), else Open studio (not on the studio page) |
+| CHECKING | No status yet, first read in flight | none |
+| NO ANSWER | No status after the read, or `!reachable` | none |
+| OFF AIR | `state === "offline"` | Start AutoDJ, or Go live when AutoDJ is locked |
+| STARTING | `starting` | none |
+| NOT HEARD (amber) | `degraded` | none |
+| LIVE | A broadcaster from DJ software, the app or another browser | none |
+| SILENCE (amber) | `source === "silence"` | Add tracks |
+| ON AIR · AUTODJ (violet) | otherwise, with the track | Go live |
+
+While this tab broadcasts, the band also shows the show's uptime, the listener count, and (off the studio page) play/pause and next-track buttons for the studio queue. This replaced the old `LiveBanner` and `BroadcastMiniController`.
+
+### Phone tab bar (`shell/TabBar.tsx`)
+
+Below 640 px, fixed to the bottom: Station, Studio, AutoDJ, Schedule, and More (opens the sidebar drawer). Studio goes to the broadcasting studio while a show runs and shows a red dot. Not rendered without a station.
 
 ### Error boundary (`error.tsx`)
 
-Sits inside the layout so the broadcast survives a page crash. Heading "This page didn't load". While live it says "Your broadcast is still on air. Only this page failed ..." and offers "Back to the studio" (to the **broadcasting** station's studio, not the current one); otherwise "Go to your station" (`/dashboard`). "Try again" calls `unstable_retry` (Next 16; re-fetches, unlike `reset`). A "Details for support" disclosure shows `error.message` and `digest`.
+Sits inside the layout so the broadcast survives a page crash. Heading "This page didn't load". While live it says the broadcast is still on air and offers "Back to the studio" (the **broadcasting** station's studio); otherwise "Go to your station" (`/dashboard`). "Try again" calls `unstable_retry` (Next 16; re-fetches, unlike `reset`). A "Details for support" disclosure shows `error.message` and `digest`.
 
 ## Overview (`stations/[slug]/(overview)/page.tsx`)
 
-Server component. Fetches in parallel: `/stations/{slug}`, `/stations/{slug}/sessions`, `/stations/{slug}/playlists` (failure here is swallowed to `null`). Then, depending on the programme, a second fetch `/playlists/{activeId}/tracks` (failure swallowed, sets `tracksUnavailable`). `activeId` = `station.programme.playlist.id` (the playlist AutoDJ resolves right now) falling back to the default playlist. If the playlists fetch failed, `tracks` is empty and `tracksUnavailable` is true; if there is no active playlist at all, `tracks` is empty and `tracksUnavailable` is false. The station fetch is `show()`, so the payload carries `encoder`, `schedules`, `programme` and `stats`; the sessions and station fetches are the only two whose failure is fatal (404/403 become `notFound()`).
+Server component (tab title "Overview"). Fetches in parallel: `/stations/{slug}` (`show()`, so the payload carries `encoder`, `schedules`, `programme`, `stats`), `/stations/{slug}/sessions` (newest 20, plus `total`), and `/stations/{slug}/playlists` (failure swallowed to `null`). Only the station and sessions fetches are fatal (404/403 become `notFound()`). The page no longer fetches a playlist's tracks: the checklist counts the default playlist's `track_count` (when the playlists fetch failed it counts as filled, so the tile doesn't nag on a network error).
 
-Sections, top to bottom:
+Sections, top to bottom (`components/dashboard/overview/`):
 
-1. **`ShowSignOff`**: a dismissible "That's a wrap." card. Reads a `ShowSummary` from `sessionStorage[signOffKey(slug)]` (written by the studio when a show ends), deletes it on read, and shows it only if `endedAt` is under 30 minutes old (`FRESH_MS`). Facts: On air, Peak listeners, Audio lost. Sentence depends on `summary.after`: `autodj`, `silence`, else "off air until your next show". Per-tab, one-shot.
-2. **Header**: artwork (`StationArtwork`, gradient + music icon when none), name, genre badge, description (2 lines), meta line, and actions: "Player page" (`/station/{slug}`, new tab), `StationActions mode="edit"` ("Edit station profile"), a gear link to settings. Layout: one grid, artwork beside the name with description, meta and the actions row full-width beneath until `lg`; from `lg` the artwork spans both text rows and the actions stand at the right (was `md`, where the open sidebar left the actions past a 768 px screen). Below `sm` the edit button reads "Edit profile". The overview's stacked sections declare `grid-cols-[minmax(0,1fr)]` because an implicit grid column is auto-sized and the unbreakable player URL in the share card once widened it past a phone screen. Meta line parts: `Created {date}`; the literal `STREAM_FORMAT = "Streams in MP3, 128 kbps"`; `Last live {relative}` only when `station.state === "offline"` and a closed session exists in the loaded page. The format string is hardcoded in the page, matching `%mp3(bitrate=128, samplerate=44100)` in `station.blade.php`; it is not read from the API.
-3. **On air now**: `StationPower` with `LiveListeners` as its `aside`, then the `StationShare` strip (one row: label, URL, Share / Tune-in code / Embed; it was a half-width card at the foot of the page until 2026-09-30, while the listener panel pointed at it with "Share your link below"), then `StationChecklist` (renders nothing once set up), then `AutoDjRotation`.
-4. **Your shows**: `StationActivity` and `RecentBroadcasts`.
+1. **`OverviewHeader`**: the artwork is itself a button that opens the edit dialog (an "ADD ART" caption when there is none), the name as the page `h1` with a genre `Tag`, the description (2 lines), and a meta line "Since {Mon YYYY}" plus "Last live {relative}" when the newest closed session exists and the station isn't live. Actions: "Player page ↗" (new tab) and "Edit profile" (`StationFormDialog`).
+2. **`OverviewHero`**: two panels on one surface whose fill is the state (plain off air, violet AutoDJ, red live, amber when listeners hear nothing). Left: state label, a one-line title, a sentence, `NowPlayingWell` while AutoDJ plays (title · artist, time left and a progress bar drawn per animation frame from the last poll, "Up next"), and the controls. Right: `ListeningNow`, the public listener count (`useListenerCount`, counted up by `useCountUp`), with a line that changes with the state and a link to Audience. The decisions are `stationHero` (`lib/stationHero.ts`, `stationHero.test.ts`); power calls are `useStationPower`.
+3. **`YourLinkCard`** and **`ComingUpCard`** side by side.
+4. **`SetupChecklist`**.
+5. **`LiveShowsCard`** and **`RecentShowsCard`** side by side.
 
-`loading.tsx` renders a skeleton of the same layout, animation disabled under `prefers-reduced-motion`.
+`loading.tsx` draws the same layout with skeletons (animation off under `prefers-reduced-motion`).
 
-### `StationPower`: the on/off card
+### The hero (`stationHero`)
 
-One `useStationStatus(slug)` poll feeds two half-cards (power, and now playing, only while running) plus the aside. Full lifecycle semantics are in [Station lifecycle](station-lifecycle.md); what the card does:
-
-**Polling** (`client/hooks/useStationStatus.ts`): `GET /stations/{slug}/status`. Intervals: 2 s when starting, unknown, or when the live arm and `broadcaster` disagree; 30 s when `offline`; otherwise 10 s (30 s when the realtime socket is connected, `POLL_PUSHED_MS`), shortened to the end of the current track (`remaining*1000 + 750 ms`, floor 3 s). Skips the read while the tab is hidden; a `visibilitychange` restarts it. A realtime station signal for this slug restarts it after 120 ms. Failures back off `2 s * 2^(n-1)` up to 30 s, and the last good status is kept.
-
-**Headline pill** (`Headline` type), first match wins:
-
-| Pill | When |
-|---|---|
-| Not reaching listeners (red) | `state === "degraded"` |
-| Starting... | `state === "starting"` |
-| Live (emerald) | `broadcasterAttached` |
-| Off air | `state === "offline"` (state = polled status, else the page payload's) |
-| Checking... | running, no status yet, under 10 s |
-| Status unknown | no status after failure or 10 s, or `!status.reachable` |
-| No sound | `source === "silence"` |
-| On air (violet) | otherwise |
-
-`broadcasterAttached` = running and (this tab is broadcasting, **or** the status is reachable and `broadcaster` (falling back to `live_source !== null` for old containers)). It deliberately ignores `state`/`source`, which lag by the live arm's buffer.
-
-**Controls**:
-- Off air, plan has AutoDJ: primary **Start AutoDJ** (`POST /stations/{slug}/start`, toast "Station is coming on air") and secondary **Go live** (`GoLiveTrigger`).
-- Off air, AutoDJ locked (Free): only **Go live**. Rationale in code: without AutoDJ an empty station emits silence and `stations:sweep` turns it off within minutes, so "Start AutoDJ" would be a dead end.
-- Running, nobody on air: **Go live** (disabled until the first poll answers) and **Turn station off** (`POST .../stop`). Turning off while on AutoDJ (`headline === "on_air" && isAutoDj`) asks "Turn {name} off?" first (Keep playing / Turn station off).
-- Live from this tab: **Open studio**. Live from an encoder or another browser: **Hear your stream** (opens the player page). Live from another browser: the stop button is hidden (`liveElsewhere`, browser/electron `live_source` only); from an encoder it is **kept**, so the owner can cut off a leaked key.
-- A stop refused with `code: "station_is_live_external"` opens "Cut off this broadcast?" and, on "Cut it off", re-sends stop with `{ force: true }`. Other API errors show the server's `message` as a toast.
-- `compact` mode (badge + one button) exists as a prop; nothing in scope uses it.
-
-**Second half** ("Now playing", only while running): source chip (Live from this browser / Live from {client} / Live from an encoder / Live from another browser / Live / Handing back to AutoDJ / AutoDJ / Silence), a line derived from `now_playing` with special text during handover ("Going live in a few seconds...", "Taking over from AutoDJ...", "Handing back to AutoDJ soon...") and empty-rotation cases, a `TrackProgress` bar for AutoDJ only, and "Up next: ..." from `status.up_next[0]`. The last non-null `now_playing` is held in a ref across the null gap between tracks, cleared when the station stops or a broadcaster arrives or leaves. A `HelpLink` to `/help/turning-your-station-on-and-off` sits by the pill. The power half also carries a one-line plain-language `powerDetail` per headline (for example "Nothing is playing. Nobody can tune in right now") and a `powerHint` (for example "Go live and AutoDJ pauses until you finish.", or, with an encoder on air, "Stop broadcasting in {client} to end the show."); the pill text is duplicated in a screen-reader-only live region (role `alert` only for the fault). The card's edge tints with the headline (fault red, live emerald, on-air violet).
-
-### `StationActivity`
-
-"Broadcast activity", last 14 days (`DAYS = 14`). Built client-side from the `sessions` prop, closed sessions only, bucketed by local start day (a show over midnight counts wholly on its start day). Four numbers: Live airtime (window sum, with delta against the prior 14 days), Broadcasts (count and average length), Peak listeners (`stats.peak_listeners`, "most at the same moment, ever"; hints "not measured yet, see Audience" or "nobody has tuned in yet"), Total airtime (`stats.total_airtime_seconds` and `stats.sessions`, all time). Then a 14-bar chart (minimum bar 4 px, tooltip per day) and a caption that AutoDJ time is not a session and is not counted.
-
-### `AutoDjRotation`, `RecentBroadcasts`, `StationShare`
-
-- `AutoDjRotation`: shows the **active playlist's** first 4 tracks (`PREVIEW_COUNT`) with "{n} more". Subtitle variants: couldn't load; Free ("Your station goes silent when you close the studio..."); empty playlist; programme detail; default. Button "See what AutoDJ does" (Free) / "Add tracks" (empty) / "Manage music", all to `.../library`. Pro badge when locked.
-- `RecentBroadcasts`: first 5 sessions (`LIMIT`) of the 20 fetched, columns Started / Source (Studio, Desktop, Encoder; the software name is the tooltip) / Duration ("Now" while open) / Peak. Empty: "No broadcasts yet. Go live to see your session history here." "View all" goes to `/dashboard/broadcasts`.
-- `StationShare` (strip, not a card): displays the bare player URL (`env.appUrl + /station/{slug}`), but `CopyButton` (label "Share": `shareOrCopy`, "Done!" for 2 s) copies `taggedStationUrl(appUrl, slug, "owner")` = `?utm_source=owner&utm_medium=share`, and the QR encodes the `qr` variant, so posted links and scanned posters attribute separately in analytics. "Tune-in code" (QR dialog: 640 px canvas shown at 224 px, level H, margin 4 modules, violet `#4c1d95` modules on white, logo excavated at 22%, "Download PNG" as `{slug}-qr.png`), and "Embed" (opens `EmbedDialog`, or the Pro request when `useEmbedLocked`, with a Pro badge). `EmbedDialog` shows a live iframe preview of `/embed/{slug}`, the paste snippet and a Copy code button. Embed itself: [Public player and embed](public-player-and-embed.md).
-- `LiveListeners` (the strip's aside, `bare` mode): a "Listening now" number that tweens up over 650 ms, fed by `useListenerCount`, which reads the **public** `GET /public/stations/{slug}/listeners` through a shared per-slug feed polled every 10 s (`usePublicStationStats`), not the owner status endpoint. `isOnAir` is the intent-derived `station.state !== "offline"`, so off air it shows a dash and "Go live or start AutoDJ to start counting."; an unanswered poll shows a dash, never 0. It links to `.../audience`. Count semantics are in [Listener analytics](listener-analytics.md).
-- `TrackProgress`: a rAF-driven bar under the AutoDJ track (elapsed / remaining from `status.elapsed`/`remaining`); renders nothing without a track length.
-- `GoLiveTrigger`: wraps the Go live buttons. Clicking opens "How do you want to broadcast?": "Go live from this browser" (`router.push(.../live)`) or, when the plan has the encoder or shows it locked (`station.encoder !== undefined || encoderLocked`), "From a broadcast app" (Pro badge when locked), which shows the encoder values and polls status every 2 s (`WATCH_POLL_MS`) while it waits for the encoder. Studio and encoder detail: [Web studio](broadcasting-web-studio.md), [Encoder ingest](encoder-ingest.md).
-
-### `StationChecklist` ("Finish setting up")
-
-Six items, ordered: artwork, description, tracks, show times, links, first listener. Only unfinished items are drawn, with `{done}/{total} done` in the header once at least one is done; the card returns `null` when all are done.
-
-| Item | Done when | Action |
+| Label | When (first match) | Title |
 |---|---|---|
-| Add station artwork | `artwork_url` set | opens `StationFormDialog` (its own instance, separate state from the header's) |
-| Write a description | `description` set | opens the same dialog |
-| Fill the default playlist | `trackCount > 0` | link to `.../library`. **Omitted entirely on Free** (`useAutoDjLocked`), so the total is 5 there |
-| Set your show times | `schedules.length > 0` | link `.../settings#show-times` |
-| Add your social links | `social_links.length > 0` | link `.../settings#links` |
-| Get your first listener | `stats.has_listeners`, else `peak_listeners > 0` | none |
+| NOT REACHING LISTENERS (amber) | `state === "degraded"` | "Your station is running, but listeners can't hear it." |
+| STARTING | `starting` | "Your station is starting…" |
+| LIVE (red) | a broadcaster is attached | "You're live." / "You're live from {client}." / "…from another browser." / "Someone is live." |
+| OFF AIR | not running | "Nothing's playing right now." |
+| CHECKING / STATUS UNKNOWN | running, no status yet / no answer | |
+| NO SOUND (amber) | `source === "silence"` | "Nothing is playing." |
+| ON AIR · AUTODJ (violet) | otherwise | "Your station is playing itself." ("Your show has ended." while the live buffer drains) |
 
-`trackCount` is the length of the **active programme playlist's** tracks (what the Overview fetched), not strictly the default playlist despite the title. With a slot running a different playlist the item follows that one; if the tracks fetch fails it counts as 0 and the item reappears.
+`broadcasterAttached` = running and (this tab is broadcasting, or the status is reachable and `broadcaster` is true, falling back to `live_source !== null` for old containers). It deliberately ignores `state`/`source`, which lag by the live arm's buffer.
+
+Controls: **Go live** (to `.../live`; disabled while running and the status is unknown) whenever nobody is live; **Open studio** when live from this tab; **Hear your stream ↗** (player page) when live from elsewhere. Off air and not AutoDJ-locked adds **Start AutoDJ**; running (and not live from this or another browser) adds a stop button, "Stop AutoDJ" while AutoDJ plays (asks "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ) or "Turn station off". From an encoder the stop button stays, so the owner can cut off a leaked key: a stop refused with `code: "station_is_live_external"` opens "Cut off this broadcast?" and "Cut it off" re-sends stop with `{ force: true }`. Free stations get no Start AutoDJ (without AutoDJ an empty station emits silence and `stations:sweep` turns it off).
+
+### `YourLinkCard`
+
+"Your link": a `CopyField` that displays the bare player URL but copies `taggedStationUrl(appUrl, slug, "owner")` (`?utm_source=owner&utm_medium=share`). Buttons: **Tune-in code** (`share/TuneInCodeDialog`: a QR of the `qr`-tagged URL, 640 px canvas at level H with the logo excavated, violet `#4c1d95` modules on white, "Download PNG" as `{slug}-qr.png`), **Embed** (`EmbedDialog`; on a plan without embeds it opens the Pro request and carries a PRO tag) and **Share…** (`share/ShareDialog`: Copy link, WhatsApp, Email, X, and the system share sheet when `navigator.share` exists). Embed itself: [Public player and embed](public-player-and-embed.md).
+
+### `ComingUpCard`
+
+The next three things on the station (`lib/comingUp.ts`, `comingUp.test.ts`): each show time's next occurrence (yours, live) and AutoDJ's next slot change (`programme.next`, violet), in the station's timezone as "Today 21:00" / "Tomorrow 09:00" / "Fri 18:00". Rendered after mount (the clock). The header link goes to Show times when there are none, else to Schedule.
+
+### `SetupChecklist`
+
+Tiles for what's left, in order: Add station artwork and Write a description (both open `StationFormDialog`), Fill AutoDJ's playlist (`.../library`; omitted on Free), Set your show times (`.../settings#show-times`), Add your social links (`.../settings#links`), Get your first listener (`stats.has_listeners`, else `peak_listeners > 0`; no action). A segmented bar shows progress and "{done} OF {total}". The card disappears when everything is done, and "Hide for now" hides it per station in this browser (`localStorage` `gocast:setup-hidden:{slug}`).
+
+### `LiveShowsCard` and `RecentShowsCard`
+
+- **Your live shows** (`lib/liveShows.ts`, `liveShows.test.ts`), last 14 days of closed sessions, by the viewer's local start day: time on air with the change against the 14 days before (suppressed whenever the station has more sessions than the 20 loaded, since the comparison would be on partial data), number of shows and their average length, the peak and its date, and a bar per day. A caption says AutoDJ time isn't counted (that's in Audience).
+- **Recent shows**: the newest 5 of the loaded sessions, each "Tue 29 Sept · 21:15" **on the station's clock** (same as Your shows and the top bar), where it came from ("From the studio" / "From {client}" / "From your DJ software" / "From the desktop app"), its length ("On air now" while open) and peak. "All shows →" goes to `/dashboard/broadcasts`.
+
+## Your shows (`/dashboard/broadcasts`)
+
+Server component (`broadcasts/page.tsx`, tab title "Your shows"). Fetches `/stations/{slug}/sessions?finished=1` for the resolved station; **any** failure becomes `notFound()`. Empty (or no station): the page title, "Nothing here yet…" and a **Go live** button (or "Create your station").
+
+Otherwise the header reads "{n} shows · {airtime} live in total." from the API's `summary` (every finished show, not just the page), followed by one trend sentence from `lib/showsTrend.ts` (`showsTrend.test.ts`): the latest ≤5 shows against the ≤5 before, only with at least 3 on each side and a change of 15% or more (a peak change must also be at least one listener), e.g. "Your recent shows run shorter but draw more listeners at their peak." Nothing is said about how long people stay; that isn't measured.
+
+`components/dashboard/shows/ShowsList.tsx` draws the table: STARTED (weekday date, and the start–end time on the **station's** clock), FROM (Studio / Own software / Desktop app; hidden on a phone), ON AIR (off-white bar scaled to the longest loaded show, capped at 3 h, plus the length), PEAK. Each row is a button (`aria-expanded`) that opens two tiles: **Peak at** (from `stream_sessions.peak_at`: the time, "{n} listening at once"; "Nobody tuned in" or "Not recorded for older shows" when null) and **From** (with the encoder's software name). **Show more** loads the next page (`?finished=1&page=n`), de-duplicating rows that shifted because a show finished meanwhile; a failure says "Couldn't load more shows."
 
 ## Creating, editing and deleting a station
 
 ### Create
 
-Only surface: `/dashboard` when the account has no station (`CreateStationButton` opens `StationFormDialog` with no `station`). Sidebar links go to onboarding while none exists.
+Only surface: `/dashboard` when the account has no station, which renders `StationForm` with no `station` in a card. Sidebar and tab links go there while none exists.
 
 `POST /stations` (`StationController::store`, route inside the `verified` group):
 1. `StoreStationRequest::authorize()`: `user->stations()->count() < user->plan->max_stations` (counts non-deleted stations only, so deleting frees a slot). Failure is a 403 with no station-specific message. A user whose `plan` relation were null would 500 here (`plan_id` defaults to 1 with an FK, so not reachable in normal data).
@@ -267,7 +302,7 @@ What the `creating`/`created` hooks in `Station::booted` and `StationObserver::c
 - After create, a default playlist is created (`Playlist::DEFAULT_NAME`, `is_default`, sequential, position 0).
 - **Nothing starts.** A new station has no container and is `state: "offline"` until the owner presses Start AutoDJ or Go live.
 
-Client (`StationFormDialog`): success shows "Station created - ready to go live?" and `router.push` to the new slug. See form details below.
+Client (`StationForm`): success shows "Station created — ready to go live?" and `router.push` to the new slug. See form details below.
 
 ### Edit
 
@@ -275,12 +310,12 @@ Client (`StationFormDialog`): success shows "Station created - ready to go live?
 
 | Field | Rule | Sent by | Notes |
 |---|---|---|---|
-| `name` | `sometimes`, string, max 100 | Edit profile dialog | `sometimes` plus not nullable: an explicit null is a 422. Restarts a running container. |
-| `description` | nullable string | Edit profile dialog | No length cap; the column is `text`. Restarts a running container. |
-| `genre` | nullable string, max 255 | Edit profile dialog | Restarts a running container. |
-| `artwork_url` | nullable string, `url:http,https`, max 2048 | Edit profile dialog (after an upload) | Any http(s) URL is accepted, not only ones we uploaded. Restarts a running container. |
+| `name` | `sometimes`, string, max 100 | Station form | `sometimes` plus not nullable: an explicit null is a 422. Restarts a running container. |
+| `description` | nullable string | Station form | No length cap; the column is `text`. Restarts a running container. |
+| `genre` | nullable string, max 255 | Station form | Restarts a running container. |
+| `artwork_url` | nullable string, `url:http,https`, max 2048 | Station form (after an upload) | Any http(s) URL is accepted, not only ones we uploaded. Restarts a running container. |
 | `timezone` | nullable, `timezone:all` | Nothing in the web or mobile apps (both send the zone in `PUT /stations/{slug}/schedules`, [Schedule](schedule.md)) | IANA name only. Clearing to null is a 422 while any show time (`schedules()`) or AutoDJ slot (`autodjSlots()`) exists (`withValidator` after-hook, two separate messages). Column `varchar(64)`. |
-| `social_links` | nullable array, max 8 (`Station::MAX_SOCIAL_LINKS`); each element `array:label,url` (extra keys rejected); `url` required string `url:http,https` max 2048; `label` nullable string max 30 | `LinksEditor` | Full-list replace; stored as JSON. |
+| `social_links` | nullable array, max 8 (`Station::MAX_SOCIAL_LINKS`); each element `array:label,url` (extra keys rejected); `url` required string `url:http,https` max 2048; `label` nullable string max 30 | `LinksCard` | Full-list replace; stored as JSON. |
 | `theme_config` | nullable array | nothing | **Dead.** Validated, stored and returned, read by no client code. |
 | `jingles_enabled` | `sometimes` boolean | Library jingles dialog | Turning it **on** requires AutoDJ (`StationLifecycleService::assertAutoDjEnabled`); turning it off is always allowed. |
 | `jingle_mode` | `sometimes`, in `interval`, `tracks` | Library jingles dialog | |
@@ -293,27 +328,23 @@ Observer effects on update (`StationObserver::updated`): jingle columns changed 
 
 Audit: `LogsActivity` on `Station` logs only `name, slug, description, genre, featured, desired_state`, dirty only. Artwork, timezone and social links are not in the activity log.
 
-### The create/edit form (`StationFormDialog`)
+### The create/edit form (`station-form/StationForm.tsx`)
 
-One component, two modes (`station` prop present = edit). Title "Create station"/"Edit station", description "Set up your new station."/"Update your station details."
+One form for both jobs. With no `station` it creates (rendered right on `/dashboard`); with one it edits (inside `StationFormDialog`, title "Edit station", which mounts the form only while open, so a cancelled edit doesn't reappear next time). Opened from Station settings → Profile → Edit, the overview header (artwork or "Edit profile") and the checklist.
 
-| Field | Control | Client constraint | Server constraint | Error display |
-|---|---|---|---|---|
-| Artwork | Square tile button + hidden file input, `accept="image/png,image/jpeg,image/webp"` | Hint text says "Square image, max 2 MB" (**not enforced**) | Upload endpoint: jpg, jpeg, png, webp, gif, **max 5120 KB** (`UploadRequest`); rate limit `throttle:uploads` 20/min per user | Upload failure: toast "Failed to upload artwork", preview cleared. No inline error for `artwork_url`. |
-| Name | Text input, `required`, `maxLength=100`, placeholder "My Radio Station" | as left | required, max 100 | Inline `FieldError` (only field with one) |
-| Station URL | Edit mode only, read-only text `gocast.fm/station/{slug}` | none | slug immutable | none. The host is hardcoded, not read from `NEXT_PUBLIC_APP_URL`. |
-| Genre | Text input, `maxLength=255`, placeholder "Jazz, lo-fi, talk" | 255 | max 255 | **None**: `errors.genre` is stored but never rendered |
-| Description | Textarea, 3 rows, placeholder "What's your station about?" | none | none | none |
+| Field | Control | Client | Server |
+|---|---|---|---|
+| Artwork | `ArtworkDrop`: a dashed drop zone; drop an image or click the tile (or "Choose", hidden below `sm`); preview + Remove once set | `artworkProblem` refuses anything but PNG/JPEG/WebP and over 5 MB before uploading (toast) | Upload: jpg, jpeg, png, webp, gif, max 5120 KB (`UploadRequest`), `throttle:uploads` |
+| Name | ds `TextField`, required, `maxLength=100`, autofocus when creating | Create/Save disabled until there is a name | required, max 100 |
+| Genre | `TextField`, `maxLength=255` | | max 255 |
+| Description | `TextAreaField` | | no limit |
+| Link | Edit only: "{host}/station/{slug} · the link never changes" (host from `NEXT_PUBLIC_APP_URL`) | | slug immutable |
 
-Artwork flow: choosing a file sets a local `URL.createObjectURL` preview and `POST /upload/images` (multipart, `file`); the response `data.url` (`asset("storage/{path}")`, disk `public`, folder `uploads/images`) becomes `artwork_url`. "Remove" clears both (sends `artwork_url: null`). The submit button is disabled while uploading or saving.
-
-Submit payload: `{ name, description: description || null, genre: genre || null, artwork_url: artworkUrl || null }`. Edit sends `PUT`, success toast "Station updated", `onClose`, `router.refresh()`. Error handling: any 403 (both modes) toasts "Each account has one station, and yours already exists."; a response with `errors` fills the per-field map; otherwise the server `message` or "Something went wrong".
-
-Form state is initialised once from props (`useState(station?.name ...)`). The component stays mounted, so **Cancel or close keeps unsaved typing** and reopening shows it; a second dialog instance (`StationChecklist`) has its own separate state. Neither re-syncs if the station changes elsewhere.
+Server validation errors land on their fields (`errors.name/genre/description`). Artwork: choosing a file shows a local object-URL preview (revoked when replaced) and `POST /upload/images`; the response `data.url` becomes `artwork_url`; an upload failure toasts and restores the previous artwork. Submit sends trimmed values, empty strings as `null`. Create: toast "Station created — ready to go live?" and `router.push` to the new station. Edit: "Station updated", close, `router.refresh()`. Any 403 toasts "Each account has one station, and yours already exists."; other errors toast the server message or "Something went wrong. Nothing was saved." Covered by `StationForm.test.tsx`.
 
 ### Delete
 
-Settings page, danger zone (`DeleteStation`): "Delete station" (outline) opens a dialog "Delete {name}?" ("It goes off air straight away, and its player page, stream links and embeds stop working. You lose its library, schedule and broadcast history with it. This can't be undone."). Buttons "Keep station" / red "Delete station"; both locked and the close button hidden while the request is in flight. `DELETE /stations/{slug}`; success toast "Station deleted", `router.push("/dashboard")` + `refresh` (lands on onboarding); failure toast "Couldn't delete the station. Nothing was removed."
+Station settings, last row (`settings/DeleteStation.tsx`): "Delete this station" with a quiet **Delete station…** button, which opens a `ConfirmDialog` (`tone="danger"`, error red): "Delete {name}?", "This is permanent and can't be undone.", consequences (takes it off air straight away; breaks its player page, stream links and embeds; removes its library, schedule and show history), and the station's **slug** typed to enable "Delete forever" (cancel reads "Keep station"; locked while the request runs). `DELETE /stations/{slug}`; success toast "Station deleted", `router.push("/dashboard")` + `refresh` (lands on the create page); failure toast "Couldn't delete the station. Nothing was removed."
 
 API (`destroy`): `authorize('delete')` (owner), `$station->delete()` (soft), JSON `{ message: "Station deleted." }`. Effects:
 - `StationObserver::deleting` runs `supervisor->down($station)` (container stops; failures are swallowed to the log).
@@ -327,39 +358,39 @@ Account deletion (`/dashboard/settings`) soft-deletes each of the user's station
 
 ## Station settings page
 
-`stations/[slug]/settings/page.tsx`, server component, one `GET /stations/{slug}` (which loads `streamSessions, schedules, autodjSlots.playlist, defaultPlaylist` and opts into the `encoder` block via `withEncoder()`). Max width `3xl`. Sections in order:
+`stations/[slug]/settings/page.tsx`, server component, one `GET /stations/{slug}` (which loads `streamSessions, schedules, autodjSlots.playlist, defaultPlaylist` and opts into the `encoder` block). Title "Station settings"; two columns from `xl`, one below. Left: what listeners see. Right: how audio gets out and in, and delete.
 
-1. **Details** card: artwork, name, genre badge, description (italic placeholder "No description yet - two lines telling listeners what you play." when empty) and "Edit station profile" (the same `StationFormDialog`).
-2. **Links** (`#links`): `LinksEditor`. Each row is icon, address, name, bin; below `sm` the name field drops under the address (side by side they left the address 70 px wide on a 375 px screen).
-   The Details card above uses the overview header's phone grid: artwork beside the name, description full width beneath below `sm`. `StationActions` takes a `className` so only the overview stretches the edit button across its actions row.
-3. **Show times** (`#show-times`): `ShowTimesSection` (timezone picker plus the show-times editor; below `sm` the "Live on" label takes its own line so all seven day chips fit one row). The editing rules, the timezone rules, and the fact that show times do nothing but display are documented in [Schedule](schedule.md); this doc only notes the wiring below.
-4. **Stream**: three read-only rows: **Player URL** (`env.appUrl/station/{slug}`), **Stream path** (`station.icecast_mount`, "/stream/{slug}", hint "Only exists while the station is on air"), **Format** (literal `STREAM_FORMAT = "MP3 128 kbps, 44.1 kHz"`, hardcoded in this file, must be kept in sync by hand with `station.blade.php`). If `NEXT_PUBLIC_APP_URL` is unset the Player URL renders as a relative `/station/{slug}`.
-5. **Encoder** (`EncoderSection`/`EncoderCard`): three states. The `id="encoder"` anchor is on the *available* card only; the locked and unavailable cards have no id, so `#encoder` deep links do nothing on those. Locked (`useEncoderLocked`): "Broadcast from your own software" with Pro badge and "Request Pro". Plan allows but `station.encoder` absent (no `LIQUIDSOAP_ENCODER_HOST`, i.e. no ingest router): "External encoder ingest isn't available on this server yet." Available: five values via `EncoderConnection` (Server, Port, Mount, Username, Password, each with a copy button; the password is masked as 24 dots until revealed; a collapsible "Where these go in BUTT, Mixxx and ffmpeg" with per-client steps and an ffmpeg command; a link to `/help/my-encoder-wont-connect`), a "New key" button (`POST /stations/{slug}/stream-key`, confirm dialog first; the response's new key is shown immediately and revealed until the refreshed prop's `rotated_at` catches up) and four support notes (switch the station on first; Icecast 2 not Shoutcast; a new key doesn't kick a live encoder; plain-text connection). The `encoder` block is only sent to the owner, on a plan with `encoder_enabled`, when `liquidsoap.encoder_host` is set, and only from `show()` and the rotate endpoint. An undecryptable stored key comes back as `password: null` with a logged warning (recovery is "New key"). Full behaviour: [Encoder ingest](encoder-ingest.md).
-6. **Danger zone**: `DeleteStation` (above).
+1. **Profile** (`ProfileCard`): artwork, name, genre tag, description (placeholder "No description yet. Two lines telling listeners what you play.") and **Edit** (`StationFormDialog`).
+2. **Links on your player page** (`LinksCard`, `#links`): see below.
+3. **When you're usually live** (`ShowTimesSection`, `#show-times`): the station timezone (`TimezoneCombobox`) and the show-times editor. Rules in [Schedule](schedule.md); wiring below.
+4. **Where listeners find you** (`StreamCard`): **Player page** (`{appUrl}/station/{slug}`, `CopyField`), **Direct stream** (`{NEXT_PUBLIC_ICECAST_URL}{icecast_mount}`, with the app URL in front when the Icecast URL is a same-origin path such as `/stream-proxy`; "Works only while you're on air"), **Quality** (the literal `MP3 · 128 kbps · 44.1 kHz`, hand-synced with `station.blade.php`).
+5. **Use your own DJ software** (`EncoderSection` → `EncoderCard`): a folded card `Disclosure`, closed by default. Locked (`useEncoderLocked`): a PRO tag in the title; opened, one paragraph and **Request Pro**. Plan allows but `station.encoder` absent (no ingest router): "Own-software broadcasting isn't available on this server yet." Available: the Icecast 2 instruction, `EncoderConnection` (Server, Port, Mount, Username, Password rows, each with Copy; the password masked with Show/Hide; "Where these go in BUTT, Mixxx and ffmpeg" folded underneath), **New key** (`POST /stations/{slug}/stream-key` after a confirm; the new key shows and is revealed at once, until the refreshed prop's `rotated_at` catches up), four folded questions (turn the station on first; Shoutcast doesn't work; a new key doesn't kick anyone off; the connection isn't encrypted) and a link to `/help/my-encoder-wont-connect`. There is no `#encoder` anchor any more. Full behaviour: [Encoder ingest](encoder-ingest.md).
+6. **Delete this station** (`DeleteStation`): a quiet row with "Delete station…" (below).
 
-### `LinksEditor` in detail
+### `LinksCard` in detail
 
-Rows of `{ url, label }`, max 8 (`MAX_SOCIAL_LINKS`, client and server both 8; the Add button disables when full and the footnote changes). Per row: an icon that resolves live from the pasted address, a URL input (`maxLength` 2048, placeholder `instagram.com/yourstation`, `inputMode="url"`), a name input (`maxLength` 30, width fixed, placeholder is the platform name for known hosts, else "Name (optional)"), and a remove button.
-- `normalizeSocialUrl` prepends `https://` when the input has no scheme, applied **on blur** (not per keystroke) and again on save.
-- Focusing an empty name input on an **unrecognised** host prefills it with the hostname (`suggestSocialLabel`); recognised platforms stay blank because the glyph is the label.
-- `resolveSocialLink` only accepts `http:`/`https:` URLs; hosts are matched (leading `www.` stripped, walking up subdomains) against a 38-entry table (`PLATFORMS`: Instagram, Facebook, X/Twitter, YouTube, TikTok, SoundCloud, Bandcamp, Spotify, Apple Podcasts, Deezer, Tidal, Twitch, Kick, Discord, Telegram, WhatsApp, Threads, Bluesky, Mastodon, Reddit, Linktree, Patreon, PayPal, Cash App, LinkedIn, Pinterest, Snapchat, VK, GitHub, Medium and some alternate domains; Mastodon is matched only for `mastodon.social`). Everything else gets a globe icon and its hostname (or the label).
-- Save (`Save links`, `PUT /stations/{slug}` with only `{ social_links }`): empty-URL rows are dropped silently; if the only change is empty new rows it toasts "Paste a link into the new row first." and focuses the row instead of a fake success; any unparseable URL toasts `"{url}" doesn't look like a web address.` before the request; success toasts "Links saved" and `router.refresh()`; a 422 toasts the first server message. Empty label is sent as `null`.
-- Order is the array order and is what the player page shows.
+A list of saved links (site icon, name, the address without its scheme, **Remove**) and one address field with **Add** (or Enter). Both save at once: `PUT /stations/{slug}` with the whole `social_links` array, toast "Link added" / "Link removed", `router.refresh()`. There is no name field and no Save button; names saved by the old editor are kept, because every save sends the list back as it was. New links are sent with `label: null`.
+
+- `normalizeSocialUrl` prepends `https://` when there is no scheme.
+- Refused before the request: anything `resolveSocialLink` can't parse ("… doesn't look like a web address."), and a URL already in the list ("That link is already on your player page.").
+- Max 8 (`MAX_SOCIAL_LINKS`): at 8 the field is replaced by "8 links is the most a player page shows. Remove one to add another."
+- `resolveSocialLink` matches the host (leading `www.` stripped, walking up subdomains) against the `PLATFORMS` table in `lib/socialLinks.ts` for an icon and name; anything else gets a globe and its hostname.
+- A 422 toasts the first server message. Order is the array order, which is what the player page shows.
 
 ### `ShowTimesSection` wiring
 
-Holds the station timezone (`chosen`, or the browser's zone when the station has none, read after mount to avoid a hydration mismatch) and the rows. `ShowTimesEditor` saves both in one `PUT /stations/{slug}/schedules` with `{ timezone, schedules }` (show name max 60, default start `20:00`; client-side refusals: rows with no timezone, no days, or an empty time), so this is the only place the timezone is sent from. It warns on unload (`beforeunload`) when either is dirty. A null station timezone shown as the browser zone is **not** counted as a change until the owner picks one. `TimezoneCombobox`: options from `Intl.supportedValuesOf("timeZone")` (falls back to the browser's own zone if unsupported; a current value not in the list is prepended), typeahead that treats spaces as underscores, at most 50 matches (`MAX_RESULTS`), each with a live "GMT+N" hint (display only; the IANA name is what is saved), arrow/Enter/Escape keyboard handling, ARIA combobox roles. See [Schedule](schedule.md) for the rest.
+Holds the station timezone (`chosen`, or the browser's zone when the station has none, read after mount) and the rows. `ShowTimesEditor` (rows on inset wells: name `Input`, start time `Input type="time"`, remove; days as a neutral off-white `DayToggle` with `stretch`, Monday first and mapped to the stored Sunday-first days through `WEEK_ORDER`; `ShowTimesEditor.test.tsx`) saves both in one `PUT /stations/{slug}/schedules` with `{ timezone, schedules }`, so this is the only place the timezone is sent from. "Unsaved changes" shows next to Save, and leaving warns (`beforeunload`) when either is dirty. A null station timezone shown as the browser zone is not counted as a change. `TimezoneCombobox` (moved into `settings/`): options from `Intl.supportedValuesOf("timeZone")`, typeahead treating spaces as underscores, at most 50 matches each with a "GMT+N" hint, keyboard and ARIA combobox roles. See [Schedule](schedule.md).
 
 ## Account page (`/dashboard/settings`)
 
-A client component reading the `user` cookie (`getUser()`); until that mounts it shows a skeleton. Title "Account". Cards:
+A client component that reads the `user` cookie after mount (`useMounted` + `getUser()`; a skeleton until then) and holds the newer copy a form saves. One column (`max-w-3xl`), title "Account". Components in `components/dashboard/account/`:
 
-- **Plan** (`PlanCard`, renders nothing while the plan is unknown): plan name, "Up to {max_listeners} listeners at once." plus either "Your station plays only while you're broadcasting." (AutoDJ locked) or "...with AutoDJ keeping your station on air when you're not live.", and a "Request Pro" button when locked ("Request sent" after).
-- **Profile**: Name and Email (both `required`). Submitting sends `PATCH /account/profile` with only changed fields; nothing changed toasts "Nothing changed". Changing email reveals a "Current password" field, required client-side (inline error "Current password is required to change your email." or the server's `errors.current_password[0]`). On success the cookie user is refreshed (`saveAuth(null, updated)`); if `email_verified_at` is now null the `VerifyEmailDialog` opens.
-- **Change password** / **Set password** (Google-only accounts, `has_password === false`): current password (only when the account has one), new password and confirmation (`minLength=8`, one shared show/hide toggle). `PATCH /account/password`. Copy warns other sessions are signed out on change. Errors toast the first validation message.
-- **Danger zone**: "Delete account" opens a dialog listing consequences and requiring the account email typed (case-insensitive, trimmed) to enable "Delete forever" (`DELETE /account` with `{ confirmation }`, then `clearAuth()`, toast, `router.push("/")`). The dialog bullets say "End your access" and "you won't be able to bring them back", but the card above it says "permanently removes your stations and broadcast history" and the dialog title says "This is permanent"; in fact stations are soft-deleted (30 days, see Delete above) and the account row is soft-deleted with its email scrambled, not erased.
+- **`PlanCard`** (nothing while the plan is unknown). Pro (`plan.slug !== "free"`): amber card, PRO tag, "You're on {name}", and what the plan includes, built from its own flags by `planIncludes` (listeners cap, AutoDJ, embeds, your own DJ software, N days of audience history; `PlanCard.test.ts`), plus "Ends {date}, then your account moves to Free." when `expires_at` is set (a time-limited invite). There is no billing button (no billing exists). Free: a plain card with the same list, "Your station plays only while you're live." and **Request Pro**.
+- **`ProfileForm`**: Name and Email (`TextField`). "Save changes" is disabled until something changed. Changing the email reveals "Current password" (`PasswordField`; required client-side, server error shown on the field). Sends `PATCH /account/profile` with only changed fields; on success the cookie user is refreshed (`saveAuth`) and, if the new address is unverified, the dashboard's `account/VerifyEmailDialog` opens (ds kit; the flow is `hooks/useEmailVerification.ts`, shared with the login/register dialog; it closes only through its own buttons or a verified code).
+- **`PasswordForm`**: "Password" (current + new) or "Set a password" for Google-only accounts (`has_password === false`, new only). One new-password field with Show/Hide (`PasswordField`), no confirm field: the API's `confirmed` rule is sent the same value. Button disabled until the new password has 8 characters (and the current one is filled). `PATCH /account/password`; "Changing it signs you out everywhere else."
+- **`DeleteAccount`**: a quiet row, "Delete account…", opening a `ConfirmDialog` (`tone="danger"`): "Delete your account?", three consequences, the account email typed to enable "Delete forever" (`DELETE /account` with `{ confirmation }`, then `clearAuth()`, toast, `router.push("/")`). The dialog says "permanent"; in fact stations are soft-deleted (30 days) and the account row is soft-deleted with its email scrambled.
 
-The API side of these three endpoints is in [Auth](auth.md) and [Accounts, plans, invites](accounts-plans-invites.md). The routes sit **outside** the `verified` group on purpose, so an unverified user can fix a mistyped email or delete the account.
+The API side of these endpoints is in [Auth](auth.md) and [Accounts, plans, invites](accounts-plans-invites.md). The routes sit **outside** the `verified` group on purpose, so an unverified user can fix a mistyped email or delete the account.
 
 ## Data model: `stations` table
 
@@ -407,7 +438,7 @@ Model `App\Models\Station` (`HasUuids` string primary key, `SoftDeletes`, `LogsA
 | `GET /stations/{slug}` | `show` | owner (`view`) | Loads `streamSessions` (all rows, to compute stats), `schedules`, `autodjSlots.playlist`, `defaultPlaylist`; adds `encoder`, `programme`, `stats` |
 | `PUT /stations/{slug}` (also PATCH) | `update` | owner | Profile, links, timezone, jingles |
 | `DELETE /stations/{slug}` | `destroy` | owner | Soft delete |
-| `GET /stations/{slug}/sessions` | `StreamSessionController::index` | owner | `latest('started_at')->paginate(20)`, raw paginator JSON (top-level `data`, `total`). Used by the Overview, Broadcasts and the mobile station screen |
+| `GET /stations/{slug}/sessions` | `StreamSessionController::index` | owner | `latest('started_at')->paginate(20)`; `?finished=1` leaves out the open session. Paginator JSON (top-level `data`, `total`, `current_page`, `last_page`) plus `summary: { shows, live_seconds }` over **every** finished session. Used by the Overview, Your shows and the mobile station screen |
 | `POST /stations/{slug}/sessions`, `DELETE /stations/{slug}/sessions/{id}` | `store`, `destroy` | owner (`update`) | Routed but **called by nothing in the web client or mobile app** (reserved for a desktop client): `store` refuses with 409 `station_already_live` when another device or an encoder session holds the mount and dispatches the live notification after 2 minutes; `destroy` ends the session and clears `metadata:{id}` |
 | `POST /upload/{type}` (`images` or `sounds`) | `UploadController` | sanctum, verified, `throttle:uploads` (20/min per user, `AppServiceProvider`) | Artwork file to `storage/uploads/images`, returns `data.url`. `sounds` (mp3/wav/ogg/flac/aac, 50 MB) is the same endpoint; the dashboard only uses `images` |
 | `GET /stations/{slug}/status`, `POST .../start`, `.../stop` | other controllers | owner | [Station lifecycle](station-lifecycle.md) |
@@ -434,7 +465,7 @@ Hand-written TypeScript mirrors of API payloads. There is no generated schema, s
 |---|---|---|
 | `Station.ts` | `Station`, `StationSchedule`, `SocialLink`, `StationEncoder`, `AutodjSlot`, `Programme` | `state` typed `offline | on_air | live` (the resource never sends `starting`/`degraded`). `theme_config` typed, unused. `watermarked` flagged in the file as not to be rendered. |
 | `StationStatus.ts` | `/status` payload | Adds `starting`, `degraded`; `broadcaster` (null on old containers), `live_source {type, client}`, `elapsed`/`remaining`, `up_next`, `playlist_length`, `icecast_connected`, `last_ready_at` |
-| `StreamSession.ts` | session rows | `source_type` `browser | electron | external`; `electron` is reserved, nothing writes it |
+| `StreamSession.ts` | session rows | `source_type` `browser | electron | external`; `electron` is reserved, nothing writes it. `peak_at` (when the peak was first reached) |
 | `Plan.ts` | `GET /user` plan block; `PRO_PRICE_USD = 15`; `PRO_AVAILABLE = false` | no `max_stations` on purpose |
 | `User.ts` | user; `plan` present on `/user` but **absent from the `user` cookie** | read the plan via `usePlan()` |
 | `Playlist.ts`, `Track.ts` | library payloads | [Library and playlists](library-and-playlists.md) |
@@ -448,37 +479,33 @@ Hand-written TypeScript mirrors of API payloads. There is no generated schema, s
 | Mobile app | Reads `GET /stations` on its home screen (`mobile/src/app/home.tsx`); creating or deleting a station is a web-only action (no mobile call found). See [Mobile station screens](mobile-station-screens.md). |
 | Player page | Shows name, genre, description, artwork and links from the same `StationResource`; [Public player and embed](public-player-and-embed.md). |
 | Admin | Admin panel can feature stations and shows `max_stations` per plan; [Admin panel](admin-panel.md). |
-| Help | `/help/turning-your-station-on-and-off` (from the power card `HelpLink`). `HelpLink` is meant to be used sparingly and always opens a new tab. |
+| Help | `HelpLink` (sparingly, always a new tab): `/help/turning-your-station-on-and-off` by the hero's state label, and beside page titles such as Audience. |
 
 ## Gaps and traps
 
-1. **One station per account is a client convention.** The API allows `max_stations` (Free 1, Pro 5). A Pro user creating a second station via API gets it silently ignored by the dashboard, which resolves the oldest. The create-dialog 403 text "Each account has one station, and yours already exists." is therefore only accurate for Free.
+1. **One station per account is a client convention.** The API allows `max_stations` (Free 1, Pro 5). A Pro user creating a second station via API gets it silently ignored by the dashboard, which resolves the oldest. The form's 403 text "Each account has one station, and yours already exists." is therefore only accurate for Free.
 2. **Editing name, genre, description or artwork restarts a running station** and drops listeners; the form gives no warning. Only jingles, timezone and links are restart-free.
-3. **Edit-form 403 message is wrong in edit mode.** Any 403 (for example the `email_unverified` middleware response) toasts "Each account has one station...". The axios interceptor also toasts "Verify your email to continue." for that code.
-4. **Form errors are invisible for genre, description and artwork.** Only `name` renders a `FieldError`; a rejected `artwork_url` or `genre` produces no message and the dialog just stays open.
-5. **Artwork limits disagree.** Hint says max 2 MB; server allows 5 MB and also accepts gif; the file input's `accept` excludes gif. Nothing enforces the 2 MB.
-6. **`artwork_url` accepts any http(s) URL** and the column is `varchar(255)` while the rule allows 2048 (a long URL 500s at the database). `next.config.ts` `images.remotePatterns` allows only `https://{host of NEXT_PUBLIC_API_URL, else api.gocast.fm}/storage/**`, `https://lh3.googleusercontent.com/**` and `http://localhost:8000/storage/**`, so an arbitrary external artwork URL fails in the Next image optimizer (in development images are `unoptimized`, so the problem only appears in a production build).
-7. **Uploaded artwork is never deleted**, on replace, on station delete or by the prune.
-8. **`description` has no length limit** at the API or in the form.
-9. **Cancel keeps unsaved edits** in `StationFormDialog` (state is initialised once and the component stays mounted); the checklist's separate dialog instance has its own copy.
-10. **Delete copy vs behaviour.** The dialog says "This can't be undone" and that history is lost; in reality the rows and audio survive 30 days (`stations:prune-deleted`) and restore is possible by hand. `desired_state` is not reset, so a restored running station comes straight back on air. Delete does not check for a live broadcast or close its open `StreamSession`. Artwork files stay forever.
-11. **`/dashboard/station/{path}` allowlist omits `schedule`** (and anything nested). A link to `/dashboard/station/schedule` lands on the Overview.
-12. **Sidebar Overview matcher is a hand list** of excluded sub-routes; a new station sub-page is highlighted as Overview until it is added.
-13. **Layout trusts the `user` cookie**: a malformed cookie throws instead of redirecting; `email_verified_at` and identity come from the cookie, not `/user`.
-14. **`state` on the page payload can lie for the first seconds**: it is intent-only. `StationPower` guards this with "Checking..." until the first poll, but any other consumer of `station.state` (the header text `Last live`, the overview `isOnAir` prop passed to `LiveListeners`) is intent-based.
-15. **`StationActivity` truncation is coarse.** `truncated` is `total sessions > sessions fetched` (page size 20, and open sessions count towards `total`), so once a station has more than 20 lifetime sessions the prior-period comparison is always suppressed and the 14-day counts cap at what fits in the latest 20.
-16. **`StationChecklist` "Fill the default playlist"** is evaluated against the active programme playlist's tracks, and disappears from the list on Free. The title over-claims.
-17. **`show()` loads every stream session** for `stats`; cost grows with broadcast history.
-18. **Hardcoded strings that must be hand-synced**: `STREAM_FORMAT` in the Overview ("Streams in MP3, 128 kbps") and again in settings ("MP3 128 kbps, 44.1 kHz"), and `gocast.fm/station/{slug}` in the edit dialog. If `NEXT_PUBLIC_APP_URL` is unset the Player URL is relative.
-19. **`theme_config` and `watermarked` are dead** (validated/stored/sent, rendered nowhere). Do not build on them.
-20. **Slug is immutable**, so a renamed station keeps its old URL forever; the observer's slug-change code is unreachable through the API.
-21. **Plan data is per layout render.** After a Pro grant, the sidebar and locks only change on the next full dashboard render (`router.refresh()` or reload); `ProRequestContext.requested` is not persisted.
-22. **No client tests** cover the dashboard beyond the Playwright `auth.spec.ts` and `help-screenshots.spec.ts` in `client/tests/e2e`.
-23. **`#encoder` only works in one card state.** `id="encoder"` is on the available `EncoderCard` only, not on the locked or the "isn't available on this server" cards.
-24. **`timezone` on `PUT /stations/{slug}` has no sender.** Both apps set the zone through `PUT .../schedules`, so the `UpdateStationRequest` timezone-clear guard is only reachable by direct API calls.
-25. **`POST`/`DELETE /stations/{slug}/sessions` are unused** by web and mobile. `destroy` authorises on the station but does not check that the session belongs to it (no `scoped()` on the nested route).
-26. **`/dashboard/broadcasts` masks every failure as 404** (`catch { notFound() }`), including 5xx and timeouts, and shows only the newest 20 sessions with no way to page.
-27. **Not read line by line for this doc**: the `NotificationBell` popover body and `NotificationItem`/detail dialog (only the 60 s poll was confirmed), and the middle of `GoLiveTrigger` (encoder pane). Both are owned by other docs.
+3. **The form's 403 message is wrong in edit mode.** Any 403 (for example the `email_unverified` middleware response) toasts "Each account has one station...". The axios interceptor also toasts "Verify your email to continue." for that code.
+4. **Artwork: GIF is accepted by the server but refused by the client** (`ARTWORK_TYPES` is PNG/JPEG/WebP). Both cap at 5 MB.
+5. **`artwork_url` accepts any http(s) URL** and the column is `varchar(255)` while the rule allows 2048 (a long URL 500s at the database). `next.config.ts` `images.remotePatterns` allows only `https://{host of NEXT_PUBLIC_API_URL, else api.gocast.fm}/storage/**`, `https://lh3.googleusercontent.com/**` and `http://localhost:8000/storage/**`, so an arbitrary external artwork URL fails in the Next image optimizer (in development images are `unoptimized`, so the problem only appears in a production build).
+6. **Uploaded artwork is never deleted**, on replace, on station delete or by the prune.
+7. **`description` has no length limit** at the API or in the form.
+8. **Delete copy vs behaviour.** The dialog says "This is permanent and can't be undone"; in reality the rows and audio survive 30 days (`stations:prune-deleted`) and restore is possible by hand. `desired_state` is not reset, so a restored running station comes straight back on air. Delete does not check for a live broadcast or close its open `StreamSession`. Artwork files stay forever.
+9. **`/dashboard/station/{path}` allowlist omits `schedule`** (and anything nested; `STATION_PAGES = studio, live, library, audience, settings`). A link to `/dashboard/station/schedule` lands on the Overview.
+10. **Layout trusts the `user` cookie**: a malformed cookie throws instead of redirecting; `email_verified_at` and identity come from the cookie, not `/user`.
+11. **`state` on the page payload is intent-only.** The band, sidebar lamp and hero wait for the poll ("CHECKING"), but server-rendered uses of `station.state` (the header's "Last live", the Coming up and Account pages) are intent-based.
+12. **The 14-day comparison disappears for established stations.** `LiveShowsCard` gets `truncated = total > 20`, so once a station has more than 20 lifetime sessions the "vs the 14 days before" line is always suppressed, and the 14-day counts are limited to what fits in the newest 20.
+13. **Days differ between cards.** `LiveShowsCard` buckets by the viewer's local day; Recent shows, Your shows and the top bar use the station's timezone.
+14. **`show()` loads every stream session** for `stats`; cost grows with broadcast history.
+15. **Hand-synced strings**: the stream quality in `StreamCard` (`MP3 · 128 kbps · 44.1 kHz`) must match `station.blade.php`. If `NEXT_PUBLIC_APP_URL` is unset the player link is relative.
+16. **`theme_config` and `watermarked` are dead** (validated/stored/sent, rendered nowhere). Do not build on them.
+17. **Slug is immutable**, so a renamed station keeps its old URL forever; the observer's slug-change code is unreachable through the API.
+18. **Plan data is per layout render.** After a Pro grant, the sidebar and locks only change on the next full dashboard render (`router.refresh()` or reload); `ProRequestContext.requested` is not persisted.
+19. **No deep link opens the DJ-software fold.** The old `#encoder` anchor is gone; the card opens closed.
+20. **`timezone` on `PUT /stations/{slug}` has no sender.** Both apps set the zone through `PUT .../schedules`, so the `UpdateStationRequest` timezone-clear guard is only reachable by direct API calls.
+21. **`POST`/`DELETE /stations/{slug}/sessions` are unused** by web and mobile. `destroy` authorises on the station but does not check that the session belongs to it (no `scoped()` on the nested route).
+22. **`/dashboard/broadcasts` masks every failure as 404** (`catch { notFound() }`), including 5xx and timeouts.
+23. **Links save on every Add/Remove** with the whole list; two tabs editing links at once overwrite each other.
 
 ## Tests
 
@@ -488,7 +515,10 @@ Hand-written TypeScript mirrors of API payloads. There is no generated schema, s
 - `api/tests/Feature/StationSocialLinksTest.php`: order, clear, protocol allowlist, required url, unknown keys, max 8, label length, public visibility, cross-owner block.
 - `api/tests/Feature/StationObserverTest.php`, `StationJingleSettingsTest.php`, `StationEncoderResourceTest.php`, `StreamKeyRotationTest.php`, `StationStatsTest.php`, `StationPowerControllerTest.php` (creates a station off air), `Auth/EmailVerificationEnforcementTest.php` (station routes need a verified email).
 - `DerivedStationStateTest.php` (the intent-derived `state`/`is_live`/`is_on_air` vs `/status`), `StationContainerIndexTest.php` (index allocation, never reissued), `StationHlsUrlTest.php` (`hls_url`).
-- No test found for `StoreStationRequest` plan-limit rejection or for `UpdateStationRequest` timezone-clear guard beyond the schedule tests in `StationScheduleTest.php` ([Schedule](schedule.md)). No component tests for the dashboard UI.
+- `api/tests/Feature/StreamSessionIndexTest.php`: the sessions summary over every finished show, `?finished=1`, paging, owner only.
+- Client unit tests (Vitest, `npm test`): `lib/airState`, `lib/stationHero`, `lib/comingUp`, `lib/liveShows`, `lib/showsTrend`, `lib/dashboardNav`, `lib/format`, `components/ds/*.test.tsx`, `ConfirmDialog.test.tsx`, `StationForm.test.tsx`, `ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`.
+- `client/tests/e2e/dashboard-visual.spec.ts` (`npm run test:visual`): every page and main state at desktop and phone width ([Dev environment and testing](dev-environment-and-testing.md)).
+- No test found for `StoreStationRequest` plan-limit rejection or for `UpdateStationRequest` timezone-clear guard beyond the schedule tests in `StationScheduleTest.php` ([Schedule](schedule.md)).
 
 ## History
 

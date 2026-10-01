@@ -1,25 +1,27 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  IconRadio,
-  IconHistory,
-  IconLogout,
-  IconChevronUp,
-  IconSettings,
-  IconUserCircle,
-  IconLoader2,
-  IconPlaylist,
-  IconChartBar,
-  IconCheck,
-  IconHelpCircle,
-  IconMicrophone2,
-  IconCalendarTime,
-} from "@tabler/icons-react"
-import { useState } from "react"
+import { IconCheck, IconLoader2, IconSelector } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
-import { Button } from "@/components/ui/button"
+import { usePlan, useAutoDjLocked, useAudienceLocked } from "@/contexts/AccountContext"
+import { useCurrentStation, type CurrentStation } from "@/contexts/StationContext"
+import { useProRequest } from "@/contexts/ProRequestContext"
+import { useStationStatus } from "@/hooks/useStationStatus"
+import { useSignOut } from "@/hooks/useSignOut"
+import { airState } from "@/lib/airState"
+import { NAV_ITEMS, activeNav, type NavItem } from "@/lib/dashboardNav"
+import { cn } from "@/lib/utils"
+import { User } from "@/interfaces/User"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, useSidebar } from "@/components/ui/sidebar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ds/Menu"
 import {
   Dialog,
   DialogContent,
@@ -27,342 +29,216 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { useSignOut } from "@/hooks/useSignOut"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ds/Dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { usePlan, useAutoDjLocked, useAudienceLocked } from "@/contexts/AccountContext"
-import { useCurrentStation } from "@/contexts/StationContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
-import { User } from "@/interfaces/User"
+import { StationArtwork } from "@/components/StationArtwork"
+import { Button } from "@/components/ds/Button"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 
-interface NavItem {
-  title: string
-  /** Where this goes when the station has not been resolved. */
-  href: string
-  /** Direct destination once the slug is known — see NAV_ITEMS. */
-  stationHref?: (slug: string) => string
-  icon: typeof IconRadio
-  /** Custom matcher when prefix-on-href is too narrow (e.g. AutoDJ also lights
-      up on per-station library pages). Defaults to startsWith(href). */
-  isActive?: (pathname: string) => boolean
-  /**
-   * Which entitlement this item needs, when it needs one. The link stays live
-   * either way on purpose: the destination explains the feature and sells the
-   * upgrade, and a nav item that silently does nothing teaches people the app
-   * is broken. The badge is what stops the click from being a surprise.
-   *
-   * A named lock rather than a boolean per feature — the two are gated
-   * separately (a plan could include audience history without AutoDJ), and a
-   * second `requiresX` flag would have to be kept in sync with the first.
-   */
-  lock?: "autodj" | "audience"
+/**
+ * The dashboard sidebar, as the prototype draws it: the wordmark, the
+ * station with its live state, a text-only nav, and the account at the
+ * bottom. Free accounts also get the plan card and PRO tags on the features
+ * their plan doesn't include. Below 1024px it is a drawer (components/ui/
+ * sidebar.tsx).
+ */
+export function AppSidebar({ user }: { user: User }) {
+  const pathname = usePathname() ?? ""
+  const station = useCurrentStation()
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  // The drawer stays open across a client-side navigation unless told.
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [pathname, isMobile, setOpenMobile])
+
+  return (
+    <Sidebar className="border-r border-line">
+      <SidebarHeader className="gap-4.5 px-3.5 pt-5 pb-0">
+        <Link href="/dashboard" className="px-2 py-1 font-display text-title-sm font-bold" aria-label="GoCast home">
+          Go<span className="text-on-air">Cast</span>
+          <span className="text-text-faint">.fm</span>
+        </Link>
+        {station && <StationCard station={station} />}
+      </SidebarHeader>
+
+      <SidebarContent className="px-3.5 pt-4.5">
+        <Nav pathname={pathname} station={station} />
+      </SidebarContent>
+
+      <SidebarFooter className="gap-2 px-3.5 pb-4">
+        <PlanCard />
+        <AccountMenu user={user} />
+      </SidebarFooter>
+    </Sidebar>
+  )
+}
+
+/** The station and what it is doing, as the band says it. */
+function StationCard({ station }: { station: CurrentStation }) {
+  const air = useCoarseAir(station.slug)
+  return (
+    <Link
+      href={`/dashboard/stations/${station.slug}`}
+      className="flex items-center gap-3 rounded-well bg-card p-2.5 transition-colors hover:bg-surface-raised"
+    >
+      <StationArtwork src={station.artwork_url} alt="" className="size-10 shrink-0 rounded-item text-text-faint" iconSize={16} sizes="40px" />
+      <span className="flex min-w-0 flex-col gap-1.5">
+        <span className="truncate font-display text-body leading-tight font-bold">{station.name}</span>
+        <StatusLamp tone={air.tone} size="sm">{air.label}</StatusLamp>
+      </span>
+    </Link>
+  )
+}
+
+function Nav({ pathname, station }: { pathname: string; station: CurrentStation | null }) {
+  const active = activeNav(pathname)
+  const autoDjLocked = useAutoDjLocked()
+  const audienceLocked = useAudienceLocked()
+  const { state, stationSlug } = useBroadcast()
+  const broadcastingHere = state === "live" || state === "reconnecting"
+  const air = useCoarseAir(station?.slug ?? null)
+
+  function hrefFor(item: NavItem): string {
+    // While a show runs from this tab, Studio is the studio, not pre-flight.
+    if (item.key === "studio" && broadcastingHere && stationSlug) return `/dashboard/stations/${stationSlug}/studio`
+    return station && item.stationHref ? item.stationHref(station.slug) : item.href
+  }
+
+  return (
+    <nav aria-label="Station" className="flex flex-col gap-0.5">
+      {NAV_ITEMS.map((item) => {
+        const isActive = item.key === active
+        const locked = item.lock === "autodj" ? autoDjLocked : item.lock === "audience" ? audienceLocked : false
+        const live = item.key === "studio" && (broadcastingHere || air.tone === "live" || air.tone === "mic")
+        const autoDjOn = item.key === "autodj" && air.tone === "onair"
+        return (
+          <Link
+            key={item.key}
+            href={hrefFor(item)}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "flex h-10.5 items-center justify-between gap-2 rounded-item px-3 text-body transition-colors",
+              isActive
+                ? "bg-surface-raised font-bold text-foreground"
+                : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
+            )}
+          >
+            <span>{item.label}</span>
+            {live && <StatusLamp tone="live" size="sm" pulse>Live</StatusLamp>}
+            {autoDjOn && <StatusLamp tone="onair" size="sm">On</StatusLamp>}
+            {locked && <ProTag />}
+          </Link>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** The band's state without the studio's detail: enough for a lamp. */
+function useCoarseAir(slug: string | null) {
+  const { status, loading } = useStationStatus(slug ?? "", slug !== null)
+  const { state, stationSlug } = useBroadcast()
+  const autoDjLocked = useAutoDjLocked()
+  return airState({
+    status,
+    statusLoading: loading,
+    broadcastState: stationSlug === slug ? state : "idle",
+    signal: null,
+    micLatched: false,
+    autoDjLocked,
+    onStudio: false,
+  })
+}
+
+function ProTag() {
+  return <span className="rounded-tag bg-fault px-1.5 py-0.75 eyebrow-sm text-fault-ink">Pro</span>
 }
 
 /**
- * Every item here is station-scoped — that is why the account page is not
- * among them but in the footer menu, and why the top item is "Overview"
- * rather than "Station", which distinguished it from nothing.
- *
- * Most of them have two destinations, and which one is used depends on
- * whether the slug is known.
- *
- * `href` is the slugless route — /dashboard and /dashboard/library — which
- * resolves the user's one station server-side and forwards. That used to be
- * the ONLY destination, on the reasoning that the sidebar cannot know the slug
- * without a fetch of its own. It can now: the layout resolves the station once
- * for the whole dashboard, so `stationHref` skips the hop entirely.
- *
- * The hop was not free. Every click on "Overview" or "AutoDJ" meant two full
- * page renders instead of one, and the throwaway first render paid for its own
- * `/user` and `/stations` before it could do anything but redirect.
- *
- * The slugless routes stay as the fallback, and stay correct: they are what a
- * user with no station yet gets (/dashboard is the onboarding page), what a
- * failed lookup falls back to, and what the old bookmarks in the wild point at.
- *
- * Their matchers are written out because prefix-on-href cannot separate them:
- * every library URL is also a /dashboard/stations/{slug} URL, so a plain
- * startsWith would light up "Overview" while the user is in AutoDJ.
+ * Free accounts only. Above the account row because the question it answers
+ * — "why does my station go quiet?" — comes up while looking at the nav.
+ * Pro is granted by hand, not bought, so the verb is "Request".
  */
-const NAV_ITEMS: NavItem[] = [
-  {
-    title: "Overview",
-    href: "/dashboard",
-    stationHref: (slug) => `/dashboard/stations/${slug}`,
-    icon: IconRadio,
-    // Every sub-page URL is also a /dashboard/stations/{slug} URL, so a plain
-    // prefix match lights this up while the user is somewhere else. Each
-    // segment that has its own nav item has to be subtracted by name,
-    // including /live and /studio now that the Studio item owns them.
-    isActive: (p) =>
-      p === "/dashboard" ||
-      (/^\/dashboard\/stations\/[^/]+/.test(p) &&
-        !/^\/dashboard\/stations\/[^/]+\/(library|schedule|audience|settings|live|studio)/.test(p)),
-  },
-  {
-    // The product's core screen had no way in from the nav: going live meant
-    // finding the button on the overview. Idle, this opens pre-flight; while
-    // a broadcast runs it goes straight to the studio (see stationHref use).
-    title: "Studio",
-    href: "/dashboard",
-    stationHref: (slug) => `/dashboard/stations/${slug}/live`,
-    icon: IconMicrophone2,
-    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/(live|studio)/.test(p),
-  },
-  {
-    title: "AutoDJ",
-    href: "/dashboard/library",
-    stationHref: (slug) => `/dashboard/stations/${slug}/library`,
-    icon: IconPlaylist,
-    isActive: (p) => p === "/dashboard/library" || /^\/dashboard\/stations\/[^/]+\/library/.test(p),
-    lock: "autodj",
-  },
-  {
-    // AutoDJ slots only, so it carries the AutoDJ lock. Show times, which
-    // every plan has, live in Station settings (docs/features/schedule.md).
-    title: "Schedule",
-    href: "/dashboard",
-    stationHref: (slug) => `/dashboard/stations/${slug}/schedule`,
-    icon: IconCalendarTime,
-    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/schedule/.test(p),
-    lock: "autodj",
-  },
-  {
-    title: "Audience",
-    // No slugless fallback: there is nothing to show without a station, and
-    // /dashboard is the onboarding page a user in that state belongs on.
-    href: "/dashboard",
-    stationHref: (slug) => `/dashboard/stations/${slug}/audience`,
-    icon: IconChartBar,
-    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/audience/.test(p),
-    lock: "audience",
-  },
-  { title: "Broadcasts", href: "/dashboard/broadcasts", icon: IconHistory },
-  {
-    title: "Settings",
-    // Station settings, NOT account settings — those live in the footer menu
-    // under the avatar, labelled "Account" so the two never read as the same
-    // destination. /dashboard/settings is the account page; pointing this
-    // there would be wrong, so it has no slugless route of its own and falls
-    // back to onboarding the way Audience does.
-    href: "/dashboard",
-    stationHref: (slug) => `/dashboard/stations/${slug}/settings`,
-    icon: IconSettings,
-    isActive: (p) => /^\/dashboard\/stations\/[^/]+\/settings/.test(p),
-  },
-]
-
-interface AppSidebarProps {
-  user: User
-}
-
-export function AppSidebar({ user }: AppSidebarProps) {
-  const pathname = usePathname()
-  const { signOut, signingOut, isBroadcasting } = useSignOut()
-  const [confirmSignOut, setConfirmSignOut] = useState(false)
+function PlanCard() {
   const plan = usePlan()
-  const station = useCurrentStation()
-
-  // An unknown plan renders exactly what this sidebar rendered before any of
-  // this existed — see useAutoDjLocked. Painting an upgrade nudge at a paying
-  // customer because one request timed out is the failure worth avoiding.
   const locked = useAutoDjLocked()
-  const audienceLocked = useAudienceLocked()
   const proRequest = useProRequest()
-  const { state: broadcastState, stationSlug: liveSlug } = useBroadcast()
-  const broadcasting = broadcastState === "live" || broadcastState === "reconnecting"
+  if (!locked) return null
 
   return (
-    <Sidebar>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <Link href="/dashboard">
-                {/* The design system has no logo file: the brand is a type
-                    wordmark, "Go" off-white, "Cast" AutoDJ violet, ".fm"
-                    faint, Bricolage 700. */}
-                <span className="font-display text-lg font-bold leading-none tracking-[-0.03em]">
-                  Go<span className="text-on-air">Cast</span><span className="text-text-faint">.fm</span>
-                </span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
+    <div className="flex flex-col gap-2 rounded-well bg-card p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-body-sm font-bold">{plan?.name ?? "Free"} plan</span>
+        <Button size="sm" variant="pro" onClick={proRequest.open} disabled={proRequest.requested} className="h-7.5 px-2.5 text-caption">
+          {proRequest.requested ? (
+            <>
+              <IconCheck className="size-3.5" aria-hidden />
+              Requested
+            </>
+          ) : (
+            "Request Pro"
+          )}
+        </Button>
+      </div>
+      <p className="text-caption text-muted-foreground">
+        {proRequest.requested
+          ? "Request sent — we’ll be in touch."
+          : "Your station goes silent when you stop broadcasting."}
+      </p>
+    </div>
+  )
+}
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="sr-only">Station</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV_ITEMS.map((item) => {
-                const active = item.isActive ? item.isActive(pathname) : pathname.startsWith(item.href)
-                const studioLive = item.title === "Studio" && broadcasting && !!liveSlug
-                const href = studioLive
-                  ? `/dashboard/stations/${liveSlug}/studio`
-                  : station && item.stationHref ? item.stationHref(station.slug) : item.href
-                return (
-                  // Keyed by title, not href: several items share a slugless
-                  // fallback destination (Overview, Audience and Settings all
-                  // land on /dashboard when there is no station yet).
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={active}>
-                      <Link href={href} className="cursor-pointer">
-                        <item.icon size={18} />
-                        <span className="text-sm">{item.title}</span>
-                        {studioLive && (
-                          <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-live-text">
-                            <span className="size-1.5 rounded-full bg-live animate-pulse motion-reduce:animate-none" />
-                            Live
-                          </span>
-                        )}
-                        {item.lock &&
-                          (item.lock === "autodj" ? locked : audienceLocked) && (
-                          <Badge variant="pro" className="ml-auto">
-                            Pro
-                          </Badge>
-                        )}
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
+function AccountMenu({ user }: { user: User }) {
+  const plan = usePlan()
+  const locked = useAutoDjLocked()
+  const { signOut, signingOut, isBroadcasting } = useSignOut()
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const initials = user.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("")
 
-      <SidebarFooter>
-        {/* The plan card sits above the account menu rather than inside it:
-            the thing it has to answer — "why does my station go quiet?" — is
-            a question people have while looking at the nav, not while looking
-            for a sign-out button. */}
-        {locked && (
-          <div className="mx-1 mb-1 rounded-2xl bg-card p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold">{plan?.name ?? "Free"} plan</span>
-              {/* Opens the request form rather than navigating. This button
-                  sits on every dashboard route, and sending someone to the
-                  library page first would interrupt whatever they were doing
-                  to re-explain a feature they just told us they want. The
-                  line below is the whole pitch it needs. */}
-              <button
-                type="button"
-                onClick={proRequest.open}
-                disabled={proRequest.requested}
-                className="inline-flex min-h-7 items-center gap-1.5 rounded-lg bg-foreground/8 px-2 py-1 text-[11px] font-bold text-foreground transition-colors hover:bg-foreground/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:border-ring disabled:opacity-60 disabled:hover:bg-foreground/8"
-              >
-                {proRequest.requested ? (
-                  <>
-                    <IconCheck size={12} aria-hidden />
-                    <span>Requested</span>
-                  </>
-                ) : (
-                  <>
-                    {/* Pro is granted by hand, not bought, so the verb is
-                        "Request". The amber tag names the plan per DESIGN.md
-                        instead of a second filled violet button. */}
-                    <span>Request</span>
-                    <Badge variant="pro">
-                      Pro
-                    </Badge>
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-              {proRequest.requested
-                ? "Request sent — we'll be in touch."
-                : "Your station goes silent when you stop broadcasting."}
-            </p>
-          </div>
-        )}
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg">
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarImage src={user.avatar_url} alt={user.name} />
-                    <AvatarFallback className="rounded-lg">
-                      {user.name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium">{user.name}</span>
-                      {/* Free accounts have the plan card above; a paid one had
-                          nothing anywhere saying which plan it was on. */}
-                      {plan && !locked && (
-                        <Badge variant="pro" className="shrink-0">
-                          {plan.name}
-                        </Badge>
-                      )}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">{user.email}</span>
-                  </div>
-                  <IconChevronUp className="ml-auto" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-                side="top"
-                align="end"
-                sideOffset={4}
-              >
-                {/* "Account", not "Settings": the sidebar now has a Settings
-                    item of its own pointing at the station's settings, and two
-                    entries sharing a word and a gear icon for two different
-                    destinations is the confusion this menu used to cause. */}
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings">
-                    <IconUserCircle />
-                    Account
-                  </Link>
-                </DropdownMenuItem>
-                {/* New tab, like every other help link in the dashboard: a
-                    broadcast lives in its tab, so navigating away from a live
-                    show to read a help page would end it. See HelpLink. */}
-                <DropdownMenuItem asChild>
-                  <Link href="/help" target="_blank" rel="noopener noreferrer">
-                    <IconHelpCircle />
-                    Help
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={signingOut}
-                  onClick={() => (isBroadcasting ? setConfirmSignOut(true) : signOut())}
-                >
-                  {signingOut
-                    ? <IconLoader2 className="animate-spin" />
-                    : <IconLogout />}
-                  <span>{signingOut ? "Signing out…" : "Sign out"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-button p-2 text-left transition-colors outline-none hover:bg-card focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-card">
+          <Avatar className="size-9.5 shrink-0">
+            <AvatarImage src={user.avatar_url} alt="" />
+            <AvatarFallback className="bg-surface-strong font-display text-sm font-bold">{initials}</AvatarFallback>
+          </Avatar>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+              <span className="truncate">{user.name}</span>
+              {/* Free accounts have the plan card; a paid plan is named here. */}
+              {plan && !locked && <ProTag />}
+            </span>
+            <span className="truncate text-caption text-text-faint">{user.email}</span>
+          </span>
+          <IconSelector className="size-4 shrink-0 text-text-faint" aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
+          <DropdownMenuItem asChild>
+            <Link href="/dashboard/settings">Account and plan</Link>
+          </DropdownMenuItem>
+          {/* New tab: a broadcast lives in this tab, and leaving it ends the show. */}
+          <DropdownMenuItem asChild>
+            <Link href="/help" target="_blank" rel="noopener noreferrer">Help</Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={signingOut}
+            className="text-muted-foreground"
+            onClick={() => (isBroadcasting ? setConfirmSignOut(true) : signOut())}
+          >
+            {signingOut && <IconLoader2 className="animate-spin" />}
+            {signingOut ? "Signing out…" : "Sign out"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Dialog open={confirmSignOut} onOpenChange={(next) => !signingOut && setConfirmSignOut(next)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -372,15 +248,15 @@ export function AppSidebar({ user }: AppSidebarProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" className="h-11" onClick={() => setConfirmSignOut(false)}>
+            <Button variant="subtle" onClick={() => setConfirmSignOut(false)}>
               Stay signed in
             </Button>
-            <Button variant="destructive" className="h-11" disabled={signingOut} onClick={() => signOut("/", { confirmed: true })}>
+            <Button variant="live" disabled={signingOut} onClick={() => signOut("/", { confirmed: true })}>
               {signingOut ? "Signing out…" : "End and sign out"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Sidebar>
+    </>
   )
 }

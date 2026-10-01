@@ -1,15 +1,10 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { useConfirm } from "@/components/ui/use-confirm"
+import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import {
-  IconUpload,
-  IconTrash,
-  IconLoader2,
-  IconMicrophone,
-} from "@tabler/icons-react"
+import { IconLoader2 } from "@tabler/icons-react"
 import api from "@/lib/axios"
 import {
   Dialog,
@@ -18,17 +13,14 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
-import { Select } from "@/components/ui/select"
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-  FieldDescription,
-} from "@/components/ui/field"
-import { formatBytes, formatDuration } from "@/lib/format"
+} from "@/components/ds/Dialog"
+import { Button } from "@/components/ds/Button"
+import { Segmented } from "@/components/ds/Segmented"
+import { Select } from "@/components/ds/Select"
+import { SwitchRow } from "@/components/ds/Switch"
+import { List, ListRow } from "@/components/ds/List"
+import { CUSTOM, JINGLE_PRESETS, presetFor } from "./jinglePresets"
+import { formatTrackTime } from "@/lib/format"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
@@ -80,6 +72,8 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const locked = useAutoDjLocked()
+  /** Custom chosen explicitly, even while the values still match a preset. */
+  const [customOpen, setCustomOpen] = useState(false)
 
   // Fetched on open rather than with the page: most visits to the library are
   // about the rotation, and this list is behind a button.
@@ -116,6 +110,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     setMode(station.jingle_mode)
     setIntervalMinutes(Math.round(station.jingle_interval_seconds / 60))
     setEveryTracks(station.jingle_every_tracks)
+    setCustomOpen(presetFor(station.jingle_mode, Math.round(station.jingle_interval_seconds / 60), station.jingle_every_tracks) === CUSTOM)
   }, [
     open,
     station.jingles_enabled,
@@ -147,7 +142,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
         title: `Delete “${track.title}”?`,
         description: "It stops playing between tracks straight away. This can't be undone.",
         confirmLabel: "Delete jingle",
-        destructive: true,
+        keepLabel: "Keep it",
       })
       if (!ok) return
 
@@ -209,123 +204,140 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     intervalMinutes * 60 !== station.jingle_interval_seconds ||
     everyTracks !== station.jingle_every_tracks
 
+  const choice = customOpen ? CUSTOM : presetFor(mode, intervalMinutes, everyTracks)
+
+  function choose(key: string) {
+    if (key === CUSTOM) {
+      setCustomOpen(true)
+      return
+    }
+    const preset = JINGLE_PRESETS.find((p) => p.key === key)
+    if (!preset) return
+    setCustomOpen(false)
+    setMode(preset.mode)
+    if (preset.mode === "interval") setIntervalMinutes(preset.value)
+    else setEveryTracks(preset.value)
+  }
+
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Jingles</DialogTitle>
           <DialogDescription>
-            Short clips that play between AutoDJ songs, like &ldquo;You&apos;re
-            listening to&hellip;&rdquo;. Radio calls them station IDs
-            and liners. They never cut into a song: each waits for the current
-            track to finish.
+            Short clips that play between AutoDJ songs, like “You’re listening to…”. They never cut
+            into a song: each waits for the current track to finish.
           </DialogDescription>
         </DialogHeader>
 
-        <FieldGroup>
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="jingles-enabled">Play jingles</FieldLabel>
-            <Switch
-              id="jingles-enabled"
-              checked={enabled}
-              onCheckedChange={setEnabled}
-            />
-          </Field>
+        <SwitchRow
+          title="Play jingles"
+          description="Changes apply live — you stay on air."
+          checked={enabled}
+          onCheckedChange={setEnabled}
+        />
 
-          <Field>
-            <FieldLabel>How often</FieldLabel>
-
-            {/* Two radio rows rather than a mode dropdown plus a value
-                dropdown: the choice and its value read as one sentence
-                ("every 30 minutes"), and seeing both sentences at once is
-                what makes the trade-off legible. */}
-            <div className="flex flex-col gap-2">
-              <label
-                className={`flex items-center gap-2 text-sm ${enabled ? "" : "opacity-50"}`}
-              >
-                <input
-                  type="radio"
-                  name="jingle-mode"
-                  value="interval"
-                  checked={mode === "interval"}
-                  onChange={() => setMode("interval")}
-                  disabled={!enabled}
-                  className="accent-primary"
-                />
-                <span>Every</span>
+        <div className={`flex flex-col gap-2 ${enabled ? "" : "opacity-45"}`}>
+          <span className="text-body-sm font-semibold text-muted-foreground">At most once every</span>
+          <Segmented
+            aria-label="How often jingles play"
+            value={choice}
+            onChange={choose}
+            options={[...JINGLE_PRESETS.map((p) => ({ value: p.key, label: p.label, disabled: !enabled })), { value: CUSTOM, label: "Custom", disabled: !enabled }]}
+          />
+          {choice === CUSTOM && (
+            <div className="flex flex-wrap items-center gap-2.5 rounded-well bg-card p-3">
+              <Segmented
+                aria-label="Count by"
+                size="sm"
+                className="w-48"
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "interval", label: "Time", disabled: !enabled },
+                  { value: "tracks", label: "Tracks", disabled: !enabled },
+                ]}
+              />
+              {mode === "interval" ? (
                 <Select
                   aria-label="Minutes between jingles"
-                  value={intervalMinutes}
-                  onChange={setIntervalMinutes}
-                  disabled={!enabled || mode !== "interval"}
-                  className="w-36"
-                  options={INTERVALS.map((minutes) => ({
-                    value: minutes,
-                    label: intervalLabel(minutes),
-                  }))}
-                />
-              </label>
-
-              <label
-                className={`flex items-center gap-2 text-sm ${enabled ? "" : "opacity-50"}`}
-              >
-                <input
-                  type="radio"
-                  name="jingle-mode"
-                  value="tracks"
-                  checked={mode === "tracks"}
-                  onChange={() => setMode("tracks")}
+                  className="w-40"
+                  value={String(intervalMinutes)}
+                  onChange={(v) => setIntervalMinutes(Number(v))}
                   disabled={!enabled}
-                  className="accent-primary"
+                  options={INTERVALS.map((m) => ({ value: String(m), label: `Every ${intervalLabel(m)}` }))}
                 />
-                <span>Every</span>
+              ) : (
                 <Select
                   aria-label="Tracks between jingles"
-                  value={everyTracks}
-                  onChange={setEveryTracks}
-                  disabled={!enabled || mode !== "tracks"}
-                  className="w-36"
-                  options={TRACK_COUNTS.map((count) => ({
-                    value: count,
-                    label: `${count} tracks`,
-                  }))}
+                  className="w-40"
+                  value={String(everyTracks)}
+                  onChange={(v) => setEveryTracks(Number(v))}
+                  disabled={!enabled}
+                  options={TRACK_COUNTS.map((n) => ({ value: String(n), label: `Every ${n} tracks` }))}
                 />
-              </label>
+              )}
             </div>
-
-            <FieldDescription>
-              {mode === "interval"
-                ? "Predictable in real time — good for legal IDs and sponsor reads. On a station with long tracks the actual gap can run past this, because the jingle still waits for the current track to end."
-                : "Even spacing through your rotation. How often that lands in real time depends on how long your tracks are."}
-            </FieldDescription>
-            <FieldDescription>
-              Either way it&apos;s a minimum, never a cut: the jingle waits for the
-              current track to finish. Changes apply live — your station stays on air.
-            </FieldDescription>
-          </Field>
-        </FieldGroup>
+          )}
+          <p className="text-body-sm text-pretty text-text-faint">
+            {mode === "interval"
+              ? "Predictable on the clock — good for station IDs. With long tracks the gap can run a little over, because the jingle waits for the song to end."
+              : "Even spacing between songs, whatever their length."}
+          </p>
+        </div>
 
         {enabledButEmpty && (
-          <p role="status" className="text-xs text-fault-text">
-            You haven&apos;t uploaded any jingles yet, so nothing will play.
+          <p role="status" className="text-body-sm text-fault-text">
+            You haven’t uploaded any jingles yet, so nothing will play.
           </p>
         )}
 
-        {/* The library half, split from the settings by a hairline rather
-            than boxed: the dialog is already the panel. */}
-        <section aria-labelledby="jingles-list-heading" className="flex flex-col gap-3 border-t border-border pt-4">
+        <section aria-labelledby="jingles-list-heading" className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between gap-3">
-            <h3 id="jingles-list-heading" className="text-sm font-medium">
-              Your jingles
-            </h3>
+            <h3 id="jingles-list-heading" className="font-display text-body font-bold">Your jingles</h3>
             {!loading && !loadError && jingles.length > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {jingles.length} {jingles.length === 1 ? "jingle" : "jingles"}
-              </span>
+              <span className="font-mono text-caption text-text-faint">{jingles.length}</span>
             )}
           </div>
 
-          {/* Drop zone */}
+          {/* No reorder: Liquidsoap plays these in random order. The floor
+              height is the empty state's, so loading doesn't move the footer. */}
+          <div className="max-h-56 min-h-16 overflow-y-auto">
+            {loading ? (
+              <div role="status" className="flex min-h-16 items-center justify-center">
+                <IconLoader2 className="size-4.5 animate-spin text-muted-foreground" />
+                <span className="sr-only">Loading jingles</span>
+              </div>
+            ) : loadError ? (
+              <div role="alert" className="flex min-h-16 flex-col items-center justify-center gap-2 text-center">
+                <p className="text-body-sm text-fault-text">Couldn’t load your jingles.</p>
+                <Button size="sm" variant="subtle" onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>
+              </div>
+            ) : jingles.length === 0 ? (
+              <p className="py-4 text-body-sm text-muted-foreground">No jingles yet. A station ID is usually 5–15 seconds.</p>
+            ) : (
+              <List>
+                {jingles.map((jingle) => (
+                  <ListRow
+                    key={jingle.id}
+                    title={jingle.title}
+                    meta={jingle.original_filename}
+                    trailing={
+                      <span className="flex shrink-0 items-center gap-1">
+                        <span className="font-mono text-caption text-muted-foreground tabular-nums">
+                          {jingle.duration_seconds > 0 ? formatTrackTime(Math.round(jingle.duration_seconds)) : "\u2014"}
+                        </span>
+                        <Button size="sm" variant="quiet" aria-label={`Delete ${jingle.title}`} onClick={() => void handleDelete(jingle)}>
+                          Delete
+                        </Button>
+                      </span>
+                    }
+                  />
+                ))}
+              </List>
+            )}
+          </div>
+
           <div
             onDragOver={(e) => {
               e.preventDefault()
@@ -337,35 +349,22 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
               setDragOver(false)
               if (e.dataTransfer.files.length > 0) void upload(e.dataTransfer.files)
             }}
-            className={`flex flex-col items-center gap-2 rounded-lg border border-dashed py-5 text-center transition-colors ${
-              dragOver ? "border-foreground/40 bg-foreground/[0.04]" : "border-input"
+            className={`flex flex-col items-center gap-2 rounded-well border-stroke border-dashed p-4.5 text-center transition-colors ${
+              dragOver ? "border-foreground/40 bg-foreground/[0.04]" : "border-line-strong"
             }`}
           >
-            {/* While files are moving the meter replaces the icon and the
-                headline outright — the spinner said nothing the bar doesn't say
-                better, and stacking both left the zone twice as tall. */}
             {progress ? (
-              <UploadProgressBar progress={progress} className="w-full px-4 text-left" />
+              <UploadProgressBar progress={progress} className="w-full text-left" />
             ) : (
-              <>
-                <IconUpload size={22} className="text-muted-foreground" />
-                <div className="text-sm font-medium">
-                  {locked
-                    ? "Jingles need Pro"
-                    : dragOver
-                      ? "Drop to upload"
-                      : "Drag jingles here"}
-                </div>
-              </>
+              <button
+                type="button"
+                disabled={uploading || locked}
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm font-semibold text-muted-foreground hover:text-foreground disabled:opacity-45"
+              >
+                {locked ? "Jingles need Pro" : dragOver ? "Drop to upload" : "Drop a clip here, or browse"}
+              </button>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={uploading || locked}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Browse files
-            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -378,73 +377,10 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
               }}
             />
           </div>
-
-          {/* Jingle list. No drag handles: Liquidsoap plays these in random
-              order, so an ordering control here would be a lie. The floor
-              height is the empty state's, so the loading → loaded swap does
-              not move the footer. */}
-          <div className="max-h-56 min-h-24 overflow-y-auto">
-            {loading ? (
-              <div role="status" className="flex min-h-24 items-center justify-center">
-                <IconLoader2 size={18} className="animate-spin text-muted-foreground" />
-                <span className="sr-only">Loading jingles</span>
-              </div>
-            ) : loadError ? (
-              <div role="alert" className="flex min-h-24 flex-col items-center justify-center gap-2 text-center">
-                <p className="text-xs text-fault-text">Couldn&apos;t load your jingles.</p>
-                <Button type="button" variant="outline" onClick={() => setReloadKey((k) => k + 1)}>
-                  Try again
-                </Button>
-              </div>
-            ) : jingles.length === 0 ? (
-              <div className="flex min-h-24 flex-col items-center justify-center gap-1 text-center">
-                <IconMicrophone size={22} className="text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">
-                  No jingles yet. A station ID is usually 5–15 seconds.
-                </p>
-              </div>
-            ) : (
-              jingles.map((jingle) => (
-                <div
-                  key={jingle.id}
-                  className="flex items-center gap-2 border-b border-border px-1 py-2 last:border-b-0"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{jingle.title}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {jingle.original_filename}
-                    </div>
-                  </div>
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                    {jingle.duration_seconds > 0
-                      ? formatDuration(Math.round(jingle.duration_seconds))
-                      : "—"}
-                  </span>
-                  <span className="hidden shrink-0 font-mono text-xs text-muted-foreground tabular-nums sm:inline">
-                    {formatBytes(jingle.file_size_bytes)}
-                  </span>
-                  {/* Neutral: it only opens a confirm. A red icon on every row
-                      made a healthy list look like a list of faults. */}
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label={`Delete ${jingle.title}`}
-                    onClick={() => void handleDelete(jingle)}
-                  >
-                    <IconTrash size={16} />
-                  </Button>
-                </div>
-              ))
-            )}
-          </div>
         </section>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || !settingsChanged}>
+          <Button size="lg" type="button" onClick={handleSave} disabled={saving || !settingsChanged}>
             {saving ? "Saving…" : "Save settings"}
           </Button>
         </DialogFooter>

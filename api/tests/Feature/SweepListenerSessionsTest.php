@@ -253,6 +253,29 @@ it('leaves the peak alone when the current count is lower', function () {
     expect($broadcast->fresh()->peak_listeners)->toBe(12);
 });
 
+it('stamps when the broadcast peak was reached', function () {
+    $this->travelTo('2026-10-01 21:41:00');
+    $broadcast = openBroadcast($this->station, peak: 2);
+
+    Redis::set("listeners:{$this->station->id}", 5);
+
+    artisan('listeners:sweep')->assertSuccessful();
+
+    expect($broadcast->fresh()->peak_at?->format('H:i'))->toBe('21:41');
+});
+
+it('keeps the first time the peak was reached when a later sample only equals it', function () {
+    $broadcast = openBroadcast($this->station, peak: 5);
+    $broadcast->update(['peak_at' => now()->subMinutes(5)]);
+    $stamped = $broadcast->fresh()->peak_at;
+
+    Redis::set("listeners:{$this->station->id}", 5);
+
+    artisan('listeners:sweep')->assertSuccessful();
+
+    expect($broadcast->fresh()->peak_at->equalTo($stamped))->toBeTrue();
+});
+
 it('does not touch peaks on broadcasts that already ended', function () {
     $ended = StreamSession::create([
         'station_id' => $this->station->id,

@@ -4,6 +4,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import type { StationSchedule } from "@/interfaces/Station"
+import { SWATCHES, type Swatch } from "@/lib/playlistSwatches"
 import {
   DAY_MINUTES,
   SNAP,
@@ -25,21 +26,7 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 /** Hour labels over the grid: every two hours, so they never crowd at laptop widths. */
 const HOUR_LABELS = Array.from({ length: 13 }, (_, i) => i * 2)
 
-/**
- * Every slot is AutoDJ airtime, so every swatch is a step on AutoDJ's violet
- * (the design system's colour rule) rather than a rainbow, with the ink that
- * reads on it. The steps are the design system's own violets
- * (mobile/src/lib/theme.ts: autodjArtA, autodj, autodjText, autodjDim).
- * Indexed by playlist order.
- */
-export const SWATCHES = [
-  { fill: "bg-on-air-deep ring-1 ring-inset ring-on-air/40", ink: "text-on-air-text", dot: "bg-on-air-deep ring-1 ring-on-air/60" },
-  { fill: "bg-on-air", ink: "text-background", dot: "bg-on-air" },
-  { fill: "bg-on-air-text", ink: "text-on-air-tint", dot: "bg-on-air-text" },
-  { fill: "bg-on-air-dim", ink: "text-on-air-text", dot: "bg-on-air-dim" },
-]
-
-export type Swatch = (typeof SWATCHES)[number]
+export { SWATCHES, type Swatch }
 
 interface Props {
   blocks: Block[]
@@ -53,6 +40,8 @@ interface Props {
   overlaps: Set<string>
   /** Station-clock "now", or null before mount / without a timezone. */
   now: { day: number; minute: number } | null
+  /** "1 OCT" under each weekday, on the station's clock; absent before mount. */
+  dates?: Record<number, string>
   readOnly: boolean
   onSelect: (key: string) => void
   /** A new slot on `day`, as a week-minute span. */
@@ -113,6 +102,7 @@ export function WeekGrid({
   siblings,
   overlaps,
   now,
+  dates,
   readOnly,
   onSelect,
   onCreate,
@@ -223,9 +213,9 @@ export function WeekGrid({
     // Seven 24-hour rows need room to be touched; below ~44rem the grid
     // scrolls sideways rather than shrinking slots to slivers.
     <div className="-mx-1 overflow-x-auto px-1 pb-1">
-      <div className="grid min-w-[44rem] grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-1.5">
+      <div className="grid min-w-[44rem] grid-cols-[4.375rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5">
         <span />
-        <div className="relative mb-1 h-4 font-mono text-[10.5px] text-muted-foreground tabular-nums">
+        <div className="relative mb-1 h-4 font-mono text-micro text-text-faint tabular-nums">
           {HOUR_LABELS.map((h) => (
             <span
               key={h}
@@ -244,13 +234,11 @@ export function WeekGrid({
           const isToday = now?.day === day
           return (
             <div key={day} className="contents">
-              <span
-                className={cn(
-                  "self-center text-xs",
-                  isToday ? "font-semibold text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {DAY_SHORT[day]}
+              <span className="flex flex-col gap-0.5 self-center">
+                <span className={cn("font-mono text-caption font-semibold tracking-widest uppercase", isToday ? "text-foreground" : "text-muted-foreground")}>
+                  {DAY_SHORT[day]}
+                </span>
+                {dates?.[day] && <span className="font-mono text-micro text-text-faint">{dates[day]}</span>}
               </span>
               <div
                 data-day-row
@@ -262,8 +250,8 @@ export function WeekGrid({
                   setGhost(null)
                 }}
                 className={cn(
-                  "relative h-12 touch-pan-x touch-pan-y rounded-md bg-background select-none",
-                  isToday && "bg-foreground/[0.045]",
+                  "relative h-14.5 touch-pan-x touch-pan-y rounded-control bg-surface-inset select-none",
+                  isToday && "bg-surface-raised",
                   !readOnly && "cursor-crosshair",
                 )}
                 // Hour lines; the six-hourly ones are drawn stronger below.
@@ -293,7 +281,7 @@ export function WeekGrid({
                       <div
                         key={`${s.block.key}-${s.head ? "h" : "t"}`}
                         className={cn(
-                          "absolute inset-y-1 overflow-hidden rounded-md",
+                          "absolute inset-y-1.25 overflow-hidden rounded-chip transition-[filter] hover:brightness-110",
                           swatch.fill,
                           swatch.ink,
                           selected && "z-10 outline-2 outline-offset-1 outline-foreground",
@@ -313,9 +301,9 @@ export function WeekGrid({
                             "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground",
                           )}
                         >
-                          <span className="truncate text-[12px] font-semibold">{nameFor(s.block)}</span>
+                          <span className="truncate font-display text-body-sm font-bold">{nameFor(s.block)}</span>
                           {!narrow && (
-                            <span className="truncate font-mono text-[10.5px] opacity-80 tabular-nums">
+                            <span className="truncate font-mono text-micro opacity-80 tabular-nums">
                               {s.head ? `${s.block.start}–${s.block.end}` : `→ ${s.block.end}`}
                             </span>
                           )}
@@ -351,7 +339,7 @@ export function WeekGrid({
                 {ghost?.day === day && (
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-1 z-20 flex items-center overflow-hidden rounded-md border border-on-air bg-on-air/25 px-2 font-mono text-[10.5px] whitespace-nowrap text-foreground tabular-nums"
+                    className="pointer-events-none absolute inset-y-1.25 z-20 flex items-center overflow-hidden rounded-chip border border-on-air bg-on-air/25 px-2 font-mono text-micro whitespace-nowrap text-foreground tabular-nums"
                     style={{ left: pct(ghost.from), width: pct(ghost.to - ghost.from) }}
                   >
                     {toClock(ghost.from)}–{toClock(ghost.to)}
@@ -365,10 +353,12 @@ export function WeekGrid({
                       key={`${show.id}-${day}`}
                       href={showsHref}
                       title={`${show.label ?? "Show time"} · ${show.start_time}. Edit in Station settings.`}
-                      className="absolute inset-y-1 z-20 flex min-w-9 items-center justify-center rounded-md border border-dashed border-live/70 bg-background/85 px-1 font-mono text-[9.5px] font-semibold tracking-[0.12em] text-live-text hover:border-live"
+                      // Your show times: a dashed outline marked YOU (the prototype's),
+                      // not red — red is "live right now", and these are plans.
+                      className="absolute inset-y-1.25 z-20 flex min-w-10 items-center justify-center rounded-chip border-stroke border-dashed border-foreground/40 bg-surface-inset/85 px-1 eyebrow-sm text-muted-foreground hover:border-foreground/70"
                       style={{ left: pct(toMinutes(show.start_time)) }}
                     >
-                      SHOW
+                      YOU
                     </Link>
                   ))}
 

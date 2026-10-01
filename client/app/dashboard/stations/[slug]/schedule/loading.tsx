@@ -1,77 +1,58 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { Card, CardHeader } from "@/components/ds/Card"
+import { PageHeader } from "@/components/ds/PageHeader"
 
-/** Monday first, matching WeekGrid's rows. */
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-
-/** The hour labels over the grid, every two hours as WeekGrid draws them. */
 const HOURS = Array.from({ length: 13 }, (_, i) => i * 2)
 
 /**
- * The Schedule page while the station and its playlists are in flight.
- *
- * Copies SchedulePlanner's shape: the heading with the save state beside it,
- * the status banner, then the week grid card. Static copy is text; what is
- * pending is the banner's reading and the grid's slots.
+ * The Schedule page while it loads, in SchedulePlanner's geometry: the
+ * header, the two "now" cards, and the week (the day strip on a phone, the
+ * grid from md). Constants — the title, day names, hour labels — are drawn
+ * for real; change one file, change the other.
  */
 export default function ScheduleLoading() {
   return (
-    // The Skeleton primitive pulses unconditionally; stopping it here keeps
-    // the page still for anyone who asked for reduced motion.
-    <div className="motion-reduce:[&_[data-slot=skeleton]]:animate-none">
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-          <div className="flex flex-col gap-1.5">
-            <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Schedule</h1>
-            <p className="text-sm text-muted-foreground max-w-[62ch]">
-              What plays when you&apos;re not live. Going live always takes over.
-            </p>
-          </div>
-          <Skeleton className="h-4 w-44" />
-        </div>
+    <div className="flex flex-col gap-5.5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+      <PageHeader title="Schedule" description="What AutoDJ plays when you’re not live. Going live always takes over." />
 
-        <Skeleton className="h-[4.5rem] w-full rounded-xl" />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18.75rem),1fr))] gap-5">
+        <Skeleton className="h-28 rounded-panel" />
+        <Skeleton className="h-28 rounded-panel" />
+      </div>
 
-        <div className="flex flex-col gap-4 rounded-3xl bg-card p-5">
-          <h2 className="font-display text-lg font-semibold tracking-tight">This week</h2>
-          {/* The phone layout: the day strip, then three rows (DayList). */}
-          <div className="flex flex-col gap-4 md:hidden">
-            <div className="grid grid-cols-7 gap-1.5">
-              {DAYS.map((day) => (
-                <Skeleton key={day} className="h-16 rounded-xl" />
-              ))}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-[4.75rem] rounded-xl" />
-              <Skeleton className="h-[4.75rem] rounded-xl" />
-              <Skeleton className="h-[4.75rem] rounded-xl" />
-            </div>
-          </div>
-          <div className="hidden grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 md:grid">
-            <span />
-            <div className="relative mb-1 h-4 font-mono text-[10.5px] text-muted-foreground tabular-nums">
-              {HOURS.map((h) => (
-                <span
-                  key={h}
-                  className={h === 0 ? "absolute" : h === 24 ? "absolute -translate-x-full" : "absolute -translate-x-1/2"}
-                  style={{ left: `${(h / 24) * 100}%` }}
-                >
-                  {String(h % 24).padStart(2, "0")}:00
-                </span>
-              ))}
-            </div>
+      <Card>
+        <CardHeader title="This week" />
+        <div className="flex flex-col gap-4 md:hidden">
+          <div className="grid grid-cols-7 gap-1.5">
             {DAYS.map((day) => (
-              <div key={day} className="contents">
-                <span className="self-center text-xs text-muted-foreground">{day}</span>
-                <Skeleton className="h-12 rounded-md" />
-              </div>
+              <Skeleton key={day} className="h-17 rounded-button" />
             ))}
           </div>
-          <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 md:flex">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-4 w-28" />
-          </div>
+          <Skeleton className="h-16 rounded-control" />
+          <Skeleton className="h-16 rounded-control" />
         </div>
-      </div>
+        <div className="hidden grid-cols-[4.375rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 md:grid">
+          <span />
+          <div className="relative mb-1 h-4 font-mono text-micro text-text-faint tabular-nums">
+            {HOURS.map((h) => (
+              <span
+                key={h}
+                className={h === 0 ? "absolute" : h === 24 ? "absolute -translate-x-full" : "absolute -translate-x-1/2"}
+                style={{ left: `${(h / 24) * 100}%` }}
+              >
+                {String(h % 24).padStart(2, "0")}:00
+              </span>
+            ))}
+          </div>
+          {DAYS.map((day) => (
+            <div key={day} className="contents">
+              <span className="self-center font-mono text-caption font-semibold tracking-widest text-muted-foreground uppercase">{day}</span>
+              <Skeleton className="h-14.5 rounded-control" />
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   )
 }

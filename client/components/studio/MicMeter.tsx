@@ -212,7 +212,7 @@ export function MicMeter({
     >
       <canvas ref={canvasRef} className="block h-6 w-full" />
       {/* The scale takes its colour from the pad around it. */}
-      <span className="relative block h-3.5 font-mono text-[11px] leading-none tabular-nums" aria-hidden>
+      <span className="relative block h-3.5 font-mono text-micro leading-none tabular-nums" aria-hidden>
         {SCALE.map((db) => (
           <span
             key={db}

@@ -15,6 +15,8 @@ export interface BreakdownItem {
   value: number
   /** Optional second figure shown to the right, e.g. listening time. */
   detail?: string
+  /** A short code shown before the label in mono, e.g. a country's "GB". */
+  code?: string
 }
 
 interface AudienceBreakdownProps {
@@ -47,21 +49,24 @@ export function AudienceBreakdown({
   const remainder = Math.max(0, total - shown)
 
   return (
-    <div className="flex flex-col gap-3 min-w-0">
-      <h2 className="text-base font-bold">{title}</h2>
+    <div className="flex min-w-0 flex-col gap-3">
+      <h2 className="font-display text-heading">{title}</h2>
 
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground leading-relaxed">{empty}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{empty}</p>
       ) : (
-        <ul className="flex flex-col gap-2 list-none p-0 m-0">
+        <ul className="m-0 flex list-none flex-col gap-3 p-0">
           {items.map((item) => {
             const share = total > 0 ? Math.round((item.value / total) * 100) : 0
 
             return (
-              <li key={item.key} className="flex flex-col gap-1 min-w-0">
-                <div className="flex items-baseline justify-between gap-3 text-xs">
-                  <span className="truncate">{item.label}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">
+              <li key={item.key} className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {item.code && <span className="shrink-0 rounded-swatch bg-surface-control px-1.25 py-0.75 eyebrow-sm text-muted-foreground">{item.code}</span>}
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  <span className="shrink-0 font-mono text-caption text-muted-foreground tabular-nums">
                     {item.detail ? `${item.detail} · ` : ""}
                     {share}%
                   </span>
@@ -69,9 +74,9 @@ export function AudienceBreakdown({
                 {/* A lit white bar on an unlit track, like a meter held at
                     level. Neutral on purpose: no hue here names a state
                     (DESIGN.md, the One Meaning Rule). */}
-                <div className="h-1.5 rounded-full bg-background overflow-hidden">
+                <div className="h-1.5 overflow-hidden rounded-full bg-surface-control">
                   <div
-                    className="h-full rounded-full bg-foreground/60"
+                    className="h-full rounded-full bg-muted-foreground"
                     style={{ width: `${Math.max(share, 2)}%` }}
                   />
                 </div>
@@ -79,9 +84,9 @@ export function AudienceBreakdown({
             )
           })}
           {remainder > 0 && (
-            <li className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+            <li className="flex items-baseline justify-between gap-3 text-sm text-muted-foreground">
               <span className="truncate">{remainderLabel}</span>
-              <span className="shrink-0 tabular-nums">
+              <span className="shrink-0 font-mono text-caption tabular-nums">
                 {Math.round((remainder / total) * 100)}%
               </span>
             </li>
@@ -90,7 +95,7 @@ export function AudienceBreakdown({
       )}
 
       {footnote && items.length > 0 && (
-        <p className="text-xs text-muted-foreground leading-relaxed">{footnote}</p>
+        <p className="text-body-sm leading-relaxed text-text-faint">{footnote}</p>
       )}
     </div>
   )

@@ -7,7 +7,7 @@ export default function Body() {
       <p>
         A schedule is a list of slots. A slot is a{" "}
         <Link href="/help/playlists-and-the-rotation">playlist</Link>, a set of
-        days, a start time and an end time &mdash; plus an optional label,
+        days, a start time and an end time &mdash; plus an optional name,
         because &ldquo;Drive time&rdquo; is easier to scan than 16:00.
       </p>
       <p>
@@ -17,9 +17,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-on-now.webp"
-        alt="An On now banner at the top of the schedule page, naming the playlist currently on air, the time it runs until, and which playlist takes over afterwards."
-        width={2784}
-        height={156}
+        alt="The Right now and Your next show cards at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15 — and the next of your own show times."
+        width={2480}
+        height={214}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -27,8 +27,9 @@ export default function Body() {
       <ol>
         <li>Make the playlists first &mdash; slots point at them.</li>
         <li>
-          Drag along an empty stretch of a day to draw a slot, then pick its
-          playlist, times and days in the panel beside it.
+          Click an empty hour to add a one-hour slot, or drag along a day to
+          draw a longer one. A dialog opens where you name it and pick its
+          playlist, times and days.
         </li>
         <li>
           Drag a slot&rsquo;s left or right edge to make it start or end
@@ -44,10 +45,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-slots.webp"
-        alt="Six scheduled slots: Breakfast and Drive time on weekdays, a News at Six bulletin, a podcast replay on Monday and Wednesday evenings, an After hours slot on Friday and Saturday nights, and Weekend brunch."
-        width={2824}
-        height={1170}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+        alt="The slot dialog: the name Breakfast, Morning Soul chosen to play, 06:00 to 10:00, and Monday to Friday ticked."
+        width={1000}
+        height={1398}
       />
 
       <h2>Slots That Cross Midnight</h2>
@@ -62,9 +62,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-week.webp"
-        alt="The week drawn out from midnight to midnight with a coloured bar for each scheduled playlist, the late-night slot appearing at the right edge of Friday and again at the left edge of Saturday where it crosses midnight."
-        width={2808}
-        height={660}
+        alt="The week, Monday to Sunday from midnight to midnight: Breakfast every weekday morning, Drive time every weekday afternoon, and After hours starting at the right edge of Friday and carrying on at the left edge of Saturday, where it crosses midnight."
+        width={2480}
+        height={1252}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -87,9 +87,9 @@ export default function Body() {
 
       <h2>Timezone</h2>
       <p>
-        Slots use your station&#39;s timezone, which you set under{" "}
-        <strong>Show times</strong>{" "}in Station settings. The Schedule page
-        shows it but can&#39;t change it. Set it before you build a schedule;
+        Slots use your station’s timezone, which you set in Station settings,
+        under <strong>When you’re usually live</strong>. The Schedule page
+        shows it, with a <strong>Change</strong>{" "}link that takes you there. Set it before you build a schedule;
         changing it afterwards moves every slot at once.
       </p>
 
@@ -99,7 +99,8 @@ export default function Body() {
         &mdash; text listeners read on your player page. Slots are what your
         station actually plays, and listeners never see them. You don&#39;t
         need to add your live shows to the schedule: going live takes over from
-        any slot, and they appear on the week view as green marks anyway.
+        any slot, and they appear on the week view anyway, as grey dashed
+        marks labelled YOU.
       </p>
       <p>
         There is a{" "}

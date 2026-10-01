@@ -36,9 +36,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/music-library.webp"
-        alt="The AutoDJ music library: a playlist rail down the left, the selected playlist's tracks on the right with title, artist, length and size, and a summary line reading fifteen tracks and 182 MB of 3 GB used."
-        width={2824}
-        height={1266}
+        alt="The AutoDJ page: All tracks and two playlists down the left; on the right three tracks with their title, playlists and length, and a note that they have no artist, with a Fix tags button."
+        width={2552}
+        height={1054}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -47,7 +47,9 @@ export default function Body() {
         Artist and title are read from the file&#39;s own tags, and that is what
         listeners see as the now-playing text on your player page. A library
         full of <code>track04.mp3</code>{" "}becomes a station that cannot say what
-        it is playing. Fix the tags before uploading rather than after.
+        it is playing. Fixing tags before you upload is easiest; for anything
+        that slips through, the AutoDJ page flags tracks with no artist and
+        offers <strong>Fix tags</strong>.
       </p>
 
       <h2>Where an Upload Lands</h2>

@@ -1,6 +1,6 @@
 ---
 feature: Configuration reference (every env var and config key)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/config/activitylog.php
   - api/config/analytics.php
@@ -75,7 +75,7 @@ sources:
   - mobile/src/lib/auth.tsx
   - mobile/src/broadcast/broadcastManager.ts
   - mobile/scripts/ingest-proxy.mjs
-fingerprint: 69fdb2202c439477
+fingerprint: 6dc172c23ce365bf
 ---
 
 # Configuration reference
@@ -120,7 +120,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `SESSION_DOMAIN` | none (null) | `.gocast.fm` | Sessions **and** the auth cookie's domain: `AuthController::authCookie()`/`forgetAuthCookie()` (`AuthController.php:157,170`) and `GoogleAuthController.php:308`. Wrong or unset in prod means the cookie is host-only on `api.` and the web app on `gocast.fm` never sees it. | required / unset / - |
 | `SESSION_PATH`, `SESSION_ENCRYPT`, `SESSION_EXPIRE_ON_CLOSE`, `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE`, `SESSION_PARTITIONED_COOKIE`, `SESSION_CONNECTION`, `SESSION_STORE`, `SESSION_TABLE`, `SESSION_COOKIE` | `/`, false, false, null, true, `lax`, false, null, null, `sessions`, `{app-slug}-session` | first two listed | Stock session settings (vendor). The auth cookie itself is built with `secure = $request->isSecure()`, `httpOnly = true`, `sameSite = lax` in code, not from these. | default ok |
 | `CACHE_STORE` | `database` | `redis` | Default cache (vendor and app `Cache::`). `CACHE_PREFIX`, `DB_CACHE_*`, `REDIS_CACHE_*`, `MEMCACHED_*`, `DYNAMODB_*` are stock store options. The scheduler's `onOneServer`/locks and reconciler strike counters use this. | required / any / forced `array` |
-| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `DB_QUEUE*`, `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
+| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `REDIS_QUEUE_RETRY_AFTER` defaults to **1800** s (not the stock 90): it must stay above the longest job timeout, `AnalyzeTrack` scaling up to `TrackAnalyzer::MAX_TIMEOUT_SECONDS` + 30 for a long mix. `DB_QUEUE*`, other `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
 | `DB_CONNECTION` | `sqlite` | `mysql` | Default DB. Tests force `mysql`, not sqlite. | required `mysql` / `mysql` / forced `mysql` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `127.0.0.1`, `3306`, `laravel`, `root`, empty | `127.0.0.1`, `3306`, `gocast`, `gocast`, blank | MySQL connection. Tests force `DB_DATABASE=gocast_test` and clear `DB_URL`. | required / required / partly forced |
 | `DB_URL`, `DB_SOCKET`, `DB_CHARSET` (`utf8mb4`), `DB_COLLATION` (`utf8mb4_unicode_ci`), `DB_FOREIGN_KEYS`, `DB_SSLMODE`, `MYSQL_ATTR_SSL_CA`, `DB_ENCRYPT`, `DB_TRUST_SERVER_CERTIFICATE` | see config | not listed | Stock DB options; `DB_ENCRYPT` and `DB_TRUST_SERVER_CERTIFICATE` are inside commented lines in `database.php` (dead). | default ok |
@@ -261,7 +261,7 @@ Every key is read by app code (grep of `config('liquidsoap.*')` finds a reader f
 |---|---|---|---|
 | `LIQUIDSOAP_ANALYSIS_ENABLED` | `true` | Master switch for loudness/cue analysis; `tracks:analyze` refuses to run when off. | `TrackImporter.php:154`, `AnalyzeTracksCommand.php:37` |
 | `LIQUIDSOAP_ANALYSIS_FFMPEG` | empty | Path to a local ffmpeg. Empty runs ffmpeg in a `docker run --rm --network none` one-shot of `LIQUIDSOAP_IMAGE`. | `TrackAnalyzer.php:90` |
-| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | Seconds per file; floored at 5. | `TrackAnalyzer.php:285` |
+| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | The **floor** of the per-file analysis timeout (itself floored at 5); the real limit scales to one eighth of the track's length, capped at 1500 s (`TrackAnalyzer::timeoutFor`). | `TrackAnalyzer.php:310` |
 | `LIQUIDSOAP_LOUDNESS_TARGET` | `-14.0` | Target LUFS. | `Services/TrackAnalysis.php:62` |
 | `LIQUIDSOAP_LOUDNESS_CEILING` | `-1.0` | True-peak ceiling dB. | `TrackAnalysis.php:63` |
 | `LIQUIDSOAP_LOUDNESS_MAX_GAIN` | `12.0` | Maximum gain applied dB. | `TrackAnalysis.php:64` |
@@ -315,6 +315,7 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 | `NEXT_RUNTIME` | set by Next | Picks the Sentry server or edge config. | `instrumentation.ts` | - |
 | `NEXT_TELEMETRY_DISABLED`, `PORT`, `HOSTNAME` | set in the systemd unit / deploy | Next runtime settings (`PORT=__CLIENT_PORT__`, `HOSTNAME=127.0.0.1`). | `gocast-client.service` | native only |
 | `E2E_BASE_URL`, `E2E_API_URL`, `CI` | `http://localhost:3000`, `http://localhost:8000`, unset | Playwright base URLs and CI mode. | `playwright.config.ts` | test only |
+| `E2E_CAPTURE` | unset | Lifts `grepInvert: /@(screenshots\|visual)/`, so the capture specs run; set by `npm run test:visual` and `test:help-shots`. | `playwright.config.ts` | test only |
 
 Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:195-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
 

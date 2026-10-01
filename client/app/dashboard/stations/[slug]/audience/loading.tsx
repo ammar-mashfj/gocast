@@ -1,111 +1,45 @@
-import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { HelpLink } from "@/components/dashboard/HelpLink"
-import { HowWeCount } from "./HowWeCount"
+import { Card } from "@/components/ds/Card"
+import { PageHeader } from "@/components/ds/PageHeader"
 
-/** Tile labels on the unlocked report, in page order. Fixed copy, so drawn as text. */
 const TILES = ["Listening time", "Daily listeners", "Peak at once", "Average listen"]
-
-/** The four breakdown cells, in page order. */
 const BREAKDOWNS = ["Countries", "Devices", "Browsers", "Where they came from"]
 
 /**
- * The Audience page while its fetch is in flight.
- *
- * Added when the station overview's skeleton stopped covering this route — see
- * `(overview)/loading.tsx`. That skeleton was never right for this page, but
- * losing it would have left the transition blank, which reads as a frozen tab.
- *
- * The plan gate lives on the API, so this file cannot know whether the page
- * will come back locked (two tiles and an upsell) or complete (four tiles, a
- * chart and four breakdowns). It draws the complete shape, because guessing
- * short would make the locked page the one that jumps.
- *
- * Same wrappers as the page — a card stack, one Card per section, the
- * breakdowns as a 2×2 grid whose cells each open on their own hairline — so
- * the page does not arrive in one shape and then settle into another. The
- * previous version drew boxed cards and a two-cell grid, and the whole page
- * visibly re-laid itself out on every load.
+ * The Audience page while it loads, in page.tsx's geometry: the header, four
+ * stat tiles, the chart card and the breakdown cards. Labels and titles are
+ * constants, drawn for real; change one file, change the other.
  */
 export default function AudienceLoading() {
   return (
-    // The Skeleton primitive pulses unconditionally; stopping it here keeps
-    // the page still for anyone who asked for reduced motion.
-    <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
-      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0">
-          <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
-            Audience
-            <HelpLink
-              article="read-your-audience-page"
-              label="what the audience numbers mean"
-            />
-          </h1>
-          {/* The blurb below the heading differs between the locked and the
-              full page, so it is the one piece of copy that stays a bar. */}
-          <Skeleton className="mt-1 h-5 w-96 max-w-full" />
-        </div>
+    <div className="flex flex-col gap-5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+      <PageHeader title="Audience" description="Everyone who pressed play — on your player page and on the direct stream." />
 
-        {/* The range switcher: the bordered pill group, with its buttons
-            pending because how many there are depends on the plan. */}
-        <div className="flex items-center gap-[3px] rounded-xl bg-card p-[3px] shrink-0">
-          <Skeleton className="h-6 w-10" />
-          <Skeleton className="h-6 w-10" />
-          <Skeleton className="h-6 w-10" />
-        </div>
-      </header>
-
-      <Card>
-        <CardContent className="grid grid-cols-2 gap-5 md:grid-cols-4">
-          {TILES.map((label) => (
-            <div key={label} className="flex flex-col gap-1 min-w-0">
-              <div className="text-xs text-muted-foreground">{label}</div>
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="h-4 w-28 max-w-full" />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          {/* AudienceChart: title row, the 112px bars, the date axis. */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-baseline justify-between gap-4">
-              <h2 className="text-base font-bold">Listening time</h2>
-              <Skeleton className="h-4 w-20" />
-            </div>
-            <Skeleton className="h-28 w-full" />
-            <Skeleton className="h-4 w-full" />
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        {TILES.map((label) => (
+          <div key={label} className="flex flex-col gap-2 rounded-well bg-card p-3.5">
+            <span className="eyebrow font-medium text-text-faint">{label}</span>
+            <Skeleton className="h-6.5 w-16" />
+            <Skeleton className="h-3.5 w-28 max-w-full" />
           </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {BREAKDOWNS.map((title) => (
-          <Card key={title}>
-            <CardContent>
-              <div className="flex flex-col gap-3 min-w-0">
-                <h2 className="text-base font-bold">{title}</h2>
-                <div className="flex flex-col gap-2">
-                  {[0, 1, 2].map((row) => (
-                    <div key={row} className="flex flex-col gap-1">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <Skeleton className="h-4 w-28" />
-                        <Skeleton className="h-4 w-10" />
-                      </div>
-                      <Skeleton className="h-1.5 w-full rounded-full" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         ))}
       </div>
 
-      {/* The folded methodology, closed — it is closed on arrival too. */}
-      <HowWeCount />
+      <Card>
+        <h2 className="font-display text-heading">Listening time per day</h2>
+        <Skeleton className="h-50 w-full rounded-control" />
+      </Card>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        {BREAKDOWNS.map((title) => (
+          <Card key={title}>
+            <h2 className="font-display text-heading">{title}</h2>
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-4 w-3/5" />
+          </Card>
+        ))}
+      </div>
     </div>
   )
 }

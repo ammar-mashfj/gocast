@@ -9,9 +9,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+} from "@/components/ds/Dialog"
+import { Button } from "@/components/ds/Button"
+import { Input } from "@/components/ds/Field"
 import { cn } from "@/lib/utils"
 import { formatDuration } from "@/lib/format"
 import type { Track } from "@/interfaces/Track"
@@ -97,7 +97,7 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Add to {playlistName}</DialogTitle>
           <DialogDescription>
@@ -115,26 +115,26 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
               <div className="relative flex-1">
                 <IconSearch
                   size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                  className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-text-faint"
                 />
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search title or artist"
                   aria-label="Search your library"
-                  className="h-9 pl-9 text-sm"
+                  className="h-11 bg-surface-inset pl-10"
                   autoFocus
                 />
               </div>
-              <Button variant="ghost" onClick={toggleAllVisible} disabled={visible.length === 0}>
+              <Button variant="quiet" onClick={toggleAllVisible} disabled={visible.length === 0}>
                 {visible.every((t) => picked.has(t.id)) && visible.length > 0 ? "Clear" : "Select all"}
               </Button>
             </div>
 
-            <div className="max-h-[50vh] overflow-y-auto rounded-md border border-border">
+            <div className="max-h-[50vh] overflow-y-auto">
               {visible.length === 0 ? (
                 <div role="status" className="py-8 text-center text-xs text-muted-foreground">
-                  No tracks match &ldquo;{query.trim()}&rdquo;.
+                  No tracks match “{query.trim()}”.
                 </div>
               ) : (
                 visible.map((track) => {
@@ -146,28 +146,28 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
                       onClick={() => toggle(track.id)}
                       aria-pressed={on}
                       className={cn(
-                        "w-full grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left text-sm border-b border-border last:border-b-0 cursor-pointer outline-none",
+                        "grid w-full cursor-pointer grid-cols-[1.375rem_minmax(0,1fr)_auto] items-center gap-3 rounded-item px-1.5 py-2.75 text-left text-sm outline-none [&+&]:border-t [&+&]:border-line",
                         "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
                         // The accent surface, which is what a selected item
                         // sits on everywhere else; the check carries the fill.
-                        on ? "bg-accent" : "hover:bg-muted/40",
+                        on ? "bg-surface-control" : "hover:bg-surface-control",
                       )}
                     >
                       <span
                         className={cn(
-                          "size-4 rounded border inline-flex items-center justify-center",
-                          on ? "bg-primary border-primary text-primary-foreground" : "border-border",
+                          "inline-flex size-5.5 items-center justify-center rounded-tag font-mono",
+                          on ? "bg-foreground text-background" : "bg-surface-strong",
                         )}
                       >
                         {on && <IconCheck size={12} />}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate">{track.title}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
+                        <span className="block truncate font-semibold">{track.title}</span>
+                        <span className="block truncate text-caption text-text-faint">
                           {track.artist ?? "Unknown artist"}
                         </span>
                       </span>
-                      <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      <span className="font-mono text-caption text-muted-foreground tabular-nums">
                         {track.duration_seconds > 0 ? formatDuration(Math.round(track.duration_seconds)) : "—"}
                       </span>
                     </button>
@@ -179,10 +179,7 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={picked.size === 0 || saving}>
+          <Button size="lg" onClick={submit} disabled={picked.size === 0 || saving}>
             {saving ? "Adding…" : picked.size === 0 ? "Add" : `Add ${picked.size} track${picked.size === 1 ? "" : "s"}`}
           </Button>
         </DialogFooter>

@@ -5,6 +5,10 @@ const apiURL = process.env.E2E_API_URL ?? "http://localhost:8000"
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // The capture specs (help screenshots, the dashboard visual pass) need the
+  // keeper accounts and write images; they are not part of `test:e2e`. Their
+  // npm scripts set E2E_CAPTURE=1, which lifts this.
+  grepInvert: process.env.E2E_CAPTURE ? undefined : /@(screenshots|visual)/,
   timeout: 30_000,
   expect: {
     timeout: 5_000,

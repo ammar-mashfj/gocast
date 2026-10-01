@@ -165,3 +165,21 @@ export function countryFlag(code: string): string {
     ...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
   )
 }
+
+/**
+ * The top bar's clock: "SAT 21:04 · LONDON", the time where the station is.
+ * The place is the timezone's city ("America/New_York" → "NEW YORK"); a
+ * zone with no city part ("UTC") is shown as it is.
+ */
+export function formatStationClock(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ""
+  const place = timeZone.split("/").pop()!.replace(/_/g, " ")
+  return `${get("weekday")} ${get("hour")}:${get("minute")} · ${place}`.toUpperCase()
+}

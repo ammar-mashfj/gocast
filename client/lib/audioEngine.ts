@@ -120,7 +120,7 @@ function whenTabVisible(): Promise<void> {
   })
 }
 
-function readDurationFromFile(file: File): Promise<number> {
+export function readDurationFromFile(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const audio = new Audio()
@@ -158,7 +158,7 @@ function readDurationFromFile(file: File): Promise<number> {
  * artist is '', not a placeholder: the player already hides an empty one.
  * The parser loads on first use, so it costs nothing until files are added.
  */
-async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
+export async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
   const base = file.name.replace(/\.[^.]+$/, '')
   const dash = base.match(/^(.+?)\s+[-–—]\s+(.+)$/)
   const fallback = dash && !/^\d+$/.test(dash[1].trim())
@@ -227,6 +227,7 @@ export class AudioEngine {
   private micVoiceIn: BiquadFilterNode | null = null
   private isTalking = false
   private micLatched = false
+  private tracksStarted = 0
   private repeatMode: RepeatMode = 'all'
 
   // File playback — each track is streamed through an HTMLAudioElement so the
@@ -923,6 +924,14 @@ export class AudioEngine {
     await this.playIndex(prevIdx >= 0 ? prevIdx : this.queue.length - 1)
   }
 
+  /**
+   * Tracks that started playing in this engine's life — one show, since each
+   * go-live builds a new engine. A pause and resume is not a new start.
+   */
+  getTracksPlayed(): number {
+    return this.tracksStarted
+  }
+
   getElapsed(): number {
     if (this.currentIndex < 0 || !this.currentAudio) return 0
     return this.currentAudio.currentTime
@@ -999,6 +1008,7 @@ export class AudioEngine {
       console.error('[AudioEngine] play() rejected for', track.file.name, err)
       return
     }
+    this.tracksStarted++
     if (this.currentAudio !== audio) return
 
     this.playing = true

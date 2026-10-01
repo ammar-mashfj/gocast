@@ -4,13 +4,15 @@ import Link from "next/link"
 import { apiFetch, ApiFetchError } from "@/lib/api-server"
 import { Station } from "@/interfaces/Station"
 import { Audience, AudienceReport, AUDIENCE_WINDOWS } from "@/interfaces/Audience"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ds/Card"
+import { PageHeader } from "@/components/ds/PageHeader"
+import { StatTile } from "@/components/ds/Stat"
 import { AudienceChart } from "@/components/dashboard/audience/AudienceChart"
 import { AudienceBreakdown as Breakdown } from "@/components/dashboard/audience/AudienceBreakdown"
 import { NoListenersYet } from "./NoListenersYet"
 import { HowWeCount } from "./HowWeCount"
 import { AudienceUpsell } from "@/components/dashboard/audience/AudienceUpsell"
-import { formatAirtime, formatDuration, countryName, countryFlag } from "@/lib/format"
+import { formatAirtime, formatDuration, countryName } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { env } from "@/lib/env"
@@ -69,56 +71,31 @@ export default async function StationAudiencePage({
 
   const playerUrl = `${env.appUrl}/station/${station.slug}`
 
-  return (
-    // Cards on the page, as the mobile Audience tab stacks them.
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        {/* No back link: the sidebar and breadcrumb already name the station,
-            and a third copy rendered the raw station name as "← test". */}
-        <div className="min-w-0">
-          <h1 className="font-display flex items-center gap-2 text-[34px] font-extrabold leading-9 tracking-[-0.04em]">
-            Audience
-            <HelpLink
-              article="read-your-audience-page"
-              label="what the audience numbers mean"
-            />
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground max-w-xl">
-            {audience.locked
-              ? "Listeners on your station right now, and the most you've ever had at once."
-              : "Everyone who pressed play — on your player page and on the direct stream."}
-          </p>
-        </div>
+  // The title is the room while the station is on air (the prototype's):
+  // "12 people are listening." Off air, or nobody there, it is the page's name.
+  const live = audience.live
+  const title = live > 0 && station.state !== "offline" ? `${live} ${live === 1 ? "person is" : "people are"} listening.` : "Audience"
 
-        {!audience.locked && (
-          <nav
-            // The design system's Segmented: a card track, the chosen range
-            // off-white with dark ink.
-            className="flex items-center gap-[3px] rounded-xl bg-card p-[3px] shrink-0"
-            aria-label="Time range"
-          >
-            {AUDIENCE_WINDOWS.filter((w) => w <= audience.plan_days).map((window) => {
-              const active = window === audience.range_days
-              return (
-                <Link
-                  key={window}
-                  href={`/dashboard/stations/${station.slug}/audience?days=${window}`}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    // Onest, not mono: a range is a choice, not a machine value.
-                    "rounded-[9px] px-3 py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
-                    active
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {window}d
-                </Link>
-              )
-            })}
-          </nav>
-        )}
-      </header>
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title={title}
+        aside={<HelpLink article="read-your-audience-page" label="what the audience numbers mean" />}
+        description={
+          audience.locked
+            ? "Listeners on your station right now, and the most you\u2019ve ever had at once."
+            : "Everyone who pressed play — on your player page and on the direct stream."
+        }
+        actions={
+          !audience.locked && (
+            <RangeLinks
+              slug={station.slug}
+              windows={AUDIENCE_WINDOWS.filter((w) => w <= audience.plan_days)}
+              current={audience.range_days}
+            />
+          )
+        }
+      />
 
       {audience.locked ? (
         <>
@@ -128,33 +105,24 @@ export default async function StationAudiencePage({
             // Two zeros are not a report. The link is what changes them.
             <NoListenersYet
               playerUrl={playerUrl}
-              stationName={station.name}
               message="Nobody has tuned in yet. Your first listeners come from your link, so send it to a few people before your next show."
             />
           ) : (
-          <Card>
-            <CardContent className="grid grid-cols-2 gap-5">
-              <Tile
-                label="Listening now"
-                value={String(audience.live)}
-                hint={station.state === "offline" ? "station is off air" : "right now"}
-              />
-              <Tile
+            <div className="grid grid-cols-2 gap-2.5">
+              <StatTile label="Listening now" value={audience.live} sub={station.state === "offline" ? "station is off air" : "right now"} />
+              <StatTile
                 label="Peak at once"
-                value={String(audience.peak_all_time)}
-                hint={audience.peak_all_time > 0 ? "most listening together, all time" : "share your link to grow"}
+                value={audience.peak_all_time}
+                sub={audience.peak_all_time > 0 ? "most listening together, all time" : "share your link to grow"}
               />
-            </CardContent>
-          </Card>
+            </div>
           )}
-
           <AudienceUpsell stationName={station.name} />
         </>
       ) : (
         <AudienceReportView
           report={audience}
           slug={station.slug}
-          stationName={station.name}
           playerUrl={playerUrl}
           hasListeners={station.stats?.has_listeners ?? false}
         />
@@ -181,13 +149,11 @@ export default async function StationAudiencePage({
 function AudienceReportView({
   report,
   slug,
-  stationName,
   playerUrl,
   hasListeners,
 }: {
   report: AudienceReport
   slug: string
-  stationName: string
   playerUrl: string
   /** StationResource's answer, which also counts listens the sampler missed. */
   hasListeners: boolean
@@ -230,7 +196,6 @@ function AudienceReportView({
     return (
       <NoListenersYet
         playerUrl={playerUrl}
-        stationName={stationName}
         message={
           // A direct-stream listener makes no session and isn't in the
           // sampled figures until the next minute's sample.
@@ -251,18 +216,17 @@ function AudienceReportView({
 
   return (
     <>
-      <Card>
-        <CardContent className="grid grid-cols-2 gap-5 md:grid-cols-4">
-          <Tile
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <StatTile
             label="Listening time"
             value={unsampled ? "—" : formatAirtime(totals.listener_minutes * 60)}
-            hint={
+            sub={
               unsampled
                 ? "not measured yet"
                 : `all listeners, last ${report.range_days} days`
             }
           />
-          <Tile
+          <StatTile
             label="Daily listeners"
             value={String(totals.listeners)}
             // "Daily" because that is exactly what it is. The visitor hash is
@@ -270,25 +234,25 @@ function AudienceReportView({
             // means a returning listener genuinely counts once per day and a
             // "unique listeners" label would be claiming a reach figure we
             // cannot compute.
-            hint={
+            sub={
               coverage === "stream-only"
                 ? "player page only"
                 : `player page, counted once a day`
             }
           />
-          <Tile
+          <StatTile
             label="Peak at once"
             value={unsampled && totals.peak === 0 ? "—" : String(totals.peak)}
-            hint={
+            sub={
               unsampled && totals.peak === 0
                 ? "not measured yet"
                 : `most listening together · ${peakAllTime} all time`
             }
           />
-          <Tile
+          <StatTile
             label="Average listen"
             value={totals.avg_listen_seconds > 0 ? formatDuration(totals.avg_listen_seconds) : "—"}
-            hint={
+            sub={
               totals.finished_listens > 0
                 ? `across ${totals.finished_listens} finished listen${totals.finished_listens === 1 ? "" : "s"}`
                 : coverage === "listens"
@@ -296,11 +260,9 @@ function AudienceReportView({
                   : "player page only"
             }
           />
-        </CardContent>
-      </Card>
+      </div>
 
       <Card>
-        <CardContent>
           <AudienceChart
             daily={report.daily}
             rangeDays={report.range_days}
@@ -308,17 +270,17 @@ function AudienceReportView({
             // empty chart only ever means the sampler hasn't caught up.
             empty="Listening time hasn't been sampled for these listens yet. It's measured once a minute, so very short listens may never appear here."
           />
-        </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2">
         <Card>
-          <CardContent>
             <Breakdown
               title="Countries"
               items={report.countries.rows.map((c) => ({
                 key: c.country,
-                label: `${countryFlag(c.country)} ${countryName(c.country)}`.trim(),
+                label: countryName(c.country),
+                // A code, not an emoji flag: the design system's no-emoji rule.
+                code: c.country,
                 value: c.sessions,
                 detail: formatAirtime(c.listener_seconds),
               }))}
@@ -334,11 +296,9 @@ function AudienceReportView({
               )}
               footnote={`Located ${report.countries.total} of ${listens} listens. The rest are still in progress or couldn't be placed.`}
             />
-          </CardContent>
         </Card>
 
         <Card>
-          <CardContent>
             <Breakdown
               title="Devices"
               items={report.devices.rows.map((d) => ({
@@ -349,11 +309,9 @@ function AudienceReportView({
               total={report.devices.total}
               empty={breakdownEmpty("None of these listens identified their device.")}
             />
-          </CardContent>
         </Card>
 
         <Card>
-          <CardContent>
             <Breakdown
               title="Browsers"
               items={report.browsers.rows.map((b) => ({
@@ -364,11 +322,9 @@ function AudienceReportView({
               total={report.browsers.total}
               empty={breakdownEmpty("None of these listens identified their browser.")}
             />
-          </CardContent>
         </Card>
 
         <Card>
-          <CardContent>
             <Breakdown
               title="Where they came from"
               items={report.referrers.rows.map((r) => ({
@@ -383,7 +339,6 @@ function AudienceReportView({
               )}
               footnote="Only the site name is recorded, never the full address."
             />
-          </CardContent>
         </Card>
       </div>
 
@@ -392,16 +347,23 @@ function AudienceReportView({
   )
 }
 
-/** One headline figure. Same shape as the tiles on the station overview. */
-function Tile({ label, value, hint }: { label: string; value: string; hint: string }) {
+/** The range choice, as the design system's small Segmented — links, because the range is in the URL the server reads. */
+function RangeLinks({ slug, windows, current }: { slug: string; windows: readonly number[]; current: number }) {
   return (
-    <div className="flex flex-col gap-1 min-w-0">
-      <div className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint">{label}</div>
-      <div className="font-display text-[26px] font-bold leading-none tabular-nums">{value}</div>
-      {/* Two lines, not truncate: on a phone's two-column grid a one-line
-          hint cut "most listening together · 12 all time" to "most listen…". */}
-      <div className="text-xs text-muted-foreground leading-snug line-clamp-2" title={hint}>{hint}</div>
-    </div>
+    <nav aria-label="Time range" className="grid auto-cols-fr grid-flow-col gap-0.75 rounded-item bg-card p-0.75">
+      {windows.map((w) => (
+        <Link
+          key={w}
+          href={`/dashboard/stations/${slug}/audience?days=${w}`}
+          aria-current={w === current ? "page" : undefined}
+          className={cn(
+            "flex h-7.5 items-center justify-center rounded-segment px-3.5 font-mono text-caption font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            w === current ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {w}d
+        </Link>
+      ))}
+    </nav>
   )
 }
-

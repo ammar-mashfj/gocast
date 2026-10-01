@@ -5,35 +5,19 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-[var(--control-radius,calc(var(--radius)*0.8))] border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5 ds:font-bold ds:active:not-aria-[haspopup]:translate-y-0 ds:active:not-aria-[haspopup]:scale-[0.98]",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding text-xs/relaxed font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5",
   {
     variants: {
       variant: {
-        // Dashboard (`ds:`) variants follow the GoCast Design System's Button:
-        // primary is off-white with dark ink, outline is its "ghost"
-        // (transparent, 1.5px 14% hairline), secondary its "subtle" (8%
-        // off-white fill). Colour is kept for meaning — see live / on-air /
-        // pro below.
-        default: "bg-primary text-primary-foreground hover:bg-primary/80 ds:hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/80",
         outline:
-          "border-border hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-input/30 ds:border-[1.5px] ds:border-input ds:focus-visible:border-ring ds:bg-transparent ds:hover:bg-foreground/5",
+          "border-border hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-input/30",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground ds:bg-foreground/8 ds:hover:bg-foreground/12 ds:aria-expanded:bg-foreground/12",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        // In the dashboard the confirm of an irreversible action is the live
-        // red with dark ink, as the design system's "End broadcast" sheet
-        // and the mobile app's Delete buttons are. Only ever inside a
-        // confirm, next to a "Keep …" cancel.
         destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40 ds:bg-live ds:text-live-ink ds:hover:bg-live/90",
-        // You are about to go live / you are live. Nothing else is red.
-        live: "bg-live text-live-ink hover:bg-live/90",
-        // The station playing itself (AutoDJ): violet outline, soft violet text.
-        "on-air":
-          "border-[1.5px] border-on-air/40 bg-transparent text-on-air-text hover:bg-on-air/10",
-        // A Pro plan action: amber with dark ink.
-        pro: "bg-pro text-pro-ink hover:bg-pro/90",
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-violet-muted underline-offset-4 hover:underline",
       },
       size: {
@@ -41,16 +25,11 @@ const buttonVariants = cva(
         // 2.5.5 minimum touch target on mobile. The whole scale shifts up.
         // Icon sizes also bumped one step (Path A in icon-sweep audit) so
         // button-trapped icons aren't capped to 14-16px regardless of prop.
-        // Heights and the corner radius read variables so the dashboard can
-        // set them (globals.css: 40 / 44px and 12px, the design system's
-        // phone sizes scaled down) while a call site's own `h-11` or
-        // `rounded-full` still wins through tailwind-merge. A `ds:h-10` here
-        // would outrank every call site instead.
         default:
-          "h-[var(--btn-h,2.25rem)] gap-1.5 px-3 text-sm has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-5",
+          "h-9 gap-1.5 px-3 text-sm has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-5",
         xs: "h-6 gap-1 rounded-sm px-2 text-[0.625rem] has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1 px-2.5 text-xs/relaxed has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-4",
-        lg: "h-[var(--btn-h-lg,2.5rem)] gap-2 px-4 text-sm has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-5",
+        lg: "h-10 gap-2 px-4 text-sm has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-5",
         icon: "size-9 [&_svg:not([class*='size-'])]:size-5",
         "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8 [&_svg:not([class*='size-'])]:size-4",

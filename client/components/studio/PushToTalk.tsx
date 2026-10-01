@@ -114,10 +114,8 @@ export function PushToTalk() {
       }
 
   return (
-    // Two cards side by side once the console is wide enough (a container
-    // query on the deck, not the viewport): the pad you hold, and the mic
-    // check beside it. Stacked on a phone.
-    <div className="grid grid-cols-1 gap-2.5 @2xl/deck:grid-cols-2">
+    // The pad you hold, and the mic check under it.
+    <div className="flex flex-col gap-2.5">
       <button
         type="button"
         aria-pressed={micOpen}
@@ -140,7 +138,7 @@ export function PushToTalk() {
         }}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          "flex min-h-[150px] w-full touch-none select-none flex-col justify-between gap-4 rounded-[28px] p-5 text-left transition-colors duration-150",
+          "flex min-h-72 w-full touch-none select-none flex-col justify-between gap-4 rounded-hero p-6 text-left transition-colors duration-150",
           // Holding Space (or clicking) focuses the pad, and the global focus
           // style drew a white outline round it the whole time you talked.
           // The ring is for finding the pad by keyboard, so it shows only
@@ -154,19 +152,19 @@ export function PushToTalk() {
           // the pad reads as the mic itself and not as another panel. It is
           // the one patterned surface in the studio (the design system keeps
           // surfaces solid; this is a deliberate exception, docs/DASHBOARD-
-          // DESIGN-SYSTEM-ROLLOUT.md). Warm grey idle, the red's ink when open.
-          "bg-[size:9px_9px] bg-[position:center]",
+          // DESIGN-SYSTEM-ROLLOUT.md). Warm grey idle, the red's ink when open
+          // (the `grille` utilities in app/dashboard.css).
           micOpen
-            ? "bg-live bg-[image:radial-gradient(circle,rgb(26_8_6/0.16)_1.1px,transparent_1.5px)] text-live-ink"
-            : "bg-card bg-[image:radial-gradient(circle,rgb(244_241_236/0.075)_1.1px,transparent_1.5px)] text-foreground shadow-[inset_0_0_0_1px_transparent] hover:shadow-[inset_0_0_0_1.5px_rgb(255_90_78/0.35)]",
+            ? "bg-live grille-live text-live-ink"
+            : "bg-card grille text-foreground hover:inset-ring-2 hover:inset-ring-live/35",
         )}
       >
         <span className="flex items-start justify-between gap-3">
-          <span className="text-[34px] font-extrabold leading-9 tracking-[-0.035em]">{look.title}</span>
+          <span className="text-display">{look.title}</span>
           {/* The design system's `trailing` slot. A red dot marks the control
               that puts you on air, as it does on Go live. */}
           {!micOpen && (
-            <span className="mt-1.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="mt-1.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-micro font-semibold uppercase tracking-widest text-muted-foreground">
               <span aria-hidden className="size-2 rounded-full bg-live" />
               Live while held
             </span>
@@ -179,10 +177,10 @@ export function PushToTalk() {
 
       <section
         aria-label="Mic check"
-        className="flex min-h-[150px] flex-col justify-between gap-4 rounded-[28px] bg-card p-5 text-muted-foreground"
+        className="flex flex-col gap-3 rounded-card bg-card p-5 text-muted-foreground"
       >
         <span className="flex items-baseline justify-between gap-3">
-          <span className={cn("font-mono text-[11px] font-medium", micOpen && "font-semibold text-live-text")}>
+          <span className={cn("font-mono text-micro font-medium", micOpen && "font-semibold text-live-text")}>
             {micOpen ? "Going out live" : "Mic check \u00b7 only you see this"}
           </span>
           <span className="min-w-0 truncate text-xs text-text-faint" title={device}>{device}</span>

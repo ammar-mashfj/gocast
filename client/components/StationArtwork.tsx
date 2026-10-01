@@ -53,7 +53,7 @@ export function StationArtwork({
   if (!src) {
     return (
       <div
-        className={cn("flex items-center justify-center overflow-hidden text-violet-300/70 ds:text-text-faint", className)}
+        className={cn("flex items-center justify-center overflow-hidden text-violet-300/70", className)}
         style={{ background }}
       >
         <IconMusic size={iconSize} strokeWidth={1.5} />
@@ -63,7 +63,7 @@ export function StationArtwork({
 
   return (
     <div
-      className={cn("relative flex items-center justify-center overflow-hidden text-violet-300/70 ds:text-text-faint", className)}
+      className={cn("relative flex items-center justify-center overflow-hidden text-violet-300/70", className)}
       style={{ background }}
     >
       <Image

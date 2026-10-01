@@ -1,181 +1,51 @@
-"use client"
-
-import { useParams } from "next/navigation"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { StationArtwork } from "@/components/StationArtwork"
-import { useStationBySlug } from "@/contexts/StationContext"
+import { Card, CardHeader } from "@/components/ds/Card"
+import { PageHeader } from "@/components/ds/PageHeader"
 
 /**
- * Station settings while its fetch is in flight.
- *
- * Added alongside the `(overview)` route group, which stopped this route
- * inheriting the station overview's skeleton — a power card and a listener
- * dial that settings has never had.
- *
- * The layout already carries the station's identity, so the Details card is
- * drawn for real: artwork, name, genre. Everything below it is a form bound to
- * data that has not arrived, and those are bars. Titles, field labels and the
- * explanatory copy are constants and stay as text, which keeps the page's
- * outline readable while it fills.
- *
- * The wrappers are the page's own — the two-column card grid around one
- * Card per section — so every section is already flat and already opened by
- * its hairline. Each editor's body copies the editor's own rows (the tinted
- * show-time card, the link row with its icon box, the label/value facts), not
- * a generic stack of bars, so nothing below the fold moves when the forms
- * mount either.
+ * Station settings while the station loads, in page.tsx's geometry: the
+ * header, then the two columns of cards. Card titles are constants and drawn
+ * for real; change one file, change the other.
  */
 export default function SettingsLoading() {
-  const params = useParams<{ slug: string }>()
-  const slug = params?.slug ?? ""
-  const station = useStationBySlug(slug || null)
-
   return (
-    // The Skeleton primitive pulses unconditionally; stopping it here keeps
-    // the page still for anyone who asked for reduced motion.
-    <div className="flex flex-col gap-4 motion-reduce:[&_[data-slot=skeleton]]:animate-none">
-      <h1 className="font-display text-[34px] font-extrabold leading-9 tracking-[-0.04em]">Station settings</h1>
-
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">Details</CardTitle>
-          {/* "Edit station profile": its dialog needs the full record. */}
-          <Skeleton className="h-9 w-44" />
-        </CardHeader>
-        {/* Same grid as page.tsx: description full width under the name on a phone. */}
-        <CardContent className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 sm:gap-y-1.5">
-          {station ? (
-            <StationArtwork
-              src={station.artwork_url}
-              alt={station.name}
-              className="size-16 rounded-xl shrink-0 sm:row-span-2"
-              iconSize={22}
-              sizes="64px"
-            />
-          ) : (
-            <Skeleton className="size-16 rounded-xl shrink-0 sm:row-span-2" />
-          )}
-          {station ? (
-            <div className="flex items-center gap-2 min-w-0 self-center sm:self-auto">
-              <span className="font-medium truncate">{station.name}</span>
-              {station.genre && (
-                <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
-              )}
-            </div>
-          ) : (
-            <Skeleton className="h-6 w-40 self-center sm:self-auto" />
-          )}
-          <div className="col-span-2 min-w-0 flex flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
-            <Skeleton className="h-5 w-full max-w-sm" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Links</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* LinksEditor */}
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3">
-              {[0, 1].map((i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Skeleton className="size-9 shrink-0" />
-                  <Skeleton className="h-9 flex-1" />
-                  <Skeleton className="h-9 w-40 shrink-0" />
-                  <Skeleton className="size-9 shrink-0" />
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-9 w-28" />
-              <Skeleton className="h-9 w-24" />
-            </div>
-            <Skeleton className="h-4 w-full max-w-lg" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Show times</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Skeleton className="h-4 w-full max-w-lg" />
-          <Skeleton className="h-9 w-full max-w-md" />
-          <Skeleton className="h-9 w-40" />
-        </CardContent>
-      </Card>
-
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Stream</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {/* Labels, the format and the hints are constants; the two
-              addresses come from the record. */}
-          <div className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-            <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">Player URL</div>
-            <Skeleton className="h-4 w-64 max-w-full" />
-          </div>
-          <div className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-            <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">Stream path</div>
-            <div className="min-w-0">
-              <Skeleton className="h-4 w-40" />
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Only exists while the station is on air.
+    <div className="flex flex-col gap-5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+      <PageHeader title="Station settings" />
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card>
+            <CardHeader title="Profile" />
+            <div className="flex items-start gap-4">
+              <Skeleton className="size-16 shrink-0 rounded-well" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-full" />
               </div>
             </div>
-          </div>
-          <div className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-            <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">Format</div>
-            <div className="min-w-0">
-              <code className="text-xs break-all">MP3 128 kbps</code>
-              <div className="text-xs text-muted-foreground mt-0.5">The same for every station.</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* EncoderCard. The title is shared by all three of its variants (Pro
-          lock, not configured, connection details); the body is the
-          connection-details one, the longest, so a shorter variant settles
-          upward rather than pushing the page down. */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">Broadcast from your own software</CardTitle>
-          <Skeleton className="h-8 w-24" />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-              <Skeleton className="h-4 w-24 md:w-32 md:shrink-0" />
-              <Skeleton className="h-4 w-full max-w-xs" />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* DeleteStation: its own bordered strip, not a Card, so it takes no
-          rule. Neutral here — the danger colour belongs to the real control,
-          not to a placeholder for it. */}
-      <div className="rounded-3xl bg-card p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-        <Skeleton className="h-5 w-80 max-w-full" />
-        <Skeleton className="h-8 w-full md:w-32 shrink-0" />
-      </div>
-      </div>
+          </Card>
+          <Card>
+            <CardHeader title="Links on your player page" />
+            <Skeleton className="h-12 w-full rounded-control" />
+            <Skeleton className="h-11 w-full rounded-control" />
+          </Card>
+          <Card>
+            <CardHeader title="When you’re usually live" />
+            <Skeleton className="h-11 w-full rounded-control" />
+            <Skeleton className="h-28 w-full rounded-well" />
+          </Card>
+        </div>
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card>
+            <CardHeader title="Where listeners find you" />
+            <Skeleton className="h-13 w-full rounded-button" />
+            <Skeleton className="h-13 w-full rounded-button" />
+            <Skeleton className="h-5 w-48" />
+          </Card>
+          <Card>
+            <CardHeader title="Use your own DJ software" />
+          </Card>
+          <Skeleton className="h-22 w-full rounded-card" />
+        </div>
       </div>
     </div>
   )

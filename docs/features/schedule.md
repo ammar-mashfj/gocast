@@ -1,6 +1,6 @@
 ---
 feature: Schedule (show times + AutoDJ slots)
-verified: 2026-09-29 against 360c382 plus uncommitted work (phone day list on the web Schedule page)
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Models/StationSchedule.php
   - api/app/Models/AutodjSlot.php
@@ -25,10 +25,8 @@ sources:
   - client/app/dashboard/stations/[slug]/schedule/WeekGrid.tsx
   - client/app/dashboard/stations/[slug]/schedule/SlotPanel.tsx
   - client/app/dashboard/stations/[slug]/schedule/DayList.tsx
-  - client/app/dashboard/stations/[slug]/schedule/ScheduleStatus.tsx
   - client/app/station/[slug]/ScheduleBlock.tsx
   - client/app/station/[slug]/PlayerView.tsx
-  - client/components/dashboard/StationChecklist.tsx
   - client/components/dashboard/AppSidebar.tsx
   - client/app/(marketing)/help/_content/schedule-playlists-by-time.tsx
   - client/app/(marketing)/help/_content/your-player-page.tsx
@@ -38,7 +36,14 @@ sources:
   - mobile/src/components/station/ScheduleEditor.tsx
   - mobile/src/app/show-times/[slug].tsx
   - mobile/src/app/station/[slug]/index.tsx
-fingerprint: 7105c478ef206e09
+  - client/app/dashboard/stations/[slug]/schedule/ScheduleNow.tsx
+  - client/app/dashboard/stations/[slug]/schedule/weekDates.ts
+  - client/components/dashboard/overview/SetupChecklist.tsx
+  - client/components/dashboard/overview/ComingUpCard.tsx
+  - client/lib/comingUp.ts
+  - client/components/ds/DayToggle.tsx
+  - client/app/dashboard/stations/[slug]/settings/TimezoneCombobox.tsx
+fingerprint: 928f62c10c713c45
 ---
 
 # Schedule
@@ -77,7 +82,7 @@ Everything confusing about this feature comes from the two looking alike: both h
 
 - `PublicStationController::show` eager-loads `schedules`, and the player page renders them in the "Weekly schedule" sheet, reached from the "Full schedule" button. That button only appears when there's at least one row.
 - The owner's `GET /stations/{slug}` loads them for Station settings (the editor), the Schedule page (read-only marks) and the mobile app.
-- The dashboard checklist ticks "Set your show times" when there's at least one row (`StationChecklist.tsx`).
+- The overview's setup checklist ticks "Set your show times" when there's at least one row (`components/dashboard/overview/SetupChecklist.tsx`), and "Coming up" lists each show time's next occurrence (`lib/comingUp.ts`).
 
 **Data rules:**
 
@@ -123,8 +128,8 @@ Everything confusing about this feature comes from the two looking alike: both h
 - `stations.timezone` is an IANA name, nullable, and never defaults to UTC.
 - Changing it re-times *both* show times and slots.
 - Clearing it is refused while either lane has rows. That's enforced in three places: both replace requests and `UpdateStationRequest`.
-- **It's edited in exactly one place: Station settings → Show times** (`ShowTimesSection`, the only user of `TimezoneCombobox`). It saves through the show-times PUT, so a Pro owner with no show times sets it by pressing Save with an empty list. A null zone is displayed as the browser's zone, not flagged as a change, and persisted by the first save.
-- **The Schedule page and the slot PUT never send it.** Web and mobile both omit `timezone` from `PUT /autodj-slots`, and the API keeps the station's. The page shows it read-only with a link to settings. With no timezone, the slot editor refuses to save and points to settings.
+- **It's edited in exactly one place: Station settings → When you're usually live** (`ShowTimesSection`, the only user of `settings/TimezoneCombobox`). It saves through the show-times PUT, so a Pro owner with no show times sets it by pressing Save with an empty list. A null zone is displayed as the browser's zone, not flagged as a change, and persisted by the first save.
+- **The Schedule page and the slot PUT never send it.** Web and mobile both omit `timezone` from `PUT /autodj-slots`, and the API keeps the station's. The page shows it read-only in the header ("EUROPE/LONDON · Change", linking to settings). With no timezone, the slot editor refuses to save ("Not saved: no timezone") and a "No timezone" notice points to settings.
 - **Mobile:** there's no picker. The Show times screen sends `station.timezone ?? <phone's zone>`, so the first save from a phone silently stamps the phone's zone.
 - The API still *accepts* `timezone` on both PUTs. The single-place rule is enforced by the clients, not the server.
 
@@ -132,9 +137,9 @@ Everything confusing about this feature comes from the two looking alike: both h
 
 | Surface | Show times | AutoDJ slots |
 |---|---|---|
-| Web Station settings `/dashboard/stations/{slug}/settings#show-times` | **Editor** plus the timezone picker, every plan | — |
-| Web Schedule `/dashboard/stations/{slug}/schedule` | Dashed "SHOW" marks on the grid, linking to settings; the banner names the next show | **Editable week grid** (see below). Free sees a read-only grid, a Pro badge and "Request Pro"; the sidebar item carries the Pro lock |
-| Web checklist | "Set your show times" links to settings `#show-times` | — |
+| Web Station settings `/dashboard/stations/{slug}/settings#show-times` ("When you're usually live") | **Editor** plus the timezone picker, every plan. Day chips are neutral off-white (`DayToggle tone="neutral"`), Monday first | — |
+| Web Schedule `/dashboard/stations/{slug}/schedule` | Grey dashed "YOU" marks on the grid (not red: red means live right now), linking to settings; the "Your next show" card names the next one | **Editable week grid** (see below). Free sees the grid without slots, a PRO tag by the title, "Off air unless you're live" and "Request Pro"; the sidebar item carries the Pro lock |
+| Web overview | Setup checklist "Set your show times" links to settings `#show-times`; "Coming up" lists the next ones | "Coming up" lists AutoDJ's next slot change (`programme.next`) |
 | Player page `/station/{slug}` | "Full schedule" sheet, converted to the listener's clock with the station's clock in brackets | Never shown |
 | Mobile Overview → "Your link" card → **Show times** screen | **Editor**, every plan. No timezone picker | — |
 | Mobile Station → Schedule tab | Read-only coral rows ("Show time · on your player page"); tapping opens the Show times screen | **Editor**, Pro only; "+ Add" always creates a slot. Free sees a Pro note and no Add |
@@ -148,9 +153,10 @@ The Schedule page is a full-width week timeline that is also the editor (`WeekGr
 - **Drag along an empty stretch** to draw a block, clamped to the free space around it (`freeBounds`). A plain click makes one hour from the quarter hour clicked (`freeSpanAt`). New blocks use the first non-default playlist. The "Add slot" button adds an hour at the next free hour.
 - **Dragging a left or right edge changes that one day only.** It snaps to 15 minutes, stops at the neighbouring block (the server refuses overlaps), and a block stays between 15 minutes and 24 hours long. A drag can carry a block past midnight.
 - **Clicking a slot (or drawing a new one) opens it in a dialog** (`SlotPanel` inside the planner's `Dialog`). Edge drags deliberately don't open it, so the modal never covers the grid mid-drag. **The dialog edits every ticked day at once.** Ticking a day copies the block onto it, unticking removes that copy, and Delete removes all of them.
-- **On a phone (below the `md` breakpoint, 768px) the grid is replaced by the Android app's layout** (`DayList`): a strip of the seven days with this week's dates, then the picked day's rows top to bottom, in the app's order (show times in emerald linking to settings, then AutoDJ slots by playlist swatch, or the default playlist "All day" when none falls on that day). A slot that runs past midnight shows on the next day as "→ 02:00". Tapping a row opens the same `SlotPanel` dialog; "Add slot on Tuesday" puts an hour on the day being looked at, at the first free hour from now (today) or from 06:00. Both layouts are in the markup and CSS picks one, so the blocks and the selection survive a resize. Drawing and edge drags exist only on the grid. A sticky bar with the save state and Save appears at the bottom on phones once there are unsaved changes, because the header's Save has scrolled away by then. "NOW" on a row means the station's clock is inside it, not that it is playing; the banner says what plays.
-- **Explicit Save** (autosave was tried and dropped on 2026-09-29): the Save button next to the page title sends the same full-list `PUT /autodj-slots` without `timezone`. It's disabled when nothing changed, while blocks overlap, or while the station has no timezone, and the status beside it says which. A failed save shows the server's error. Leaving with unsaved changes triggers the browser's warning.
-- **The banner** reads the live status poll (`useStationStatus`), never the schedule: Live / On air · AutoDJ with the playlist from `programme` / Off / Starting. It also shows the next show from `next_occurrence` and the station clock. The planned playlist is refetched when `programme.until` passes.
+- **On a phone (below the `md` breakpoint, 768px) the grid is replaced by the Android app's layout** (`DayList`): a strip of the seven days with this week's dates, then the picked day's rows top to bottom, in the app's order (show times with a grey dashed edge, linking to settings, then AutoDJ slots by playlist swatch, or the default playlist "All day" when none falls on that day). A slot that runs past midnight shows on the next day as "→ 02:00". Tapping a row opens the same `SlotPanel` dialog; "Add slot on Tuesday" puts an hour on the day being looked at, at the first free hour from now (today) or from 06:00. Both layouts are in the markup and CSS picks one, so the blocks and the selection survive a resize. Drawing and edge drags exist only on the grid. A sticky bar with the save state and Save appears at the bottom on phones once there are unsaved changes, because the header's Save has scrolled away by then. "NOW" on a row means the station's clock is inside it, not that it is playing; the banner says what plays.
+- **Explicit Save** (autosave was tried and dropped on 2026-09-29): the Save button in the page header sends the same full-list `PUT /autodj-slots` without `timezone`. It's disabled when nothing changed, while blocks overlap, or while the station has no timezone. A lamp beside it says "All saved" (green), "Unsaved changes", "Not saved: slots overlap", "Not saved: no timezone" or "Not saved" (amber); a failed save also shows the server's error in a `Notice`. Leaving with unsaved changes triggers the browser's warning.
+- **Two cards above the week** (`ScheduleNow`): **Right now** is the plan, labelled as a plan: the playlist AutoDJ has lined up from `programme` (`describeProgramme`: "until 10:00 · then Main rotation", or "All day, until another slot starts."), plus "AutoDJ is off right now." when the station is off; on Free, "Off air unless you're live". **Your next show** is the next show time (`comingUp`), "You start it from the studio", or "None planned" with a link to add show times. What the station is actually doing is the status band's, above every page; the station clock is in the top bar. The planned playlist is refetched when `programme.until` passes.
+- **The legend** under the grid names the default playlist ("… fills the gaps"), each playlist in use with its swatch, and "Your show times · edit". Each day row shows its date ("30 SEPT", on the station's calendar, `weekDates.ts`, shared with the phone strip). With no playlists at all the grid is read-only and points to AutoDJ.
 - **The now line** and "today" use the station's timezone, not the browser's.
 - Below ~44rem the grid scrolls sideways; there's no single-day view yet.
 - The UI never says "repeat" or "every week". Slots are weekly by nature, and the Days chips are the only way to express it.
@@ -165,7 +171,7 @@ These are real as of the verified commit. Fix them or delete them from this list
 4. **Mobile saves are read-modify-write from the last loaded station.** A full-list PUT built from a stale copy overwrites edits made on the web in between. The web page has the same exposure if two tabs are open.
 5. **The slot API has no plan check.** A Free owner can PUT slots via the API. It's harmless because `next()` gates playback, but the rows exist.
 6. **Some prod show times were probably meant as AutoDJ slots.** On 2026-09-29, 4 Pro stations had show times with zero live sessions since, and each had only one playlist ("News lakay" daily 04:00, "timeless music", "Serenade musicale", "Livesendung"). They still advertise live times on those player pages. The move didn't touch them.
-7. **Help screenshots show the old Schedule page** (the list editor, not the grid). The article text describes the grid. Reshoot them along with the other pending help screenshots.
+7. **Blog screenshots show an older Schedule page.** The help article's shots were retaken on 2026-10-01 (Right now / Your next show cards, the Edit slot dialog, the week grid); the blog post `how-to-schedule-playlists-on-your-radio-station` still shows the deleted list editor.
 8. **The grid can't move a whole block by dragging its middle**, only its edges. Moving one means changing its times in the panel.
 9. **On narrow screens the web grid is a sideways scroll**, not a single-day view.
 10. **Naming:** don't call anything slot-related "schedule". `station_schedules`/`schedules()` is the advertising table.

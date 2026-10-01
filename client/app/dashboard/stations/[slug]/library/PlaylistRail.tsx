@@ -1,9 +1,9 @@
 "use client"
 
-import { IconMusic, IconPlaylist, IconPlus, IconStarFilled } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { IconPlus } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { formatAirtime } from "@/lib/format"
+import { playlistSwatch } from "@/lib/playlistSwatches"
 import type { Playlist } from "@/interfaces/Playlist"
 
 /** The pseudo-entry for the whole library, alongside the real playlists. */
@@ -21,112 +21,80 @@ interface Props {
 }
 
 /**
- * Where the owner picks what they are looking at: every file they own, or one
- * of the rotations built from them. A column beside the list from md up; a
- * scrolling row of chips above it on a phone, where a column would push the
- * list below the fold.
- *
- * The two groups are LABELLED rather than merely separated. "All tracks" used
- * to sit above a hairline divider styled exactly like the playlists under it,
- * so the one entry that manages files — upload, delete, fix tags — read as
- * just another rotation and went unnoticed. A divider says "these are
- * different"; only a label says how.
- *
- * Labels are md-and-up only. Below that the rail is a horizontal chip row and
- * headings in the middle of it would break the line.
+ * Where the owner picks what they're looking at: every file they own
+ * (LIBRARY), or one of the rotations built from it (PLAYLISTS, each with the
+ * violet shade it wears on the schedule). A column beside the table from md
+ * up; a scrolling row of chips above it on a phone, where a column would push
+ * the table below the fold. The group labels are md-and-up only, so they
+ * don't break the chip row.
  */
-export function PlaylistRail({
-  playlists,
-  libraryCount,
-  selected,
-  onSelect,
-  onCreate,
-  locked,
-}: Props) {
+export function PlaylistRail({ playlists, libraryCount, selected, onSelect, onCreate, locked }: Props) {
   return (
     <nav
       aria-label="Music"
-      className="flex min-w-0 max-w-full md:flex-col gap-1 md:w-56 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0"
+      className="flex max-w-full min-w-0 shrink-0 gap-1 overflow-x-auto pb-1 md:w-60 md:flex-col md:overflow-visible md:pb-0"
     >
       <RailLabel>Library</RailLabel>
-
       <RailItem
         active={selected === LIBRARY_KEY}
         onClick={() => onSelect(LIBRARY_KEY)}
-        icon={<IconMusic size={15} />}
         label="All tracks"
-        detail={`${libraryCount} track${libraryCount === 1 ? "" : "s"}`}
+        detail={String(libraryCount)}
         title="Every file you own. Upload, delete and fix tags here."
       />
 
-      <RailLabel className="md:pt-3">Playlists</RailLabel>
-
-      {playlists.map((playlist) => (
+      <RailLabel className="md:pt-4.5">Playlists</RailLabel>
+      {playlists.map((playlist, i) => (
         <RailItem
           key={playlist.id}
           active={selected === playlist.id}
           onClick={() => onSelect(playlist.id)}
-          icon={
-            playlist.is_default ? (
-              <IconStarFilled size={13} className="text-violet-muted" />
-            ) : (
-              <IconPlaylist size={15} />
-            )
-          }
+          swatch={playlistSwatch(i).dot}
           label={playlist.name}
           detail={railDetail(playlist)}
-          title={playlist.is_default ? "Default — plays whenever nothing else is scheduled." : undefined}
+          title={playlist.is_default ? "Plays whenever nothing else is scheduled." : undefined}
         />
       ))}
 
-      <Button
-        variant="ghost"
-        size="sm"
+      <button
+        type="button"
         onClick={onCreate}
         disabled={locked}
         title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-        className="h-11 justify-start rounded-2xl px-3 text-muted-foreground shrink-0"
+        className="flex shrink-0 items-center gap-2 rounded-control px-3 py-3 text-sm font-semibold text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
       >
-        <IconPlus size={15} data-icon="inline-start" />
+        <IconPlus className="size-4" />
         New playlist
-      </Button>
+      </button>
     </nav>
   )
 }
 
-/** A group heading inside the rail. Invisible on a phone — see the note above. */
 function RailLabel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "hidden md:block px-3 pb-1 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text-faint select-none",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  )
+  return <span className={cn("hidden px-3 pb-2 eyebrow text-text-faint select-none md:block", className)}>{children}</span>
 }
 
 function railDetail(playlist: Playlist): string {
   const count = playlist.track_count ?? 0
   const seconds = playlist.duration_seconds ?? 0
-  // Words, not a bare "1 · 1h 17m": the number alone didn't say what it
-  // counted. The rail is narrow, so "tracks" rather than a longer phrase.
-  const tracks = `${count} track${count === 1 ? "" : "s"}`
-  return seconds > 0 ? `${tracks} · ${formatAirtime(seconds)}` : tracks
+  return seconds > 0 ? `${count} · ${formatAirtime(seconds)}` : String(count)
 }
 
-interface RailItemProps {
+function RailItem({
+  active,
+  onClick,
+  swatch,
+  label,
+  detail,
+  title,
+}: {
   active: boolean
   onClick: () => void
-  icon: React.ReactNode
+  swatch?: string
   label: string
   detail: string
   title?: string
-}
-
-function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps) {
+}) {
   return (
     <button
       type="button"
@@ -134,14 +102,16 @@ function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps
       title={title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-h-11 items-center gap-2.5 rounded-2xl px-3 py-2 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
-        "min-w-0 max-w-[14rem] md:max-w-none",
-        active ? "bg-card font-semibold text-foreground" : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
+        "flex max-w-56 min-w-0 shrink-0 items-center justify-between gap-2.5 rounded-control p-3 text-left transition-colors outline-none md:max-w-none md:shrink",
+        "focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "bg-card text-foreground" : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
       )}
     >
-      <span className="shrink-0 inline-flex">{icon}</span>
-      <span className="truncate flex-1">{label}</span>
-      <span className="font-mono text-[11px] font-normal tabular-nums text-text-faint shrink-0">{detail}</span>
+      <span className="flex min-w-0 items-center gap-2.5">
+        {swatch && <span aria-hidden className={cn("size-2.5 shrink-0 rounded-swatch", swatch)} />}
+        <span className="truncate text-body font-semibold">{label}</span>
+      </span>
+      <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{detail}</span>
     </button>
   )
 }

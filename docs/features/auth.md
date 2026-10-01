@@ -1,6 +1,6 @@
 ---
 feature: Authentication and sessions
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Http/Controllers/AuthController.php
   - api/app/Http/Controllers/GoogleAuthController.php
@@ -72,7 +72,12 @@ sources:
   - mobile/src/app/welcome.tsx
   - mobile/src/app/_layout.tsx
   - mobile/src/app/account.tsx
-fingerprint: 427b0ee7f764aa68
+  - client/hooks/useEmailVerification.ts
+  - client/components/dashboard/account/VerifyEmailDialog.tsx
+  - client/components/dashboard/account/ProfileForm.tsx
+  - client/components/dashboard/account/PasswordForm.tsx
+  - client/components/dashboard/account/DeleteAccount.tsx
+fingerprint: acbae7b7204ee3a4
 ---
 
 # Authentication and sessions
@@ -271,7 +276,7 @@ On success: `signInGoogleUser`, then `200 {data: UserResource (with plan), token
 
 ### Web UI
 
-There is **no standalone verify page**. `VerifyEmailDialog` is a modal used by the login page, the register page and the Account page. It cannot be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
+There is **no standalone verify page**. The flow is `client/hooks/useEmailVerification.ts`, drawn by two dialogs: `components/auth/VerifyEmailDialog.tsx` (marketing kit) on the login and register pages, and `components/dashboard/account/VerifyEmailDialog.tsx` (dashboard ds kit) on the Account page. Neither can be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
 
 The login and register pages open the dialog when the `user` cookie shows an unverified account, so a person returning with a dangling unverified session lands on the modal, not on a form.
 
@@ -294,9 +299,9 @@ A reset works on a Google-only account too (it has no password; the reset sets o
 - `name`: `sometimes|required|string|max:255`. `email`: `sometimes|required|string|email|max:255`, unique ignoring self. `current_password`: required **only when the email is changing**, and must satisfy Laravel's `current_password` rule.
 - On email change: `email_verified_at = null`, new verification code sent, and an `EmailChangedNotification` sent on demand to the **old** address (`Notification::route('mail', $previousEmail)`).
 - Existing tokens are **not** revoked on an email change.
-- A Google-only account has no password, so it **cannot change its email** through this endpoint (`current_password` is required and cannot pass). The web Account page shows the password field for any email edit; a Google user must first use "Set password".
+- A Google-only account has no password, so it **cannot change its email** through this endpoint (`current_password` is required and cannot pass). The web Account page shows the "Current password" field as soon as the email is edited; a Google user must first use "Set a password".
 - Response: `{data: $user->fresh(), message}` (raw model).
-- Web: `client/app/dashboard/settings/page.tsx`. After an email change it saves the new cookie and opens `VerifyEmailDialog`.
+- Web: `client/components/dashboard/account/ProfileForm.tsx` (on `/dashboard/settings`). After an email change it saves the new cookie and, when the new address is unverified, opens the dashboard's `VerifyEmailDialog`.
 
 ### Password: `PATCH /account/password` (`UpdatePasswordRequest`)
 - `current_password` required only if the account has a password (`password !== null`), must pass `current_password`; `password` required, min 8, `confirmed`, `different:current_password`.
@@ -311,7 +316,7 @@ A reset works on a Google-only account too (it has no password; the reset sets o
 
 `POST /logout` deletes **only the current token** (`currentAccessToken()->delete()`), and clears the `token` cookie. Other devices stay signed in. **It does not fire Laravel's `Logout` event**, so nothing sets `logout_at` (see gaps).
 
-- Web: `useSignOut()` is the single path (sidebar menu, homepage user menu). If a broadcast is `live`, `reconnecting` or `connecting` and the caller has not already confirmed, it asks `window.confirm` first ("Sign out will end your broadcast."). It posts `/logout` best-effort, calls `clearAuth()` (removes the `user` cookie and a legacy JS-readable `token`), toasts, and pushes to `/` (a shared module-level flag disables every sign-out button while in flight).
+- Web: `useSignOut()` is the single path (sidebar menu, homepage user menu). If a broadcast is `live`, `reconnecting` or `connecting` and the caller has not already confirmed, it asks `window.confirm` first ("Sign out will end your broadcast."). The dashboard sidebar asks with its own dialog ("Sign out and end your broadcast?") and passes `confirmed`. It posts `/logout` best-effort, calls `clearAuth()` (removes the `user` cookie and a legacy JS-readable `token`), toasts, and pushes to `/` (a shared module-level flag disables every sign-out button while in flight).
 - Mobile: `signOut()` posts `/logout` ignoring errors, then `endSession()`: drops the token from memory and SecureStore, sets state to `signedOut`, and calls the native Google module's `signOut()`. The Account screen stops a live broadcast first and confirms if on air.
 
 ## Web: how the browser stays signed in
@@ -341,7 +346,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 - `/auth/login`: email and password, "Forgot password?", "Continue with Google". On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).
 - `/auth/register`: name, email, password, confirm, Google button. Reads `?invite=` and calls `GET /invites/{code}` on load to show a banner (`valid`, `closed used/expired`, `invalid`, or `unchecked` when the lookup failed for a non-404 reason). The submit button is disabled while checking. `invite_code` is only sent when the state is `valid` or `unchecked`. The Google button passes the code on the popup URL only in those states. Field errors from the API are placed under their inputs, and an email "taken" error offers "Sign in instead". Password 8-char rule is client-validated too.
 - `/auth/layout.tsx`: `robots: noindex, follow`, logo, dark background.
-- `Account` page (`/dashboard/settings`, "Account"): profile, change or set password, danger zone with typed-email confirmation. It seeds its form from the `user` cookie, not from the API.
+- `Account` page (`/dashboard/settings`, "Account", `components/dashboard/account/`): plan card, profile (Save disabled until something changed), password ("Password": current + new, or "Set a password": new only; one new-password field with Show/Hide, `password_confirmation` sent equal to it), and "Delete account…" with a typed-email `ConfirmDialog`. It seeds its forms from the `user` cookie after mount, not from the API.
 
 ## Mobile
 

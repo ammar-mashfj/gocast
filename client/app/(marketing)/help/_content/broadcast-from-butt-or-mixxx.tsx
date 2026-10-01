@@ -18,9 +18,9 @@ export default function Body() {
 
       <h2>Your Connection Details</h2>
       <p>
-        Five values, on your station&#39;s settings page under the encoder
-        section. The same panel appears in the Go live dialog when you choose to
-        broadcast from an encoder, so you do not have to go hunting mid-setup.
+        Five values, in your station’s settings under{" "}
+        <strong>Use your own DJ software</strong>{" "}(a Pro feature). Open it
+        and each value has its own Copy button.
       </p>
       <ul>
         <li><strong>Server</strong>{" "}&mdash; the hostname</li>
@@ -33,16 +33,16 @@ export default function Body() {
         </li>
       </ul>
       <p>
-        The settings page lists the exact menu path for BUTT, Mixxx and ffmpeg
-        with your own values already filled in. Use that rather than typing from
-        this page.
+        Under <strong>Where these go in BUTT, Mixxx and ffmpeg</strong>, the
+        same section lists the exact menu path for each, with your own values
+        already filled in. Use that rather than typing from this page.
       </p>
 
       <ZoomableImage
         src="/help/encoder-connection.webp"
-        alt="The encoder panel on the station settings page, listing Server, Port, Mount, Username and a masked Password, with a copy button beside each one."
-        width={1400}
-        height={948}
+        alt="Use your own DJ software, opened in Station settings: Server, Port, Mount, Username and a hidden Password, each with a Copy button, and Show beside the password."
+        width={1220}
+        height={974}
       />
 
       <h2>Set the Type to Icecast 2</h2>
