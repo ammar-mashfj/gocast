@@ -11,7 +11,7 @@ import { AccountProvider, type Account } from "@/contexts/AccountContext"
 import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
 import { ProRequestProvider } from "@/contexts/ProRequestContext"
 import { RealtimeProvider } from "@/contexts/RealtimeContext"
-import { apiFetch } from "@/lib/api-server"
+import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { User } from "@/interfaces/User"
 
@@ -67,6 +67,10 @@ export default async function DashboardLayout({
     apiFetch<{ data: User }>("/user")
       .then(({ data }): Account => ({ email: data.email, plan: data.plan ?? null }))
       .catch((err): Account => {
+        // Every dashboard route renders under here, the client-rendered studio
+        // included, so this is the one place an expired session is caught for
+        // all of them. The pages check too, since they render in parallel.
+        redirectIfSessionExpired(err)
         console.error("[dashboard] account fetch failed:", err)
         return { email: user.email, plan: null }
       }),

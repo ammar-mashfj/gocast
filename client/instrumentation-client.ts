@@ -70,14 +70,23 @@ if (process.env.NODE_ENV === "production" && dsn) {
     // bot visiting a link from one of our emails, not a real user.
     //
     // XBrowser-style Android browsers eval an `execute_auto_fill` script on
-    // page load that references their own `xbrowser` bridge; when the bridge
-    // isn't injected it throws "xbrowser is not defined" from <anonymous>.
+    // page load that references their own bridge; when the bridge isn't
+    // injected it throws "xbrowser is not defined" from <anonymous>. The same
+    // family ships as `swbrowser` and others, hence the open prefix.
     denyUrls: [/^app:\/\//],
     ignoreErrors: [
       /Java object is gone/,
       /Object Not Found Matching Id:\d+/,
-      /xbrowser is not defined/,
+      /\b\w*browser is not defined/,
     ],
+
+    // Only errors thrown from our own bundle. Chrome on iOS injects translate
+    // and autofill scripts that run at the page's own URL, not under /_next/,
+    // and they kept arriving as "Error: La" and a "Maximum call stack size
+    // exceeded" that looked like our code. Events with no stack (a rejected
+    // promise) are still kept. The cost: errors from Next's inline scripts in
+    // the HTML are dropped too.
+    allowUrls: [/\/_next\//],
   });
 }
 

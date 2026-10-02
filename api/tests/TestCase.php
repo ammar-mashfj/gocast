@@ -18,12 +18,19 @@ abstract class TestCase extends BaseTestCase
      * `app()->runningUnitTests()` and lets test runs spawn real Liquidsoap
      * containers via the StationObserver. Forcing the env var here happens
      * before any Laravel bootstrap step that reads it.
+     *
+     * The Sentry DSN is blanked for the same reason: api/.env's live DSN
+     * otherwise turns every test that asserts a failure into a Sentry issue.
      */
     public function createApplication()
     {
         putenv('APP_ENV=testing');
         $_ENV['APP_ENV'] = 'testing';
         $_SERVER['APP_ENV'] = 'testing';
+
+        putenv('SENTRY_LARAVEL_DSN=');
+        $_ENV['SENTRY_LARAVEL_DSN'] = '';
+        $_SERVER['SENTRY_LARAVEL_DSN'] = '';
 
         return parent::createApplication();
     }

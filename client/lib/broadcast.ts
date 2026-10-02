@@ -495,9 +495,13 @@ export class BroadcastManager {
       engine.setMonitorEnabled(carry.monitor)
       if (carry.latched) engine.setMicLatched(true)
       // Same song, same second, playing or paused. restoreQueue() brings the
-      // queue back in the same order, so the index still names that song.
-      if (carry.index >= 0) {
-        void engine.cueAt(carry.index, carry.offset, carry.playing).catch((err) => {
+      // queue back in the same order, less any file the browser has lost
+      // since — restoredIndex() maps across that, and a song that was lost
+      // carries on as the next one, from its start.
+      const resumeAt = carry.index >= 0 ? engine.restoredIndex(carry.index) : null
+      if (resumeAt && resumeAt.index >= 0) {
+        const offset = resumeAt.sameTrack ? carry.offset : 0
+        void engine.cueAt(resumeAt.index, offset, carry.playing).catch((err) => {
           console.error('[BroadcastManager] could not cue playback after rebuild:', err)
         })
       }

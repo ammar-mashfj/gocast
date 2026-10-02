@@ -104,20 +104,24 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         Integration::handles($exceptions);
 
+        // Only the faults are worth waking someone for. A plan limit, a stop
+        // refused mid-broadcast or a used invite code is the system working as
+        // designed; a container that died at boot is not. Without this split,
+        // start-failure reporting would be buried under refusals that are
+        // supposed to happen.
+        //
+        // This has to be dontReportWhen, not a reportable() returning false:
+        // reportable callbacks run in registration order, and Sentry's (above)
+        // has already sent the event by the time a later one says "don't".
+        // dontReportWhen is checked before any callback runs.
+        $exceptions->dontReportWhen(fn (Throwable $e) => ($e instanceof StationLifecycleException || $e instanceof InviteException)
+            && $e->status < 500);
+
         // Station start/stop refusals are expected outcomes, not faults:
         // a plan without a free slot, or a stop attempted mid-broadcast.
         // Rendering them here keeps the controllers free of try/catch and
         // gives the SPA a stable `code` to branch on (upsell vs "end your
         // broadcast first") instead of matching on English text.
-        // ...but only the faults are worth waking someone for. A plan limit or
-        // a stop refused mid-broadcast is the system working as designed; a
-        // container that died at boot is not. Without this split, adding
-        // start-failure reporting would have buried it under refusals that are
-        // supposed to happen.
-        $exceptions->reportable(function (StationLifecycleException $e) {
-            return $e->status >= 500;
-        });
-
         $exceptions->render(function (StationLifecycleException $e, Request $request) {
             if (! $request->expectsJson()) {
                 return null;
@@ -132,10 +136,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // Same contract for invites: a used or expired code is an expected
         // outcome with a stable `code`, not a fault. `errors.invite_code` is
         // there so the register page can treat it like any other field error.
-        $exceptions->reportable(function (InviteException $e) {
-            return $e->status >= 500;
-        });
-
         // Always JSON, whatever the Accept header: the exception is only ever
         // thrown from API routes, and falling through to the default handler
         // would turn a 404/422 into a 500 page for a browser opening the

@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { apiFetch } from "@/lib/api-server"
+import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
@@ -45,7 +45,8 @@ export default async function BroadcastsPage() {
       : { data: [] as StreamSession[], total: 0 }
     sessions = res.data
     total = res.total ?? res.data.length
-  } catch {
+  } catch (err) {
+    redirectIfSessionExpired(err)
     notFound()
   }
 

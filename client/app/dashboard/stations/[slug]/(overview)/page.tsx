@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { IconExternalLink, IconSettings } from "@tabler/icons-react"
-import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { StreamSession } from "@/interfaces/StreamSession"
@@ -101,9 +101,11 @@ export default async function StationDetailPage({
     // Only render the 404 page when the backend actually said the station
     // is missing — or that it isn't yours (403 from StationPolicy::view),
     // which is the same answer from where this user stands and shouldn't
-    // confirm that someone else's slug exists. Any other failure (timeout, 401 from a stale cookie, 5xx)
+    // confirm that someone else's slug exists. A 401 is a stale cookie and
+    // goes to the login page. Any other failure (timeout, 5xx)
     // is a real error and must not be silently masked as "not found" — log
     // it and rethrow so Next.js surfaces it via the error boundary.
+    redirectIfSessionExpired(err)
     if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
 import { env } from "@/lib/env"
 import { Station } from "@/interfaces/Station"
 import { Badge } from "@/components/ui/badge"
@@ -44,6 +44,7 @@ export default async function StationSettingsPage({
     const res = await apiFetch<{ data: Station }>(`/stations/${slug}`)
     station = res.data
   } catch (err) {
+    redirectIfSessionExpired(err)
     if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }

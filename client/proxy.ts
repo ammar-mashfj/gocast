@@ -20,7 +20,12 @@ export function proxy(request: NextRequest) {
   const token = request.cookies.get("token")?.value
   const isVerified = isVerifiedUserCookie(request.cookies.get("user")?.value)
 
-  if (authRoutes.some((route) => pathname.startsWith(route)) && token && isVerified) {
+  // `?expired=1` comes from a dashboard page whose API call came back 401: the
+  // cookies are still here but the session behind them is gone. Bouncing that
+  // to the dashboard would loop straight back to the same 401.
+  const sessionExpired = request.nextUrl.searchParams.get("expired") === "1"
+
+  if (authRoutes.some((route) => pathname.startsWith(route)) && token && isVerified && !sessionExpired) {
     return NextResponse.redirect(new URL("/dashboard/stations", request.url))
   }
 
