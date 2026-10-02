@@ -123,6 +123,13 @@ const FRAME_STALL_REBUILD_MS = 5000
  */
 const MAX_REBUILDS = 3
 const REBUILD_WINDOW_MS = 10 * 60 * 1000
+/**
+ * How long a rebuild may take to produce a new engine. The browser that
+ * killed the last one can hang building the next (a worklet module that
+ * never loads), and a rebuild stuck forever would leave the watchdog off for
+ * the rest of the show, which is the loop this exists to end.
+ */
+const REBUILD_CREATE_TIMEOUT_MS = 8000
 
 /** The pause before the next attempt, jittered. */
 function reconnectDelay(attempt: number): number {
@@ -371,15 +378,23 @@ export class BroadcastManager {
     }
   }
 
-  /** Build an engine on the current mic stream, running and wired to harbor's metadata. */
-  private async createEngine(): Promise<AudioEngine> {
-    const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug)
+  /**
+   * Build an engine on the current mic stream, running and wired to harbor's
+   * metadata.
+   *
+   * @param awaitResume False for a rebuild. Outside a user gesture the
+   *   browser may refuse to start the context, and then resume() stays
+   *   pending until the next tap; awaiting it would hang the rebuild. The
+   *   studio's "Audio paused" notice asks for that tap instead.
+   */
+  private async createEngine(awaitResume = true, signal?: AbortSignal): Promise<AudioEngine> {
+    const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug, signal)
     // The context starts suspended under the autoplay policy, and a
     // suspended context produces no frames for the worklet to capture.
     // Resume now — on a first start we are inside the user gesture that
-    // triggered start(). A rebuild may not be, and then the studio's
-    // "Audio paused" notice asks for the tap that resumes it.
-    await engine.resume()
+    // triggered start().
+    if (awaitResume) await engine.resume()
+    else void engine.resume().catch(() => {})
     // Keep harbor's metadata in step with whatever the queue is playing.
     engine.subscribe(() => {
       if (this.engine !== engine) return
@@ -451,32 +466,39 @@ export class BroadcastManager {
 
     const carry = {
       playing: old.isPlaying(),
+      index: old.getCurrentIndex(),
+      offset: old.getElapsed(),
       repeat: old.getRepeatMode(),
       monitor: old.isMonitorEnabled(),
       monitorVolume: old.getMonitorVolume(),
       latched: old.isMicLatched(),
     }
 
+    // stop() or fail() can land at any await below. Each sets `stopping` and
+    // tears down whatever `this.engine` is at that moment, so the rule is:
+    // re-check after every await, and an engine not yet adopted into
+    // `this.engine` is ours to destroy (the finally block).
+    let engine: AudioEngine | null = null
+    let adopted = false
     try {
       try { await old.destroy() } catch { /* already broken: that is why we are here */ }
       if (this.stopping) return
-      const engine = await this.createEngine()
-      if (this.stopping) {
-        await engine.destroy()
-        return
-      }
+      engine = await this.createEngineWithin(REBUILD_CREATE_TIMEOUT_MS)
+      if (this.stopping) return
       this.engine = engine
+      adopted = true
       this.lastFrameAt = Date.now()
       await engine.restoreQueue()
+      if (this.stopping) return
       engine.setRepeatMode(carry.repeat)
       engine.setMonitorVolume(carry.monitorVolume)
       engine.setMonitorEnabled(carry.monitor)
       if (carry.latched) engine.setMicLatched(true)
-      if (carry.playing) {
-        // The position was saved by destroy(), so this continues the song
-        // rather than honouring the show's original start-over choice.
-        void engine.resumePlayback().catch((err) => {
-          console.error('[BroadcastManager] could not resume playback after rebuild:', err)
+      // Same song, same second, playing or paused. restoreQueue() brings the
+      // queue back in the same order, so the index still names that song.
+      if (carry.index >= 0) {
+        void engine.cueAt(carry.index, carry.offset, carry.playing).catch((err) => {
+          console.error('[BroadcastManager] could not cue playback after rebuild:', err)
         })
       }
       // 'live' is what hands the studio the new engine (BroadcastContext).
@@ -484,12 +506,30 @@ export class BroadcastManager {
       if (!this.reconnecting) this.callbacks.onStateChange('live')
     } catch (err) {
       console.error('[BroadcastManager] audio engine rebuild failed:', err)
-      this.engine = null
-      await this.fail(new Error(
-        "The studio's audio stopped and couldn't be restarted. Reload the page to go back on air.",
-      ))
+      if (!this.stopping) {
+        await this.fail(new Error(
+          "The studio's audio stopped and couldn't be restarted. Reload the page to go back on air.",
+        ))
+      }
     } finally {
+      if (engine && !adopted) void engine.destroy().catch(() => {})
       this.rebuilding = false
+    }
+  }
+
+  /**
+   * createEngine for a rebuild, bounded by `ms`. The abort makes
+   * AudioEngine.create close the half-built context itself.
+   */
+  private async createEngineWithin(ms: number): Promise<AudioEngine> {
+    const abort = new AbortController()
+    const timer = setTimeout(() => abort.abort(), ms)
+    try {
+      return await this.createEngine(false, abort.signal)
+    } catch (err) {
+      throw abort.signal.aborted ? new Error(`audio engine took longer than ${ms}ms to build`) : err
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -952,6 +992,10 @@ export class BroadcastManager {
   }
 
   private async fail(err: unknown) {
+    // Failing ends the show as surely as stop() does, and anything still in
+    // flight (a reconnect attempt, an engine rebuild) checks this flag to
+    // know it must not bring the broadcast back. start() clears it.
+    this.stopping = true
     const activeStep = this.steps.find((s) => s.status === 'active')
 
     let message = 'Something went wrong'

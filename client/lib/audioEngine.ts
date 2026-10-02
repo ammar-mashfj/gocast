@@ -229,6 +229,12 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
+  /**
+   * A paused position with no audio element behind it yet — see cueAt. Keyed
+   * by track id so a queue edit that moves the current index can't hand the
+   * offset to a different song.
+   */
+  private cued: { trackId: string; offset: number } | null = null
   /** Slug of the station whose queue this engine persists. */
   private readonly station: string
   private progressTimer: ReturnType<typeof setInterval> | null = null
@@ -376,44 +382,73 @@ export class AudioEngine {
    * @param station Slug of the station this show is for. The saved queue and
    *   playback position are kept per station, so two stations run from one
    *   browser no longer share a running order.
+   * @param signal Aborts a build that is taking too long. A browser that has
+   *   just killed one engine can hang building the next, and the context made
+   *   here has to be closed by someone; on abort or any failure part-way,
+   *   this closes it and the worker itself.
    */
   static async create(
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     station: string,
+    signal?: AbortSignal,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
-    await ctx.audioWorklet.addModule('/pcm-worklet.js')
-    const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+    let worker: Worker | null = null
 
-    const worker = new Worker('/encoder-worker.js')
-    const ready = new Promise<void>((resolve, reject) => {
-      const onReady = (e: MessageEvent) => {
-        if (e.data?.type === 'ready') {
-          worker.removeEventListener('message', onReady)
-          worker.removeEventListener('error', onError)
-          resolve()
+    // Each await races the abort, so a step that never settles can't keep
+    // this context alive.
+    const unlessAborted = <T,>(step: Promise<T>): Promise<T> => {
+      if (!signal) return step
+      return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(new Error('Audio engine build was aborted'))
+        if (signal.aborted) return onAbort()
+        signal.addEventListener('abort', onAbort, { once: true })
+        step.then(
+          (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+          (err) => { signal.removeEventListener('abort', onAbort); reject(err) },
+        )
+      })
+    }
+
+    try {
+      await unlessAborted(ctx.audioWorklet.addModule('/pcm-worklet.js'))
+      const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+
+      const encoder = new Worker('/encoder-worker.js')
+      worker = encoder
+      const ready = new Promise<void>((resolve, reject) => {
+        const onReady = (e: MessageEvent) => {
+          if (e.data?.type === 'ready') {
+            encoder.removeEventListener('message', onReady)
+            encoder.removeEventListener('error', onError)
+            resolve()
+          }
         }
-      }
-      const onError = (e: ErrorEvent) => {
-        worker.removeEventListener('message', onReady)
-        worker.removeEventListener('error', onError)
-        reject(new Error(`Encoder worker failed to load: ${e.message}`))
-      }
-      worker.addEventListener('message', onReady)
-      worker.addEventListener('error', onError)
-    })
+        const onError = (e: ErrorEvent) => {
+          encoder.removeEventListener('message', onReady)
+          encoder.removeEventListener('error', onError)
+          reject(new Error(`Encoder worker failed to load: ${e.message}`))
+        }
+        encoder.addEventListener('message', onReady)
+        encoder.addEventListener('error', onError)
+      })
 
-    const channel = new MessageChannel()
-    workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
-    worker.postMessage(
-      { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
-      [channel.port2],
-    )
-    await ready
+      const channel = new MessageChannel()
+      workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
+      encoder.postMessage(
+        { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+        [channel.port2],
+      )
+      await unlessAborted(ready)
 
-    return new AudioEngine(ctx, workletNode, worker, micStream, onChunk, station)
+      return new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+    } catch (err) {
+      worker?.terminate()
+      if (ctx.state !== 'closed') void ctx.close().catch(() => {})
+      throw err
+    }
   }
 
   /**
@@ -863,9 +898,33 @@ export class AudioEngine {
           console.error('[AudioEngine] play() rejected:', err)
         }
       } else {
-        await this.playIndex(this.currentIndex)
+        const track = this.queue[this.currentIndex]
+        const offset = track && this.cued?.trackId === track.id ? this.cued.offset : 0
+        await this.playIndexAtOffset(this.currentIndex, offset)
       }
     }
+  }
+
+  /**
+   * Put the queue at a song and position, playing or not. Used when the
+   * broadcast manager replaces a dead engine mid-show (rebuildEngine), so a
+   * song that was playing carries on and a paused one is still cued at the
+   * same second for the next Play, rather than the queue starting over.
+   *
+   * Cueing paused creates no audio element: nothing reaches the mix until
+   * Play, which picks the offset up from `cued`.
+   */
+  async cueAt(index: number, offset: number, play: boolean): Promise<void> {
+    if (index < 0 || index >= this.queue.length) return
+    if (play) {
+      await this.playIndexAtOffset(index, offset)
+      return
+    }
+    this.stopCurrent()
+    this.currentIndex = index
+    this.playing = false
+    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset) }
+    this.notify()
   }
 
   pause() {
@@ -904,7 +963,10 @@ export class AudioEngine {
   }
 
   getElapsed(): number {
-    if (this.currentIndex < 0 || !this.currentAudio) return 0
+    if (this.currentIndex < 0) return 0
+    if (!this.currentAudio) {
+      return this.cued?.trackId === this.queue[this.currentIndex]?.id ? this.cued.offset : 0
+    }
     return this.currentAudio.currentTime
   }
 
@@ -915,6 +977,7 @@ export class AudioEngine {
   private async playIndexAtOffset(index: number, offset: number) {
     this.stopCurrent()
     this.currentIndex = index
+    this.cued = null
 
     const track = this.queue[index]
     if (!track) return
