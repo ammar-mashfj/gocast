@@ -36,6 +36,9 @@ function dropReport(array $overrides = []): array
         'net_effective' => '4g',
         'peak_buffered_bytes' => 0,
         'wake_lock' => false,
+        'audio_state' => 'running',
+        'frame_age_ms' => 8200,
+        'engine_rebuilds' => 1,
     ], $overrides);
 }
 
@@ -52,6 +55,9 @@ it('records a studio_drop event with the whitelisted fields', function () {
         ->and($event->causer_id)->toBe((string) $this->owner->id)
         ->and($event->properties['outcome'])->toBe('gave_up')
         ->and($event->properties['frozen'])->toBeTrue()
+        ->and($event->properties['audio_state'])->toBe('running')
+        ->and($event->properties['frame_age_ms'])->toBe(8200)
+        ->and($event->properties['engine_rebuilds'])->toBe(1)
         ->and($event->properties)->not->toHaveKey('sneaky')
         ->and($event->properties)->not->toHaveKey('id');
 });

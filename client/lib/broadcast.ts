@@ -97,6 +97,33 @@ const RECONNECT_JITTER = 0.2
  */
 const RECONNECT_STATION_READY_TIMEOUT_MS = 8000
 
+/**
+ * Frame watchdog. The encoder emits a frame roughly every 93ms whenever the
+ * audio graph is running, silence included, so a gap this long means the
+ * graph has stopped, not that the show went quiet.
+ *
+ * This is separate from the socket for a reason found on a Firefox Android
+ * phone in production: its audio pipeline died while the tab was in the
+ * background, and every reconnect after that was accepted by harbor, sent no
+ * audio, and was dropped by harbor's `timeout` (10s) moments later, every 14s
+ * for as long as the host stayed. A reconnect only rebuilds the socket, so it
+ * could never fix it; a fresh broadcast, with a fresh engine, did at once.
+ *
+ * At WAKE we ask the browser to resume the context. At REBUILD the engine is
+ * replaced in place (see rebuildEngine). Both land inside harbor's 10s, so a
+ * recovered stall never costs the socket.
+ */
+const FRAME_WATCHDOG_TICK_MS = 1000
+const FRAME_STALL_WAKE_MS = 2000
+const FRAME_STALL_REBUILD_MS = 5000
+/**
+ * Rebuilds allowed inside REBUILD_WINDOW_MS before the broadcast is ended
+ * with a message to reload. An engine that keeps dying is better reported
+ * than retried forever while listeners hear nothing.
+ */
+const MAX_REBUILDS = 3
+const REBUILD_WINDOW_MS = 10 * 60 * 1000
+
 /** The pause before the next attempt, jittered. */
 function reconnectDelay(attempt: number): number {
   const base = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]
@@ -199,6 +226,12 @@ export class BroadcastManager {
    * metadata into the stream.
    */
   private sentMetadataKey: string | null = null
+  /** When the engine last emitted an encoded frame, socket or not. */
+  private lastFrameAt = 0
+  private frameWatchdog: ReturnType<typeof setInterval> | null = null
+  private rebuilding = false
+  /** Epoch ms of recent engine rebuilds, for MAX_REBUILDS. */
+  private rebuildTimes: number[] = []
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = [
@@ -278,42 +311,9 @@ export class BroadcastManager {
       }
 
       // Step 2: Audio engine — mic + queue mixer, encoding MP3 off-thread.
-      // Encoded frames go straight out over the socket as binary webcast
-      // frames; before the socket exists — and while a reconnect is in
-      // progress — they are simply dropped. Dropping is correct: buffering
-      // would mean replaying stale audio into a live show on reconnect.
+      // Frames go out through handleChunk.
       this.setActiveStep('engine')
-      this.engine = await AudioEngine.create(this.micStream, (chunk) => {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(chunk)
-          const buffered = this.ws.bufferedAmount
-          if (buffered > this.peakBufferedBytes) this.peakBufferedBytes = buffered
-          if (!this.countersArmed) return
-          this.bytesSent += chunk.byteLength
-          this.chunksSent++
-          // Close an open drop run and bank how long the audience lost.
-          if (this.dropRunStart !== 0) {
-            this.droppedMs += Date.now() - this.dropRunStart
-            this.dropRunStart = 0
-          }
-        } else {
-          if (!this.countersArmed) return
-          const now = Date.now()
-          if (this.dropRunStart === 0) this.dropRunStart = now
-          this.lastDropAt = now
-          this.chunksDropped++
-        }
-      }, this.stationSlug)
-      // The context starts suspended under the autoplay policy, and a
-      // suspended context produces no frames for the worklet to capture.
-      // Resume now — we are inside the user gesture that triggered start().
-      await this.engine.resume()
-      // Keep harbor's metadata in step with whatever the queue is playing.
-      this.engine.subscribe(() => {
-        const track = this.engine?.getCurrentTrack()
-        if (!track || `${track.title}\0${track.artist}` === this.sentMetadataKey) return
-        this.sendMetadata(track.title, track.artist)
-      })
+      this.engine = await this.createEngine()
       await this.engine.restoreQueue()
       this.updateStep('engine', 'done')
 
@@ -333,11 +333,163 @@ export class BroadcastManager {
 
       this.acquireWakeLock()
       this.watchVisibility()
+      this.watchFrames()
       this.callbacks.onStateChange('live')
       // Reports left over from an earlier broadcast that never got out.
       void flushDrops()
     } catch (err) {
       await this.fail(err)
+    }
+  }
+
+  /**
+   * Encoded frames go straight out over the socket as binary webcast frames;
+   * before the socket exists — and while a reconnect is in progress — they
+   * are simply dropped. Dropping is correct: buffering would mean replaying
+   * stale audio into a live show on reconnect.
+   */
+  private handleChunk = (chunk: ArrayBuffer) => {
+    this.lastFrameAt = Date.now()
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(chunk)
+      const buffered = this.ws.bufferedAmount
+      if (buffered > this.peakBufferedBytes) this.peakBufferedBytes = buffered
+      if (!this.countersArmed) return
+      this.bytesSent += chunk.byteLength
+      this.chunksSent++
+      // Close an open drop run and bank how long the audience lost.
+      if (this.dropRunStart !== 0) {
+        this.droppedMs += Date.now() - this.dropRunStart
+        this.dropRunStart = 0
+      }
+    } else {
+      if (!this.countersArmed) return
+      const now = Date.now()
+      if (this.dropRunStart === 0) this.dropRunStart = now
+      this.lastDropAt = now
+      this.chunksDropped++
+    }
+  }
+
+  /** Build an engine on the current mic stream, running and wired to harbor's metadata. */
+  private async createEngine(): Promise<AudioEngine> {
+    const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug)
+    // The context starts suspended under the autoplay policy, and a
+    // suspended context produces no frames for the worklet to capture.
+    // Resume now — on a first start we are inside the user gesture that
+    // triggered start(). A rebuild may not be, and then the studio's
+    // "Audio paused" notice asks for the tap that resumes it.
+    await engine.resume()
+    // Keep harbor's metadata in step with whatever the queue is playing.
+    engine.subscribe(() => {
+      if (this.engine !== engine) return
+      const track = engine.getCurrentTrack()
+      if (!track || `${track.title}\0${track.artist}` === this.sentMetadataKey) return
+      this.sendMetadata(track.title, track.artist)
+    })
+    return engine
+  }
+
+  /** Watch for the engine going quiet — see FRAME_STALL_WAKE_MS. */
+  private watchFrames() {
+    this.lastFrameAt = Date.now()
+    if (this.frameWatchdog) return
+    let lastTick = Date.now()
+    this.frameWatchdog = setInterval(() => {
+      const now = Date.now()
+      const late = now - lastTick > FRAME_STALL_WAKE_MS
+      lastTick = now
+      // A late tick means this page was frozen or its timers throttled (a
+      // locked phone, a background tab), and frames that are on their way
+      // haven't landed yet. Judging the engine on that gap would rebuild a
+      // healthy one on every unlock, so start the count again from here.
+      if (late) {
+        this.lastFrameAt = Math.max(this.lastFrameAt, now)
+        return
+      }
+      if (this.stopping || this.rebuilding || !this.engine) return
+      const silentFor = now - this.lastFrameAt
+      if (silentFor < FRAME_STALL_WAKE_MS) return
+      if (this.engine.isSuspended()) {
+        // Stopped by the browser: resume, or wait for the tap that can. A new
+        // engine would start out just as stopped.
+        void this.engine.resume().catch(() => {})
+        return
+      }
+      if (silentFor >= FRAME_STALL_REBUILD_MS) void this.rebuildEngine()
+    }, FRAME_WATCHDOG_TICK_MS)
+  }
+
+  private unwatchFrames() {
+    if (this.frameWatchdog) clearInterval(this.frameWatchdog)
+    this.frameWatchdog = null
+  }
+
+  /**
+   * Replace a dead engine with a new one without ending the show.
+   *
+   * The queue and the playback position live in IndexedDB, so the new engine
+   * restores them the same way a fresh Go Live does. The socket, the mic
+   * stream and the wake lock are untouched. Per-show settings that are not
+   * stored (repeat, monitor, a latched mic) are carried across by hand.
+   */
+  private async rebuildEngine(): Promise<void> {
+    const old = this.engine
+    if (!old || this.rebuilding || this.stopping) return
+
+    const now = Date.now()
+    this.rebuildTimes = this.rebuildTimes.filter((t) => now - t < REBUILD_WINDOW_MS)
+    if (this.rebuildTimes.length >= MAX_REBUILDS) {
+      await this.fail(new Error(
+        "The studio's audio keeps stopping in this browser. Reload the page to go back on air.",
+      ))
+      return
+    }
+    this.rebuildTimes.push(now)
+    this.rebuilding = true
+    console.warn(`[BroadcastManager] no audio frames for ${now - this.lastFrameAt}ms (context ${old.getContextState()}); rebuilding the audio engine`)
+
+    const carry = {
+      playing: old.isPlaying(),
+      repeat: old.getRepeatMode(),
+      monitor: old.isMonitorEnabled(),
+      monitorVolume: old.getMonitorVolume(),
+      latched: old.isMicLatched(),
+    }
+
+    try {
+      try { await old.destroy() } catch { /* already broken: that is why we are here */ }
+      if (this.stopping) return
+      const engine = await this.createEngine()
+      if (this.stopping) {
+        await engine.destroy()
+        return
+      }
+      this.engine = engine
+      this.lastFrameAt = Date.now()
+      await engine.restoreQueue()
+      engine.setRepeatMode(carry.repeat)
+      engine.setMonitorVolume(carry.monitorVolume)
+      engine.setMonitorEnabled(carry.monitor)
+      if (carry.latched) engine.setMicLatched(true)
+      if (carry.playing) {
+        // The position was saved by destroy(), so this continues the song
+        // rather than honouring the show's original start-over choice.
+        void engine.resumePlayback().catch((err) => {
+          console.error('[BroadcastManager] could not resume playback after rebuild:', err)
+        })
+      }
+      // 'live' is what hands the studio the new engine (BroadcastContext).
+      // Mid-reconnect it arrives with the reconnect's own 'live'.
+      if (!this.reconnecting) this.callbacks.onStateChange('live')
+    } catch (err) {
+      console.error('[BroadcastManager] audio engine rebuild failed:', err)
+      this.engine = null
+      await this.fail(new Error(
+        "The studio's audio stopped and couldn't be restarted. Reload the page to go back on air.",
+      ))
+    } finally {
+      this.rebuilding = false
     }
   }
 
@@ -551,6 +703,9 @@ export class BroadcastManager {
         bufferedBytes: ws.bufferedAmount,
         peakBufferedBytes: this.peakBufferedBytes,
         wakeLockHeld: this.wakeLock !== null,
+        audioState: this.engine?.getContextState() ?? null,
+        frameAgeMs: this.lastFrameAt ? Date.now() - this.lastFrameAt : null,
+        engineRebuilds: this.rebuildTimes.length,
       })
       void this.reconnect(dropId)
     }
@@ -745,6 +900,7 @@ export class BroadcastManager {
     this.reconnecting = false
     this.established = false
     this.unwatchVisibility()
+    this.unwatchFrames()
 
     // Flush lamejs before closing: the final partial MP3 frame is still inside
     // the encoder, and dropping it truncates the last fraction of a second.
@@ -814,6 +970,7 @@ export class BroadcastManager {
     this.reconnecting = false
     this.established = false
     this.unwatchVisibility()
+    this.unwatchFrames()
 
     this.callbacks.onError(message)
     this.callbacks.onStateChange('error')

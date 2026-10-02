@@ -821,9 +821,20 @@ export class AudioEngine {
     this.notify()
   }
 
-  /** True while the browser has the audio context suspended — see the constructor. */
+  /**
+   * True while the browser holds the audio context stopped — see the
+   * constructor. `interrupted` is the newer state a browser uses when the OS
+   * takes the audio away (a call, another app grabbing audio focus); it isn't
+   * in the DOM typings yet, hence the string compare.
+   */
   isSuspended(): boolean {
-    return this.ctx.state === 'suspended'
+    const state: string = this.ctx.state
+    return state === 'suspended' || state === 'interrupted'
+  }
+
+  /** The AudioContext's state, for the studio's drop reports. */
+  getContextState(): string {
+    return this.ctx.state
   }
 
   clearQueue() {
@@ -839,7 +850,7 @@ export class AudioEngine {
 
   async play() {
     if (this.queue.length === 0) return
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    await this.resume()
     if (this.currentIndex === -1) {
       await this.playIndex(0)
     } else if (!this.playing) {
@@ -961,7 +972,7 @@ export class AudioEngine {
       audio.currentTime = Math.min(offset, Math.max(0, audio.duration - 0.1))
     }
 
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    await this.resume()
     try {
       await audio.play()
     } catch (err) {
@@ -992,13 +1003,18 @@ export class AudioEngine {
     this.currentObjectUrl = null
   }
 
-  /** Resume the AudioContext if suspended by the browser's autoplay policy. Safe to call repeatedly. */
+  /** Resume the AudioContext if the browser stopped it (see isSuspended). Safe to call repeatedly. */
   async resume(): Promise<void> {
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    if (this.isSuspended()) await this.ctx.resume()
   }
 
-  /** Tear down the audio graph and close the AudioContext. */
+  /**
+   * Tear down the audio graph and close the AudioContext. The playback
+   * position is saved first, so an engine rebuilt mid-show (see
+   * BroadcastManager.rebuildEngine) picks the song up where this one was.
+   */
   async destroy(): Promise<void> {
+    this.saveProgress()
     if (this.progressTimer) clearInterval(this.progressTimer)
     if (this.pageHideHandler) window.removeEventListener('pagehide', this.pageHideHandler)
     this.stopCurrent()
