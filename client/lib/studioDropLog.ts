@@ -55,6 +55,9 @@ export interface DropReport {
   bitrate?: number | null
   /** Upload speed the go-live check measured, in kbps. */
   uplink_kbps?: number | null
+  audio_state?: string | null
+  frame_age_ms?: number | null
+  engine_rebuilds?: number
 }
 
 interface StoredDrop {
@@ -71,6 +74,12 @@ export interface DropContext {
   wakeLockHeld: boolean
   bitrate: number
   uplinkKbps: number | null
+  /** The AudioContext's state at the close; anything but `running` means the engine was stopped. */
+  audioState: string | null
+  /** Since the engine last emitted a frame. Seconds here means the audio died before the socket did. */
+  frameAgeMs: number | null
+  /** Engine rebuilds in the last ten minutes — see BroadcastManager.rebuildEngine. */
+  engineRebuilds: number
 }
 
 const STORAGE_KEY = 'gocast:studio-drops:v1'
@@ -186,6 +195,9 @@ export function captureDrop(slug: string, ctx: DropContext): string | null {
       standalone: typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches,
       bitrate: ctx.bitrate,
       uplink_kbps: ctx.uplinkKbps,
+      audio_state: ctx.audioState ? ctx.audioState.slice(0, 16) : null,
+      frame_age_ms: ctx.frameAgeMs,
+      engine_rebuilds: ctx.engineRebuilds,
     }
     writeStore([...readStore(), { slug, report }])
     return report.id

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Station } from "@/interfaces/Station"
 import { SchedulePlanner } from "./SchedulePlanner"
@@ -25,6 +25,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ slug:
     station = stationRes.data
     playlists = playlistsRes.data
   } catch (err) {
+    redirectIfSessionExpired(err)
     if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }

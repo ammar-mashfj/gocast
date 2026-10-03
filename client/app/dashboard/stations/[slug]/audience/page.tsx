@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
 import { Station } from "@/interfaces/Station"
 import { Audience, AudienceReport, AUDIENCE_WINDOWS } from "@/interfaces/Audience"
 import { Card } from "@/components/ds/Card"
@@ -62,6 +62,7 @@ export default async function StationAudiencePage({
     station = stationRes.data
     audience = audienceRes.data
   } catch (err) {
+    redirectIfSessionExpired(err)
     if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
       notFound()
     }

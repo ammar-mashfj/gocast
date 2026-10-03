@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { apiFetch } from "@/lib/api-server"
+import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import type { Station } from "@/interfaces/Station"
 import { formatAirtime } from "@/lib/format"
@@ -29,7 +29,8 @@ export default async function YourShowsPage() {
   try {
     station = await getMyStation()
     if (station) res = await apiFetch<SessionsResponse>(`/stations/${station.slug}/sessions?finished=1`)
-  } catch {
+  } catch (err) {
+    redirectIfSessionExpired(err)
     notFound()
   }
 

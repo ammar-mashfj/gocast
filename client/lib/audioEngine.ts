@@ -1,4 +1,5 @@
-import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback } from './queueStore'
+import * as Sentry from '@sentry/nextjs'
+import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback, isReadable } from './queueStore'
 import { DUCK_GAIN, FADE_TIME_CONSTANT, loadMicPrefs, saveMicPrefs, type MicPrefs } from './micPrefs'
 
 export interface QueueTrack {
@@ -8,6 +9,27 @@ export interface QueueTrack {
   artist: string
   duration: number
 }
+
+/**
+ * Why tracks were taken out of the queue without the broadcaster asking.
+ *
+ * - `unplayable`: the audio element failed on it while loading or playing —
+ *   a format the browser can't decode, or a file it can no longer read.
+ * - `unreadable`: the file behind it was already gone when it was added or
+ *   when the queue came back after a reload (an Android picker copy that was
+ *   cleaned up, storage the browser evicted).
+ *
+ * Either way it could never play, and leaving it in stalled the queue: a
+ * track that never starts never fires `ended`, so nothing moved on.
+ */
+export type TrackDropReason = 'unplayable' | 'unreadable'
+export interface TrackDrop {
+  reason: TrackDropReason
+  titles: string[]
+}
+
+/** Longest the restore waits on its readability check before going live anyway. */
+const READABLE_CHECK_TIMEOUT_MS = 3000
 
 const MIC_BOOST = 3
 
@@ -240,6 +262,12 @@ export class AudioEngine {
   private queue: QueueTrack[] = []
   private currentIndex = -1
   private playing = false
+  /**
+   * A paused position with no audio element behind it yet — see cueAt. Keyed
+   * by track id so a queue edit that moves the current index can't hand the
+   * offset to a different song.
+   */
+  private cued: { trackId: string; offset: number } | null = null
   /** Slug of the station whose queue this engine persists. */
   private readonly station: string
   private progressTimer: ReturnType<typeof setInterval> | null = null
@@ -251,6 +279,18 @@ export class AudioEngine {
   // value each change, so components re-render reliably even though
   // internal structures (queue array, etc.) are mutated in place.
   private listeners = new Set<() => void>()
+  /** Studio subscribers to {@link onTracksDropped}. */
+  private dropListeners = new Set<(drop: TrackDrop) => void>()
+  /** Drops that happened before anything subscribed — the restore runs during go-live, before the studio mounts. */
+  private pendingDrops: TrackDrop[] = []
+  /**
+   * Track ids as the last restore loaded them, before unreadable ones were
+   * taken out. Saved positions are indexes into THIS list; see
+   * {@link restoredIndex}.
+   */
+  private restoredIds: string[] = []
+  /** Queue-storage failures already sent to Sentry this session, by kind. */
+  private reportedStorageFailures = new Set<string>()
   private version = 0
 
   private constructor(
@@ -370,8 +410,27 @@ export class AudioEngine {
 
   private saveProgress() {
     if (this.playing && this.currentIndex >= 0 && this.currentAudio) {
-      savePlayback(this.station, { currentIndex: this.currentIndex, offset: this.currentAudio.currentTime })
+      this.savePosition(this.currentIndex, this.currentAudio.currentTime)
     }
+  }
+
+  private savePosition(currentIndex: number, offset: number) {
+    savePlayback(this.station, { currentIndex, offset }).catch((err) => this.reportStorageFailure('playback', err))
+  }
+
+  /**
+   * Losing the saved queue costs the broadcaster their running order after a
+   * reload, but it must never break the show — so storage failures are caught
+   * here, logged, and sent to Sentry once per kind per session rather than on
+   * every edit.
+   */
+  private reportStorageFailure(kind: string, err: unknown) {
+    console.error(`[AudioEngine] queue storage (${kind}) failed:`, err)
+    if (this.reportedStorageFailures.has(kind)) return
+    this.reportedStorageFailures.add(kind)
+    Sentry.captureException(err instanceof Error ? err : new Error(`Queue storage (${kind}) failed: ${String(err)}`), {
+      tags: { queue_storage: kind },
+    })
   }
 
   /**
@@ -388,47 +447,77 @@ export class AudioEngine {
    * @param station Slug of the station this show is for. The saved queue and
    *   playback position are kept per station, so two stations run from one
    *   browser no longer share a running order.
+   * @param bitrate MP3 bitrate to encode at; see {@link setBitrate} to change it mid-show.
+   * @param signal Aborts a build that is taking too long. A browser that has
+   *   just killed one engine can hang building the next, and the context made
+   *   here has to be closed by someone; on abort or any failure part-way,
+   *   this closes it and the worker itself.
    */
   static async create(
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     station: string,
     bitrate: Bitrate = DEFAULT_BITRATE,
+    signal?: AbortSignal,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const ctx = new Ctor({ sampleRate: SAMPLE_RATE })
-    await ctx.audioWorklet.addModule('/pcm-worklet.js')
-    const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+    let worker: Worker | null = null
 
-    const worker = new Worker('/encoder-worker.js')
-    const ready = new Promise<void>((resolve, reject) => {
-      const onReady = (e: MessageEvent) => {
-        if (e.data?.type === 'ready') {
-          worker.removeEventListener('message', onReady)
-          worker.removeEventListener('error', onError)
-          resolve()
+    // Each await races the abort, so a step that never settles can't keep
+    // this context alive.
+    const unlessAborted = <T,>(step: Promise<T>): Promise<T> => {
+      if (!signal) return step
+      return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(new Error('Audio engine build was aborted'))
+        if (signal.aborted) return onAbort()
+        signal.addEventListener('abort', onAbort, { once: true })
+        step.then(
+          (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+          (err) => { signal.removeEventListener('abort', onAbort); reject(err) },
+        )
+      })
+    }
+
+    try {
+      await unlessAborted(ctx.audioWorklet.addModule('/pcm-worklet.js'))
+      const workletNode = new AudioWorkletNode(ctx, 'pcm-processor')
+
+      const encoder = new Worker('/encoder-worker.js')
+      worker = encoder
+      const ready = new Promise<void>((resolve, reject) => {
+        const onReady = (e: MessageEvent) => {
+          if (e.data?.type === 'ready') {
+            encoder.removeEventListener('message', onReady)
+            encoder.removeEventListener('error', onError)
+            resolve()
+          }
         }
-      }
-      const onError = (e: ErrorEvent) => {
-        worker.removeEventListener('message', onReady)
-        worker.removeEventListener('error', onError)
-        reject(new Error(`Encoder worker failed to load: ${e.message}`))
-      }
-      worker.addEventListener('message', onReady)
-      worker.addEventListener('error', onError)
-    })
+        const onError = (e: ErrorEvent) => {
+          encoder.removeEventListener('message', onReady)
+          encoder.removeEventListener('error', onError)
+          reject(new Error(`Encoder worker failed to load: ${e.message}`))
+        }
+        encoder.addEventListener('message', onReady)
+        encoder.addEventListener('error', onError)
+      })
 
-    const channel = new MessageChannel()
-    workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
-    worker.postMessage(
-      { type: 'init', sampleRate: SAMPLE_RATE, bitrate, port: channel.port2 },
-      [channel.port2],
-    )
-    await ready
+      const channel = new MessageChannel()
+      workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
+      encoder.postMessage(
+        { type: 'init', sampleRate: SAMPLE_RATE, bitrate, port: channel.port2 },
+        [channel.port2],
+      )
+      await unlessAborted(ready)
 
-    const engine = new AudioEngine(ctx, workletNode, worker, micStream, onChunk, station)
-    engine.bitrate = bitrate
-    return engine
+      const engine = new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+      engine.bitrate = bitrate
+      return engine
+    } catch (err) {
+      worker?.terminate()
+      if (ctx.state !== 'closed') void ctx.close().catch(() => {})
+      throw err
+    }
   }
 
   /**
@@ -646,6 +735,99 @@ export class AudioEngine {
 
   private persistQueue() {
     saveQueue(this.station, this.queue.map((t) => ({ id: t.id, file: t.file, title: t.title, artist: t.artist })))
+      .then(({ unreadable, unsaved }) => {
+        if (unsaved.length > 0) {
+          this.reportStorageFailure('track', new Error(`${unsaved.length} track(s) could not be stored`))
+        }
+        if (unreadable.length > 0) this.dropTracks(new Set(unreadable), 'unreadable', this.playing)
+      })
+      .catch((err) => this.reportStorageFailure('queue', err))
+  }
+
+  /**
+   * Hear about tracks the engine took out of the queue itself, to tell the
+   * broadcaster. Drops from before the first subscriber are delivered on
+   * subscribe. Returns the unsubscribe.
+   */
+  onTracksDropped(fn: (drop: TrackDrop) => void): () => void {
+    this.dropListeners.add(fn)
+    const pending = this.pendingDrops
+    this.pendingDrops = []
+    pending.forEach((drop) => fn(drop))
+    return () => this.dropListeners.delete(fn)
+  }
+
+  /**
+   * Take tracks that can never play out of the queue, and keep the show going.
+   *
+   * If the track at the playhead is among them, the next one that survives
+   * takes its place — played when `play` is true, otherwise just cued — with
+   * the queue's usual wrap at the end. Each call shrinks the queue, so a queue
+   * of nothing but dead files ends empty and quiet rather than looping.
+   */
+  private dropTracks(ids: Set<string>, reason: TrackDropReason, play: boolean) {
+    const dropped = this.queue.filter((t) => ids.has(t.id))
+    if (dropped.length === 0) return
+
+    const current = this.queue[this.currentIndex] ?? null
+    const currentDropped = current !== null && ids.has(current.id)
+    // Survivors before the playhead = where the next survivor lands.
+    const nextIndex = this.queue.slice(0, Math.max(0, this.currentIndex)).filter((t) => !ids.has(t.id)).length
+
+    if (currentDropped) this.stopCurrent()
+    this.queue = this.queue.filter((t) => !ids.has(t.id))
+    this.persistQueue()
+
+    this.announceDrop({ reason, titles: dropped.map((t) => t.title) })
+
+    if (!currentDropped) {
+      this.currentIndex = current ? this.queue.indexOf(current) : -1
+      this.notify()
+      return
+    }
+    this.cued = null
+    if (this.queue.length === 0) {
+      this.currentIndex = -1
+      this.playing = false
+      this.notify()
+      return
+    }
+    const index = nextIndex < this.queue.length ? nextIndex : 0
+    if (play) {
+      void this.playIndex(index)
+    } else {
+      this.currentIndex = index
+      this.playing = false
+      this.notify()
+    }
+  }
+
+  private announceDrop(drop: TrackDrop) {
+    if (this.dropListeners.size === 0) {
+      this.pendingDrops.push(drop)
+      return
+    }
+    this.dropListeners.forEach((fn) => {
+      try { fn(drop) } catch (err) { console.error('[AudioEngine] drop listener threw:', err) }
+    })
+  }
+
+  /**
+   * Where a position saved against the queue as it was stored now points,
+   * after the restore took unreadable tracks out. The same song when it
+   * survived; otherwise the next one that did, from its start.
+   *
+   * Both callers hold an index into the stored order: the saved playback
+   * position, and the song a rebuilt engine carries over.
+   */
+  restoredIndex(savedIndex: number): { index: number; sameTrack: boolean } {
+    const ids = this.restoredIds.length > 0 ? this.restoredIds : this.queue.map((t) => t.id)
+    for (let i = savedIndex; i < ids.length; i++) {
+      const index = this.queue.findIndex((t) => t.id === ids[i])
+      if (index !== -1) return { index, sameTrack: i === savedIndex }
+    }
+    // Nothing after it survived: the queue wraps, like next().
+    return { index: this.queue.length > 0 ? 0 : -1, sameTrack: false }
   }
 
   /**
@@ -655,12 +837,30 @@ export class AudioEngine {
    * encoding and shipping them.
    */
   async restoreQueue(): Promise<void> {
-    const stored = await loadQueue(this.station)
+    // Going live waits on this. Storage that won't open costs the saved
+    // running order, not the show.
+    const stored = await loadQueue(this.station).catch((err) => {
+      this.reportStorageFailure('load', err)
+      return []
+    })
     if (stored.length === 0) return
+    this.restoredIds = stored.map((track) => track.id)
+
+    // Files the browser lost since they were saved come out before the queue
+    // is shown, so nothing can try to play them. A one-byte read each, in
+    // parallel, with a cap: this is on the way to going live, and a check
+    // that hangs must not hold the show — an unchecked file still gets caught
+    // when it fails to play.
+    const readable = await Promise.race([
+      Promise.all(stored.map((track) => isReadable(track.file))),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), READABLE_CHECK_TIMEOUT_MS)),
+    ])
+    const dead = readable ? stored.filter((_, i) => !readable[i]) : []
+
     // The queue is back at once; durations fill in behind it. Awaiting each
     // one here put every restored file's metadata read on the critical path
     // to going live — see METADATA_TIMEOUT_MS for why that could be forever.
-    const restored = stored.map((track) => ({
+    const restored = stored.filter((track) => !dead.includes(track)).map((track) => ({
       id: track.id,
       file: track.file,
       title: track.title,
@@ -668,6 +868,10 @@ export class AudioEngine {
       duration: 0,
     }))
     this.queue.push(...restored)
+    if (dead.length > 0) {
+      this.persistQueue()
+      this.announceDrop({ reason: 'unreadable', titles: dead.map((track) => track.title) })
+    }
     this.notify()
     void this.fillDurations(restored)
     // Queues saved before tags were read carry the old 'Unknown' placeholder
@@ -722,16 +926,20 @@ export class AudioEngine {
    */
   async resumePlayback(options?: { fromStart?: boolean }): Promise<void> {
     const playback = await loadPlayback(this.station)
-    if (!playback) return
-    if (playback.currentIndex < 0 || playback.currentIndex >= this.queue.length) return
+    if (!playback || playback.currentIndex < 0) return
+    // The saved index is into the queue as stored; the restore may have taken
+    // unreadable tracks out since. A song that went with them resumes on the
+    // next one, from its start.
+    const { index, sameTrack } = this.restoredIndex(playback.currentIndex)
+    if (index < 0) return
     // No clamp against track.duration here: restoreQueue fills durations in
     // behind the queue, so it is usually still 0 at this point and would send
     // every resume back to 0:00. playIndexAtOffset clamps to the real length.
-    const offset = options?.fromStart ? 0 : Math.max(0, playback.offset)
+    const offset = options?.fromStart || !sameTrack ? 0 : Math.max(0, playback.offset)
     if (offset > 0) {
-      await this.playIndexAtOffset(playback.currentIndex, offset)
+      await this.playIndexAtOffset(index, offset)
     } else {
-      await this.playIndex(playback.currentIndex)
+      await this.playIndex(index)
     }
   }
 
@@ -853,9 +1061,20 @@ export class AudioEngine {
     this.notify()
   }
 
-  /** True while the browser has the audio context suspended — see the constructor. */
+  /**
+   * True while the browser holds the audio context stopped — see the
+   * constructor. `interrupted` is the newer state a browser uses when the OS
+   * takes the audio away (a call, another app grabbing audio focus); it isn't
+   * in the DOM typings yet, hence the string compare.
+   */
   isSuspended(): boolean {
-    return this.ctx.state === 'suspended'
+    const state: string = this.ctx.state
+    return state === 'suspended' || state === 'interrupted'
+  }
+
+  /** The AudioContext's state, for the studio's drop reports. */
+  getContextState(): string {
+    return this.ctx.state
   }
 
   clearQueue() {
@@ -863,7 +1082,7 @@ export class AudioEngine {
     this.queue = []
     this.currentIndex = -1
     this.playing = false
-    clearStoredQueue(this.station)
+    clearStoredQueue(this.station).catch((err) => this.reportStorageFailure('clear', err))
     this.notify()
   }
 
@@ -871,7 +1090,7 @@ export class AudioEngine {
 
   async play() {
     if (this.queue.length === 0) return
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    await this.resume()
     if (this.currentIndex === -1) {
       await this.playIndex(0)
     } else if (!this.playing) {
@@ -884,9 +1103,33 @@ export class AudioEngine {
           console.error('[AudioEngine] play() rejected:', err)
         }
       } else {
-        await this.playIndex(this.currentIndex)
+        const track = this.queue[this.currentIndex]
+        const offset = track && this.cued?.trackId === track.id ? this.cued.offset : 0
+        await this.playIndexAtOffset(this.currentIndex, offset)
       }
     }
+  }
+
+  /**
+   * Put the queue at a song and position, playing or not. Used when the
+   * broadcast manager replaces a dead engine mid-show (rebuildEngine), so a
+   * song that was playing carries on and a paused one is still cued at the
+   * same second for the next Play, rather than the queue starting over.
+   *
+   * Cueing paused creates no audio element: nothing reaches the mix until
+   * Play, which picks the offset up from `cued`.
+   */
+  async cueAt(index: number, offset: number, play: boolean): Promise<void> {
+    if (index < 0 || index >= this.queue.length) return
+    if (play) {
+      await this.playIndexAtOffset(index, offset)
+      return
+    }
+    this.stopCurrent()
+    this.currentIndex = index
+    this.playing = false
+    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset) }
+    this.notify()
   }
 
   pause() {
@@ -933,7 +1176,10 @@ export class AudioEngine {
   }
 
   getElapsed(): number {
-    if (this.currentIndex < 0 || !this.currentAudio) return 0
+    if (this.currentIndex < 0) return 0
+    if (!this.currentAudio) {
+      return this.cued?.trackId === this.queue[this.currentIndex]?.id ? this.cued.offset : 0
+    }
     return this.currentAudio.currentTime
   }
 
@@ -944,6 +1190,7 @@ export class AudioEngine {
   private async playIndexAtOffset(index: number, offset: number) {
     this.stopCurrent()
     this.currentIndex = index
+    this.cued = null
 
     const track = this.queue[index]
     if (!track) return
@@ -964,6 +1211,18 @@ export class AudioEngine {
     this.currentAudio = audio
     this.currentMediaSource = source
     this.currentObjectUrl = url
+
+    // A file the element can't load or decode — on the way in or halfway
+    // through — never fires `ended`, so without this the queue just stopped
+    // there. ABORTED (code 1) is not the file's fault: it is what a track
+    // switch does to the element it leaves behind.
+    audio.addEventListener('error', () => {
+      if (this.currentAudio !== audio) return
+      const code = audio.error?.code
+      if (code === undefined || code === MediaError.MEDIA_ERR_ABORTED) return
+      console.error('[AudioEngine] could not play', track.file.name, audio.error)
+      this.dropTracks(new Set([track.id]), 'unplayable', true)
+    })
 
     audio.addEventListener('ended', () => {
       // Ignore ended events from a superseded element (track switch in flight).
@@ -1001,10 +1260,14 @@ export class AudioEngine {
       audio.currentTime = Math.min(offset, Math.max(0, audio.duration - 0.1))
     }
 
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    await this.resume()
     try {
       await audio.play()
     } catch (err) {
+      // Only a media error takes the track out, and the `error` listener
+      // above has that. A rejection on its own is the browser's autoplay
+      // block or a switch to another track — dropping the track for either
+      // would empty the queue on a page reload.
       console.error('[AudioEngine] play() rejected for', track.file.name, err)
       return
     }
@@ -1012,7 +1275,7 @@ export class AudioEngine {
     if (this.currentAudio !== audio) return
 
     this.playing = true
-    savePlayback(this.station, { currentIndex: index, offset })
+    this.savePosition(index, offset)
     this.notify()
   }
 
@@ -1033,9 +1296,9 @@ export class AudioEngine {
     this.currentObjectUrl = null
   }
 
-  /** Resume the AudioContext if suspended by the browser's autoplay policy. Safe to call repeatedly. */
+  /** Resume the AudioContext if the browser stopped it (see isSuspended). Safe to call repeatedly. */
   async resume(): Promise<void> {
-    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    if (this.isSuspended()) await this.ctx.resume()
   }
 
   /**
@@ -1051,8 +1314,13 @@ export class AudioEngine {
     this.micSource.connect(this.micVoiceIn)
   }
 
-  /** Tear down the audio graph and close the AudioContext. */
+  /**
+   * Tear down the audio graph and close the AudioContext. The playback
+   * position is saved first, so an engine rebuilt mid-show (see
+   * BroadcastManager.rebuildEngine) picks the song up where this one was.
+   */
   async destroy(): Promise<void> {
+    this.saveProgress()
     if (this.progressTimer) clearInterval(this.progressTimer)
     if (this.pageHideHandler) window.removeEventListener('pagehide', this.pageHideHandler)
     this.stopCurrent()

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import { apiFetch, ApiFetchError } from "@/lib/api-server"
+import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
 import type { Station } from "@/interfaces/Station"
 import { PageHeader } from "@/components/ds/PageHeader"
 import { DeleteStation } from "./DeleteStation"
@@ -26,6 +26,7 @@ export default async function StationSettingsPage({ params }: { params: Promise<
   try {
     station = (await apiFetch<{ data: Station }>(`/stations/${slug}`)).data
   } catch (err) {
+    redirectIfSessionExpired(err)
     if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) notFound()
     console.error(`[station/${slug}/settings] fetch failed:`, err)
     throw err

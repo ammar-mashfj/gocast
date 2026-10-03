@@ -1,4 +1,5 @@
 import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
 
 const API_URL = process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL!
 
@@ -7,6 +8,24 @@ export class ApiFetchError extends Error {
   constructor(public status: number, public path: string, public body?: string) {
     super(`API error ${status} on ${path}${body ? ` — ${body.slice(0, 200)}` : ""}`)
     this.name = "ApiFetchError"
+  }
+}
+
+/**
+ * For dashboard pages: send a 401 to the login page instead of the error page.
+ *
+ * The proxy only checks that the auth cookies exist, so a session that expired
+ * or was revoked still reaches the page, and the browser-side 401 redirect in
+ * lib/axios never runs for a server render. `?expired=1` makes the login page
+ * say why, and lets it through the proxy's "already signed in" bounce, which
+ * would otherwise send the stale cookie straight back here.
+ *
+ * Not inside {@link apiFetch}: the public station page shares it, and a 401
+ * there must never send a listener to a login form.
+ */
+export function redirectIfSessionExpired(err: unknown): void {
+  if (err instanceof ApiFetchError && err.status === 401) {
+    redirect("/auth/login?expired=1")
   }
 }
 

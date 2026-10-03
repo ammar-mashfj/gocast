@@ -180,6 +180,19 @@ A socket that closes after being accepted (`watchForDrop`, guarded by `this.ws !
 - The budget is deliberately below the API's `studio_gone_stop_seconds` (`LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS`, default 150): past that, a no-AutoDJ station whose last browser session closed is taken off air by the sweep (`StationAudioPolicy::studioHasGoneForGood`). Harbor's own `input.harbor timeout` is `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` (default 10 s): until it fires, a dead-but-not-closed source still holds the mount and reconnects are refused. Also note harbor reports the disconnect (and the session closes) when it declares the source gone, so **each drop that outlasts harbor's detection produces its own `stream_sessions` row**.
 - Out of budget: `fail(...)` with "Lost the connection to the stream server and couldn't get back on air (detail)": tears down engine, mic, wake lock; state `error`.
 
+### 5a. Frame watchdog (a dead engine, not a dead socket)
+
+The reconnect loop only rebuilds the socket, so it cannot fix an engine that stopped producing audio. Harbor accepts each new socket, receives nothing, and drops it at its 10 s `timeout`; every attempt "succeeds", so the 120 s budget never runs out. In production (2026-10-02, Firefox on Android 10) that ran as a 0-byte socket every 14 s for 15+ minutes, and only a fresh Go Live (a new engine) fixed it.
+
+`watchFrames()` runs once a second from going live until stop/fail. `handleChunk` stamps `lastFrameAt` on every encoded frame, socket or not. The encoder emits about one frame per 93 ms whenever the graph runs, **silence included** (an idle studio with no mic and nothing playing still sends frames), so a gap means the graph has stopped:
+
+- `FRAME_STALL_WAKE_MS` = 2000: if the context is `suspended` or `interrupted` (`isSuspended()` covers both), `engine.resume()` and wait. A new engine would start just as stopped; the "Audio paused" lamp asks for the tap.
+- `FRAME_STALL_REBUILD_MS` = 5000 with the context `running`: `rebuildEngine()`. The current song index and elapsed time are read off the old engine, the old engine is destroyed, and a new one is built on the same mic stream at the current bitrate (`REBUILD_CREATE_TIMEOUT_MS` = 8000, through an `AbortSignal` that makes `AudioEngine.create` close its own half-built context; the rebuild doesn't await `resume()`, which can stay pending until a tap). Then `restoreQueue()`, repeat/monitor/latch carried across, and `cueAt(index, offset, playing)`: a playing song continues at the same second, and a paused one stays cued there with no audio element until Play. The socket is untouched. It finishes inside harbor's 10 s, so listeners hear a gap but the session doesn't split. The new engine reaches the studio through a re-emitted `live` (`BroadcastProvider` calls `setEngine` on `live`).
+- Teardown during a rebuild: `stop()` and `fail()` both set `stopping` (`fail()` too, since 2026-10-02). The rebuild re-checks it after every await, destroys an engine it hasn't adopted yet, and never re-emits `live` after one. A build that times out or throws ends the show with "The studio's audio stopped and couldn't be restarted. Reload the page to go back on air."
+- `MAX_REBUILDS` = 3 per `REBUILD_WINDOW_MS` (10 min). The next stall calls `fail()` with "The studio's audio keeps stopping in this browser. Reload the page to go back on air."
+
+`studio_drop` reports also carry `audio_state` (the context state at the close), `frame_age_ms` (seconds here means the audio died before the socket did) and `engine_rebuilds`.
+
 ### 5b. Fitting the upload (`sampleBacklog` in `broadcast.ts`)
 
 Once a second, driven off the encoder's own chunks rather than a timer (a hidden tab's timers can be throttled to once a minute), the manager reads `ws.bufferedAmount` as playing time at the current bitrate (`bytes × 8 ÷ kbps` = ms).
@@ -210,8 +223,8 @@ mic -> highpass80 -> presence(3k,+3dB) -> comp -> micWet -> micGain            W
 - **Master limiter** (the last stage before the encoder): `DynamicsCompressor` threshold -2, knee 0, ratio 20, attack 1 ms, release 100 ms. Threshold is -2 rather than -1 because the compressor adds automatic makeup gain.
 - **Mic prefs** (`duck`, `fade`, `broadcastVoice`) persist in `localStorage["gocast:studio-mic:v1"]` per browser, read at engine construction, validated field by field, defaults `under` / `smooth` / `true`. Changes apply immediately, even mid-talk.
 - **Analyser** (fftSize 2048) is created and connected before the worklet but **nothing reads it** (see Gaps). The on-screen mic meter (`MicMeter`) builds its own `AudioContext` off the raw `MediaStream`.
-- **Suspended context:** the engine notifies on `statechange`; `BroadcastProvider` listens for every `pointerdown`/`keydown` and calls `engine.resume()` if suspended.
-- `destroy()` stops the current element, disconnects every node, terminates the worker and closes the context. `flushEncoder()` (sent on stop) posts `flush` to the worker with a 1 s safety timeout so the final partial MP3 frame is not lost.
+- **Suspended context** (`suspended` or `interrupted`): the engine notifies on `statechange`; `BroadcastProvider` listens for every `pointerdown`/`keydown` and calls `engine.resume()` if suspended, and the frame watchdog (5a) tries a resume after 2 s of no frames.
+- `destroy()` saves the playback position first (so a normal Stop now records the exact second, not the last 5 s tick), then stops the current element, disconnects every node, terminates the worker and closes the context. `flushEncoder()` (sent on stop) posts `flush` to the worker with a 1 s safety timeout so the final partial MP3 frame is not lost.
 
 **The queue** is entirely local: `File` objects, never uploaded.
 

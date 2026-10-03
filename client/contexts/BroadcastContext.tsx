@@ -3,9 +3,17 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { BroadcastManager, type BroadcastStartOptions, type BroadcastState, type BroadcastStepInfo, type TransportStats } from '@/lib/broadcast'
-import type { AudioEngine } from '@/lib/audioEngine'
+import type { AudioEngine, TrackDrop } from '@/lib/audioEngine'
 import { fireOnce } from '@/lib/milestones'
 import api from '@/lib/axios'
+
+/** What the host is told when the engine takes tracks out of the running order itself. */
+function dropMessage({ reason, titles }: TrackDrop): string {
+  const what = titles.length === 1 ? `"${titles[0]}"` : `${titles.length} tracks`
+  return reason === 'unplayable'
+    ? `Couldn't play ${what}, so ${titles.length === 1 ? 'it was' : 'they were'} taken out of the running order.`
+    : `${what} couldn't be read anymore and ${titles.length === 1 ? 'was' : 'were'} taken out of the running order. Add the ${titles.length === 1 ? 'file' : 'files'} again to play ${titles.length === 1 ? 'it' : 'them'}.`
+}
 
 /**
  * How long to keep asking the API to take a station off air after the socket
@@ -248,6 +256,15 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('pointerdown', resume)
       window.removeEventListener('keydown', resume)
     }
+  }, [engine])
+
+  // Tracks the engine took out because they could never play. Here rather
+  // than in the studio: the queue keeps playing on every dashboard page, and
+  // the host should hear about it wherever they are. A rebuilt engine is a
+  // new `engine`, so the subscription follows it.
+  useEffect(() => {
+    if (!engine) return
+    return engine.onTracksDropped((drop) => toast.warning(dropMessage(drop)))
   }, [engine])
 
   return (
