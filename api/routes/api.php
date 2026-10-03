@@ -31,6 +31,8 @@ use App\Http\Controllers\StreamKeyController;
 use App\Http\Controllers\StreamSessionController;
 use App\Http\Controllers\StudioDropController;
 use App\Http\Controllers\TrackController;
+use App\Http\Controllers\UplinkCheckController;
+use App\Http\Controllers\UplinkProbeController;
 use App\Http\Controllers\UploadController;
 use App\Http\Controllers\WaitlistController;
 use Illuminate\Support\Facades\Route;
@@ -137,6 +139,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/broadcast-token', BroadcastTokenController::class)
             ->middleware('throttle:30,1');
 
+        // The go-live connection check: the studio times an upload to this to
+        // pick a bitrate, or to refuse a line too slow to broadcast on. Two
+        // requests per attempt; see UplinkProbeController.
+        Route::post('/broadcast/uplink-probe', UplinkProbeController::class)
+            ->middleware('throttle:20,1');
+
         // Station power switch. Creating a station configures it; starting it
         // is what spawns a Liquidsoap container and puts a mount on Icecast.
         // Throttled because each start is a docker run — a hammered button
@@ -151,6 +159,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // see StudioDropController.
         Route::post('/stations/{station:slug}/studio-drops', StudioDropController::class)
             ->middleware('throttle:30,1');
+
+        // The go-live connection check's verdict, for tuning its thresholds.
+        // Admin monitoring only; see UplinkCheckController.
+        Route::post('/stations/{station:slug}/uplink-checks', UplinkCheckController::class)
+            ->middleware('throttle:20,1');
 
         // Skip the current AutoDJ track — a telnet command to the running
         // container, no restart involved.

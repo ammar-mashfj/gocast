@@ -1,6 +1,6 @@
 ---
 feature: Observability and events (station timeline, audit logs, Sentry, metrics, alerts)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Models/StationEvent.php
   - api/config/station_events.php
@@ -60,7 +60,10 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/app/Webhooks/Resend/EmailReceived.php
   - api/resources/views/liquidsoap/station.blade.php
-fingerprint: d3de59c91f088d7c
+  - api/app/Http/Controllers/StudioDropController.php
+  - api/app/Http/Controllers/UplinkCheckController.php
+  - client/lib/studioDropLog.ts
+fingerprint: 66baf5da714c05ec
 ---
 
 # Observability and events
@@ -98,7 +101,7 @@ Indexes: `(station_id, created_at)` for the timeline, `created_at` for the prune
 
 ### Types and who writes them
 
-`StationEvent::TYPES` is the full list (also the admin filter order). 13 types:
+`StationEvent::TYPES` is the full list (also the admin filter order). 15 types:
 
 | Type | Source | Written by | `properties` |
 |---|---|---|---|
@@ -109,6 +112,8 @@ Indexes: `(station_id, created_at)` for the timeline, `created_at` for the prune
 | `track_deleted` | resolved from the request | `TrackImporter::destroy()` and the bulk delete (one event per file) | same five fields, copied so the row still reads after the track is gone |
 | `playlist_changed` | `system` (explicit) | `AutoDjScheduler`, at the track boundary where the rotation switched playlist | `from_playlist_id`, `to_playlist_id`, `playlist`, `slot_id`, `slot` |
 | `stream_key_rotated` | `owner` (explicit) | `StreamKeyController::rotate()` | none. The key is deliberately never recorded. |
+| `studio_drop` | `owner` (explicit) | `StudioDropController` (`POST /api/stations/{slug}/studio-drops`), reported by the web studio after its socket dropped mid-show (`client/lib/studioDropLog.ts`); each report `id` recorded once | `outcome` (`reconnected`, `gave_up`, `stopped`, `page_closed`, `unknown`), `dropped_at` (the device's clock), and what the page knew: visibility and hidden time, frozen, online, network info, socket close code/reason, buffered bytes, wake lock, bitrate, uplink kbps |
+| `uplink_check` | `owner` (explicit) | `UplinkCheckController` (`POST /api/stations/{slug}/uplink-checks`), one per browser go-live attempt | `outcome` (`ok`, `lowered`, `blocked`, `failed`), `kbps`, `bitrate`, `net_type`, `net_effective`, `net_downlink`, `net_rtt` |
 
 `StationEvent::record($station, $type, $source = null, $properties = [], $causer = null)`:
 

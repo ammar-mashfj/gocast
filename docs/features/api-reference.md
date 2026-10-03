@@ -1,6 +1,6 @@
 ---
 feature: API reference (HTTP routes, middleware, scheduled commands)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/routes/api.php
   - api/routes/admin.php
@@ -135,7 +135,11 @@ sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/ListenerAnalytics.php
   - api/app/Services/AutoDjProgramme.php
-fingerprint: aa9f73673fe9f96f
+  - api/app/Http/Controllers/UplinkProbeController.php
+  - api/app/Http/Controllers/UplinkCheckController.php
+  - api/app/Http/Controllers/StudioDropController.php
+  - api/app/Services/BroadcastOrigin.php
+fingerprint: 424f56a0efde5fa7
 ---
 
 # API reference
@@ -291,6 +295,9 @@ All below sit inside `auth:sanctum` + `verified`. Unless stated, the owner check
 | PUT | `/stations/{slug}/schedules` | | `StationScheduleController@replace` |
 | PUT | `/stations/{slug}/autodj-slots` | | `AutodjSlotController@replace` |
 | POST | `/auth/broadcast-token` | `throttle:30,1` | `BroadcastTokenController` |
+| POST | `/broadcast/uplink-probe` | `throttle:20,1` | `UplinkProbeController` |
+| POST | `/stations/{slug}/uplink-checks` | `throttle:20,1` | `UplinkCheckController` |
+| POST | `/stations/{slug}/studio-drops` | `throttle:30,1` | `StudioDropController` |
 | POST | `/upload/{type}` | `throttle:uploads`, `type` in `images|sounds` | `UploadController` |
 
 (In the file the non-resource routes are written `{station:slug}`; the effect is identical to the resource routes because the model already keys on slug.)
@@ -317,11 +324,16 @@ Fields: `id, user_id, name, slug, description, genre, timezone, artwork_url, fea
 
 ### Stream key and broadcast token
 - `stream-key`: authorize update; 403 `encoder_not_available` unless plan `encoder_enabled`; `rotateStreamKey()`; records `stream_key_rotated` (source `owner`). 200 `{data: StationResource with encoder card, message}`. No request body.
-- `broadcast-token`: body `station_slug` required string max 255. 403 `{message:"You do not own this station."}` for a missing or foreign station (same message for both); 200 `{token, expires_in: 60, ingest_url}`. `ingest_url` from `LiquidsoapSupervisor::ingestUrl`. Not plan gated (browser studio works on Free). Verification at harbor (`BroadcastTokenService::verify`) checks only signature, station slug and expiry; it does not re-check that the user still owns the station.
+- `broadcast-token`: also caches the caller's IP and country for the station (`BroadcastOrigin::remember`, 6 h), which harbor's `live_connected` attaches to the session it opens (`stream_sessions.ip_address`, `country`). Body `station_slug` required string max 255. 403 `{message:"You do not own this station."}` for a missing or foreign station (same message for both); 200 `{token, expires_in: 60, ingest_url}`. `ingest_url` from `LiquidsoapSupervisor::ingestUrl`. Not plan gated (browser studio works on Free). Verification at harbor (`BroadcastTokenService::verify`) checks only signature, station slug and expiry; it does not re-check that the user still owns the station.
+
+### Go-live connection check and studio drop reports
+- `uplink-probe`: any authenticated, verified user; the raw request body is read and its length returned, `{bytes}`; 413 over 256 KB. Nothing is stored. The web studio times an empty and a 96 KB post to estimate upload speed ([Web studio](broadcasting-web-studio.md)).
+- `uplink-checks`: authorize update; body `outcome` required `ok|lowered|blocked|failed`, `kbps`, `bitrate` (0..320), `net_type` (max 16), `net_effective` (max 8), `net_downlink`, `net_rtt`, all nullable. Records an `uplink_check` station event (source `owner`). 200 `{recorded: true}`.
+- `studio-drops`: authorize update; body `drops` array 1..20, each with `id` (required, max 40, `[A-Za-z0-9_-]`), `outcome` (`reconnected|gave_up|stopped|page_closed|unknown`), `dropped_at` (date) and optional page/network/socket facts (`down_ms`, `attempts`, `last_error`, `close_code`, `close_reason`, `was_clean`, `visibility`, `hidden_for_ms`, `frozen`, `online`, `net_*`, `buffered_bytes`, `wake_lock`, `bitrate`, `uplink_kbps`, …). Each id is recorded once (`Cache::add` dedupe) as a `studio_drop` event (source `owner`). 200 `{recorded: n}`. Admin monitoring only.
 
 ### Sessions (`stations.sessions`)
-Only `index` has a caller: the dashboard overview, `/dashboard/broadcasts` and the mobile station home read it. Nothing in `client/` or `mobile/` calls `POST` or `DELETE` on this resource; the web studio and encoders get their session row from harbor's `live_connected` event (`POST /internal/station-event`). `store` is written for a future desktop client (`source_type` `electron`) and is exercised only by tests.
-- `index`: authorize view; `streamSessions()->latest('started_at')->paginate(20)` returned raw (Laravel paginator JSON, not a Resource).
+Only `index` has a caller: the dashboard overview, Your shows (`/dashboard/broadcasts`, with `?finished=1` and paging) and the mobile station home read it. Nothing in `client/` or `mobile/` calls `POST` or `DELETE` on this resource; the web studio and encoders get their session row from harbor's `live_connected` event (`POST /internal/station-event`). `store` is written for a future desktop client (`source_type` `electron`) and is exercised only by tests.
+- `index`: authorize view; `streamSessions()->latest('started_at')->paginate(20)`, filtered to `ended_at IS NOT NULL` with `?finished=1`. Laravel paginator JSON (not a Resource) plus `summary: {shows, live_seconds}` computed over **every** finished session (`COUNT(*)`, `SUM(GREATEST(TIMESTAMPDIFF(SECOND, started_at, ended_at), 0))`), not just the page.
 - `store`: authorize update; body `device_id` required string max 128, `source_type` sometimes `browser|electron`. Logic in order: (1) if `BroadcastStateService` has an active broadcast from a **different** device: 409 `station_already_live`; same device with a live row: 200 `{data: session, message:"Stream session already active."}`; same device with no row: forget stale state. (2) An open `external` session blocks with 409 `station_already_live` (message names the encoder client), except a "ghost" encoder session on a station that is not running, which is ignored. (3) Closes every other open session, creates a session (`source_type` default `browser`), `markStarting`, and unless the station was already live dispatches `SendStationLiveNotifications` delayed 2 minutes. 201 `{data: session, message:"Stream started."}`.
 - `destroy`: authorize update on the **station**; forgets broadcast state, sets `ended_at=now()` on the bound session, deletes `metadata:{id}`. 200 `{data: session, message:"Stream ended."}`. The `{session}` model is not checked against the station (see Gaps).
 
@@ -346,6 +358,7 @@ Owner checks are `TrackPolicy` and `PlaylistPolicy` (owner of the track's or pla
 | DELETE | `/stations/{slug}/tracks` | | `@destroyMany` |
 | PATCH | `/tracks/{track}` | | `@update` |
 | DELETE | `/tracks/{track}` | | `@destroy` |
+| GET | `/tracks/{track}/audio` | | `@audio` |
 | GET | `/stations/{slug}/playlists` | | `PlaylistController@index` |
 | POST | `/stations/{slug}/playlists` | | `@store` |
 | PATCH | `/playlists/{playlist}` | | `@update` |
@@ -363,6 +376,7 @@ Owner checks are `TrackPolicy` and `PlaylistPolicy` (owner of the track's or pla
 - `store` (`StoreTrackRequest`, multipart): `kind` sometimes `music|jingle`; `playlist_id` sometimes nullable ulid existing on this station; `files` required array 1..30; each file required, `max:307200` KB (300 MB), mimes `mp3,m4a,aac,flac,ogg,wav,mpga`; `names` sometimes array, each `names.*` nullable string max 255. A non-blank `names[N]` (`StoreTrackRequest::nameFor`) replaces the part filename of `files[N]` for the stored `original_filename` and the title fallback only; the extension still comes from the file. The mobile library screen sends it because Expo's fetch percent-encodes part filenames; browsers never do. **Plan gate:** `assertAutoDjEnabled` first, so a Free plan gets 403 `autodj_not_available` for any upload including jingles. Files are imported one at a time by `TrackImporter::import` and the loop stops at the first `RuntimeException` (quota exceeded or size unreadable). Status: 201 all imported, 422 none imported, 207 partial. Body `{data: TrackResource[], errors: [{index, message}]}`. Import: row-locks the station, enforces quota inside the lock, moves the file to the station directory, reads tags (getID3), derives `Artist - Title` from the filename if tags are missing (the stem is cut with `Str::afterLast`/`beforeLast`, not `pathinfo`, which can drop leading multibyte characters), appends to the library `position`, attaches music to the target playlist or the default playlist (`PlaylistTracks::attach`), rewrites and reloads the playlist files, queues `AnalyzeTrack` (unless `liquidsoap.analysis_enabled` is false) and records `track_uploaded`.
 - `reorder` (`ReorderTracksRequest`): `kind` (invalid values fall back to `music`), `ids` required array min 1 of ulids existing on this station with that kind. Ids not listed keep their relative order after the listed ones. Returns the whole kind's `TrackResource` collection (no `data` wrapper beyond Laravel's default `data`).
 - `update` (`UpdateTrackRequest`): `title` sometimes string max 200; `artist` sometimes nullable string max 200. Rewrites and reloads the playlist files. 200 `{data: TrackResource}`.
+- `audio`: authorize `view` on the track (owner); streams the file inline (`BinaryFileResponse`, range requests supported, `Cache-Control: private, max-age=3600`); 404 "The audio file is missing on disk." The library's row preview plays it.
 - `destroy`: deletes the file, detaches from every playlist, deletes the row, closes the gap in `position`, rewrites and reloads playlist files, records `track_deleted`. **204**.
 - `destroyMany` (`DestroyTracksRequest`): `track_ids` required array 1..2000, each ulid distinct and existing on this station. One transaction, one playlist rewrite. Ids may be of any kind (jingles too). 200 in the `index` shape with the `music` kind only, plus `meta.deleted` (count). Authorization is the `deleteAny` policy method.
 
@@ -432,7 +446,7 @@ Session guard `admin`, `web` middleware group (CSRF, sessions). Prefix `/admin`,
 | POST | `/admin/login` | `login.store` | `@store` | `Admin\LoginRequest`: email, password, optional `remember`; lockout 5 attempts per `email|ip`, `Lockout` event; failure is a `ValidationException` on `email`; success regenerates the session and redirects intended or `admin.stations.index` |
 | POST | `/admin/logout` | `logout` | `@destroy` | logs out, invalidates session, regenerates token |
 | GET | `/admin` | `home` | redirect | to `/admin/stations` |
-| GET | `/admin/stations` | `stations.index` | `Admin\StationController@index` | filters `search` (name, slug, owner email), `featured=1`, `state` (`running|live`); 25 per page; stats and upgrade-dialog data |
+| GET | `/admin/stations` | `stations.index` | `Admin\StationController@index` | filters `search` (name, slug, owner email), `featured=1`, `state` (`running|live`); 25 per page; stats and upgrade-dialog data; Browser and IP columns from the latest broadcast (`last_broadcast_client`, `last_broadcast_ip_address`, `last_broadcast_country` subqueries; `UserAgentParser`) |
 | GET | `/admin/stations/{station}` | `stations.show` | `@show` | `withTrashed()`, by slug; timeline with `type` and `source` filters, 50 per page, consecutive identical events collapsed; last-24h counts per type |
 | POST | `/admin/stations/{station}/feature` | `stations.feature` | `@feature` | toggles `featured` via `markFeatured`, activity log `featured station`/`unfeatured station`; flash warns when the station is powered off |
 | POST | `/admin/stations/{station}/upgrade/preview` | `stations.upgrade.preview` | `@previewUpgrade` | body `note` (1..2000 chars), `plan_id` (any non-free plan), `term` (`1-week|2-weeks|1-month|2-months|3-months|none`); renders the email and bell preview; writes nothing. Bad input (empty or over-long note, unknown plan or term, ownerless station) is not a validation error: it redirects to the stations index with a `status` flash |

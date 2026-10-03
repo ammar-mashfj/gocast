@@ -1,6 +1,6 @@
 ---
 feature: Public player page, Pro embed and listener-facing SEO
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - client/app/station/[slug]/page.tsx
   - client/app/station/[slug]/getStation.ts
@@ -37,10 +37,7 @@ sources:
   - client/hooks/useListenerSession.ts
   - client/hooks/usePublicStationStats.ts
   - client/components/dashboard/EmbedDialog.tsx
-  - client/components/dashboard/StationShare.tsx
-  - client/app/dashboard/stations/[slug]/LinksEditor.tsx
   - client/contexts/AccountContext.tsx
-  - client/components/studio/StreamPanel.tsx
   - client/.env.example
   - api/routes/api.php
   - api/app/Http/Controllers/PublicStationController.php
@@ -64,7 +61,12 @@ sources:
   - api/tests/Feature/PublicEmbedTest.php
   - api/tests/Feature/PublicStationSeoTest.php
   - api/tests/Feature/StationNotifySubscriptionTest.php
-fingerprint: ff28ce24bdaeef12
+  - client/components/dashboard/overview/YourLinkCard.tsx
+  - client/components/dashboard/share/TuneInCodeDialog.tsx
+  - client/components/dashboard/share/ShareDialog.tsx
+  - client/app/dashboard/stations/[slug]/settings/LinksCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/StreamCard.tsx
+fingerprint: 29b345d03407688f
 ---
 
 # Public player page, Pro embed and listener-facing SEO
@@ -254,7 +256,7 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 ## Pro embed
 
 - **Snippet**: `lib/embed.ts` `embedSnippet(slug, name)` produces an `<iframe src="{APP_URL}/embed/{slug}" title="{name} on GoCast" width="100%" height="88" style="border:0;border-radius:12px;overflow:hidden" allow="autoplay" loading="lazy">`. `EMBED_HEIGHT = 88`. Station name has `"` escaped as `&quot;` (other characters are not escaped).
-- **Where owners get it**: `EmbedDialog` (snippet in a `<pre>`, live preview in a real iframe at 88px height, "Copy code"). Opened from `StationShare` (dashboard overview card "Share your station") and from the studio `StreamPanel`. Both check `useEmbedLocked()` (`contexts/AccountContext.tsx`): true only when the plan is known and `embed_enabled` is false. Locked accounts see a "Pro" badge on the button, and clicking opens the Pro-request dialog (`useProRequest`) instead of the snippet. An unknown plan renders unlocked; the embed page is what actually refuses.
+- **Where owners get it**: `EmbedDialog` (snippet in a `<pre>`, live preview in a real iframe at 88px height, "Copy code"). Opened from `YourLinkCard` ("Your link" → Embed), which sits on the overview and in the studio's right column (the studio's old `StreamPanel` is gone). It checks `useEmbedLocked()` (`contexts/AccountContext.tsx`): true only when the plan is known and `embed_enabled` is false. Locked accounts see a PRO tag on the button, and clicking opens the Pro-request dialog (`useProRequest`) instead of the snippet. An unknown plan renders unlocked; the embed page is what actually refuses.
 - **Gate**: `PublicEmbedController::show` loads `user.plan` and does `abort_unless($station?->user?->canEmbed(), 404)`. `User::canEmbed()` is `plan?->embed_enabled ?? false` (no plan row is free). Migration `2026_09_08_100000` sets it true for `pro` and for every plan other than `free`/`pro`, false for `free`. 404 rather than 403 so a stranger cannot learn that a slug exists and is on Free. The station's public payload (`/public/stations/{slug}`) does **not** reveal the plan and still works for Free.
 - **Downgrade takes effect within about 30s** of cache expiry: `embed/[slug]/page.tsx` fetches with `next: { revalidate: 30 }` (dev: `no-store`, two attempts, 3s timeout). On any non-OK or fetch error it returns `null` and the page 404s. Caveat: an API error therefore also 404s an embed (unlike the station page, which distinguishes).
 - **Metadata**: title `"{name} — Player"` (or "Not available"), `robots: {index:false, follow:false}`, canonical pointing at the station page.
@@ -268,13 +270,15 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 
 - Storage: `stations.social_links` JSON. Validation (`UpdateStationRequest`): `nullable|array|max:8` (`Station::MAX_SOCIAL_LINKS`), each item `array:label,url` (no extra keys), `url`: `required|string|url:http,https|max:2048`, `label`: `nullable|string|max:30`. The client mirrors 8 as `MAX_SOCIAL_LINKS`.
 - Icon resolution is by hostname only (`lib/socialLinks.ts`): `www.` stripped, then labels peeled from the front until a `PLATFORMS` key matches (stops at two labels), so `artist.bandcamp.com` matches `bandcamp.com`. About 40 hosts are known (Instagram, Facebook, X/Twitter, YouTube, TikTok, SoundCloud, Bandcamp, Spotify, Apple Podcasts (`podcasts.apple.com` only), Deezer, Tidal, Twitch, Kick, Discord, Telegram, WhatsApp, Threads, Bluesky, `mastodon.social` only, Reddit, Linktree, Patreon, PayPal, Cash App, LinkedIn, Pinterest, Snapchat, VK, GitHub, Medium). Anything else, and any other Mastodon instance, gets the globe plus its name. Only `http:` and `https:` render.
-- Editor (`LinksEditor.tsx`, on Station settings under `#links`): rows of URL + optional label (max 30). Scheme is prepended (`normalizeSocialUrl`) on blur and on save; empty rows are dropped; an invalid URL is caught client-side with a toast naming the URL; a save with only empty new rows is refused with "Paste a link into the new row first." Save is a full-list `PUT /stations/{slug}` with `{social_links: [...]}`. The label field prefills with the platform name or hostname on focus only for unknown hosts.
+- Editor (`settings/LinksCard.tsx`, Station settings "Links on your player page", `#links`): paste an address and press Add (or Enter); Add and Remove each save at once as a full-list `PUT /stations/{slug}` with `{social_links: [...]}`. The scheme is prepended (`normalizeSocialUrl`); an unparseable URL and a duplicate are refused client-side with a toast. There is no label field any more: new links are sent with `label: null` (the player shows the platform name or hostname), and labels saved by the old editor are kept because the list goes back as it was.
 - Owner links carry `nofollow ugc` on the player page.
 
 ## Dashboard share pieces
 
-- `StationShare` (overview page): link with copy button, "Tune-in code" (QR via `qrcode.react`, canvas rendered at 640px and shown at 224px, error-correction level H, 4-module margin, logo occupying 22% of the width with `excavate`, foreground `#4c1d95` on white, "Download PNG" as `{slug}-qr.png`), and "Embed" (Pro-gated as above). The player URL is built from `NEXT_PUBLIC_APP_URL`.
-- The studio `StreamPanel` has its own copy of the link and a 180px QR (no logo, default error level) plus the same `EmbedDialog`.
+- `YourLinkCard` (overview and studio, "Your link"): a `CopyField` showing the bare player URL and copying the `owner`-tagged one (`taggedStationUrl`, `?utm_source=owner&utm_medium=share`), plus **Tune-in code**, **Embed** (Pro-gated as above) and **Share…**. The player URL is built from `NEXT_PUBLIC_APP_URL`.
+- `share/TuneInCodeDialog`: a QR of the `qr`-tagged URL via `qrcode.react`, canvas rendered at 640px and shown smaller, error-correction level H, 4-module margin, the logo excavated in the centre, foreground `#4c1d95` on white, "Download PNG" as `{slug}-qr.png`. It is the only QR in the app now (the studio's 180px QR went with `StreamPanel`; the studio shows `YourLinkCard` instead).
+- `share/ShareDialog`: Copy link, WhatsApp, Email, X, and the system share sheet where `navigator.share` exists.
+- Station settings "Where listeners find you" (`settings/StreamCard.tsx`) shows the player link and the direct stream address (`NEXT_PUBLIC_ICECAST_URL` + `icecast_mount`, with the app URL in front when that's a same-origin path), each with Copy.
 
 ## Configuration
 

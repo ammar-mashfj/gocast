@@ -109,7 +109,8 @@ class SweepListenerSessions extends Command
      * stamped on every listener and going stale.
      *
      * A `<` comparison makes it one conditional UPDATE: no read-then-write
-     * race, and no write at all in the common case.
+     * race, and no write at all in the common case. `peak_at` moves with it,
+     * so it is when the peak was first reached.
      */
     private function recordPeak(Station $station, int $count): void
     {
@@ -121,7 +122,7 @@ class SweepListenerSessions extends Command
             ->where('station_id', $station->id)
             ->whereNull('ended_at')
             ->where('peak_listeners', '<', $count)
-            ->update(['peak_listeners' => $count]);
+            ->update(['peak_listeners' => $count, 'peak_at' => now()]);
     }
 
     /**

@@ -1,6 +1,6 @@
 ---
 feature: AutoDJ (playback, rotation order, handover)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/AutoDjProgramme.php
@@ -41,9 +41,6 @@ sources:
   - api/database/migrations/2026_09_20_134241_create_playlist_track_table.php
   - api/database/migrations/2026_09_20_134242_backfill_default_playlists.php
   - api/database/migrations/2026_09_20_141103_add_autodj_last_playlist_id_to_stations_table.php
-  - client/components/dashboard/AutoDjRotation.tsx
-  - client/components/dashboard/StationPower.tsx
-  - client/components/dashboard/TrackProgress.tsx
   - client/hooks/useStationStatus.ts
   - client/hooks/useTrackProgress.ts
   - client/interfaces/StationStatus.ts
@@ -52,10 +49,17 @@ sources:
   - client/components/studio/EndBroadcast.tsx
   - mobile/src/components/studio/Sheets.tsx
   - client/app/dashboard/stations/[slug]/(overview)/page.tsx
-  - client/app/dashboard/stations/[slug]/StationActions.tsx
   - api/tests/Feature/NextTrackControllerTest.php
   - api/tests/Feature/AutoDjShuffleTest.php
-fingerprint: cd415e0a89afa7a7
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/overview/NowPlayingWell.tsx
+  - client/lib/stationHero.ts
+  - client/lib/airState.ts
+  - client/components/dashboard/overview/ComingUpCard.tsx
+  - client/lib/comingUp.ts
+  - client/components/dashboard/overview/SetupChecklist.tsx
+  - client/hooks/useStationStatusPoll.ts
+fingerprint: 7d20c986978930fa
 ---
 
 # AutoDJ
@@ -219,19 +223,19 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 
 ### Web dashboard overview
 
-`(overview)/page.tsx` fetches the station, its sessions and its playlists in parallel, then fetches `/playlists/{activeId}/tracks` where `activeId` is `station.programme.playlist.id` (a slot's playlist) or else the default playlist. A failed playlists fetch, or a failed `/playlists/{id}/tracks` fetch, degrades only the AutoDJ card (`unavailable`, tracks empty); 404 or 403 on the station gives `notFound()`.
+`(overview)/page.tsx` fetches the station, its sessions and its playlists in parallel. It no longer fetches a playlist's tracks: there is no AutoDJ track-preview card on the overview any more. A failed playlists fetch only affects the checklist; 404 or 403 on the station gives `notFound()`.
 
-- **`StationPower`** (the control strip; one `useStationStatus` poll shared by two halves):
-  - Headline states, in priority order: Not reaching listeners (state `degraded`), Starting… (state `starting`), Live, Off air, Checking…/Status unknown (no status yet; unknown after a failed read or 10 s), Status unknown (container unreachable), No sound (source is silence), On air. "Live" is keyed on `broadcasterAttached` (this tab's broadcast, or `status.broadcaster`, or `live_source` for old containers), not on `state`, but `degraded` and `starting` outrank it.
-  - Source chip while running: "AutoDJ", "Silence", "Handing back to AutoDJ" (the live tail), or the live source name.
-  - Buttons: running: primary is "Go live" ("Open studio" when this tab is the broadcaster, "Hear your stream" when another browser or an encoder is), secondary "Turn station off" (hidden when another browser is live). Off: **primary "Start AutoDJ" with an outlined "Go live" for plans with AutoDJ; only "Go live" for plans without** (`useAutoDjLocked`). Hint copy says "Go live and AutoDJ pauses until you finish"; that is wording, not a mechanism (see "How AutoDJ interacts"). "Turn station off" asks for confirmation only when the headline is On air and the source is `autodj` (it drops listeners); other cases stop directly. An external-encoder stop that the API refuses opens a "Cut off this broadcast?" dialog that retries with `force: true`.
-  - Now playing half (only when running): title/artist from `status.now_playing`, held across the gaps between tracks in a ref that is cleared on station stop and on any broadcaster change; special lines for `liveTakingOver` ("Taking over from AutoDJ…" / "Going live in a few seconds…") and `liveTailDraining` ("Handing back to AutoDJ soon…" only when the plan has AutoDJ and the playlist has tracks). `TrackProgress` draws a bar only when `source` is `autodj` and `elapsed` and non-negative `remaining` exist, anchored per poll and drifting locally (`useTrackProgress`, snap-back tolerance 2.5 s). "Up next: X" shows `up_next[0]` only, whenever the station is running (also during a live show).
+- **The hero** (`components/dashboard/overview/OverviewHero.tsx`, decisions in `client/lib/stationHero.ts`) on one shared status poll (`useStationStatus` → `StationStatusProvider`):
+  - Labels in priority order: NOT REACHING LISTENERS (`degraded`), STARTING, LIVE, OFF AIR, CHECKING / STATUS UNKNOWN (no status yet / no answer), NO SOUND (`source` silence), ON AIR · AUTODJ. LIVE is keyed on `broadcasterAttached` (this tab's broadcast, or `status.broadcaster`, or `live_source` for old containers), not on `state`, but `degraded` and `starting` outrank it.
+  - ON AIR · AUTODJ: "Your station is playing itself." and "AutoDJ is on {playlist}. It hands over when you go live, and takes back when you end." (the playlist from `programme`). That handover is wording, not a mechanism (see "How AutoDJ interacts"). During the live tail: "Your show has ended." / "Listeners are hearing its last few seconds." and "Handing back to AutoDJ soon…" when the plan has AutoDJ and the playlist has tracks.
+  - Buttons: Go live whenever nobody is live (Open studio when this tab is live, "Hear your stream ↗" when someone else is). Off air: **"Start AutoDJ" for plans with AutoDJ; only "Go live" for plans without** (`useAutoDjLocked`). Running: "Stop AutoDJ" while AutoDJ plays (confirm "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ, because it drops listeners), else "Turn station off" without a confirm; hidden while another browser is live. An external-encoder stop the API refuses opens "Cut off this broadcast?", which retries with `force: true`.
+  - **`NowPlayingWell`** while AutoDJ plays: title · artist from `status.now_playing` (held across the gaps between tracks; cleared on stop and on any broadcaster change), the time left (violet, mono) and a progress bar written per animation frame by `useTrackProgress` (only with `source` `autodj` and a non-negative `remaining`; snap-back tolerance 2.5 s), and "Up next" from `up_next[0]`. "On air — waiting for track info" when the rotation has tracks but no title yet.
   - There is **no Skip button**; it was removed from the overview.
-- **`useStationStatus`** pacing: 2 s with no status yet, while `starting`, during a live tail, and during live takeover; 30 s when `offline`; otherwise 10 s (30 s while the realtime socket is connected), pulled in to `remaining * 1000 + 750 ms` (min 3 s) near a track end so the title updates just after a boundary; back-off up to 30 s on failures (2 s doubling); no reads while the tab is hidden, one on return. Realtime station signals trigger a refetch, coalesced over 120 ms.
-- **`AutoDjRotation`** card: shows the resolved playlist name, up to 4 tracks (`PREVIEW_COUNT`) with number, title, artist and duration, "N more tracks in <playlist>", and a link to `/dashboard/stations/{slug}/library` ("Add tracks" when empty, "Manage music" otherwise). The subtitle is computed on the client from the *fetched playlist tracks*, not from what the container is playing. Precedence: unavailable ("Couldn't load the rotation just now."), locked plan, empty playlist (warns about silence), slot detail, then "<playlist> • N tracks • duration • plays whenever you're not live". Locked plans read "Your station goes silent when you close the studio. AutoDJ keeps your music playing." with a Pro badge and a "See what AutoDJ does" button; when a slot is on or coming, `describeProgramme` adds "until 12:00 · then X". The tracks list is in playlist order even for a shuffled playlist, so the preview is not the airing order.
+- **Status pacing**: 2 s with no status yet, while `starting`, during a live tail, and during live takeover; 30 s when `offline`; otherwise 10 s (30 s while the realtime socket is connected), pulled in to `remaining * 1000 + 750 ms` (min 3 s) near a track end so the title updates just after a boundary; back-off up to 30 s on failures (2 s doubling); no reads while the tab is hidden, one on return. Realtime station signals trigger a refetch, coalesced over 120 ms. One poll serves the hero, the status band and the sidebar lamp.
+- **Status band** (every page): ON AIR · AUTODJ with "AutoDJ is playing {title} by {artist}." and Go live; SILENCE (amber) "AutoDJ is on but has nothing to play. Listeners hear silence." with Add tracks (`client/lib/airState.ts`).
+- **Coming up** (`ComingUpCard`, `lib/comingUp.ts`): AutoDJ's next slot change from `programme.next`, in violet, beside your next show times.
+- **Setup checklist**: "Fill AutoDJ's playlist" (not on Free) is done when the **default** playlist's `track_count > 0` (from the playlists fetch).
 - `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio end sheet (`EndSheet` in `mobile/src/components/studio/Sheets.tsx`, fetched only when the plan has AutoDJ) to warn about an empty rotation. The mobile copy says "your library is empty", but the number is the resolved playlist's track count, not the library's.
-- `StationChecklist` is passed `trackCount={tracks.length}` from the same fetch (the length of the resolved playlist, not the library).
-- `StationActions` (`mode: "edit"` on the overview) only opens the station profile editor; the `live` mode is Go live / Open studio.
 
 ### Elsewhere
 
@@ -247,7 +251,7 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 5. **`playlist` annotation is dead weight.** `annotateUri` adds `playlist="<name>"` "so now-playing and the timeline can say where a track came from", but `push_now_playing` sends only `title` and `artist`, and nothing reads the key back. The `playlist_changed` event is the only place the switch is recorded.
 6. **No-rotation stations poll every 10 s each, forever, against a 300/min limit.** An unentitled, empty, or live-only running station calls `/internal/next-track` every `retry_delay` (10 s = 6 per minute per station). The limiter is keyed by client IP; whether containers share an IP behind the internal nginx vhost depends on the deployment (proxy and trusted-proxy setup), not on code in this feature. If they do share one, about 40 such stations plus the other internal traffic (now-playing pushes, events, harbor-auth) would start returning 429, which the script logs as "rotation stalled" and treats as silence, even for stations that do have music.
 7. **`up_next` matches by title and artist strings.** Two tracks with the same title and artist, or a station whose now-playing text came from a live broadcaster or a jingle, mis-anchor the list (starts from the top). Each status poll also runs several small queries (slots and their playlists, the default playlist, a track count, the track list).
-8. **The overview AutoDJ card can disagree with the audio.** It is built once on the server render from the playlist resolved at render time and is not polled; a slot boundary passes without it updating until `router.refresh()`. Its preview is always position order.
+8. **The overview's playlist name can lag the audio.** The hero's "AutoDJ is on {playlist}" comes from `programme` in the server-rendered station, not the poll; a slot boundary passes without it updating until `router.refresh()`. The now-playing title does follow the poll.
 9. **Skip has an API and no UI.** `POST /stations/{slug}/skip` is live (30 per minute per user) but no client in `client/` or `mobile/` calls it; the overview Skip button was removed on 2026-09-26.
 10. **Free plans can build the whole arrangement.** Playlists, memberships, order and slots are not plan-gated (`PlaylistController` says so on purpose); only upload and playback are. A Free owner can end up with slots that never play. `UpdatePlaylistRequest` and the rest also accept edits on a station whose plan has no AutoDJ.
 11. **Crossfade defaults off** (`LIQUIDSOAP_CROSSFADE_ENABLED=false`) and the comment on the config key says it is expected to work on the pinned 2.4.5 but has not been observed working here. Treat every "crossfade" claim in product copy as unshipped unless the env is set.

@@ -89,7 +89,12 @@ interface BroadcastContextValue {
    * sample it on their own cadence.
    */
   getTransportStats: () => TransportStats | null
+  /** Run the go-live checklist. Ends in `ready`, with nothing on air yet. */
   start: (stationId: string, options?: BroadcastStartOptions) => Promise<void>
+  /** Go on air from `ready`. See {@link BroadcastManager.goLive}. */
+  goLive: () => Promise<void>
+  /** Change microphone at `ready`. See {@link BroadcastManager.switchMic}. */
+  switchMic: (deviceId: string) => Promise<void>
   /**
    * End the broadcast. `releaseStation` additionally takes the station off
    * air, and belongs to callers that know the account has no AutoDJ to hand
@@ -99,7 +104,7 @@ interface BroadcastContextValue {
 }
 
 /**
- * Provides broadcast state (idle / connecting / live / error), connection
+ * Provides broadcast state (idle / connecting / ready / live / error), connection
  * step progress, the audio engine, and mic stream to all dashboard pages.
  * Wrap the dashboard layout with {@link BroadcastProvider} and consume
  * via {@link useBroadcast}.
@@ -157,6 +162,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             fireOnce('broadcaster:first-live', () => {
               toast.success("🎙️ You're live for the first time — share your link!")
             })
+          } else if (s === 'ready') {
+            // For the Ready screen's mic check: the mic is open, nothing is
+            // on air, and the host should see the bars move before they go.
+            setMicStream(manager.getMicStream())
           } else if (s === 'idle') {
             setMicStream(null)
             setEngine(null)
@@ -173,6 +182,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     } finally {
       startingRef.current = false
     }
+  }, [])
+
+  const goLive = useCallback(async () => {
+    await managerRef.current?.goLive()
+  }, [])
+
+  const switchMic = useCallback(async (deviceId: string) => {
+    const manager = managerRef.current
+    if (!manager) return
+    setMicStream(await manager.switchMic(deviceId))
   }, [])
 
   const getTransportStats = useCallback(
@@ -249,7 +268,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, [engine])
 
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, goLive, switchMic, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

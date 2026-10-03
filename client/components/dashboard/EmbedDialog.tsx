@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { IconCheck, IconCopy } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ds/Dialog"
 import { EMBED_HEIGHT, embedSnippet, embedUrl } from "@/lib/embed"
 
 interface EmbedDialogProps {
@@ -53,12 +53,12 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Embed on your site</DialogTitle>
           <DialogDescription>
             Paste this where you want the player to appear. Listeners on your site
-            count toward {stationName}&apos;s audience like any other.
+            count toward {stationName}’s audience like any other.
           </DialogDescription>
         </DialogHeader>
 
@@ -68,7 +68,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
             snippet below does not jump when the player loads. */}
         {open && (
           <div
-            className="overflow-hidden rounded-lg border border-border bg-background"
+            className="overflow-hidden rounded-chip border border-border bg-background"
             style={{ height: EMBED_HEIGHT }}
           >
             <iframe
@@ -88,7 +88,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
               of the first line on a phone; it lives in the footer now. */}
           <pre
             aria-label="Embed code"
-            className="overflow-x-auto whitespace-pre rounded-lg border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed text-text-secondary"
+            className="overflow-x-auto whitespace-pre rounded-chip border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed text-text-secondary"
           >
             <code>{snippet}</code>
           </pre>
@@ -100,7 +100,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
         </div>
 
         <DialogFooter>
-          <Button onClick={copy} className="w-full sm:w-auto">
+          <Button size="lg" onClick={copy}>
             {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
             <span>{copied ? "Copied" : "Copy code"}</span>
           </Button>

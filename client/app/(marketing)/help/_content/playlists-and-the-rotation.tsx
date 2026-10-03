@@ -12,9 +12,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/music-library.webp"
-        alt="The music library with seven playlists listed down the left — Main rotation carrying a default badge — and the tracks of the selected playlist on the right."
-        width={2824}
-        height={1266}
+        alt="The AutoDJ page: All tracks and the playlists Main rotation and Morning Soul down the left, and on the right the track list, with a note that three tracks have no artist and a Fix tags button."
+        width={2552}
+        height={1054}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -41,8 +41,9 @@ export default function Body() {
         <li>
           <strong>One playlist is the default.</strong>{" "}It plays whenever
           nothing is scheduled, it is where uploads land unless you say
-          otherwise, and it cannot be deleted. You can move the default badge to
-          a different playlist whenever you like.
+          otherwise, and it cannot be deleted. Its tag reads{" "}
+          <strong>Plays when nothing’s scheduled</strong>. To hand the job to
+          another playlist, open it and press <strong>Make default</strong>.
         </li>
       </ul>
 
@@ -61,13 +62,16 @@ export default function Body() {
         a syndicated show, an audiobook &mdash; all of it works the same way.
         Put it in its own playlist and give that playlist a slot.
       </p>
+      <p>
+        Your station’s Overview shows what AutoDJ moves to next, under{" "}
+        <strong>Coming up</strong>.
+      </p>
 
       <ZoomableImage
         src="/help/autodj-rotation.webp"
-        alt="The AutoDJ rotation card on a station page, naming the playlist on air, when it ends, which playlist follows it, and the tracks queued up."
-        width={2088}
-        height={626}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+        alt="The Coming up card on a station's Overview: Morning Soul, an AutoDJ playlist, starting Wednesday at 10:15."
+        width={1220}
+        height={380}
       />
     </>
   )

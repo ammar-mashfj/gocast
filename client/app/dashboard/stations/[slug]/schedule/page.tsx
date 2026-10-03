@@ -39,7 +39,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ slug:
     // Full width, like Library and Audience: the week calendar needs the
     // room, and the slot panel sits beside it on large screens. The heading
     // is the planner's, so the save state can sit next to it.
-    <div className="sheet">
+    <div>
       <SchedulePlanner station={station} playlists={playlists} />
     </div>
   )

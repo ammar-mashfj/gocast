@@ -12,6 +12,15 @@
  * MP3 rather than Opus because the webcast protocol's documented format is
  * `audio/mpeg` / `libmp3lame`, and harbor passes the binary frames straight
  * through to its decoder. lamejs *is* LAME, so this satisfies it exactly.
+ *
+ * The bitrate can change mid-show (`bitrate` message), when the studio steps
+ * down to fit a slow upload. MP3 frames are self-describing, so harbor decodes
+ * the switch cleanly, but only because the SAMPLE RATE stays put.
+ * Stock lamejs resamples on its own below ~112 kbps (96 → 32 kHz, 64 → 24 kHz)
+ * and harbor's decoder turns a mid-stream rate change into silence or the
+ * wrong pitch. The vendored lame.min.js is patched for this: its Mp3Encoder
+ * sets `out_samplerate` to the input rate. Keep that patch if lamejs is ever
+ * replaced or upgraded.
  */
 
 importScripts('/lame.min.js')
@@ -20,6 +29,7 @@ const CHANNELS = 2
 
 let encoder = null
 let pcmPort = null
+let sampleRate = 44100
 
 /** Float32 [-1,1] → Int16, which is what lamejs expects. */
 function toInt16(channel) {
@@ -43,7 +53,8 @@ self.onmessage = (e) => {
   const { type } = e.data
 
   if (type === 'init') {
-    const { sampleRate, bitrate, port } = e.data
+    const { bitrate, port } = e.data
+    sampleRate = e.data.sampleRate
     encoder = new lamejs.Mp3Encoder(CHANNELS, sampleRate, bitrate)
     pcmPort = port
     pcmPort.onmessage = (evt) => {
@@ -52,6 +63,20 @@ self.onmessage = (e) => {
       emit(encoder.encodeBuffer(toInt16(left), toInt16(right)))
     }
     self.postMessage({ type: 'ready' })
+    return
+  }
+
+  if (type === 'bitrate') {
+    // Finish the old encoder's last partial frame so no audio is lost at the
+    // seam, then carry on at the new rate. Not seamless: flush() pads that
+    // frame with silence and the new encoder starts with LAME's usual
+    // priming delay, so listeners get roughly 25–50 ms of gap per switch.
+    // Accepted because switches are rare (one per congestion episode, one
+    // step up per five clear minutes) and a stall costs far more.
+    if (encoder) {
+      emit(encoder.flush())
+      encoder = new lamejs.Mp3Encoder(CHANNELS, sampleRate, e.data.bitrate)
+    }
     return
   }
 

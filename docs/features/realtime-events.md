@@ -1,6 +1,6 @@
 ---
 feature: Realtime events and polling
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/routes/channels.php
   - api/config/broadcasting.php
@@ -41,19 +41,21 @@ sources:
   - client/hooks/useListenerCount.ts
   - client/hooks/usePublicStationStats.ts
   - client/hooks/useBroadcastStats.ts
-  - client/components/dashboard/StationPower.tsx
-  - client/components/dashboard/GoLiveTrigger.tsx
   - client/lib/broadcast.ts
   - client/components/homepage/heroSection/HeroStationPlayer.tsx
   - client/app/embed/[slug]/EmbedPlayer.tsx
   - client/app/station/[slug]/PlayerView.tsx
-  - client/components/dashboard/LiveListeners.tsx
   - mobile/src/lib/station.ts
   - mobile/src/broadcast/hooks.ts
   - mobile/src/broadcast/BroadcastContext.tsx
   - mobile/src/app/station/[slug]/index.tsx
   - mobile/src/app/station/[slug]/audience.tsx
-fingerprint: 5fad84a328d82856
+  - client/hooks/useStationStatusPoll.ts
+  - client/contexts/StationStatusContext.tsx
+  - client/components/dashboard/shell/StationBand.tsx
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/shell/UpdatesMenu.tsx
+fingerprint: d697675e0e4d5eae
 ---
 
 # Realtime events and polling
@@ -132,11 +134,11 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 
 | Surface | Mechanism | Endpoint | Interval / trigger |
 |---|---|---|---|
-| Web dashboard station power card, overview, library, schedule status, end-broadcast dialog, go-live trigger | Poll **plus** push (`useStationStatus`) | `GET /stations/{slug}/status` (auth, `throttle:120,1`) | See below |
-| Web dashboard listener count (`LiveListeners`, only while on air), studio and mini-controller milestone/sparkline (`useBroadcastStats`) | Poll only (`usePublicStationFeed`) | `GET /public/stations/{slug}/listeners` (`throttle:public`) | 10 s; studio/mini-controller keep polling in a hidden tab |
+| Web dashboard status band, sidebar lamp, overview hero, library, Schedule "Right now", power hook, end-broadcast dialog | Poll **plus** push (`useStationStatus`; one shared poll per dashboard) | `GET /stations/{slug}/status` (auth, `throttle:120,1`) | See below |
+| Web dashboard listener count (overview hero `ListeningNow` and the status band, `useListenerCount`, only while on air), studio and status-band show stats (`useBroadcastStats`, while this tab broadcasts) | Poll only (`usePublicStationFeed`) | `GET /public/stations/{slug}/listeners` (`throttle:public`) | 10 s; `useBroadcastStats` keeps polling in a hidden tab |
 | Web public player page, embed | Poll only (`usePublicStationFeed`) | same | 10 s, paused when the tab is hidden |
 | Web homepage hero player | Poll only | same | 10 s, only while `playing` (and paused when hidden) |
-| Web notification bell | Poll only (`useNotifications`) | `GET /notifications/unread-count` (`throttle:notification-poll`, 30/min per user) | 60 s |
+| Web notification bell (top bar "Updates") | Poll only (`useNotifications`) | `GET /notifications/unread-count` (`throttle:notification-poll`, 30/min per user) | 60 s |
 | Web studio pre-flight | `ensureStationOnAir` in `client/lib/broadcast.ts` first `POST /stations/{slug}/start`, then polls until `ready` | `GET /stations/{slug}/status` | 1 s (`STATION_READY_POLL_MS`), up to 20 s (`STATION_READY_TIMEOUT_MS`; 8 s on a reconnect attempt), then publishes anyway. Independent of the push |
 | Mobile station overview | Poll only (`useStationStatus` in `mobile/src/lib/station.ts`) | `GET /stations/{slug}/status` | 2 s / 10 s / 30 s, track-aware, see below |
 | Mobile station overview listener count (`useListeners`, one call site in `station/[slug]/index.tsx`, shared by the hero and the stat tiles), and the on-air effect in `BroadcastContext` | Poll only | `GET /public/stations/{slug}/listeners` | 10 s. Overview: only while the station is running and this phone is not the broadcaster (live from this phone, the overview reads `broadcast.session.listeners` from the context's poll instead). Context: only while broadcast state is `live`/`reconnecting` |
@@ -145,11 +147,11 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 | Mobile everything else (library, schedule playlists, show times) | Fetch on screen focus, no interval | various | none |
 | Mobile notifications | **Nothing.** No bell exists in `mobile/src` | | |
 
-#### `useStationStatus` in detail (`client/hooks/useStationStatus.ts`)
+#### `useStationStatus` in detail (`client/hooks/useStationStatusPoll.ts`)
 
 Constants: `POLL_STARTING_MS = 2000`, `POLL_STEADY_MS = 10000`, `POLL_OFFLINE_MS = 30000`, `POLL_PUSHED_MS = 30000`, `SIGNAL_COALESCE_MS = 120`, `POLL_FLOOR_MS = 3000`, `TRACK_END_GRACE_MS = 750`, `POLL_MAX_BACKOFF_MS = 30000`.
 
-Signature `useStationStatus(slug, enabled = true, intervalMs?)`; `enabled=false` runs no loop. Call sites: `StationPower`, `ScheduleStatus`, `LibraryView`, `EndBroadcast` (only while its dialog is open and AutoDJ is not locked), `GoLiveTrigger`. Each call is its own independent loop with its own timer (no shared registry, unlike the public feed), so a page mounting two of them makes two requests per cycle against `throttle:120,1`.
+Signature `useStationStatus(slug, enabled = true, intervalMs?)` (`client/hooks/useStationStatus.ts`); `enabled=false` runs no loop. The dashboard layout mounts `StationStatusProvider` (`client/contexts/StationStatusContext.tsx`), which runs **one** `useStationStatusPoll` for the account's station; any `useStationStatus(slug)` for that slug without `intervalMs` returns that shared loop instead of starting its own. Call sites: `StationBand`, the sidebar lamp (`AppSidebar`), `OverviewHero`, `useStationPower`, `useLibrary`, `ScheduleNow`, all sharing it, and `EndBroadcast` (only while its dialog is open and AutoDJ is not locked; shares the poll when enabled). A caller passing `intervalMs` or another station's slug runs its own loop; no current caller does.
 
 The loop is `await read(); setTimeout(tick, next)`, so requests never overlap. The next delay is chosen by `intervalFor(status, pushed)`, first match wins:
 
@@ -161,17 +163,17 @@ The loop is `await read(); setTimeout(tick, next)`, so requests never overlap. T
 
 Failure handling: a failed request returns a sentinel and the next delay is `min(30 s, 2 s * 2^(failures-1))`. Any success resets the counter. The last known status is kept on failure (the UI does not flash to unknown). `refresh()` flattens failure to null.
 
-`intervalMs` override (fixed cadence): used by `GoLiveTrigger` with `WATCH_POLL_MS = 2000` to notice an encoder connecting. It applies **only while the socket is down**; when `pushed` is true the normal `intervalFor(next, true)` is used, because `live_connected` is pushed.
+`intervalMs` override (fixed cadence, its own loop): unused since the go-live encoder dialog was removed. It applies **only while the socket is down**; when `pushed` is true the normal `intervalFor(next, true)` is used, because `live_connected` is pushed.
 
 Signal handling: `onStationSignal` ignores other slugs, ignores a signal whose `at` string is **strictly older** than `lastSignalAt` (same-second signals are kept on purpose), ignores everything while `document.hidden`, and otherwise waits 120 ms (coalescing bursts) and calls `restart()`, which bumps a `generation` counter, clears the timer and ticks immediately. The generation counter stops an in-flight tick from scheduling a second loop.
 
 Hidden tab: `tick()` skips the request when `document.hidden` (using the last status to pace) and `visibilitychange` to visible triggers an immediate `restart()`. `pushed` is an effect dependency: when the socket connects or drops, the loop restarts with an immediate read, which is the resync for anything missed while down. Nothing replays events.
 
-Failure behaviour when the socket is down, in one place: `connected` is false, `pushed` is false, the status hook paces at 2 s / 10 s (track-aware) / 30 s exactly as it did before push existed, the GoLiveTrigger 2 s override applies again, and a reconnect triggers an immediate refetch. There is no error UI for a dead socket.
+Failure behaviour when the socket is down, in one place: `connected` is false, `pushed` is false, the status hook paces at 2 s / 10 s (track-aware) / 30 s exactly as it did before push existed, and a reconnect triggers an immediate refetch. There is no error UI for a dead socket.
 
 #### `usePublicStationStats` (`client/hooks/usePublicStationStats.ts`)
 
-A module-scope registry `feeds: Map<slug, Feed>` gives one timer and one request per station per tab regardless of how many components subscribe. `POLL_MS = 10_000`. A late subscriber gets the held `latest` value at once. `pauseWhenHidden` defaults true; the timer is cleared while hidden, and on return an immediate read happens only if `Date.now() - readAt >= POLL_MS` (guards against alt-tab bursts against a 60/min public throttle). `useBroadcastStats` passes `pauseWhenHidden: false` (broadcasters alt-tab mid-show) and `enabled: isLive`. Failed or non-OK responses are swallowed and the last value kept. `useListenerCount` is a thin wrapper returning `count ?? null` (null means unknown, render nothing, not 0). `LiveListeners` passes `enabled = isOnAir`.
+A module-scope registry `feeds: Map<slug, Feed>` gives one timer and one request per station per tab regardless of how many components subscribe. `POLL_MS = 10_000`. A late subscriber gets the held `latest` value at once. `pauseWhenHidden` defaults true; the timer is cleared while hidden, and on return an immediate read happens only if `Date.now() - readAt >= POLL_MS` (guards against alt-tab bursts against a 60/min public throttle). `useBroadcastStats` passes `pauseWhenHidden: false` (broadcasters alt-tab mid-show) and `enabled: isLive`. Failed or non-OK responses are swallowed and the last value kept. `useListenerCount` is a thin wrapper returning `count ?? null` (null means unknown, render nothing, not 0). The overview hero and the status band pass `enabled` only while the station is on air.
 
 The endpoint (`ListenerCountController::show`) returns `count` (HLS live count computed per request plus Icecast count that `stations:sync-listeners` refreshes once a minute, so it moves in minute steps), `state`, `is_live`, `is_on_air`, `now_playing`. The public feed never uses the socket.
 
@@ -205,10 +207,10 @@ No websocket, no Echo, no pusher in `mobile/`. `useStationStatus(slug)` is a sim
 10. **Mobile does not honour any of this.** No push at all, so status latency is bounded by the 3 s to 10 s poll, and a phone left in the background is silent (Android pauses JS timers; `AppState` re-polls on resume). The mobile constants are a hand copy of the web's; changing one without the other makes them drift.
 11. **No push for track changes, on purpose.** Now-playing on the dashboard is learned from the status poll timed off `remaining`. A live source or silence bed has no `remaining`, so its title and the silence exit rely on `audio_started`/`audio_stopped` and the poll ceiling (10 s unpushed, 30 s pushed).
 12. **Public surfaces scale by listener count.** Every player page, embed and hero player runs its own 10 s poll (only while visible). The only rate limit is `throttle:public` on `/public/...`; `ListenerCountController` calls `StationStatusService::fetch` per request behind the 2 s cache.
-13. **No client-side tests** for `useStationStatus`, `RealtimeProvider` or `useNotifications`; a search of `client` for test files mentioning them found none.
+13. **No client-side tests** for the status loop, `RealtimeProvider` or `useNotifications`. The pure readers of its answer are tested (`lib/airState.test.ts`, `lib/stationHero.test.ts`).
 14. **`client/.env.local` has a non-empty `NEXT_PUBLIC_PUSHER_KEY`** in this checkout, so local `next dev` opens a socket to Ably while `api/.env.example` defaults the server to `log`. That is the mismatch in item 1; whether local status polling slows to 30 s depends on whether the empty auth body counts as a subscription (see item 1).
 15. **Mobile and web disagree on the handover rule and on negative `remaining`** (see the Mobile section); the mobile copy has no `reachable` guard.
-16. **Every status-loop call site polls separately.** There is no shared feed for `useStationStatus`, only for the public listeners feed.
+16. **The shared poll is per dashboard tab and per station.** Outside the dashboard layout (or for another slug) every `useStationStatus` call is its own loop.
 
 ## Tests
 

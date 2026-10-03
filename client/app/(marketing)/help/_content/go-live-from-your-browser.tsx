@@ -11,16 +11,28 @@ export default function Body() {
       <h2>Going On Air</h2>
       <ol>
         <li>
-          On your station page, press <strong>Go live</strong>{" "}and choose
-          broadcasting from this browser.
+          Open <strong>Studio</strong>{" "}in the sidebar, or press{" "}
+          <strong>Go live now</strong>{" "}on your station&rsquo;s overview.
+          Nothing goes out from this page.
+        </li>
+        <li>
+          Choose <strong>Mic + music</strong>{" "}or{" "}
+          <strong>Music only</strong>, then press{" "}
+          <strong>Check your mic</strong>, say something and watch the meter
+          move.
         </li>
         <li>
           Your browser asks for microphone access. Say yes &mdash; this prompt
           is the whole security model, and if you dismiss it nothing can work.
         </li>
         <li>
-          The studio opens. Check the mic meter is moving when you speak, then
-          start.
+          Add the tracks you want to play to your running order.
+        </li>
+        <li>
+          Press <strong>Go live on</strong>{" "}your station. GoCast checks your
+          connection, your station, your mic and the audio, and you go on air
+          the moment they pass; the studio opens. If a check fails it says why,
+          and nothing went out.
         </li>
       </ol>
       <p>

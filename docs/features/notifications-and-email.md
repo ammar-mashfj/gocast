@@ -1,6 +1,6 @@
 ---
 feature: Notifications and email (bell, transactional mail, outreach, station-live alerts, Resend webhook)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Notifications/Bell/BellNotification.php
   - api/app/Notifications/Bell/BellPayload.php
@@ -75,10 +75,8 @@ sources:
   - api/database/migrations/2026_04_20_122249_create_station_notify_subscriptions_table.php
   - api/database/migrations/2026_09_15_100000_add_created_at_index_to_notifications_table.php
   - api/database/migrations/2026_09_15_130100_create_email_suppressions_table.php
-  - client/components/dashboard/NotificationBell.tsx
   - client/components/dashboard/NotificationItem.tsx
   - client/components/dashboard/NotificationDetailDialog.tsx
-  - client/components/dashboard/NotificationIcon.tsx
   - client/hooks/useNotifications.ts
   - client/lib/notifications.ts
   - client/interfaces/Notification.ts
@@ -92,7 +90,8 @@ sources:
   - api/tests/Feature/PruneNotificationsTest.php
   - api/tests/Feature/SendAnnouncementTest.php
   - api/tests/Feature/Admin/RawEmailTest.php
-fingerprint: f0607d5cfdefd3bf
+  - client/components/dashboard/shell/UpdatesMenu.tsx
+fingerprint: bac58f35e016ab8f
 ---
 
 # Notifications and email
@@ -167,11 +166,11 @@ Rows are always looked up through `$request->user()->notifications()->findOrFail
 
 ### Web UI (`client/`)
 
-- `NotificationBell` is mounted in `DashboardHeader`. Popover 22rem/24rem wide, feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications" with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
+- The bell is **Updates** (`components/dashboard/shell/UpdatesMenu.tsx`), a text button in the dashboard top bar with an unread count badge (`formatUnreadCount`, capped at the API's `capped_at`, e.g. "99+"). Popover `min(22rem, 100vw − 2rem)` wide (24rem from `sm`), feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications." with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
 - `useNotifications` polls `/notifications/unread-count` every 60 s **only while the tab is visible** (stops on hidden, refreshes on becoming visible if 60 s have passed). The feed loads when the popover opens. Read/mark-all/delete are optimistic with rollback and a sequence guard so an in-flight feed response cannot overwrite a newer mutation. The UI never passes `filter` or `category`.
-- `NotificationItem`: unread rows have a dot and a tint; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
-- `NotificationIcon` maps only these icon keys: `bell`, `radio`, `microphone`, `invite`, `plan-upgraded`, `plan-expired`, `megaphone`, `warning`. Anything else (including a custom announcement `icon`) renders the bell.
-- Level colours: `info` muted, `success` violet, `warning` foreground, `error` fault text.
+- `NotificationItem`: a dot before each row coloured by level while unread (`notificationDotClass` in `lib/notifications.ts`), grey once read; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
+- The web dashboard no longer draws the `icon` key (`NotificationIcon` was removed with the old header); the level dot replaces it. `icon` is still stored and sent.
+- Level dot colours (`LEVEL_DOTS`): `info` and `warning` off-white, `success` violet, `error` error red.
 - No realtime push: the only update paths are the 60 s poll and opening the popover. (`api/routes/channels.php` mentions moving the bell onto the Ably transport as a future idea; it is not done.)
 
 ### Mobile

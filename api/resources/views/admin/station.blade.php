@@ -47,6 +47,7 @@
         \App\Models\StationEvent::TYPE_PLAYLIST_CHANGED => 'Playlist changed',
         \App\Models\StationEvent::TYPE_STREAM_KEY_ROTATED => 'Encoder stream key rotated',
         \App\Models\StationEvent::TYPE_STUDIO_DROP => 'Studio lost its connection — the browser\'s side of it',
+        \App\Models\StationEvent::TYPE_UPLINK_CHECK => 'Go-live connection check',
     ];
 @endphp
 

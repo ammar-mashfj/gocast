@@ -1,6 +1,6 @@
 ---
 feature: Dev environment and testing
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/tests/TestCase.php
   - api/tests/Pest.php
@@ -55,7 +55,11 @@ sources:
   - scripts/docs-check.sh
   - docs/features/README.md
   - infra/native/docker-compose.native.yml
-fingerprint: 604753e4ddd22412
+  - client/vitest.config.mts
+  - client/vitest.setup.ts
+  - client/tests/e2e/dashboard-visual.spec.ts
+  - client/app/dashboard.css
+fingerprint: 6b51cc513e71a00b
 ---
 
 # Dev environment and testing
@@ -184,9 +188,15 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 
 ## Web client: lint, types, build
 
-`client/package.json` scripts: `dev` (`next dev`), `build` (`next build`), `start`, `lint` (`eslint`), `analyze` (`ANALYZE=true next build`, via `@next/bundle-analyzer`), `test:e2e` (`playwright test`), `test:e2e:ui`.
+`client/package.json` scripts: `dev` (`next dev`), `build` (`next build`), `start`, `lint` (`eslint`), `analyze` (`ANALYZE=true next build`, via `@next/bundle-analyzer`), `test:e2e` (`playwright test`), `test:e2e:ui`, `test:visual` (`playwright test dashboard-visual --grep @visual`), `test` (`vitest run`), `test:watch` (`vitest`).
 
 - `eslint.config.mjs` extends `eslint-config-next` core-web-vitals and typescript; ignores `.next/`, `out/`, `build/`, `next-env.d.ts`, `public/**`.
+- **Dashboard guardrails** (`dashboardGuardrails` in the same file), on `app/dashboard/**`, `components/dashboard/**`, `components/ds/**`, `components/studio/**` (tests excluded), all errors:
+  - no arbitrary values for type, colour, radius, tracking, line height, shadow, ring or stroke (`text-[13px]`, `rounded-[14px]`, `bg-[#…]`), and no `[Npx]` sizes; layout brackets (grid templates, `max-w-[65ch]`, `max-h-[50vh]`, calc with safe-area insets, flex-basis, transition lists) stay legal;
+  - no Tailwind default radius steps (`rounded-xl`) or palette colours (`text-zinc-400`);
+  - no HTML entities in JSX text (`you&apos;re`): an entity after an `{expression}` made the compiler drop the space before it ("Keep Morning Staticon air");
+  - no `@/components/ui/*` import except `skeleton`, `sidebar`, `slider`, `scroll-area`, `avatar`.
+  Design tokens live in `client/app/dashboard.css` and are registered with tailwind-merge in `client/lib/utils.ts`; add a token there rather than a bracket value.
 - There is **no `typecheck` script**. `tsconfig.json` is `strict: true`, `noEmit`, `incremental`, so the check is `npx tsc --noEmit` by hand. `next build` type-checks as part of the build but does not run ESLint.
 - `next.config.ts` wraps everything in `withSentryConfig` (org `gocast`, project `javascript-nextjs`, `tunnelRoute: "/monitoring"`). A production build therefore talks to Sentry for source maps unless offline.
 
@@ -199,6 +209,10 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 | `/hls-proxy/[...path]` | `client/app/hls-proxy/[...path]/route.ts` | Dev only (returns 404 unless `NODE_ENV=development`). Serves `.m3u8`/`.aac`/`.ts`/`.m4s`/`.mp4` from `LIQUIDSOAP_HLS_DIR` (default `/var/gocast/hls`) with path-traversal guard; manifests `no-cache`, segments `immutable`. Point the API at it with `LIQUIDSOAP_HLS_BASE_URL=http://localhost:3000/hls-proxy`; empty `LIQUIDSOAP_HLS_BASE_URL` makes `hls_url` null and the player falls back to Icecast. |
 | Image optimizer | `images.unoptimized` and `dangerouslyAllowLocalIP` are true only in development; `remotePatterns` includes `http://localhost:8000/storage/**` |
 | Sentry | `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts` only init when `NODE_ENV === "production"` **and** `NEXT_PUBLIC_SENTRY_DSN` is set; traces sample rate 0.2. Dev never reports from the web client. |
+
+## Web unit and component tests (Vitest)
+
+`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-01: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `liveShows`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`), and dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `library/jinglePresets.test.ts`); 101 tests. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
 
 ## Playwright (web e2e)
 
@@ -227,16 +241,24 @@ Redirect of logged-out visitors from `/dashboard`, `/dashboard/stations`, `/dash
 **Most of these cannot pass against the current UI** (verified by grep of `client/`):
 
 - `expectDashboard()` waits for URL `/dashboard/stations` and the text "Create your first station" or a "Your stations" heading. `client/app/dashboard/stations/page.tsx` is now `redirect("/dashboard")` ("there is no station list any more") and neither string exists anywhere in `client/`. Every test that calls `expectDashboard` (sign in, verify, register, reset, change email, change password) fails at that step.
-- The delete-account test fills `#delete-password` and expects a password-based flow. The dialog (`client/app/dashboard/settings/page.tsx`) asks the user to type their email into `#delete-confirm` and the API (`AccountController@destroy`) checks `confirmation` against the email. The test cannot reach "Delete forever" enabled.
+- The delete-account test clicks "Delete account" and fills `#delete-password`. The page now has "Delete account…" (`components/dashboard/account/DeleteAccount.tsx`), whose `ds/ConfirmDialog` asks for the email typed into a generated-id field, and the API (`AccountController@destroy`) checks `confirmation` against the email. The test cannot reach "Delete forever" enabled.
 - The redirect test, the invalid-credentials test (it mocks the 401 and accepts either `Invalid credentials` or `Something went wrong`; the real API message is `Invalid credentials.`, `AuthController`) and the Google popup test do not depend on the dashboard and are the ones plausibly still green.
 
 ### `tests/e2e/help-screenshots.spec.ts` (not a test)
 
-One test, `@screenshots capture help article screenshots`, 300 s timeout, viewport 1680x1050 at `deviceScaleFactor: 2`, writing lossless PNGs to `tests/e2e/.screenshots/` (gitignored by `client/.gitignore`; only the webp output used by `/help` is committed). It logs in as a hard-coded personal account with a hard-coded password against a **manually dressed database** whose station slug is `test` and whose station is called "Night Shift Radio" (8 tracks). It writes 14 screenshots (`station-power`, `station-header`, `autodj-rotation`, `music-library`, `schedule-on-now`, `schedule-slots`, `schedule-week`, `encoder-connection`, `audience-chart`, `audience-breakdowns`, `share-qr`, `go-live-preflight`, `player-page`, `player-now-playing`).
+One test, `@screenshots`, writing lossless PNGs at `deviceScaleFactor: 2` to `tests/e2e/.screenshots/` (gitignored; only the webp copies in `public/help/` are committed; its header has the conversion loop). Rewritten on 2026-10-01 for the redesigned dashboard: it signs in as the keeper account `shell@gocast.test` (`E2E_PASSWORD`), shoots station `night-shift-shell`, and stages only in the page (`dress()` swaps the factory's placeholder genre/description and drops `support/help-artwork.webp` into the artwork tile; the schedule shots draw slots and never press Save). It no longer shoots the public player page or the go-live pre-flight. Run it with `npm run test:help-shots`; its header lists the shots and the webp conversion.
 
-Its header says the `@screenshots` tag keeps it out of the normal run. **It does not**: `playwright.config.ts` has no `grep`/`grepInvert`, so `npm run test:e2e` runs it too and it fails at sign-in on any machine without that account. Run it deliberately with `npx playwright test help-screenshots --grep @screenshots`.
+`playwright.config.ts` sets `grepInvert: /@(screenshots|visual)/`, so neither capture spec runs in `npm run test:e2e`; `npm run test:help-shots` and `npm run test:visual` set `E2E_CAPTURE=1`, which lifts it.
 
-Several locators are already stale after the schedule and dashboard redesigns (checked by grep of `client/app` and `client/components`): the strings `You're about to go live on` (the live page now says `Going live on {name}…`), the `Label (optional)` placeholder and `ON NOW` do not exist anywhere in the dashboard code. (Playwright `getByText` is a case-insensitive substring match, so `NOW PLAYING`, `THIS WEEK` (`This week` in `SchedulePlanner`), `Last 30 days` (`AudienceChart`) and `AutoDJ rotation` (`AutoDjRotation.tsx`) still match.) The schedule steps depend on slot editing pieces that were replaced by `WeekGrid`/`SlotPanel`. Expect the run to fail partway and need re-pointing; the `.screenshots/` directory currently holds output from an earlier UI.
+### `tests/e2e/dashboard-visual.spec.ts` (`npm run test:visual`)
+
+Every dashboard page and main state at desktop 1440 and phone 390: 26 states × 2 = 52 tests, about 1.5 minutes. Each writes a full-page PNG to `tests/e2e/.visual/{desktop,phone}/` (gitignored) and fails on an uncaught page error, a missing `h1` (or open dialog, for dialog states) or a phone page that scrolls sideways. It fakes `document.visibilityState` (headless tabs are hidden, which pauses the status poll and the player) and waits for fonts, images and the end of "Checking…". Not a pixel diff: the pages show live data (clock, "today", counts). It signs in once per account (`storageState` in `.visual/.auth-*.json`) and never changes data. It uses the running dev servers; `webServer` only starts them when absent.
+
+**Keeper accounts** (all `Password123!`; made once, read by both screenshot specs; never re-run `e2e:auth user` on them, it force-deletes the user and the station with it):
+
+- `shell@gocast.test`: Pro, station `night-shift-shell` (factory), with tracks, two playlists, a slot, seeded listener rows (`visitor_hash` `seed55-*`) and seeded shows.
+- `free@gocast.test`: Free, station `free-shell` "Morning Static" (factory): the locked states.
+- `create@gocast.test`: Free, no station: the create page. Don't submit its form.
 
 ## Mobile scripts and lint
 
@@ -300,8 +322,8 @@ Each `docs/features/*.md` (except `README.md`) lists `sources:` in front matter 
 
 ## Gaps and traps
 
-1. **The Playwright auth suite is broken.** `expectDashboard()` targets a `/dashboard/stations` list and "Create your first station" / "Your stations" text that were removed (`client/app/dashboard/stations/page.tsx` redirects to `/dashboard`); the delete-account test uses a `#delete-password` field that no longer exists. Fix `support/auth.ts` `expectDashboard` and the delete test before trusting any e2e result.
-2. **`help-screenshots.spec.ts` runs in the normal e2e run.** The `@screenshots` tag is not excluded in `playwright.config.ts`. It also embeds a real account email and a hard-coded password, and depends on a hand-dressed database with slug `test`. Its locators for `ON NOW`, `Label (optional)` and the go-live pre-flight text are stale.
+1. **The Playwright auth suite is broken.** `expectDashboard()` targets a `/dashboard/stations` list and "Create your first station" / "Your stations" text that were removed (`client/app/dashboard/stations/page.tsx` redirects to `/dashboard`; the no-station page now says "Create your station"); the delete-account test uses a `#delete-password` field that no longer exists. `signIn()` also uses `getByLabel("Password")`, which now matches the password field and its Show button (strict-mode failure); `getByRole("textbox", { name: "Password" })` works. Fix `support/auth.ts` `expectDashboard` and the delete test before trusting any e2e result.
+2. **The capture specs need the keeper accounts.** `help-screenshots.spec.ts` and `dashboard-visual.spec.ts` sign in as `shell@gocast.test` (and the visual one also `free@gocast.test`, `create@gocast.test`); they are excluded from `test:e2e` by `grepInvert` and fail on a database without those accounts. Never run `e2e:auth user` on a keeper: it force-deletes the user and the station.
 3. **E2E and the API suite hit real shared services.** Playwright users are created in the dev database (`gocast`) and never deleted; the API suite's direct `Redis::` calls hit whatever Redis `api/.env` names, with keys derived from small auto-increment station ids (`metadata:{id}`, `listeners:{id}`, live-session sets). Running the suite against the same Redis as a running dev app can clobber the dev app's keys for stations with the same ids. There is no `REDIS_*`/`REDIS_PREFIX` override in `phpunit.xml`.
 4. **`gocast_test` must be created by hand**, and uses the dev MySQL credentials. A missing database fails every Feature test, not just one.
 5. **Everything docker-related is unexercised.** `inTestMode()` short-circuits 13 supervisor methods; behaviour is tested by command-string assertions, reflection into private builders, and mocks. No test runs Liquidsoap or `liquidsoap --check`, and `LiquidsoapTemplateTest` builds its own variable array instead of using the supervisor's.
@@ -309,7 +331,7 @@ Each `docs/features/*.md` (except `README.md`) lists `sources:` in front matter 
 7. **`config/liquidsoap.php` comments contradict its own defaults.** A docblock there still points at `docker-compose.yml` (no such file). The block "Addresses as seen FROM INSIDE a station container" says the defaults are "the all-Docker values ... compose services reachable by service name", but the defaults are `host.docker.internal`. Its `telnet_resolve` docblock says `name` is for "a containerised Laravel and for tests", which is accurate; the `client/.env.example` note that the ingest address "changes on every restart" contradicts the fixed per-station address computed from `container_index` (`LiquidsoapSupervisor::containerIp`, `'--ip'` in the run command).
 8. **`artisan serve` loopback trap** (see above): Playwright's own server is bound to `127.0.0.1`, which is fine for the browser and useless for station containers or a phone.
 9. **`mobile/scripts/start.mjs` and `ingest-proxy.mjs` assume the station router listens on `127.0.0.1:8091`** (hard-coded `TARGET`); if the router moves the phone's broadcast path fails with only a proxy-side log line.
-10. **No typecheck script, no CI, no tests for mobile or most of the web.** Type errors surface only in `next build` (web) or the editor (mobile).
+10. **No typecheck script, no CI, no tests for mobile.** The web has Vitest unit tests for the dashboard's pure logic and kit, and the visual suite, but not for the studio engine (`broadcast.ts`, `audioEngine.ts`), the player or marketing. Type errors surface only in `next build` or `npx tsc --noEmit` (web) or the editor (mobile).
 11. **Placeholder tests count toward the total**: `Unit/ExampleTest`, `Feature/ExampleTest` (asserts the Laravel welcome page), and the `toBeOne` expectation.
 12. **`E2EAuthCommand` is only environment-gated** (`local`/`testing`). A production box with `APP_ENV=local` would allow creating verified users by CLI; it is not reachable over HTTP.
 13. **`docs-check.sh` hides nothing but also covers only listed sources**; a doc can read `ok` while a file it silently depends on changed.

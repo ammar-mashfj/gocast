@@ -1,6 +1,6 @@
 ---
 feature: Mobile station console (Overview, Audience, Schedule, Library, Show times)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - mobile/src/app/station/[slug]/_layout.tsx
   - mobile/src/app/station/[slug]/index.tsx
@@ -51,7 +51,7 @@ sources:
   - api/app/Models/User.php
   - api/config/liquidsoap.php
   - api/config/analytics.php
-fingerprint: 09478f306ffba268
+fingerprint: 1256decd0bbfc95e
 ---
 
 # Mobile station console
@@ -112,7 +112,7 @@ Going live, the studio, and the encoder are documented in [mobile-studio-and-enc
 |---|---|---|
 | Station (name, artwork, `state`, `stats`, `schedules`) | `GET /stations/{slug}` via the shell | On mount; after any power action; pull-to-refresh |
 | Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle 120/min) |
-| Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`) | Focus + every 30 s |
+| Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`, and ignores the newer `summary` block and `?finished=1` filter the web uses) | Focus + every 30 s |
 | Listener count | `GET /public/stations/{slug}/listeners` via `useListeners` (`broadcast/hooks.ts`) | Every 10 s (`LISTENERS_POLL_MS`), only while the station runs and this phone is not live |
 
 One `useListeners` call in `Loaded` feeds both the hero and the LISTENING tile. While live from this phone the tab does not poll at all and reads `broadcast.session.listeners` (the broadcast manager's own 10 s poll) instead; when the station is not running the count is `0`; otherwise it is `null` ("-" / "Counting listeners...") until the first poll answers.

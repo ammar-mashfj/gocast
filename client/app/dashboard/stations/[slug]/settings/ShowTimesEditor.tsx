@@ -6,11 +6,15 @@ import { toast } from "sonner"
 import { IconPlus, IconTrash } from "@tabler/icons-react"
 import axios from "axios"
 import api from "@/lib/axios"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { DayChip } from "../schedule/DayChip"
-import { DAY_INITIALS, DAY_NAMES } from "../schedule/days"
+import { Button } from "@/components/ds/Button"
+import { DayToggle } from "@/components/ds/DayToggle"
+import { Input } from "@/components/ds/Field"
+import { DAY_NAMES } from "../schedule/days"
+import { WEEK_ORDER } from "../schedule/WeekGrid"
 import type { Station, StationSchedule } from "@/interfaces/Station"
+
+/** Monday-first names for the day chips; indexes map through WEEK_ORDER. */
+const WEEK_LABELS = WEEK_ORDER.map((d) => DAY_NAMES[d])
 
 export interface ShowRow {
   key: string
@@ -50,7 +54,8 @@ interface Props {
  * to AutoDJ's slots, and owners on Pro filled it in expecting it to program
  * the station.
  *
- * Drawn in the emerald live tone, never violet: violet means AutoDJ.
+ * Neutral off-white day chips: not violet (AutoDJ) and not red (live right
+ * now) — a show time is a promise, not something on air.
  *
  * Rows are held by ShowTimesSection, which also owns the station timezone.
  * Saved as one full-list PUT rather than per-row calls: the rows carry no
@@ -62,16 +67,6 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
 
   function update(key: string, patch: Partial<ShowRow>) {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)))
-  }
-
-  function toggleDay(key: string, day: number) {
-    setRows((current) =>
-      current.map((row) =>
-        row.key === key
-          ? { ...row, days: row.days.includes(day) ? row.days.filter((d) => d !== day) : [...row.days, day].sort() }
-          : row,
-      ),
-    )
   }
 
   function addRow() {
@@ -136,89 +131,72 @@ export function ShowTimesEditor({ slug, timezone, rows, setRows, dirty, onSaved 
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      {rows.length > 0 && (
-        // Rows split by hairlines, not emerald boxes: the chips and the
-        // "Live on" label carry the meaning.
-        <ul className="m-0 flex list-none flex-col divide-y divide-white/[0.06] border-y border-white/[0.06] p-0">
+    <div className="flex flex-col gap-4">
+      {rows.length === 0 ? (
+        <p className="text-body-sm text-muted-foreground">
+          Nothing here yet. Tell listeners when you’re usually live and they can come back for it.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
           {rows.map((row) => (
-            <li key={row.key} className="flex flex-col gap-3 py-4">
-              <div className="flex items-center gap-2">
+            <li key={row.key} className="flex flex-col gap-3 rounded-well bg-surface-inset p-3.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={row.label}
                   onChange={(e) => update(row.key, { label: e.target.value })}
-                  placeholder="Show name, e.g. Sunday service (optional)"
+                  placeholder="Show name (optional)"
                   aria-label="Show name (optional)"
                   maxLength={60}
+                  className="min-w-48 flex-1"
                 />
                 <Input
                   type="time"
                   value={row.start_time}
                   onChange={(e) => update(row.key, { start_time: e.target.value })}
-                  className="w-36 shrink-0 font-mono tabular-nums"
+                  className="w-36 font-mono tabular-nums"
                   aria-label="Start time"
                 />
                 <Button
-                  type="button"
-                  variant="ghost"
+                  variant="quiet"
                   size="icon"
-                  className="shrink-0"
+                  className="ml-auto"
                   onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
-                  aria-label="Remove show time"
+                  aria-label={`Remove ${row.label.trim() || "show time"}`}
                 >
-                  <IconTrash size={16} />
+                  <IconTrash />
                 </Button>
               </div>
-
-              <div role="group" aria-label="Days you're live" className="flex flex-wrap items-center gap-2">
-                {/* basis-full below sm: seven 36px chips plus this label ran
-                    past a 375px column and Saturday wrapped alone. */}
-                <span className="mr-1 inline-flex basis-full items-center gap-1.5 text-xs text-muted-foreground sm:basis-auto">
-                  <span className="size-1.5 rounded-full bg-live" aria-hidden="true" />
-                  Live on
-                </span>
-                {DAY_INITIALS.map((initial, day) => (
-                  <DayChip
-                    key={day}
-                    tone="live"
-                    on={row.days.includes(day)}
-                    label={DAY_NAMES[day]}
-                    onToggle={() => toggleDay(row.key, day)}
-                  >
-                    {initial}
-                  </DayChip>
-                ))}
-              </div>
+              <DayToggle
+                aria-label="Days you’re live"
+                tone="neutral"
+                size="sm"
+                stretch
+                labels={WEEK_LABELS}
+                value={row.days.map((d) => WEEK_ORDER.indexOf(d)).sort((a, b) => a - b)}
+                onChange={(picked) => update(row.key, { days: picked.map((i) => WEEK_ORDER[i]).sort((a, b) => a - b) })}
+              />
             </li>
           ))}
         </ul>
       )}
 
-      {rows.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          Nothing here yet. Tell listeners when you&apos;re usually live and they can come back for it.
-        </p>
-      )}
-
-      <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" onClick={addRow}>
-          <IconPlus data-icon="inline-start" />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="subtle" onClick={addRow}>
+          <IconPlus />
           Add show time
         </Button>
-        <Button type="button" onClick={save} disabled={saving}>
+        <Button onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save"}
         </Button>
         {dirty && !saving && (
-          <span role="status" className="text-xs text-muted-foreground">Unsaved changes</span>
+          <span role="status" className="text-body-sm text-fault-text">Unsaved changes</span>
         )}
       </div>
 
       {/* The one ambiguity in the whole feature, said once rather than
           discovered: a show that starts at 22:00 and runs past midnight
           belongs to the day it STARTS. */}
-      <p className="text-sm text-muted-foreground leading-relaxed max-w-[62ch]">
-        Days are when the show starts, so a Sunday 11pm show stays under Sunday.
-      </p>
+      <p className="text-body-sm text-text-faint">Days are when the show starts, so a Sunday 11pm show stays under Sunday.</p>
     </div>
   )
 }

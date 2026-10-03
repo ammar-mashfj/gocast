@@ -1,6 +1,6 @@
 ---
 feature: Encoder ingest (BUTT, Mixxx, any Icecast source client)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - infra/native/station-router/ingest.js
   - infra/native/station-router/nginx.conf
@@ -38,8 +38,6 @@ sources:
   - api/routes/api.php
   - api/resources/views/liquidsoap/station.blade.php
   - client/components/dashboard/EncoderConnection.tsx
-  - client/components/dashboard/GoLiveTrigger.tsx
-  - client/components/dashboard/StationPower.tsx
   - client/app/dashboard/stations/[slug]/settings/EncoderCard.tsx
   - client/app/dashboard/stations/[slug]/settings/EncoderSection.tsx
   - client/contexts/AccountContext.tsx
@@ -47,7 +45,10 @@ sources:
   - mobile/src/app/station/[slug]/index.tsx
   - mobile/src/components/station/overview.tsx
   - mobile/src/components/station/usePower.ts
-fingerprint: eb4837b6316cbe14
+  - client/lib/stationHero.ts
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/ds/Disclosure.tsx
+fingerprint: 6a48dbd1c4c05163
 ---
 
 # Encoder ingest
@@ -233,17 +234,17 @@ After harbor: `buffer(buffer=2., max=10.)`, then straight into `fallback(track_s
 
 ## Surfaces
 
-**Web dashboard, Settings: `EncoderCard`** (`settings/EncoderCard.tsx`, mounted by `EncoderSection`, which reads `useEncoderLocked()` from `AccountContext`). Three variants:
+**Web dashboard, Station settings: `EncoderCard`** (`settings/EncoderCard.tsx`, mounted by `EncoderSection`, which reads `useEncoderLocked()` from `AccountContext`). A folded card (`ds/Disclosure`, closed by default) titled **Use your own DJ software**, "Optional. Skip this if you go live from the browser." There is no `#encoder` anchor any more. Three variants:
 
-- Locked (plan has no encoder): "Broadcast from your own software" with a Pro badge, blurb, and "Request Pro" (`ProRequestContext`; label becomes "Request sent"). `useEncoderLocked()` is `plan !== null && !plan.encoder_enabled`, so it is false while the plan is still loading.
-- Unavailable (plan allows it, `encoder` absent): "External encoder ingest isn't available on this server yet."
-- Live card (`id="encoder"`, anchor target `#encoder`): a "New key" button (confirm dialog "Generate a new stream key?", then POST, toast, `router.refresh()`), intro copy, `EncoderConnection`, and four caveats (switch the station on first; not Shoutcast; a new key does not kick anyone off; the connection is not encrypted). After rotating, the card holds the response's `{key, rotated_at}` as an override and reveals the key, dropping the override when the refreshed prop's `rotated_at` is at or after it (handles out-of-order refreshes).
+- Locked (plan has no encoder): a PRO tag in the title, description "Go live from BUTT, Mixxx or RadioDJ instead of the browser."; opened, one paragraph and an amber "Request Pro" (`ProRequestContext`; label becomes "Request sent"). `useEncoderLocked()` is `plan !== null && !plan.encoder_enabled`, so it is false while the plan is still loading.
+- Unavailable (plan allows it, `encoder` absent): "Own-software broadcasting isn't available on this server yet."
+- Available: the "Pick Icecast 2 … fill in these five values" instruction, `EncoderConnection`, a **New key** button ("Pasted your key somewhere public? Make a new one."; confirm dialog "Generate a new stream key?", then POST, toast, `router.refresh()`), four folded questions (turn the station on first; Shoutcast doesn't work; does a new key kick me off; is this connection private) and a "Still not connecting?" link to `/help/my-encoder-wont-connect` (new tab). After rotating, the card holds the response's `{key, rotated_at}` as an override and reveals the key, dropping the override when the refreshed prop's `rotated_at` is at or after it (handles out-of-order refreshes).
 
-**`EncoderConnection`** (`components/dashboard/EncoderConnection.tsx`, shared by the settings card and the go-live dialog): presentational. Five rows (Server, Port, Mount, Username, Password) each with copy (clipboard; toast on failure); Password is masked as 24 bullets until the eye toggle (`revealed` is controlled by the parent). `password === null` renders "Unavailable" with the hint that the server can no longer read the key and to choose New key, with no copy button. A collapsible "Where these go in BUTT, Mixxx and ffmpeg" gives per-client steps (BUTT mountpoint without the leading slash; Mixxx host without `http://`; ffmpeg command with a literal `KEY` placeholder, not the real key). Footer link opens `/help/my-encoder-wont-connect` in a new tab.
+**`EncoderConnection`** (`components/dashboard/EncoderConnection.tsx`, now used only by the settings card): presentational. Five rows on inset wells (Server, Port, Mount, Username, Password), each with a Copy button ("Copied" for a moment; toast on clipboard failure); Password is masked as 16 bullets with a Show/Hide button (`revealed` is controlled by the parent). `password === null` renders "Unavailable" with the hint that the server can no longer read the key and to choose New key, with no copy button. A folded "Where these go in BUTT, Mixxx and ffmpeg" gives per-client steps (BUTT mountpoint without the leading slash; Mixxx host without `http://`; ffmpeg command with a literal `KEY` placeholder, not the real key).
 
-**Web go-live dialog** (`GoLiveTrigger.tsx`, opened from the station power card): the picker shows "From a broadcast app" when `encoderLocked || station.encoder !== undefined` (hidden only when the plan allows it but no router is deployed), with a Pro badge when locked. The encoder view has three states: locked (Request access), unavailable, or the connection panel with `ConnectionWatcher` plus `EncoderConnection` plus a link to Settings `#encoder`. `ConnectionWatcher` polls `useStationStatus(slug, true, 2000)` (every 2 s) and shows: connected ("{client} is connected — {station} is live", fires `onStatusChanged` once per connection); "Something else is already broadcasting" when a non-external session is open; "off air" with a "Put it on air" button (POST `/start`) or "Starting..." (`startRequested`); or "on air. Waiting for your encoder..." with an indeterminate bar. Connected/other-live are guarded by `running` so a stale session row on a stopped station is ignored. Rotation is deliberately not offered here.
+**Going live from an encoder**: there is no encoder path in the dashboard's go-live flow any more (the old `GoLiveTrigger` picker and its `ConnectionWatcher` were removed with the 2026-10-01 redesign). Go live is the browser studio; an encoder simply connects with the settings values while the station is on.
 
-**Power card** (`StationPower.tsx`): `liveFromEncoder = broadcasterAttached && live_source.type === 'external'`; label "Live from {client}" or "Live from an encoder"; hint "Stop broadcasting in {client} to end the show."; the studio button is replaced by "Hear your stream". `station_is_live_external` from a stop opens the "Cut off this broadcast?" dialog (which retries with `force`), telling the owner to press New key afterwards.
+**Overview hero** (`stationHero`): `liveFromEncoder = broadcasterAttached && live_source.type === 'external'`; title "You're live from {client}." (or "your DJ software"); text "Stop broadcasting in {client} to end the show."; the studio button is replaced by "Hear your stream ↗", and the stop button stays. `station_is_live_external` from a stop opens "Cut off this broadcast?" (Leave it on air / Cut it off, which retries with `force`), telling the owner to choose New key in settings afterwards. The status band says "You're live from your DJ software."
 
 **Pricing** lists encoder ingest as a Pro feature (`components/homepage/PricingSection.tsx`); Help has `broadcast-from-butt-or-mixxx` and `my-encoder-wont-connect` (`client/app/(marketing)/help/_content/`). `UserResource` exposes `plan.encoder_enabled` to the client.
 
@@ -255,11 +256,11 @@ After harbor: `buffer(buffer=2., max=10.)`, then straight into `fallback(track_s
 
 1. **Rotation leaves an on-air encoder connected, but probably silences its titles.** Harbor authenticates the audio socket once. The metadata requests (connections 5 and 6) also carry `Authorization` and, per the router comments and `verify-ingest.sh` check 4, are authenticated by harbor too. After a rotation the on-air encoder keeps sending audio with the old key while its title updates start getting 401. (Whether harbor really authenticates the metadata requests, and whether it calls the auth callback for them, is Liquidsoap runtime behaviour: the repo only shows that `verify-ingest.sh` check 4 sends `Authorization` and reports a 401 as "harbor authenticates this request too". Needs a live station to confirm.)
 2. **Metrics may count more than connects.** If harbor calls `harbor_auth` for the metadata updates, `allowed{method="key"}` counts one per track change as well as one per audio connect. The counter is "auth calls", not "broadcasts".
-3. **`address` in harbor-auth refusals is always the router's bridge IP** for encoders (raw TCP splice, no PROXY protocol). A leaked-key incident is a wall of refusals from one 172.x address. The real IP exists only in the router's `ingest` access log (`$remote_addr`). Documented in `HarborAuthController::refuse()` and `nginx.conf`.
-4. **A stopped station looks like a wrong key.** The router closes the connection with no reply on DNS failure or refusal; the encoder shows a socket error. The dashboard says so in the settings card and the go-live dialog ("is off air") and the help page `my-encoder-wont-connect` says an encoder does not switch the station on, but nothing in the router reports it. Encoders also never start a station.
+3. **`address` in harbor-auth refusals is always the router's bridge IP** for encoders (raw TCP splice, no PROXY protocol). A leaked-key incident is a wall of refusals from one 172.x address. The real IP exists only in the router's `ingest` access log (`$remote_addr`). Documented in `HarborAuthController::refuse()` and `nginx.conf`. For the same reason an encoder broadcast's `stream_sessions.ip_address` and `country` stay null (they come from `BroadcastOrigin`, i.e. the broadcast-token request, which only the studio and the app make), so the admin stations list shows no IP for it.
+4. **A stopped station looks like a wrong key.** The router closes the connection with no reply on DNS failure or refusal; the encoder shows a socket error. The dashboard says so in the settings card's first folded question ("Turn the station on first?") and the help page `my-encoder-wont-connect` says an encoder does not switch the station on, but nothing in the router reports it. Encoders also never start a station.
 5. **Credential-less SOURCE is not counted.** Connection 2 (and any scanner sending a bare `SOURCE`) is answered 401 by harbor itself and never reaches Laravel, so `refused{method="none"}` undercounts probing.
 6. **The token path skips the plan check on purpose**, but it means "plan" refusals only ever describe stream keys. Free stations still hold a (unused) stream key: minted at creation for every plan.
-7. **Key is stored reversibly and shown in plaintext** to the owner on three screens (settings, go-live, overview via `show()`), and travels in `Authorization: Basic` over an unencrypted TCP port (the card says so). No TLS ingest exists.
+7. **Key is stored reversibly and shown in plaintext** to the owner on Station settings (and in every `show()` payload), and travels in `Authorization: Basic` over an unencrypted TCP port (the card says so). No TLS ingest exists.
 8. **One key per station, no per-DJ keys, no revocation short of replacing it.** Anyone holding the key can broadcast; there is no allowlist and no IP restriction.
 9. **`limit_conn 10` per source IP** on 8000. A shared NAT (campus, venue) with several encoders could hit it, and the symptom is the same intermittent `shout_open() failed: err=Socket error` as a bad key.
 10. **Router config is not part of a normal deploy.** `nginx.conf`/`ingest.js` are bind-mounted; `deploy-native.sh` only prints a manual step (`setup-native.sh`), and the restart that applies it drops on-air encoders and the studio proxy too. `setup-native.sh` runs `up -d --build`; whether compose recreates the container for a bind-mounted file edit alone was not tested, so confirm the router actually restarted. The nginx and njs versions must be bumped together or the container will not start and the studio path goes down too.

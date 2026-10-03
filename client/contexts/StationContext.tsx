@@ -28,6 +28,8 @@ export interface CurrentStation {
   artwork_url: string | null
   genre: string | null
   description: string | null
+  /** IANA zone, for the top bar's clock; null when the station has none. */
+  timezone: string | null
 }
 
 const StationContext = createContext<CurrentStation | null>(null)

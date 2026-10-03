@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { IconCheck } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import {
   Dialog,
   DialogContent,
@@ -10,9 +10,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { NotificationIcon } from "@/components/dashboard/NotificationIcon"
-import { resolveNotificationAction, notificationLevelClass } from "@/lib/notifications"
+} from "@/components/ds/Dialog"
+import { resolveNotificationAction } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/interfaces/Notification"
 
@@ -37,7 +36,7 @@ interface NotificationDetailDialogProps {
  * there was previously nowhere to put it. Expanding in place inside a 400px
  * popover that already scrolls would push the rest of the feed around.
  *
- * Rendered as a SIBLING of the popover, never inside it — see NotificationBell.
+ * Rendered as a SIBLING of the popover, never inside it — see UpdatesMenu.
  */
 export function NotificationDetailDialog({
   notification,
@@ -63,31 +62,23 @@ export function NotificationDetailDialog({
           close animation, so an unguarded body would spend that frame reading
           a payload that is already gone. */}
       {notification && (
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <span className={cn("shrink-0", notificationLevelClass(notification.level))}>
-                <NotificationIcon name={notification.icon} size={20} />
-              </span>
-
-              <DialogTitle className="text-left text-base">{notification.title}</DialogTitle>
-            </div>
+            <DialogTitle>{notification.title}</DialogTitle>
 
             {notification.body && (
               // Unclamped, unlike the row. Being able to read the whole
               // sentence is half the reason this dialog exists.
-              <DialogDescription className="pt-1 text-left text-sm leading-relaxed">
+              <DialogDescription>
                 {notification.body}
               </DialogDescription>
             )}
           </DialogHeader>
 
-          {/* A hairline section, not a tinted box: the dialog is already the
-              panel, and a card inside it is one surface too many. */}
           {detail && (
-            <div className="border-t border-border pt-4">
+            <div className="rounded-well bg-card p-4">
               {detail.heading && (
-                <p className="text-xs font-medium text-muted-foreground">
+                <p className="eyebrow text-text-faint">
                   {detail.heading}
                 </p>
               )}
@@ -100,7 +91,7 @@ export function NotificationDetailDialog({
                   <li key={point} className="flex gap-2 text-sm leading-relaxed">
                     <IconCheck
                       size={15}
-                      className="mt-0.5 shrink-0 text-violet-muted"
+                      className="mt-0.5 shrink-0 text-muted-foreground"
                     />
                     <span>{point}</span>
                   </li>
@@ -112,13 +103,13 @@ export function NotificationDetailDialog({
           {behaviour.kind !== "none" && (
             <DialogFooter>
               {behaviour.external ? (
-                <Button asChild className="w-full sm:w-auto">
+                <Button size="lg" asChild>
                   <a href={behaviour.href} target="_blank" rel="noopener noreferrer" onClick={onClose}>
                     {label}
                   </a>
                 </Button>
               ) : (
-                <Button asChild className="w-full sm:w-auto">
+                <Button size="lg" asChild>
                   {/* Closing on click rather than on route change: the dialog
                       is not inside the page being navigated away from, so
                       nothing unmounts it on its own. */}

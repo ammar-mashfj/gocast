@@ -1,13 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useConfirm } from "@/components/ui/use-confirm"
+import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { IconCheck, IconLoader2, IconRefresh } from "@tabler/icons-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { Button } from "@/components/ds/Button"
+import { Disclosure } from "@/components/ds/Disclosure"
+import { ProTag } from "@/components/ds/Tag"
 import { EncoderConnection } from "@/components/dashboard/EncoderConnection"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { StationEncoder } from "@/interfaces/Station"
@@ -88,6 +88,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
       title: "Generate a new stream key?",
       description: "Your encoders keep working until they next reconnect, and then they need the new key.",
       confirmLabel: "Generate new key",
+      keepLabel: "Keep current key",
     })
     if (!ok) return
 
@@ -115,137 +116,97 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
     }
   }
 
-  // Free plans get the card LOCKED, not hidden. It is a Pro selling point, and
-  // a feature nobody can see sells nothing — the same call StationShare makes
-  // for the embed.
+  const password = rotated ? rotated.key : encoder?.password ?? null
+
+  // Free plans get the fold LOCKED, not hidden: it's a Pro selling point, and
+  // a feature nobody can see sells nothing.
   if (locked) {
     return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">
-            Broadcast from your own software
-            <Badge variant="pro" className="ml-2 align-middle">Pro</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Go live from BUTT, Mixxx, RadioDJ, Audio Hijack — any encoder that can
-            send to an Icecast server — instead of the browser studio. Your
-            station gets its own server address and stream key, and you can keep
+      <Disclosure
+        variant="card"
+        title={
+          <span className="inline-flex items-center gap-2">
+            Use your own DJ software <ProTag />
+          </span>
+        }
+        description="Go live from BUTT, Mixxx or RadioDJ instead of the browser."
+      >
+        <div className="flex flex-col items-start gap-3">
+          <p>
+            Any software that can send to an Icecast server can go live on {stationName}, with its own server address and stream key, so you keep
             broadcasting with the tools you already know.
           </p>
-          <div>
-            {/* Outline: on this page the section saves are the filled ones.
-                "Request", not "Upgrade" — Pro is granted by hand. */}
-            <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
-              {proRequest.requested && <IconCheck size={16} data-icon="inline-start" />}
-              <span>{proRequest.requested ? "Request sent" : "Request Pro"}</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          {/* "Request", not "Upgrade" — Pro is granted by hand. */}
+          <Button variant="pro" onClick={proRequest.open} disabled={proRequest.requested}>
+            {proRequest.requested ? "Request sent" : "Request Pro"}
+          </Button>
+        </div>
+      </Disclosure>
     )
   }
-
-  // The plan allows it, but this deployment has no ingest router published, so
-  // there is no honest address to print.
-  if (!encoder) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Broadcast from your own software</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            External encoder ingest isn&apos;t available on this server yet. The
-            browser studio still works for {stationName}.
-          </p>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  // The server holds a key it can no longer decrypt — an APP_KEY rotation.
-  // Everything else on the card is still correct and still worth showing; only
-  // the credential is gone, and "New key" above mints a working one.
-  // The just-rotated value wins until the prop catches up. It is also the way
-  // out of the unreadable-key state EncoderConnection renders: rotating mints
-  // a key the server CAN read, and the card has to stop saying otherwise the
-  // moment it does.
-  //
-  // A ternary rather than `rotated.key ?? encoder.password`, so that once a
-  // rotation has happened the old key can never come back on screen. It is
-  // dead — the server replaced it — and "Unavailable" is a worse answer than a
-  // working key but a much better one than a credential that will fail at the
-  // next reconnect with nothing to explain why. Only reachable if the rotate
-  // response somehow carried no key at all, which minting one makes impossible.
-  const password = rotated ? rotated.key : encoder.password
 
   return (
-    <Card id="encoder" className="scroll-mt-6">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-medium">Broadcast from your own software</CardTitle>
-        <Button variant="ghost" size="sm" onClick={rotate} disabled={rotating}>
-          {rotating ? (
-            <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
-          ) : (
-            <IconRefresh size={14} data-icon="inline-start" />
-          )}
-          <span>New key</span>
-        </Button>
-      </CardHeader>
+    <Disclosure variant="card" title="Use your own DJ software" description="Optional. Skip this if you go live from the browser.">
+      {!encoder ? (
+        // The plan allows it, but this deployment has no ingest router
+        // published, so there is no honest address to print.
+        <p>Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <p>
+            Pick <span className="font-semibold text-foreground">Icecast 2</span> as the server type and fill in these five values. Works with BUTT,
+            Mixxx, RadioDJ, Audio Hijack and ffmpeg.
+          </p>
 
-      <CardContent className="flex flex-col gap-4">
-        {/* Said first so that someone who opened Settings for something else
-            knows they can scroll past five server fields: most stations never
-            need them. */}
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Optional, for desktop DJ apps. If you go live from the browser studio,
-          you can skip this.
-        </p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Set your encoder&apos;s server type to{" "}
-          <span className="text-foreground font-medium">Icecast 2</span> and fill in
-          these five values. Works with BUTT, Mixxx, RadioDJ, Audio Hijack, ffmpeg —
-          any encoder that can send to an Icecast server.
-        </p>
+          <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
 
-        <EncoderConnection
-          encoder={encoder}
-          password={password}
-          revealed={revealed}
-          onToggleReveal={() => setRevealed((r) => !r)}
-        />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-body-sm text-text-faint">Pasted your key somewhere public? Make a new one.</span>
+            <Button size="sm" variant="ghost" onClick={rotate} disabled={rotating}>
+              {rotating ? "Making a new key…" : "New key"}
+            </Button>
+          </div>
 
-        {/* Each of these is a support conversation that happens without it. */}
-        <ul className="border-t border-border pt-4 flex flex-col gap-2 list-none p-0 m-0 text-sm text-muted-foreground leading-relaxed">
-          <li>
-            <span className="text-foreground">Switch {stationName} on first.</span>{" "}
-            Press Start AutoDJ on the station page, then connect. Your encoder
-            connects to the station itself, so there is nothing listening while
-            it is off air.
-          </li>
-          <li>
-            <span className="text-foreground">Not Shoutcast.</span> Shoutcast
-            can&apos;t send the Mount value above, so it never reaches your
-            station. Pick Icecast 2 even if your encoder defaults to the other.
-          </li>
-          <li>
-            <span className="text-foreground">A new key doesn&apos;t kick anyone off.</span>{" "}
-            A broadcast already on air keeps running; the new key applies the next
-            time an encoder connects. To cut one off now, press Turn station off on
-            the station page and confirm, then come back here for a new key so
-            whoever was broadcasting cannot reconnect.
-          </li>
-          <li>
-            <span className="text-foreground">This connection isn&apos;t encrypted.</span>{" "}
-            Your encoder sends the key as plain text. Treat it like a password on
-            a shared network, and generate a new one if you ever paste it
-            somewhere public.
-          </li>
-        </ul>
-      </CardContent>
+          {/* Each of these is a support conversation that happens without it. */}
+          <div className="flex flex-col gap-1.5">
+            {TIPS.map((tip) => (
+              <Disclosure key={tip.q} title={tip.q}>
+                {tip.a}
+              </Disclosure>
+            ))}
+          </div>
+
+          {/* New tab, like every help link — see HelpLink. */}
+          <Link
+            href="/help/my-encoder-wont-connect"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-body-sm text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+          >
+            Still not connecting? Five things cause nearly all of it →
+          </Link>
+        </div>
+      )}
       {confirmDialog}
-    </Card>
+    </Disclosure>
   )
 }
+
+const TIPS = [
+  {
+    q: "Turn the station on first?",
+    a: "Yes. Press Start AutoDJ on the Overview, then connect. Your software connects to the station itself, so there’s nothing to connect to while it’s off air.",
+  },
+  {
+    q: "Shoutcast doesn’t work?",
+    a: "Shoutcast can’t send the Mount value, so it never reaches your station. Choose Icecast 2 even if your software defaults to Shoutcast.",
+  },
+  {
+    q: "Does a new key kick me off?",
+    a: "No. A show already on air keeps running; the new key applies the next time your software connects. To cut someone off now, turn the station off on the Overview, then make a new key here so they can’t reconnect.",
+  },
+  {
+    q: "Is this connection private?",
+    a: "It isn’t encrypted. Your software sends the key as plain text, so treat it like a password on a shared network, and make a new one if you ever paste it somewhere public.",
+  },
+]

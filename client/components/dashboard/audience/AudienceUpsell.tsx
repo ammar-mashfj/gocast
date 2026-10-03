@@ -1,6 +1,8 @@
 "use client"
 
-import { IconLock, IconSparkles, IconCheck } from "@tabler/icons-react"
+import { IconCheck } from "@tabler/icons-react"
+import { Button } from "@/components/ds/Button"
+import { ProTag } from "@/components/ds/Tag"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { PRO_AVAILABLE, PRO_PRICE_USD } from "@/interfaces/Plan"
 
@@ -32,7 +34,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
   const request = useProRequest()
 
   return (
-    <div className="rounded-xl border border-white/[0.09] bg-panel overflow-hidden">
+    <div className="overflow-hidden rounded-card bg-card">
       <div>
         {/* Decorative: the real message is the copy below, and a screen reader
             reading out twenty invented numbers would be actively misleading. */}
@@ -40,7 +42,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           {SAMPLE.map((height, i) => (
             <div
               key={i}
-              className="flex-1 rounded-t-sm bg-primary"
+              className="flex-1 rounded-t-swatch bg-on-air"
               style={{ height: `${height}%` }}
             />
           ))}
@@ -48,49 +50,42 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
       </div>
 
       <div className="flex flex-col gap-6 p-5 md:flex-row md:items-center md:gap-8 md:p-6">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <IconLock size={15} className="text-pro-text shrink-0" />
-            <h2 className="text-lg font-medium">See who&apos;s listening to {stationName}</h2>
-          </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
-            We&apos;ve been recording your audience since the day this station went up —
+        <div className="min-w-0 flex-1">
+          <ProTag />
+          <h2 className="mt-2.5 font-display text-title-sm">See who’s listening to {stationName}</h2>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-pretty text-muted-foreground">
+            We’ve been recording your audience since the day this station went up —
             every listener, every country, every day. Pro unlocks the last 90 days of
-            it, so it&apos;s all there the moment you upgrade rather than starting from
+            it, so it’s all there the moment you upgrade rather than starting from
             today.
           </p>
           <ul className="mt-4 flex flex-col gap-1.5 list-none p-0">
             {SELLING_POINTS.map((point) => (
               <li key={point} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" />
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-muted-foreground" />
                 {point}
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-[11px] text-muted-foreground">
+          <p className="mt-4 text-caption text-text-faint">
             Chart above is a sample, not your station.
           </p>
         </div>
 
-        <div className="shrink-0 md:w-56 md:border-l md:border-white/[0.06] md:pl-8">
+        <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-semibold">${PRO_PRICE_USD}</span>
+            <span className="font-display text-title-lg">${PRO_PRICE_USD}</span>
             <span className="text-sm text-muted-foreground">/ month</span>
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your history stays if you downgrade."
               : "Free while Pro is in beta — no card. Your history keeps building either way."}
           </p>
-          <button
-            type="button"
-            onClick={request.open}
-            disabled={request.requested}
-            className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
-          >
-            {request.requested ? <IconCheck size={14} /> : <IconSparkles size={14} />}
-            <span>{request.requested ? "Requested" : "Upgrade to Pro"}</span>
-          </button>
+          <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
+            {request.requested && <IconCheck />}
+            {request.requested ? "Requested" : "Request Pro"}
+          </Button>
         </div>
       </div>
     </div>

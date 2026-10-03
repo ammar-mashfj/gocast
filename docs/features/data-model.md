@@ -1,6 +1,6 @@
 ---
 feature: Data model (database schema, models, seeded plans)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/database/migrations/0001_01_01_000000_create_users_table.php
   - api/database/migrations/0001_01_01_000001_create_cache_table.php
@@ -140,7 +140,10 @@ sources:
   - api/app/Providers/AppServiceProvider.php
   - client/interfaces/Station.ts
   - client/interfaces/User.ts
-fingerprint: cd5082dd365fa441
+  - api/database/migrations/2026_09_30_120000_add_origin_to_stream_sessions_table.php
+  - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
+  - api/app/Services/BroadcastOrigin.php
+fingerprint: d491feab50344f5e
 ---
 
 # Data model
@@ -327,11 +330,14 @@ A broadcaster holding the microphone, not an audience member. Rows exist only fo
 | `started_at` | timestamp | |
 | `ended_at` | timestamp null, indexed | null = currently live |
 | `peak_listeners` | uint default 0 | raised by `listeners:sweep` via a conditional `UPDATE ... WHERE peak_listeners < count` |
+| `peak_at` | timestamp null | set in the same UPDATE: when the peak was first reached (migration `2026_10_01_120000`). Null when nobody listened, and for rows before it |
 | `source_type` | enum(`browser`,`electron`,`external`) default `browser` | `StreamSessionController` only accepts `browser`/`electron` from clients; `external` is written by `StationEventController` when the container reports `via=external` |
 | `client` | string(255) null | encoder software name, trimmed, `''` becomes null |
+| `ip_address` | string(45) null | the broadcaster's IP, from `BroadcastOrigin` (cached from the `POST /auth/broadcast-token` request for 6 h, attached when harbor opens the session). Null for encoders, which never ask for a token. Admin monitoring only (migration `2026_09_30_120000`) |
+| `country` | char(2) null | same source, via `GeoResolver` |
 | `created_at`, `updated_at` | | |
 
-Dropped: `total_listener_minutes` (2026-08-30; nothing ever wrote it). Model: `$guarded = []`, `HasUuids`, casts `started_at`, `ended_at` datetime, `peak_listeners` integer.
+Dropped: `total_listener_minutes` (2026-08-30; nothing ever wrote it). Model: `$guarded = []`, `HasUuids`, casts `started_at`, `ended_at`, `peak_at` datetime, `peak_listeners` integer.
 
 ### listener_sessions
 
@@ -380,7 +386,7 @@ Append-only timeline; never load-bearing (`StationEvent::record()` swallows its 
 |---|---|---|
 | `id` | bigint pk | |
 | `station_id` | uuid FK, cascade | |
-| `type` | string(32) | vocabulary in `StationEvent::TYPES` (13 values: `started, stopped, boot, shutdown, icecast_connected, icecast_disconnected, icecast_error, live_connected, live_disconnected, track_uploaded, track_deleted, playlist_changed, stream_key_rotated`; the 7 container ones are `CONTAINER_TYPES`) |
+| `type` | string(32) | vocabulary in `StationEvent::TYPES` (15 values: `started, stopped, boot, shutdown, icecast_connected, icecast_disconnected, icecast_error, live_connected, live_disconnected, track_uploaded, track_deleted, playlist_changed, stream_key_rotated, studio_drop, uplink_check`; the 7 container ones are `CONTAINER_TYPES`; `studio_drop` and `uplink_check` are reported by the web studio, source `owner`) |
 | `source` | string(16) | `container`, `owner`, `admin`, `system` |
 | `causer_type`, `causer_id` | string null | morph class and key as strings, no FK |
 | `properties` | json null | cast `array`; `[]` is stored as null |

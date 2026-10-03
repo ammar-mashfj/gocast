@@ -173,7 +173,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Broadcasting with nothing but a microphone and a tab — the permission prompt, the handover, and the one thing that will cut you off.",
     category: "going-live",
-    updated: "2026-09-21",
+    updated: "2026-10-01",
     Body: GoLiveBrowserBody,
     related: ["using-the-studio", "nobody-can-hear-my-station"],
   },

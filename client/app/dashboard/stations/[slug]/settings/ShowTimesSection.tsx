@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Card, CardHeader } from "@/components/ds/Card"
 import { useMounted } from "@/hooks/useMounted"
 import type { Station } from "@/interfaces/Station"
-import { TimezoneCombobox } from "../TimezoneCombobox"
+import { TimezoneCombobox } from "./TimezoneCombobox"
 import { ShowTimesEditor, toShowRow, type ShowRow } from "./ShowTimesEditor"
 
 /** The rows as the server would store them — keys are client-only. */
@@ -56,28 +56,31 @@ export function ShowTimesSection({ station }: { station: Station }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <p className="text-sm text-muted-foreground max-w-[62ch]">
-        When you&apos;re usually live. They appear on your player page so listeners know when to
-        come back. Nothing starts on its own: you still go live from the studio.
-      </p>
+    <Card id="show-times">
+      <CardHeader
+        title="When you’re usually live"
+        description="Shown on your player page so listeners know when to come back. Nothing starts on its own — you still go live from the studio."
+      />
 
-      <Field className="max-w-md">
-        <FieldLabel htmlFor="station-timezone">Station timezone</FieldLabel>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="station-timezone" className="text-body-sm font-semibold text-muted-foreground">
+          Station timezone
+        </label>
         <TimezoneCombobox id="station-timezone" value={timezone} onChange={setChosen} />
-        <FieldDescription>
-          Your show times and your{" "}
-          <Link href={`/dashboard/stations/${station.slug}/schedule`} className="underline underline-offset-2">
-            AutoDJ schedule
-          </Link>{" "}
-          are both written in this clock. Listeners see show times in their own.
-        </FieldDescription>
-        {timezoneDirty && (
-          <FieldDescription role="status" className="text-foreground">
-            Not saved yet. Press Save below to apply it.
-          </FieldDescription>
-        )}
-      </Field>
+        <p className="text-body-sm text-text-faint">
+          {timezoneDirty ? (
+            <span role="status" className="text-foreground">Not saved yet. Press Save below to apply it.</span>
+          ) : (
+            <>
+              Your show times and your{" "}
+              <Link href={`/dashboard/stations/${station.slug}/schedule`} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                AutoDJ schedule
+              </Link>{" "}
+              use this clock. Listeners see show times in their own.
+            </>
+          )}
+        </p>
+      </div>
 
       <ShowTimesEditor
         slug={station.slug}
@@ -87,6 +90,6 @@ export function ShowTimesSection({ station }: { station: Station }) {
         dirty={dirty}
         onSaved={onSaved}
       />
-    </div>
+    </Card>
   )
 }

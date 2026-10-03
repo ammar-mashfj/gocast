@@ -1,6 +1,6 @@
 ---
 feature: Web app shared frontend layer (Next.js shell, config, providers, hooks, UI kit)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - client/package.json
   - client/next.config.ts
@@ -81,7 +81,6 @@ sources:
   - client/components/ui/slider.tsx
   - client/components/ui/tooltip.tsx
   - client/components/ui/sonner.tsx
-  - client/components/ui/use-confirm.tsx
   - client/components/ui/input.tsx
   - client/components/ui/textarea.tsx
   - client/components/ui/switch.tsx
@@ -91,7 +90,40 @@ sources:
   - client/components/ui/avatar.tsx
   - api/app/Http/Middleware/UseAuthTokenCookie.php
   - api/config/cors.php
-fingerprint: 5a518b28afa1a9c9
+  - client/app/dashboard.css
+  - client/vitest.config.mts
+  - client/vitest.setup.ts
+  - client/contexts/StationStatusContext.tsx
+  - client/hooks/useStationStatusPoll.ts
+  - client/hooks/useStationPower.ts
+  - client/hooks/useCountUp.ts
+  - client/hooks/useAccessRequest.ts
+  - client/hooks/useEmailVerification.ts
+  - client/components/ds/Button.tsx
+  - client/components/ds/Card.tsx
+  - client/components/ds/ChoiceCards.tsx
+  - client/components/ds/ConfirmDialog.tsx
+  - client/components/ds/CopyField.tsx
+  - client/components/ds/DayToggle.tsx
+  - client/components/ds/Dialog.tsx
+  - client/components/ds/Disclosure.tsx
+  - client/components/ds/Field.tsx
+  - client/components/ds/List.tsx
+  - client/components/ds/Menu.tsx
+  - client/components/ds/Notice.tsx
+  - client/components/ds/PageHeader.tsx
+  - client/components/ds/Progress.tsx
+  - client/components/ds/Segmented.tsx
+  - client/components/ds/Select.tsx
+  - client/components/ds/Stat.tsx
+  - client/components/ds/StatusBand.tsx
+  - client/components/ds/StatusLamp.tsx
+  - client/components/ds/Switch.tsx
+  - client/components/ds/Tag.tsx
+  - client/components/dashboard/shell/DashboardShell.tsx
+  - client/components/dashboard/ProRequestDialog.tsx
+  - client/lib/navigation.ts
+fingerprint: 44b2968de0044531
 ---
 
 # Web app shared frontend layer
@@ -104,11 +136,11 @@ The one thing people get wrong: **the browser never holds a readable auth token.
 
 | Item | Value | Source |
 |---|---|---|
-| Scripts | `dev` (`next dev`), `build`, `start`, `lint` (`eslint`), `analyze` (`ANALYZE=true next build`), `test:e2e`, `test:e2e:ui` (Playwright) | `package.json` |
+| Scripts | `dev` (`next dev`), `build`, `start`, `lint` (`eslint`), `analyze` (`ANALYZE=true next build`), `test:e2e`, `test:e2e:ui`, `test:visual`, `test:help-shots` (Playwright; the last two set `E2E_CAPTURE=1`), `test` / `test:watch` (Vitest) | `package.json` |
 | Runtime deps of note | `@sentry/nextjs`, `axios`, `hls.js`, `laravel-echo` + `pusher-js`, `radix-ui` (single umbrella package), `sonner`, `next-themes`, `class-variance-authority`, `tailwind-merge`, `clsx`, `@dnd-kit/*`, `music-metadata`, `qrcode.react`, `lucide-react`, `@tabler/icons-react`, `tw-animate-css` | `package.json` |
-| Dev deps | `@next/bundle-analyzer`, `@playwright/test`, `@tailwindcss/postcss`, `@tailwindcss/typography`, `shadcn`, `eslint` 9 + `eslint-config-next` 16.2.3 | `package.json` |
+| Dev deps | `@next/bundle-analyzer`, `@playwright/test`, `@tailwindcss/postcss`, `@tailwindcss/typography`, `shadcn`, `eslint` 9 + `eslint-config-next` 16.2.3, `vitest` 4 + `jsdom` + `@testing-library/{react,user-event,jest-dom}` | `package.json` |
 | TypeScript | `strict`, `moduleResolution: bundler`, `noEmit`, target ES2017, path alias `@/*` -> `./*` | `tsconfig.json` |
-| ESLint | flat config: `core-web-vitals` + `typescript` presets; ignores `.next`, `out`, `build`, `next-env.d.ts`, `public/**` | `eslint.config.mjs` |
+| ESLint | flat config: `core-web-vitals` + `typescript` presets, plus `dashboardGuardrails` on `app/dashboard`, `components/{dashboard,ds,studio}` (no arbitrary design values, no default radius/palette steps, no HTML entities in JSX text, no `components/ui` import except skeleton/sidebar/slider/scroll-area/avatar; details in [Dev environment and testing](dev-environment-and-testing.md)); ignores `.next`, `out`, `build`, `next-env.d.ts`, `public/**` | `eslint.config.mjs` |
 | PostCSS | one plugin, `@tailwindcss/postcss`. No `tailwind.config` file: Tailwind 4, all tokens are in CSS (`components.json` has `"config": ""`) | `postcss.config.mjs` |
 | shadcn | style `radix-mira`, base colour neutral, CSS variables, icon library `lucide`, RSC on, aliases `@/components`, `@/components/ui`, `@/lib/utils`, `@/hooks` | `components.json` |
 | Agent rule | `client/AGENTS.md` (via `CLAUDE.md`) says this Next has breaking changes and to read `node_modules/next/dist/docs/` first | `client/CLAUDE.md` |
@@ -142,7 +174,7 @@ This is a UX gate, not security: it trusts a client-writable `user` cookie and o
 
 ## Root layout (app/layout.tsx)
 
-- Server component. Fonts (all `next/font/google`): `body` and `display` are **both** `Bricolage_Grotesque` (latin, `opsz` axis, `display: swap`) bound to `--font-body` and `--font-display-face`; `mono` is IBM Plex Mono 400-700 (`--font-mono-face`, `preload: false`); IBM Plex Sans (latin + cyrillic) and IBM Plex Sans Arabic (`--font-plex-sans`, `--font-plex-arabic`, both `preload: false`) are glyph fallbacks for non-Latin station and track names. `globals.css` maps them to Tailwind `--font-sans`, `--font-display`, `--font-heading`, `--font-mono`. The previous body face was Onest and mono JetBrains Mono (per the layout comment); roll back by restoring those two constructors.
+- Server component. Fonts (all `next/font/google`): `body` is **Onest** (`--font-body`), `display` is Bricolage Grotesque (`--font-display-face`), `mono` is JetBrains Mono (`--font-mono-face`, `preload: false`); IBM Plex Mono 400–700 (`--font-plex-mono`) and IBM Plex Sans Arabic (`--font-plex-arabic`, unicode-range limited), both `preload: false`, are the dashboard's mono and Arabic fallback. `globals.css` maps them to Tailwind `--font-sans`, `--font-display`, `--font-heading`, `--font-mono`; inside the dashboard, `app/dashboard.css` re-points `--font-body` at Bricolage (+ Plex Arabic) and `--font-mono-face` at Plex Mono, so marketing never downloads them.
 - `<html lang="en" class="dark h-full antialiased font-sans ...font variables">`. The `dark` class is hardcoded. `<body class="min-h-full flex flex-col">` renders `{children}` and one `<Toaster />`.
 - Metadata: `metadataBase` from `env.appUrl` (undefined if unset), title default "GoCast — Start an Internet Radio Station in Your Browser" with template `%s — GoCast`, OG and Twitter cards using `DEFAULT_OG_IMAGE` (`/og-image.jpg`, 1731x909), `@gocastfm`. No `alternates` on purpose (a root canonical of `/` marked every inheriting page a duplicate of the homepage). Viewport: `themeColor #8b5cf6`, `colorScheme: "dark"`.
 - **Production-only** (`NODE_ENV === "production"`), all `afterInteractive`: Umami (`cloud.umami.is`, website id in source), Google Analytics gtag (`G-44FJYHJWQR`), Microsoft Clarity (`clarity.ms`, project id in source), and an Organization + WebSite + SoftwareApplication JSON-LD block in `<body>` (with `<` escaped to `<`). All four load for every route including `/dashboard`. No consent banner exists in the code.
@@ -162,36 +194,53 @@ This is a UX gate, not security: it trusts a client-writable `user` cookie and o
 
 ## Design tokens and theming (app/globals.css)
 
-- Imports `tailwindcss`, `tw-animate-css`, `shadcn/tailwind.css`, plugin `@tailwindcss/typography`. `@custom-variant dark (&:is(.dark *))`.
+- Imports `tailwindcss`, `tw-animate-css`, `shadcn/tailwind.css`, `./dashboard.css`, plugin `@tailwindcss/typography`. `@custom-variant dark (&:is(.dark *))`. (The round-1 `ds:` variant is gone.)
+- **Dashboard scope** (`app/dashboard.css`): every brand and state colour in `globals.css` reads a `--ds-*` variable first with the marketing value as fallback; the dashboard block `.dark:has([data-surface="dashboard"])` sets the `--ds-*` values (the warm GoCast Design System palette), remaps the shadcn neutrals, sets `--radius: 0.75rem`, the fonts above, `scroll-padding-top: var(--chrome-h)` and scoped toast styles. It also declares the design-system tokens (`@theme`): type scale `text-hero/page/display/title-lg/title/title-sm/heading/lead/body/body-sm/caption/micro/meter-sm/meter/meter-lg/meter-xl`, radii `rounded-hero/card/panel/well/button-xl/button/control/item/chip/segment/tag/swatch`, `shadow-panel`, `max-w-page`, `px-gutter`, surfaces `bg-surface-inset/raised/control/strong`, `border-line/line-strong`, `bg-error` (#FF8177, permanent deletes only), and utilities `eyebrow`, `eyebrow-sm`, `border-stroke` (1.5px), `grille`/`grille-live` (the talk pad), `code-spaced`, `.surface-live`. `lib/utils.ts` registers all of these with `extendTailwindMerge` so `cn()` doesn't drop them.
 - **Two token sets, one in use.** `:root` holds an oklch light palette (`color-scheme: light`); `.dark` holds the real palette: background `#08080d`, card `#101018`, popover `#13131d`, primary `#7f4ff0` (deliberately darker than brand violet `#8b5cf6` for AA with white text), ring `#c4b5fd`, border `rgb(255 255 255 / 9%)`, input 13%, sidebar `#0b0b12`. Because `<html>` always has `class="dark"` and nothing removes it, the light set is dead in practice. A stray `html, body, #root { background: #08080d }` rule also hardcodes the ground.
 - `next-themes` is imported in exactly one place, `components/ui/sonner.tsx` (`useTheme()`), and there is no `ThemeProvider`. With no provider `theme` is undefined and falls to `"system"`, so Sonner follows the OS light/dark preference while the page is always dark; the toast surface is forced onto the popover tokens via `--normal-bg`, `--normal-text`, `--normal-border`, so it mostly looks right.
 - Brand and state tokens (`@theme inline`): `violet-full #8b5cf6`, `violet-muted #a78bfa`, `violet #c4b5fd`, `violet-subtle #1f1145`, `emerald-live`, `text-primary/secondary/muted/faint`, `border-subtle`, `dark #08080d`, `panel #101018`. State vocabulary, one meaning each: `live` (emerald, a human is broadcasting), `on-air` (violet, AutoDJ), `mic` (sky), `fault` (= `--destructive`, red, reserved for faults), `pro` (amber), with `-text` variants for `live`, `mic`, `fault`, `pro`. Radius scale is derived from `--radius: 0.625rem`.
 - Utilities: `.lamp-settle`, `.signoff-rise`, `--animate-indeterminate` (the encoder panel's unknown-length wait), `--ease-out-expo`, view-transition duration 260ms for queue-row moves (root transition disabled), all motion removed under `prefers-reduced-motion`.
 - `.sheet` and `.sheet-rules`: inside `.sheet` a `[data-slot="card"]` loses its fill, ring, radius and padding (unlayered CSS on purpose, to beat the Card utilities); `.sheet-rules > card:not(:first-child)` gets a 7% white hairline top border. Dialogs portal out, so their cards keep chrome.
-- `html[data-mini-controller] [data-sonner-toaster]` lifts toasts to 96px (mobile `88px + safe-area`) with `!important`, to clear the broadcast mini controller. Who sets `data-mini-controller` is in the dashboard components, not here.
 - Font tokens are described under Root layout.
 
-## UI kit (components/ui)
+## UI kit (components/ui) — the marketing kit
 
-shadcn "radix-mira" wrappers over the single `radix-ui` package, edited locally. All carry `data-slot` attributes that CSS such as `.sheet` targets. Customisations that differ from stock are noted.
+shadcn "radix-mira" wrappers over the single `radix-ui` package, edited locally. All carry `data-slot` attributes that CSS such as `.sheet` targets. Used by the marketing site, auth pages and player; the dashboard uses `components/ds` instead. `button`, `card`, `dialog`, `sheet`, `badge`, `input`, `textarea` and `select` were restored to their pre-`f6a201c` versions in R6.2 (no dashboard overrides, no `--btn-h`-style variables).
 
 | File | Exports | Notes |
 |---|---|---|
-| `button.tsx` | `Button`, `buttonVariants` | variants `default`, `outline`, `secondary`, `ghost`, `destructive` (tinted, not solid red), `link` (violet-muted); sizes `default` h-9, `xs` h-6, `sm` h-8, `lg` h-10, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. Sizes were bumped one step for the 36px touch target. `asChild` via Slot. |
+| `button.tsx` | `Button`, `buttonVariants` | variants `default`, `outline`, `secondary`, `ghost`, `destructive` (tinted, not solid red), `link` (violet-muted); sizes `default` h-9, `xs` h-6, `sm` h-8, `lg` h-10, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. `asChild` via Slot. |
 | `badge.tsx` | `Badge`, `badgeVariants` | variants `default`, `secondary`, `destructive`, `outline`, `ghost`, `link`, and custom `pro` (amber plan tag, uppercase). |
-| `card.tsx` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter` | `size` default/sm. `CardTitle` uses `font-heading` (token added in globals.css; it used to be undefined). Neutralised inside `.sheet`. |
+| `card.tsx` | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardAction`, `CardContent`, `CardFooter` | `size` default/sm. Neutralised inside `.sheet`. |
 | `dialog.tsx` | `Dialog` + Trigger, Portal, Close, Overlay, Content, Header, Footer, Title, Description | Overlay `bg-black/80`; content max height `100dvh - 2rem`, scrolls; `showCloseButton` prop. |
-| `sheet.tsx` | `Sheet` + parts | `side` top/right/bottom/left; used for the mobile sidebar. |
-| `sidebar.tsx` | `SidebarProvider`, `Sidebar`, `SidebarInset`, `SidebarTrigger`, `SidebarRail`, header/footer/content/group/menu/menu-button/menu-sub parts, `useSidebar` | width 16rem (18rem mobile, 3rem icon), toggle shortcut Ctrl/Cmd+B, mobile renders a `Sheet`. See the `sidebar_state` trap. Mobile breakpoint 768px via `useIsMobile`. |
-| `select.tsx` | `Select<T>`, `SelectOption<T>` | **Not** the shadcn Select: a hand-built combobox/listbox (h-8 trigger, arrow keys, Enter/Space commit, outside-pointer close) so the popup obeys the theme. Escape is caught in a window capture listener so it closes only the list, not the surrounding Radix dialog. Used by the library screens (`PlaylistView`, `JinglesDialog`, `AllTracksView`). |
-| `slider.tsx` | `Slider` | Radix slider; one thumb per value. |
-| `tooltip.tsx` | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider` | provider default `delayDuration` 0. |
+| `sheet.tsx` | `Sheet` + parts | `side` top/right/bottom/left; used for the dashboard's phone sidebar drawer (via `sidebar.tsx`). |
+| `sidebar.tsx` | `SidebarProvider`, `Sidebar`, `SidebarInset`, `SidebarTrigger`, header/footer/content/group/menu parts, `useSidebar` | Dashboard-only in practice: width 15.5rem (18rem mobile), toggle shortcut Ctrl/Cmd+B, a drawer (`Sheet`) below **1024 px** (`useIsMobile(1024)` and `lg:` classes). See the `sidebar_state` trap. |
+| `select.tsx` | `Select<T>`, `SelectOption<T>` | A hand-built listbox. Nothing imports it now (the dashboard uses `ds/Select`). |
+| `slider.tsx` | `Slider` | Radix slider; used by the studio monitor volume. |
+| `tooltip.tsx` | `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider` | provider default `delayDuration` 0; only `PlayerView` mounts a provider. |
 | `sonner.tsx` | `Toaster` | see theming above; lucide icons per level; toast class `cn-toast`. |
-| `use-confirm.tsx` | `useConfirm()` | returns `[confirm(options) => Promise<boolean>, element]`. Render `element` once. A second ask while one is open resolves the first with false. Options: `title`, `description`, `confirmLabel`, `cancelLabel`, `destructive`. Replaces `window.confirm`. |
-| `input.tsx`, `textarea.tsx`, `label.tsx`, `switch.tsx`, `separator.tsx`, `skeleton.tsx` (`motion-reduce:animate-none`), `avatar.tsx` (+ `AvatarBadge`, `AvatarGroup`, `AvatarGroupCount`), `popover.tsx` (+ Header/Title/Description), `empty.tsx` (`Empty*`), `scroll-area.tsx` | | thin wrappers; Input is h-9 with the reverse-responsive text shrink removed. |
+| `switch.tsx` | `Switch` | still carries round 1's look (40×24, live red when on, dark-ink knob); used by marketing/auth only now (the dashboard uses `ds/Switch`). |
+| `input.tsx`, `textarea.tsx`, `label.tsx`, `separator.tsx`, `skeleton.tsx` (`motion-reduce:animate-none`), `avatar.tsx`, `popover.tsx`, `empty.tsx`, `scroll-area.tsx` | | thin wrappers. |
 | `dropdown-menu.tsx`, `field.tsx` (`Field*`, `FieldError` dedupes messages), `breadcrumb.tsx`, `navigation-menu.tsx` | | stock shadcn-style wrappers, only skimmed for this doc. |
 
-Other component folders (`components/dashboard`, `homepage`, `studio`, `auth`, `common`, `content`, `ProAccessDialog.tsx`, `StationArtwork.tsx`) are feature code and are covered by their feature docs.
+`ui/use-confirm.tsx` is gone; confirmations are `ds/ConfirmDialog`.
+
+## Dashboard kit (components/ds)
+
+The GoCast Design System's components, built on the `app/dashboard.css` tokens. Dashboard code must use these (lint-enforced). Gallery: `/dashboard/design-system` (404 in production).
+
+| File | Exports | Notes |
+|---|---|---|
+| `Button.tsx` | `Button` | variants `primary` (off-white, dark ink), `ghost` (1.5px outline), `subtle`, `quiet`, `live` (red, going/being live only), `onair` / `onair-soft` (violet, AutoDJ), `pro` (amber), `danger` (error red, permanent deletes), `danger-quiet`, `ink`; sizes `sm/md/lg/xl/icon-sm/icon`; `dot` (a coloured lamp before the label), `full`, `asChild`. |
+| `Dialog.tsx` | same part names as `ui/dialog` | Centred panel on a 60% scrim; **a bottom sheet with a grabber below 640 px**. `DialogFooter` stacks on phones and shares the row from `sm`. |
+| `ConfirmDialog.tsx` | `ConfirmDialog`, `useConfirm()` | `tone` default or `danger`; `consequences` list; `confirmText` (typed, case-insensitive) gates the confirm; `busy`; cancel label `keepLabel` ("Keep …"). `useConfirm` returns `[confirm(options) => Promise<boolean>, element]`. |
+| `Menu.tsx` | dropdown and popover parts | the floating surface shared with `Select`. |
+| `Card.tsx` | `Card` (tones card/raised/inset/outline/onair/live/warn/pro; sizes md/sm/none), `CardHeader`, `CardLink` | |
+| `Field.tsx` | `TextField`, `TextAreaField`, `PasswordField` (Show/Hide), bare `Input` | label inside the box; error edge + message wired with `aria-describedby`. |
+| `Select.tsx`, `Segmented.tsx`, `Switch.tsx` (+ `SwitchRow`), `DayToggle.tsx` (tones live/onair/neutral, `stretch`), `ChoiceCards.tsx` | form controls | Radix underneath. |
+| `Stat.tsx` (`Stat`, `StatTile`), `Progress.tsx` (`SegmentBar`, `ProgressBar`), `List.tsx` (`List`, `ListRow`, `ActionRow`), `Tag.tsx` (`Tag`, `ProTag`), `Disclosure.tsx` (row/card; the chevron follows its own trigger), `PageHeader.tsx`, `CopyField.tsx`, `Notice.tsx`, `StatusLamp.tsx`, `StatusBand.tsx` | display | |
+
+Tests: `components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`.
 
 ## Talking to the API
 
@@ -234,6 +283,7 @@ Client-side public calls (`usePublicStationStats`, `useListenerSession`) use bar
 | `LIQUIDSOAP_HLS_DIR` | server, dev | `app/hls-proxy` | default `/var/gocast/hls`. |
 | `ANALYZE`, `CI` | build | bundle analyzer, Sentry `silent`, Playwright | |
 | `E2E_BASE_URL`, `E2E_API_URL` | test | `playwright.config.ts` | default `localhost:3000` / `localhost:8000`. |
+| `E2E_CAPTURE` | test | `playwright.config.ts` | unset: `grepInvert` drops `@screenshots` and `@visual` specs from a run; set by `test:visual` and `test:help-shots`. |
 | `NODE_ENV` | | many dev-only branches (below) | |
 
 `NEXT_PUBLIC_*` values are frozen at build; `deploy-native.sh` feeds them from `infra/native/env/domains.env` (see [deployment-infra](deployment-infra.md)). The dev-only branches keyed on `NODE_ENV === "development"`: image optimizer off, local-IP images allowed, `/stream-proxy` rewrite, `/hls-proxy` route (404 otherwise), `getStation` retry/no-cache, embed page equivalent.
@@ -248,17 +298,18 @@ Client-side public calls (`usePublicStationStats`, `useListenerSession`) use bar
 
 Everything below is mounted by `app/dashboard/layout.tsx`, a server component. It reads `token` and `user` cookies, redirects to `/auth/login` if either is missing or `email_verified_at` is falsy, then in parallel: `apiFetch GET /user` (-> `Account {email, plan}`; on failure logs and falls back to `{email: cookieEmail, plan: null}`) and `getMyStation()` (-> `CurrentStation`; failure logs and gives null). Metadata is `robots: noindex, nofollow`, title template `%s — GoCast`. Tree, outermost first:
 
-`RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider(account)` > `ProRequestProvider` > `StationProvider(station)` > `SidebarProvider` > `AppSidebar`, `SidebarInset` { `DashboardHeader`, `LiveBanner`, `<main class="flex-1 p-6">`, `BroadcastMiniController` }.
+`RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider(account)` > `ProRequestProvider` > `StationProvider(station)` > `StationStatusProvider` > `SidebarProvider data-surface="dashboard"` > `AppSidebar`, `DashboardShell` { sticky `TopBar` + `StationBand`, the page body, the phone `TabBar` }. Shell detail: [Station management dashboard](station-management-dashboard.md).
 
 | Context | Holds | Hooks | Notes |
 |---|---|---|---|
 | `RealtimeContext` | `{connected, onStationSignal(handler) => unsubscribe}` | `useRealtime()` (null outside the provider) | One Echo socket per tab, one private channel `user.{id}` listening to `.station.state`. `connected` is true only when the channel is **subscribed** and the socket state is `connected` (a 401 on auth leaves the socket up but `connected` false). Handlers live in a ref'd Set so mounting components never resubscribe. Cleanup uses `echo.leaveChannel("private-user.{id}")`, not `leave()` or `disconnect()`. Signals carry `{slug, event, at}`, never state. The `userId` prop is the `user` cookie's id. |
-| `BroadcastContext` | `state`, `stationSlug`, `steps`, `error`, `micStream`, `micDisabled`, `engine`, `liveSince`, `getTransportStats()`, `start(stationId, opts)`, `stop({releaseStation?})` | `useBroadcast()` (throws outside), `useBroadcastOptional()` (null outside) | Owns the `BroadcastManager` (`lib/broadcast.ts`). `start` is guarded by `startingRef` (double click / StrictMode would otherwise open two sockets and lose the harbor mount). `liveSince` is set once on first `live`. First-ever go-live fires a one-time toast via `fireOnce("broadcaster:first-live")`. `beforeunload` prompt while `live` or `reconnecting`. While an engine exists, any `pointerdown` or `keydown` resumes a suspended AudioContext. `stop()` also clears the `broadcast:micDisabled:{slug}` localStorage key. `stop({releaseStation:true})` (for accounts without AutoDJ; the caller decides) calls `POST /stations/{slug}/stop`, retrying at 0, 400, 800, 1500, 2500 ms only while the API answers 409, because harbor's `live_disconnected` lands after the socket closes. Details in [broadcasting-web-studio](broadcasting-web-studio.md). |
+| `BroadcastContext` | `state` (idle / connecting / ready / live / reconnecting / error), `stationSlug`, `steps`, `error`, `micStream`, `micDisabled`, `engine`, `liveSince`, `getTransportStats()`, `start(stationId, opts)` (runs the checklist and stops at `ready`), `goLive()`, `switchMic(deviceId)`, `stop({releaseStation?})` | `useBroadcast()` (throws outside), `useBroadcastOptional()` (null outside) | Owns the `BroadcastManager` (`lib/broadcast.ts`). `start` is guarded by `startingRef` (double click / StrictMode would otherwise open two sockets and lose the harbor mount). `liveSince` is set once on first `live`. First-ever go-live fires a one-time toast via `fireOnce("broadcaster:first-live")`. `beforeunload` prompt while `live` or `reconnecting`. While an engine exists, any `pointerdown` or `keydown` resumes a suspended AudioContext. `stop()` also clears the `broadcast:micDisabled:{slug}` localStorage key. `stop({releaseStation:true})` (for accounts without AutoDJ; the caller decides) calls `POST /stations/{slug}/stop`, retrying at 0, 400, 800, 1500, 2500 ms only while the API answers 409, because harbor's `live_disconnected` lands after the socket closes. Details in [broadcasting-web-studio](broadcasting-web-studio.md). |
 | `AccountContext` | `Account {email, plan: Plan \| null}` | `useAccount`, `usePlan`, `useAutoDjLocked`, `useAudienceLocked` (`analytics_days <= 0`), `useEmbedLocked`, `useEncoderLocked` | Null plan means "don't know", never "free": every `*Locked` hook returns false for a null plan, so an unknown plan renders unlocked. They only drive badges and upsells; the API enforces. Fetched once per layout render, not refreshed client-side. |
-| `ProRequestContext` | `{open(), requested}` | `useProRequest()` | Mounts `ProAccessDialog` (plan "pro", prefilled with account email) once. `requested` is in-memory, resets on reload. Default context value is a no-op, so a consumer outside the provider silently does nothing. |
-| `StationContext` | `CurrentStation {slug, name, artwork_url, genre, description}` | `useCurrentStation()`, `useStationBySlug(slug)` | Identity only, no live state. `useStationBySlug` returns null when the route slug is not the oldest station's slug. |
+| `ProRequestContext` | `{open(), requested}` | `useProRequest()` | Mounts the dashboard's `ProRequestDialog` (ds kit, prefilled with account email; rules in `hooks/useAccessRequest.ts`, shared with the marketing `ProAccessDialog`) once. `requested` is in-memory, resets on reload. Default context value is a no-op, so a consumer outside the provider silently does nothing. |
+| `StationContext` | `CurrentStation {slug, name, artwork_url, genre, description, timezone}` | `useCurrentStation()`, `useStationBySlug(slug)` | Identity only, no live state. `useStationBySlug` returns null when the route slug is not the oldest station's slug. |
+| `StationStatusContext` | one `useStationStatusPoll` for the account's station | `useSharedStationStatus(slug)` (via `useStationStatus`) | Every `useStationStatus(slug)` for that station without its own `intervalMs` shares this poll, so the band, sidebar lamp, hero and library cost one request. Passthrough without a station. |
 
-`useSidebar()` (in `ui/sidebar.tsx`) is a sixth context, internal to the sidebar.
+`useSidebar()` (in `ui/sidebar.tsx`) is the sidebar's own context; `TopBar` and `TabBar` use it to open the drawer.
 
 ## Hooks
 
@@ -266,7 +317,7 @@ All are client-only. "Visible" means `document.hidden` is false.
 
 | Hook | Inputs | Timing and cleanup |
 |---|---|---|
-| `useStationStatus(slug, enabled = true, intervalMs?)` -> `{status, loading, refresh}` | slug; optional fixed cadence override | Polls `GET /stations/{slug}/status` via axios. Pacing (`intervalFor`): no status yet 2s; `starting` 2s (even with push); `offline` 30s; `reachable` and (`source === "live"` with `broadcaster === false`, or `broadcaster === true` with `source !== "live"`) (handover windows) 2s; otherwise ceiling 10s (30s when the socket is `connected`), shortened to `remaining*1000 + 750ms` with a 3s floor when a track length is known. Failures back off `2s * 2^(n-1)` capped at 30s, reset on success. Hidden tab: no reads, loop keeps ticking, but the pace is computed from the `status` captured when the effect last (re)ran, so it can be the 2s no-status pace until a visibility restore; visibility restore restarts the loop with an immediate read. Realtime signals for this slug (dropped if `at` is strictly older than the last seen) restart the loop after a 120ms coalesce, not when hidden. A `generation` counter retires in-flight ticks so restarts never leave orphan loops. `intervalMs` override is ignored while push is connected. Cleanup clears timers and listeners and unsubscribes. |
+| `useStationStatus(slug, enabled = true, intervalMs?)` -> `{status, loading, refresh}` | slug; optional fixed cadence override | Returns the shared poll (`StationStatusContext`) when `slug` is the dashboard's station and no `intervalMs` is passed; otherwise runs its own `useStationStatusPoll`. The poll (`hooks/useStationStatusPoll.ts`) reads `GET /stations/{slug}/status` via axios. Pacing (`intervalFor`): no status yet 2s; `starting` 2s (even with push); `offline` 30s; `reachable` and (`source === "live"` with `broadcaster === false`, or `broadcaster === true` with `source !== "live"`) (handover windows) 2s; otherwise ceiling 10s (30s when the socket is `connected`), shortened to `remaining*1000 + 750ms` with a 3s floor when a track length is known. Failures back off `2s * 2^(n-1)` capped at 30s, reset on success. Hidden tab: no reads, loop keeps ticking, but the pace is computed from the `status` captured when the effect last (re)ran, so it can be the 2s no-status pace until a visibility restore; visibility restore restarts the loop with an immediate read. Realtime signals for this slug (dropped if `at` is strictly older than the last seen) restart the loop after a 120ms coalesce, not when hidden. A `generation` counter retires in-flight ticks so restarts never leave orphan loops. `intervalMs` override is ignored while push is connected. Cleanup clears timers and listeners and unsubscribes. |
 | `useTrackProgress(status)` -> `() => {elapsed, duration} \| null` | status | No state: anchors a local clock from `elapsed`/`remaining`; re-anchors on a new track (JSON of title+artist), first reading, or drift over 2.5s; null when `remaining` is null or negative (live, silence). The caller reads it per animation frame. Clamps at duration, never wraps. |
 | `usePublicStationFeed(slug, onUpdate, {enabled, pauseWhenHidden})` and `usePublicStationStats(slug, opts)` -> stats or null | | Module-level registry: one feed, one 10s `setInterval` and one in-flight request per slug per tab, shared by all subscribers; late subscribers get the held value at once. Reads `GET {apiUrl}/public/stations/{slug}/listeners` with plain fetch, silently ignoring failures and non-2xx. Normalises to `{count, is_live, is_on_air, now_playing{title,artist}}` (blank strings become null). Pauses when hidden unless some subscriber passes `pauseWhenHidden: false`; on becoming visible it re-reads only if the held value is 10s or older. A feed is deleted when its last subscriber leaves. |
 | `useListenerCount(slug, enabled)` -> number \| null | | Thin wrapper over `usePublicStationStats`. |
@@ -274,10 +325,14 @@ All are client-only. "Visible" means `document.hidden` is false.
 | `useListenerSession(slug, playing, transport)` | `transport` `"hls"`/`"icecast"`/null | Only acts when `playing` and transport is resolved. `POST /public/stations/{slug}/listen {transport}` -> token and `beat_every` (fallback 15s); beats `POST /public/listen/{token}/beat` on that interval (`keepalive`); on `pagehide` and on cleanup sends `navigator.sendBeacon(.../end)` (or a fetch fallback). All failures silent. Semantics in [listener analytics](listener-analytics.md). |
 | `useStreamPlayback({hlsUrl, icecastUrl})` -> `{audioRef, playing, loading, transport, inband, toggle, stop}` | | Drives one `<audio>` through hls.js -> native HLS -> Icecast. hls.js is dynamically imported on first play. Config: `backBufferLength 30`, `liveSyncDurationCount 2`, deferring `pLoader`. Fatal network errors use `createNetworkRecovery` (up to 5 retries, `1s * 2^attempt`, resets on each loaded level, then Icecast); fatal media errors `recoverMediaError()`; anything else falls to Icecast. `playing` comes from element events, not from the call to `play()`. Reads ID3 (`TIT2`, `TPE1`, `StreamTitle`) from a `metadata` text track. Cleanup destroys hls. Also exports `parseStreamTitle` ("Artist - Title" split; placeholder values such as `unknown`, `n/a`, `-` become null). Used only by `EmbedPlayer`; `PlayerView` and `HeroStationPlayer` each carry their own copy of the ladder (both import `createNetworkRecovery` directly), so a fix to one does not reach the others. |
 | `useNotifications()` | | Badge: `GET /notifications/unread-count` every 60s while visible; stops when hidden and, on return, refetches only if the last attempt is 60s old. Feed: `GET /notifications` re-fetched from the head on every panel open (`loadFeed`), cursor paging via `loadMore` (full next-link query is replayed), sequence counters (`feedSeq`, `mutationSeq`) discard overtaken responses. Mutations (`markRead` -> `POST /notifications/{id}/read`, `markAllRead` -> `POST /notifications/read-all`, `remove` -> `DELETE /notifications/{id}`) are optimistic with rollback and a badge resync. Not connected to Echo. |
-| `useSignOut()` -> `{signOut(redirectTo = "/", {confirmed?}), signingOut, isBroadcasting}` | | Module-level pending flag shared across all buttons. If broadcasting (`live`/`reconnecting`/`connecting`) and not `confirmed`, uses `window.confirm`. Then `POST /logout` (errors ignored), `clearAuth()`, toast "Signed out", `router.push`, `router.refresh`. |
+| `useSignOut()` -> `{signOut(redirectTo = "/", {confirmed?}), signingOut, isBroadcasting}` | | Module-level pending flag shared across all buttons. If broadcasting (`live`/`reconnecting`/`connecting`) and not `confirmed`, falls back to `window.confirm` (the sidebar asks with its own dialog and passes `confirmed`). Then `POST /logout` (errors ignored), `clearAuth()`, toast "Signed out", `router.push`, `router.refresh`. |
 | `useDocumentTitle(title \| null)` | | Sets `document.title` while mounted, restores the previous title on unmount or null. |
 | `useMounted()` | | `useSyncExternalStore` returning false on server and first hydration render, true after. |
-| `useIsMobile()` | | `matchMedia(max-width: 767px)`; returns false on the server and first render. |
+| `useIsMobile(breakpoint = 768)` | | `matchMedia(max-width: breakpoint-1)`; false on the server and first render. The sidebar passes 1024. |
+| `useStationPower(slug)` | | `start`/`stop`/`cutOff` for the station (`POST .../start`, `.../stop`, `{force:true}`) with toasts and a `pending` flag; a stop refused with `station_is_live_external` is surfaced for the caller's "Cut off this broadcast?" dialog. |
+| `useCountUp(value)` | | tweens a number up for the hero's listener count; null passes through. |
+| `useAccessRequest({plan, onSubmitted})`, `useEmailVerification({open, onCancel})` | | The Pro/Custom request form and the 6-digit email-code flow, each shared by a marketing-kit dialog and a ds-kit dialog. See [Accounts, plans, invites](accounts-plans-invites.md) and [Auth](auth.md). |
+| `useMicPreview`, `usePreflightQueue`, `useTrackPreview` | | Go-live mic check, the go-live running order, and library previews; [Web studio](broadcasting-web-studio.md), [Library and playlists](library-and-playlists.md). |
 
 ## Interfaces (client/interfaces)
 
@@ -297,7 +352,7 @@ Hand-written mirrors of API payloads; nothing generates or validates them, so dr
 
 - `lib/utils.ts` `cn()` = `twMerge(clsx(...))`.
 - `lib/format.ts`: `formatDate(iso, "relative" | "short" | "full")` (relative switches to "Apr 15" after 7 days; short is en-US month + day, full uses the viewer's locale), `formatDuration(seconds)` ("1h 23m", "1h", "45m 10s", "45s", "0m" for <=0; the "<1m" branch is unreachable), `formatDateRange`, `formatAirtime` (minutes floor, "<1m" under 60s), `formatBytes` (KB and MB as rounded integers, GB with one decimal), `formatTrackTime` ("3:07"), `formatClock` ("HH:MM:SS", floors fractions), `formatDateTime` ("Aug 29, 6:04 PM"), `countryName` (Intl.DisplayNames, falls back to the code), `countryFlag` (regional indicator emoji, empty for non-two-letter input).
-- `lib/programme.ts`: `formatSlotInstant(iso, tz)` ("HH:MM" if within 24h, else "Mon 06:00", in the **station's** zone) and `describeProgramme(programme, tz, defaultName)` -> `{now, detail}` ("until 12:00 · then Main rotation"). See [schedule](schedule.md).
+- `lib/programme.ts`: `formatSlotInstant(iso, tz)` ("HH:MM" if within 24h, else "Mon 06:00", in the **station's** zone, falling back to the viewer's when the browser doesn't recognise it) and `describeProgramme(programme, tz, defaultName)` -> `{now, detail}` ("until 12:00 · then Main rotation"). See [schedule](schedule.md).
 - `lib/notifications.ts`: `notificationHref` (resolves against `window.location.origin`; same-origin becomes a client route; non-http(s) schemes such as `javascript:` are refused), `resolveNotificationAction` (`none` when there is no action or its URL is refused; `expand` only if `mode === "expand"` and `detail.points` is non-empty; otherwise `link`), `formatUnreadCount(count, cappedAt)` ("99+"), level classes (no state colours: warning is neutral, success violet, error `fault-text`).
 - `lib/echo.ts`: `getEcho()` singleton, described under Realtime; `echoConnected(echo)`.
 - `lib/embed.ts`: `EMBED_HEIGHT = 88`, `embedUrl(slug)`, `embedSnippet(slug, name)` (iframe with `allow="autoplay"`, `loading="lazy"`).
@@ -334,12 +389,12 @@ Hand-written mirrors of API payloads; nothing generates or validates them, so dr
 6. **`dashboard/layout.tsx` `JSON.parse` is unguarded** on the `user` cookie (unlike `getSession()`, which is guarded); a malformed cookie throws in the layout, reaching `app/error.tsx` rather than redirecting. `proxy.ts` catches the parse error, but the layout has its own copy.
 7. **`app/error.tsx` shows `error.message` to visitors** and never reports to Sentry (only `global-error.tsx` does; Sentry's `onRequestError` covers server-side errors). `app/dashboard/error.tsx` correctly hides it behind "Details".
 8. **Analytics is unconditional.** Umami, GA, Clarity and JSON-LD load in production on every route including `/dashboard` and `/auth`; there is no consent banner and no route exclusion.
-9. **Fonts are loaded twice under two names.** `body` and `display` both instantiate Bricolage Grotesque with identical options and different CSS variables. Harmless but confusing; changing one and expecting the other to follow is a trap.
+9. **Two font stacks.** Marketing reads Onest (body) and JetBrains Mono; the dashboard re-points both variables at Bricolage and IBM Plex Mono in `app/dashboard.css`. Changing the root layout's body font doesn't change the dashboard.
 10. **No CSP.** Only frame, nosniff and referrer headers exist. `/embed` intentionally has no frame restriction.
 11. **`useNotifications` comment is stale.** Its doc says there is no push transport and `BROADCAST_CONNECTION=log`; the app now has Echo, but notifications still poll every 60s and are not wired to it.
 12. **Three copies of the playback ladder.** `useStreamPlayback` is used only by `EmbedPlayer`; `PlayerView` and `HeroStationPlayer` have their own HLS/Icecast logic (each calls `useListenerSession` and `createNetworkRecovery` itself). Fixes to HLS handling must be made in all three.
 13. **`ProRequestContext` default is a silent no-op**, and `usePlan()` null makes every locked-state hook return unlocked, so if the `/user` fetch fails in the layout, upsell buttons vanish and nothing tells the user why. This is deliberate (never lock out a payer) but easy to mistake for a bug.
-14. **`Tooltip` needs a provider that only `PlayerView` mounts.** No layout wraps `TooltipProvider`; `SidebarMenuButton` renders a `Tooltip` only when passed a `tooltip` prop, and `AppSidebar` passes none. Adding a tooltip anywhere else without its own provider will throw at render.
+14. **`Tooltip` needs a provider that only `PlayerView` mounts.** No layout wraps `TooltipProvider`; adding a tooltip anywhere else without its own provider will throw at render.
 15. **`actions/auth.ts` is in a folder named for server actions but is client code.** `saveAuth` accepts a token argument and discards it.
 16. **`Station` and `StationStatus` are one hand-maintained type for several payload shapes.** Optional fields (`schedules`, `encoder`, `programme`, `stats`, `indexable`) exist only on some endpoints; `state` on `Station` cannot be `starting`. Nothing checks these against the API. `Plan.watermarked` and `Station.watermarked` are documented as dead and must not be rendered.
 17. **`PRO_AVAILABLE = false` and `PRO_PRICE_USD = 15` are client constants**, not read from the API (the `plans` table has no price).
@@ -351,8 +406,9 @@ Hand-written mirrors of API payloads; nothing generates or validates them, so dr
 
 ## Tests
 
-- No unit or component tests exist in `client/`. Only Playwright e2e under `client/tests/e2e` (`auth.spec.ts`: protected-route redirect, bad credentials, verified sign-in and redirect away from auth pages and sign-out, unverified block, register + verify, password reset, email change, password change, account deletion, Google auth popup; `help-screenshots.spec.ts`; `support/auth.ts`). `playwright.config.ts` starts the API (`php8.4 artisan serve --host=127.0.0.1 --port=8000 --no-reload` in `../api`) and `npm run dev`, CI: one worker, 2 retries; Chromium only, 30s timeout.
-- `npm run lint` is the only static check besides `tsc` via `next build`.
+- Unit and component tests: Vitest 4 + Testing Library (jsdom), `npm test`, config `vitest.config.mts` + `vitest.setup.ts`, colocated `*.test.ts(x)` (`lib/*.test.ts`, `components/ds/*.test.tsx`, dashboard component tests). 101 tests as of 2026-10-01.
+- Playwright e2e under `client/tests/e2e`: `auth.spec.ts` (protected-route redirect, bad credentials, sign-in/out, unverified block, register + verify, password reset, email change, password change, account deletion, Google auth popup), `help-screenshots.spec.ts` (`@screenshots`), `dashboard-visual.spec.ts` (`@visual`, `npm run test:visual`), `support/auth.ts`. `playwright.config.ts` starts the API and `npm run dev` unless they're already running (`reuseExistingServer` outside CI); CI: one worker, 2 retries; Chromium only, 30s timeout.
+- `npm run lint` (including the dashboard guardrails) and `tsc` via `next build`.
 
 ## History
 

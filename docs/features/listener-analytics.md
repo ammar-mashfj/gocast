@@ -1,6 +1,6 @@
 ---
 feature: Listener analytics (live count, sessions, Audience page)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
 sources:
   - api/app/Http/Controllers/ListenerSessionController.php
   - api/app/Http/Controllers/ListenerCountController.php
@@ -38,13 +38,11 @@ sources:
   - client/components/dashboard/audience/AudienceBreakdown.tsx
   - client/components/dashboard/audience/AudienceChart.tsx
   - client/components/dashboard/audience/AudienceUpsell.tsx
-  - client/components/dashboard/LiveListeners.tsx
   - client/hooks/useListenerSession.ts
   - client/hooks/useListenerCount.ts
   - client/hooks/usePublicStationStats.ts
   - client/hooks/useBroadcastStats.ts
   - client/hooks/useStreamPlayback.ts
-  - client/components/dashboard/BroadcastMiniController.tsx
   - client/components/homepage/heroSection/HeroStationPlayer.tsx
   - client/app/station/[slug]/PlayerView.tsx
   - client/app/embed/[slug]/EmbedPlayer.tsx
@@ -56,7 +54,11 @@ sources:
   - mobile/src/broadcast/BroadcastContext.tsx
   - mobile/src/broadcast/hooks.ts
   - mobile/src/lib/station.ts
-fingerprint: 6fd3640436b5522b
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/shell/StationBand.tsx
+  - client/components/dashboard/shows/ShowsList.tsx
+  - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
+fingerprint: dd1aedb96e77dd29
 ---
 
 # Listener analytics
@@ -146,7 +148,7 @@ The **one-minute interval of the sweep is load-bearing**: samples are one minute
 1. For each transport (`hls`, `icecast`): read tokens with score `<= now - idle_close_seconds (60)` (with their scores), close those sessions with `ended_at` = their last check-in and `seconds = max(0, ended - started)`, then `ZREMRANGEBYSCORE` them out of the set. Then bulk-update `last_seen_at = now` on open sessions for tokens still inside the live window (45 s), in chunks of 500. That write exists only so the database can stand alone if Redis is flushed.
 2. `count = liveCount(station)` (HLS in window + Icecast).
 3. `recordSample(station, count)`: if `count > 0`, one MySQL upsert into `listener_stats_hourly` for the current UTC hour: `peak_listeners = GREATEST(...)`, `listener_minutes += count`, `sampled_minutes += 1`. A count of 0 writes nothing (rows are sparse; a missing row means zero).
-4. `recordPeak`: if `count > 0`, bump `stream_sessions.peak_listeners` on the station's open broadcast (`ended_at IS NULL`) with a conditional `UPDATE ... WHERE peak_listeners < count`. During AutoDJ there is no open broadcast, so nothing is written.
+4. `recordPeak`: if `count > 0`, bump `stream_sessions.peak_listeners` on the station's open broadcast (`ended_at IS NULL`) with a conditional `UPDATE ... SET peak_listeners = count, peak_at = now() WHERE peak_listeners < count` (so `peak_at` is when the peak was first reached; an equal later sample doesn't move it). During AutoDJ there is no open broadcast, so nothing is written.
 
 After the station loop: `closeOverdue` closes every still-open session with `started_at < now - max_session_hours (12 h)` **or** `last_seen_at < now - 60 s`, ending it at its own `last_seen_at`. This is the backstop for orphans left by a Redis flush and for the 12-hour cap (a tab left open is closed at its last DB-refreshed `last_seen_at`, but see the resurrection trap: it can start counting as live again). The same query also closes a genuinely live session if the sweep itself stalls for more than 60 s, because `last_seen_at` is only refreshed by the sweep; that listener's next beat resurrects them the same way.
 
@@ -238,7 +240,7 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
 - `listener_sessions`: above. Pruned nightly.
 - `listener_stats_hourly` (`station_id`, `hour` unique, UTC hour): `peak_listeners`, `listener_minutes`, `sampled_minutes` (written by the sweep) and `sessions_started`, `unique_listeners`, `qualified_listens` (written by the rollup). Permanent. Cascade on station delete.
 - `listener_geo_daily` (`station_id`, `day`, `country` unique): `sessions`, `listener_seconds` (bigint). Permanent. Attributed to the day the session **started**.
-- `stream_sessions.peak_listeners`: per-broadcast high-water mark, fed by the sweep only (see above). `total_listener_minutes` was dropped 2026-08-30 because nothing ever wrote it.
+- `stream_sessions.peak_listeners` and `peak_at` (migration `2026_10_01_120000`, null for broadcasts nobody heard and rows from before it): per-broadcast high-water mark and when it was reached, fed by the sweep only (see above). `total_listener_minutes` was dropped 2026-08-30 because nothing ever wrote it.
 - `plans.analytics_days` and `plans.max_listeners`. `max_listeners` is 100 (free) and 1000 (pro) since migration `2026_09_02_100000`, and **is not enforced by anything**; it appears only in `UserResource.plan.max_listeners`, plan-change/invite email copy (`PlanExpired`, `InviteRedeemed`, `ProAccessGranted`), the web settings page and the mobile account screen.
 - Models: `ListenerSession` (scopes `open()`, `qualified()`), `ListenerStatHourly`, `ListenerGeoDaily`; `Station::listenerStats()` is the hourly relation. Do not confuse `ListenerSession` (audience) with `StreamSession` (a broadcaster holding the mic).
 
@@ -250,17 +252,18 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
 
 ### Web dashboard
 
-- **Overview** (`LiveListeners`, `bare` in the control strip, or as a card): polls via `useListenerCount(slug, isOnAir)`, only when the station's `state !== "offline"`. The number tweens over 650 ms (instant with reduced motion). `null` renders "—", never 0. Text: off air, "Counting who is tuned in…", "Updates every few seconds", "Nobody right now — your peak is N" (peak = `stats.peak_listeners`), or "Nobody yet. Share your link below." Links to the Audience page for every plan.
-- **Shared polling** (`usePublicStationStats.ts`): one feed per slug per tab, 10 s interval (`POLL_MS = 10_000`), paused while the tab is hidden by default, re-read on becoming visible if the held value is 10 s or older; the feed is dropped when its last subscriber leaves. Consumers: the dashboard overview, the player page, the embed, and the homepage hero (only while its audio is playing). The studio and the dashboard mini controller (`useBroadcastStats`) opt out of pausing (`pauseWhenHidden: false`).
-- **Studio milestone toasts** (`useBroadcastStats` with `lib/milestones.ts`, used by the studio page and `BroadcastMiniController` while broadcasting outside the studio): thresholds `LISTENER_MILESTONES = [1, 5, 10, 25, 50, 100, 250, 500, 1000]`. A toast fires once per browser per broadcast per threshold (`localStorage` key `gocast:milestones-fired:v1`, entry `live:{slug}:{liveSince}:{m}`) when the polled count crosses the threshold and the session's own peak was below it. That session peak and the 24-sample sparkline (24 x 10 s, samples at least 5 s apart) are session-scoped in module memory, from the same public endpoint, so they can differ from the sweep's `stream_sessions.peak_listeners`.
-- **Audience page** `/dashboard/stations/{slug}/audience[?days=7|30|90]` (server component). Fetches the station and the audience in parallel; 404/403 becomes `notFound()`. The `days` param is validated against `[7, 30, 90]` before it is echoed into links. Range links show only windows `<= plan_days`.
-  - **Locked (Free):** two tiles, "Listening now" (hint "station is off air" when `station.state === "offline"`) and "Peak at once" (all time). If live is 0, peak is 0 and `stats.has_listeners` is false: `NoListenersYet` instead. Below, `AudienceUpsell`: a fictional labelled sample chart, four selling points, the price, and a "Upgrade to Pro" button that opens the Pro request dialog. The upsell copy says "90 days"; see traps.
-  - **Report (Pro):** `coverage` = `listens` if `totals.sessions > 0`; `stream-only` if none but `listener_minutes > 0`; else `none`. `none` renders `NoListenersYet` with a message chosen from (live > 0: direct-stream listeners will show up within minutes; ever heard: nobody in the last N days plus a "See the last {plan_days} days" link if the plan allows more; never heard). Otherwise four tiles: **Listening time** (`formatAirtime(minutes*60)`; "—"/"not measured yet" if listens exist but no sampled minutes), **Daily listeners** (`totals.listeners`, hint "player page, counted once a day"), **Peak at once** (`totals.peak`, hint includes `max(peak_all_time, totals.peak)` "all time"), **Average listen** (`formatDuration`; "—" until a listen finishes; hint "across N finished listens"). Then the `AudienceChart` and four `AudienceBreakdown` cards, then the folded "How we count listeners" note.
-  - **Chart** (`AudienceChart`): one bar per day of `listener_minutes` only. Bar height is scaled to the window maximum, at most 112 px, at least 2 px. Hover shows date, time, peak and listeners in the header. There is a screen-reader table with all four daily values. When no day has minutes it shows the empty sentence passed by the page.
-  - **Breakdown empty states** all follow `coverage` (`nobody`, or "Everyone in this window listened on the direct stream. Devices, browsers and locations are only recorded for your player page."). The countries footnote is "Located {countries.total} of {sessions} listens".
+- **Overview hero** (`ListeningNow` in `components/dashboard/overview/OverviewHero.tsx`): `useListenerCount(slug, onAir)`, only while the hero isn't off air; the number counts up (`useCountUp`). `null` renders a dash, never 0. Lines: off air ("Go live to start counting." on Free, else "Start AutoDJ or go live to start counting."), "Counting who's tuned in…", "Nobody yet. Share your link below.", and a state-specific line otherwise; links to the Audience page for every plan.
+- **Status band** (top of every dashboard page): "{n} LISTENING" while the station is on air; from `useBroadcastStats` while this tab broadcasts, else `useListenerCount`.
+- **Shared polling** (`usePublicStationStats.ts`): one feed per slug per tab, 10 s interval (`POLL_MS = 10_000`), paused while the tab is hidden by default, re-read on becoming visible if the held value is 10 s or older; the feed is dropped when its last subscriber leaves. Consumers: the dashboard overview, the player page, the embed, and the homepage hero (only while its audio is playing). The studio and the status band while this tab broadcasts (`useBroadcastStats`) opt out of pausing (`pauseWhenHidden: false`).
+- **Studio milestone toasts** (`useBroadcastStats` with `lib/milestones.ts`, used by the studio page and by the status band while broadcasting outside the studio): thresholds `LISTENER_MILESTONES = [1, 5, 10, 25, 50, 100, 250, 500, 1000]`. A toast fires once per browser per broadcast per threshold (`localStorage` key `gocast:milestones-fired:v1`, entry `live:{slug}:{liveSince}:{m}`) when the polled count crosses the threshold and the session's own peak was below it. That session peak and the 24-sample sparkline (24 x 10 s, samples at least 5 s apart) are session-scoped in module memory, from the same public endpoint, so they can differ from the sweep's `stream_sessions.peak_listeners`.
+- **Audience page** `/dashboard/stations/{slug}/audience[?days=7|30|90]` (server component). Fetches the station and the audience in parallel; 404/403 becomes `notFound()`. The `days` param is validated against `[7, 30, 90]` before it is echoed into links. **Title:** "{n} person is / people are listening." while `live > 0` and the station isn't off air, else "Audience". **Range:** `RangeLinks`, a link-based segmented control (7d / 30d / 90d, only windows `<= plan_days`), so the range lives in the URL and the server renders it.
+  - **Locked (Free):** two `StatTile`s, "Listening now" ("station is off air" when `station.state === "offline"`, else "right now") and "Peak at once" (all time). If live is 0, peak is 0 and `stats.has_listeners` is false: `NoListenersYet` instead (a card with the owner-tagged player link in a `CopyField`). Below, `AudienceUpsell`: a PRO tag, a fictional sample chart labelled "Chart above is a sample, not your station.", four selling points, the price, and "Request Pro" (opens the Pro request dialog). The upsell copy says "90 days"; see traps.
+  - **Report (Pro):** `coverage` = `listens` if `totals.sessions > 0`; `stream-only` if none but `listener_minutes > 0`; else `none`. `none` renders `NoListenersYet` with a message chosen from (live > 0: direct-stream listeners will show up within minutes; ever heard: nobody in the last N days plus a "See the last {plan_days} days" link if the plan allows more; never heard). Otherwise four `StatTile`s (2×2 on a phone, one row from `lg`): **Listening time** (`formatAirtime(minutes*60)`; "—"/"not measured yet" if listens exist but no sampled minutes), **Daily listeners** (`totals.listeners`, hint "player page, counted once a day"), **Peak at once** (`totals.peak`, hint includes `max(peak_all_time, totals.peak)` "all time"), **Average listen** (`formatDuration`; "—" until a listen finishes; hint "across N finished listens"). Then the `AudienceChart` card and four `AudienceBreakdown` cards (2×2 from `md`), then the folded "How we count listeners" card (`Disclosure`).
+  - **Chart** (`AudienceChart`, "Listening time per day"): one bar per day of `listener_minutes` only, in a 200 px plot; bar height is scaled to the window maximum, at least 2 px; bar gap and corner shrink with the range. Today (or the hovered day) is violet; the axis ends with "Today". Hover shows date, time, peak and listeners in the header. There is a screen-reader table with all four daily values. When no day has minutes it shows the empty sentence passed by the page.
+  - **Breakdown empty states** all follow `coverage` (`nobody`, or "Everyone in this window listened on the direct stream. Devices, browsers and locations are only recorded for your player page."). Countries show a mono two-letter code chip (no emoji flags) before the name; bars are neutral grey. The countries footnote is "Located {countries.total} of {sessions} listens. The rest are still in progress or couldn't be placed."; referrers "Only the site name is recorded, never the full address."
   - `HowWeCount` says listening time and peak include direct-stream listeners, the rest is player-page only, days are UTC, records are deleted after 90 days (hard-coded text; it does not follow `ANALYTICS_RETENTION_DAYS`).
 - **Sidebar** shows a lock on Audience when `plan.analytics_days <= 0` (`useAudienceLocked`); that is only a badge, the payload is the real gate.
-- **Overview/StationActivity/broadcasts pages** show `peak_listeners`: the station overview shows the hourly-rollup peak (`stats.peak_listeners`), while the broadcasts list and recent broadcasts show each broadcast's own `stream_sessions.peak_listeners`.
+- **Other peaks:** the overview's checklist uses the hourly-rollup peak (`stats.peak_listeners`); Your shows, Recent shows and Your live shows show each broadcast's own `stream_sessions.peak_listeners`, and Your shows also shows `stream_sessions.peak_at` (the minute the peak was first reached, stamped by `SweepListenerSessions::recordPeak` in the same conditional UPDATE).
 
 ### Mobile
 

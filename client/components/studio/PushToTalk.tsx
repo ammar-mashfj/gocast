@@ -1,13 +1,10 @@
 "use client"
 
 import { useCallback, useEffect } from "react"
-import { IconLock, IconLockOpen, IconMicrophone } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { MicMeter } from "./MicMeter"
-import { MicSettings } from "./MicSettings"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
 
 /** True when a key event belongs to a field the broadcaster is typing in. */
@@ -38,7 +35,10 @@ export function isOverlayTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * The mic strip: talk pad, level meter, latch, mic settings.
+ * The talk pad, as the mobile studio draws it (Console.tsx `TalkPad`): one
+ * big card that is the button, with the level meter inside it. It turns
+ * solid red with dark ink while the mic is open. The latch and mic settings
+ * sit in the row under it (StudioControls).
  *
  * Space is push-to-talk wherever focus sits, except inside a text field. It
  * used to fire only with focus on the page body or a button, and pressing
@@ -57,8 +57,7 @@ export function PushToTalk() {
   const touch = useCoarsePointer()
   const micOpen = engine?.isMicActive() ?? false
   const latched = engine?.isMicLatched() ?? false
-  const musicHint = engine?.getMicPrefs().duck === "silence" ? "music fades out while you talk" : "music dips while you talk"
-
+  const fades = engine?.getMicPrefs().duck === "silence"
   const down = useCallback(() => engine?.pttDown(), [engine])
   const up = useCallback(() => engine?.pttUp(), [engine])
 
@@ -104,17 +103,19 @@ export function PushToTalk() {
   if (micDisabled) return null
 
   const device = micStream?.getAudioTracks()[0]?.label || "Default microphone"
+  const look = micOpen
+    ? {
+        title: latched ? "Mic open" : "You\u2019re on",
+        hint: latched ? "Press L, or switch off Keep mic open, to close it" : "Let go to close the mic",
+      }
+    : {
+        title: "Hold here to talk",
+        hint: `${touch ? "Press and hold anywhere here." : "Hold Space, or press and hold here."} The music ${fades ? "fades out" : "dips"} while you talk.`,
+      }
 
   return (
-    // Laid out by the width of the deck (`@container/talk` in OnAirDeck), not
-    // the viewport: at 1366px the desktop console still only gives this row
-    // ~680px, and three columns squeezed the meter to 100px so its caption
-    // wrapped four deep. Narrower than 52rem the talk pad takes the top row
-    // and the meter and mic buttons share the one beneath. Narrower than
-    // 30rem (a phone) it is three rows: talk pad, then the mic buttons right
-    // under it, then the meter across the full width — beside the buttons it
-    // was a 130px sliver with its caption stranded above.
-    <div className="grid grid-cols-1 items-center gap-x-5 gap-y-3 transition-colors duration-200 @[30rem]/talk:grid-cols-[minmax(0,1fr)_auto] @[52rem]/talk:grid-cols-[minmax(220px,auto)_minmax(0,1fr)_auto]">
+    // The pad you hold, and the mic check under it.
+    <div className="flex flex-col gap-2.5">
       <button
         type="button"
         aria-pressed={micOpen}
@@ -137,62 +138,55 @@ export function PushToTalk() {
         }}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          "flex min-h-[72px] touch-none select-none items-center gap-3.5 rounded-xl border px-5 text-left transition-[background-color,border-color,color,transform] duration-150 @[30rem]/talk:col-span-2 @[52rem]/talk:col-span-1",
+          "flex min-h-72 w-full touch-none select-none flex-col justify-between gap-4 rounded-hero p-6 text-left transition-colors duration-150",
+          // Holding Space (or clicking) focuses the pad, and the global focus
+          // style drew a white outline round it the whole time you talked.
+          // The ring is for finding the pad by keyboard, so it shows only
+          // then, and never while the mic is open.
+          "outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:ring-0",
+          // Idle it is a plain card like the design system's, set apart by the
+          // marker below and a faint red edge on hover: a preview of what
+          // pressing does. Red fills it only while the mic is open.
+          //
+          // The grille: a fine dot grid, like the mesh over a microphone, so
+          // the pad reads as the mic itself and not as another panel. It is
+          // the one patterned surface in the studio (the design system keeps
+          // surfaces solid; this is a deliberate exception, docs/DASHBOARD-
+          // DESIGN-SYSTEM-ROLLOUT.md). Warm grey idle, the red's ink when open
+          // (the `grille` utilities in app/dashboard.css).
           micOpen
-            ? "scale-[0.99] border-mic bg-mic text-[#04121c]"
-            : "border-white/12 bg-white/[0.03] text-foreground hover:border-white/20 hover:bg-white/[0.05]",
+            ? "bg-live grille-live text-live-ink"
+            : "bg-card grille text-foreground hover:inset-ring-2 hover:inset-ring-live/35",
         )}
       >
-        <span
-          className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-full",
-            micOpen ? "bg-[#04121c]/15" : "bg-mic/12 text-mic-text",
+        <span className="flex items-start justify-between gap-3">
+          <span className="text-display">{look.title}</span>
+          {/* The design system's `trailing` slot. A red dot marks the control
+              that puts you on air, as it does on Go live. */}
+          {!micOpen && (
+            <span className="mt-1.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-micro font-semibold uppercase tracking-widest text-muted-foreground">
+              <span aria-hidden className="size-2 rounded-full bg-live" />
+              Live while held
+            </span>
           )}
-        >
-          <IconMicrophone size={20} />
         </span>
-        <span className="flex flex-col gap-0.5">
-          <span className="text-base font-semibold leading-tight">
-            {micOpen ? (latched ? "Mic stays on" : "You're on mic") : "Hold to talk"}
-          </span>
-          <span className={cn("text-xs", micOpen ? "text-[#04121c]/75" : "text-muted-foreground")}>
-            {micOpen
-              ? latched
-                ? "Press Mic off to close"
-                : "Let go to close"
-              : touch
-                ? `Press and hold · ${musicHint}`
-                : `Hold Space · ${musicHint}`}
-          </span>
+        <span className={cn("text-sm font-medium", micOpen ? "text-live-ink/70" : "text-muted-foreground")}>
+          {look.hint}
         </span>
       </button>
 
-      <div className="order-last flex min-w-0 flex-col gap-2 @[30rem]/talk:order-none">
-        <div className="flex items-baseline justify-between gap-3 text-xs">
-          <span className={cn("shrink-0 whitespace-nowrap", micOpen ? "font-medium text-mic-text" : "text-muted-foreground")}>
-            {micOpen ? "Going out live" : "Mic check · listeners can't hear this"}
+      <section
+        aria-label="Mic check"
+        className="flex flex-col gap-3 rounded-card bg-card p-5 text-muted-foreground"
+      >
+        <span className="flex items-baseline justify-between gap-3">
+          <span className={cn("font-mono text-micro font-medium", micOpen && "font-semibold text-live-text")}>
+            {micOpen ? "Going out live" : "Mic check \u00b7 only you see this"}
           </span>
-          {/* The device name is the first thing to go: sharing this line at
-              the three-column minimum it pushed the caption onto two rows. */}
-          <span className="hidden min-w-0 truncate text-muted-foreground @[64rem]/talk:inline">{device}</span>
-        </div>
+          <span className="min-w-0 truncate text-xs text-text-faint" title={device}>{device}</span>
+        </span>
         <MicMeter stream={micStream} open={micOpen} />
-      </div>
-
-      <div className="flex items-center gap-2 self-center">
-        <Button
-          variant="outline"
-          aria-pressed={latched}
-          aria-keyshortcuts="L"
-          title="Leave the mic on without holding anything (L)"
-          onClick={() => engine?.setMicLatched(!latched)}
-          className={cn("h-11 flex-1 self-center @[30rem]/talk:flex-initial", latched && "border-mic/50 bg-mic/10 text-mic-text hover:bg-mic/15 hover:text-mic-text")}
-        >
-          {latched ? <IconLockOpen data-icon="inline-start" /> : <IconLock data-icon="inline-start" />}
-          <span>{latched ? "Mic off" : "Keep mic on"}</span>
-        </Button>
-        <MicSettings />
-      </div>
+      </section>
     </div>
   )
 }
