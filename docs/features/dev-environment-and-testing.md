@@ -1,6 +1,6 @@
 ---
 feature: Dev environment and testing
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/tests/TestCase.php
   - api/tests/Pest.php
@@ -59,7 +59,7 @@ sources:
   - client/vitest.setup.ts
   - client/tests/e2e/dashboard-visual.spec.ts
   - client/app/dashboard.css
-fingerprint: 6b51cc513e71a00b
+fingerprint: c8f3804c59db982f
 ---
 
 # Dev environment and testing
@@ -83,7 +83,7 @@ Prerequisites the suite silently assumes (none are created by the suite):
 
 ### `tests/TestCase.php`: environment pinning
 
-`createApplication()` runs `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER['APP_ENV']` before calling the parent. The point: `api/.env` carries `APP_ENV=local` in dev, and if that wins, `app()->runningUnitTests()` is false and every test-mode guard (below) silently turns off. `phpunit.xml` also sets `APP_ENV=testing` with `force="true"`; the override in `TestCase` exists because that alone was not enough.
+`createApplication()` runs `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER['APP_ENV']` before calling the parent. The point: `api/.env` carries `APP_ENV=local` in dev, and if that wins, `app()->runningUnitTests()` is false and every test-mode guard (below) silently turns off. `phpunit.xml` also sets `APP_ENV=testing` with `force="true"`; the override in `TestCase` exists because that alone was not enough. It also blanks `SENTRY_LARAVEL_DSN` the same way (`putenv`, `$_ENV`, `$_SERVER`): `api/.env`'s live DSN otherwise turned every test that asserts a failure into a real Sentry issue.
 
 ### `tests/Pest.php`
 
@@ -107,6 +107,7 @@ Two suites (`Unit`, `Feature`), coverage source `app/`. Every `<env>` is `force=
 | `MAIL_MAILER` | `array` | |
 | `PULSE_ENABLED`, `TELESCOPE_ENABLED`, `NIGHTWATCH_ENABLED` | `false` | |
 | `TELEGRAM_BOT_TOKEN` | empty | a run must never message the real admin chat |
+| `SENTRY_LARAVEL_DSN` | empty | a run must never send test failures to Sentry (also pinned in `TestCase`) |
 | `LIQUIDSOAP_TELNET_RESOLVE` | `name` | hybrid dev sets `ip`; `ip` would make `LiquidsoapSupervisor::containerHost` shell out to docker for nonexistent stations |
 | `LIQUIDSOAP_LIQ_DIR` / `_PLAYLISTS_DIR` / `_HLS_DIR` | `/tmp/gocast-test/{liq,playlists,hls}` | `PlaylistFileWriter` has no test guard and `StationObserver`'s force-delete hook deletes the station directory; without this every factory station leaks into `/var/gocast` |
 
@@ -212,7 +213,7 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 
 ## Web unit and component tests (Vitest)
 
-`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-01: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `liveShows`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`), and dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `library/jinglePresets.test.ts`); 101 tests. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
+`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-04: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `liveShows`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `socialLinks`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`, `Dialog.test.tsx`), dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `library/jinglePresets.test.ts`), and two pure studio helpers (`components/studio/FileQueue.test.ts` `secondsUntilLoop`, `NowPlaying.test.ts` `upNext`); about 110 `it`/`test` cases by static count. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
 
 ## Playwright (web e2e)
 
@@ -331,12 +332,13 @@ Each `docs/features/*.md` (except `README.md`) lists `sources:` in front matter 
 7. **`config/liquidsoap.php` comments contradict its own defaults.** A docblock there still points at `docker-compose.yml` (no such file). The block "Addresses as seen FROM INSIDE a station container" says the defaults are "the all-Docker values ... compose services reachable by service name", but the defaults are `host.docker.internal`. Its `telnet_resolve` docblock says `name` is for "a containerised Laravel and for tests", which is accurate; the `client/.env.example` note that the ingest address "changes on every restart" contradicts the fixed per-station address computed from `container_index` (`LiquidsoapSupervisor::containerIp`, `'--ip'` in the run command).
 8. **`artisan serve` loopback trap** (see above): Playwright's own server is bound to `127.0.0.1`, which is fine for the browser and useless for station containers or a phone.
 9. **`mobile/scripts/start.mjs` and `ingest-proxy.mjs` assume the station router listens on `127.0.0.1:8091`** (hard-coded `TARGET`); if the router moves the phone's broadcast path fails with only a proxy-side log line.
-10. **No typecheck script, no CI, no tests for mobile.** The web has Vitest unit tests for the dashboard's pure logic and kit, and the visual suite, but not for the studio engine (`broadcast.ts`, `audioEngine.ts`), the player or marketing. Type errors surface only in `next build` or `npx tsc --noEmit` (web) or the editor (mobile).
+10. **No typecheck script, no CI, no tests for mobile.** The web has Vitest unit tests for the dashboard's pure logic and kit, and the visual suite, but not for the studio engine (`broadcast.ts`, including its frame watchdog and engine rebuild, `audioEngine.ts`), the player or marketing; the only studio tests are the two pure helpers above. Type errors surface only in `next build` or `npx tsc --noEmit` (web) or the editor (mobile).
 11. **Placeholder tests count toward the total**: `Unit/ExampleTest`, `Feature/ExampleTest` (asserts the Laravel welcome page), and the `toBeOne` expectation.
 12. **`E2EAuthCommand` is only environment-gated** (`local`/`testing`). A production box with `APP_ENV=local` would allow creating verified users by CLI; it is not reachable over HTTP.
 13. **`docs-check.sh` hides nothing but also covers only listed sources**; a doc can read `ok` while a file it silently depends on changed.
 14. **`INTERNAL_API_URL` and `INTERNAL_ICECAST_URL` are read but undocumented** in `client/.env.example`.
 15. **`DatabaseSeeder` creates a `test@example.com` user with the factory password `password`**; harmless locally, but do not run `db:seed` against a shared or production database. `StationSeeder` is an empty stub.
+16. **Next dev can serve a stylesheet without `app/dashboard.css`, across restarts.** Seen 2026-10-04: the dashboard renders with its tokens missing even after restarting `next dev`, because the stale CSS chunk lives in `client/.next`. Fix: stop the dev server, `rm -rf client/.next`, start it again. Check this before debugging "my CSS change didn't land".
 
 ## Tests
 

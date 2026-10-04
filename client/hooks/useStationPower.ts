@@ -54,7 +54,9 @@ export function useStationPower(slug: string) {
 
   return {
     pending,
-    start: () => act("start", "AutoDJ is on"),
+    // A start is accepted, not finished: the container takes a few seconds,
+    // and the status band says what it lands on (playing, or silence).
+    start: () => act("start", "Your station is starting up"),
     stop: () => act("stop", "Station is off air"),
     /** Why a stop was refused for DJ software on air, or null. */
     cutoff,

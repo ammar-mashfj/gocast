@@ -129,6 +129,9 @@ export interface AddFilesResult {
  */
 const METADATA_TIMEOUT_MS = 4000
 
+/** How long a track has to air before the wrap screen counts it as played. */
+const TRACK_PLAYED_AFTER_S = 30
+
 /** Resolves at once if the tab is showing, otherwise when it is next shown. */
 function whenTabVisible(): Promise<void> {
   if (typeof document === 'undefined' || document.visibilityState === 'visible') return Promise.resolve()
@@ -249,7 +252,7 @@ export class AudioEngine {
   private micVoiceIn: BiquadFilterNode | null = null
   private isTalking = false
   private micLatched = false
-  private tracksStarted = 0
+  private tracksPlayed = 0
   private repeatMode: RepeatMode = 'all'
 
   // File playback — each track is streamed through an HTMLAudioElement so the
@@ -1168,11 +1171,16 @@ export class AudioEngine {
   }
 
   /**
-   * Tracks that started playing in this engine's life — one show, since each
-   * go-live builds a new engine. A pause and resume is not a new start.
+   * Tracks that aired in this engine's life — one show, since each go-live
+   * builds a new engine: played for TRACK_PLAYED_AFTER_S, or to the end.
    */
   getTracksPlayed(): number {
-    return this.tracksStarted
+    return this.tracksPlayed
+  }
+
+  /** Carry the count over from the engine this one replaces mid-show. */
+  carryTracksPlayed(count: number) {
+    this.tracksPlayed += count
   }
 
   getElapsed(): number {
@@ -1224,9 +1232,23 @@ export class AudioEngine {
       this.dropTracks(new Set([track.id]), 'unplayable', true)
     })
 
+    // The wrap screen's "Tracks": one that aired for TRACK_PLAYED_AFTER_S
+    // from where it started, or to its end. A skip straight past it, or
+    // stepping back and forth, isn't a track the audience heard.
+    let counted = false
+    const countPlayed = () => {
+      if (counted) return
+      counted = true
+      this.tracksPlayed++
+    }
+    audio.addEventListener('timeupdate', () => {
+      if (this.currentAudio === audio && audio.currentTime - offset >= TRACK_PLAYED_AFTER_S) countPlayed()
+    })
+
     audio.addEventListener('ended', () => {
       // Ignore ended events from a superseded element (track switch in flight).
       if (this.currentAudio !== audio) return
+      countPlayed()
       // Auto-advance is the only place repeat applies; an explicit skip always
       // moves. Re-cueing the same index rebuilds the element from the same
       // File, which is the identical path a 1-track queue already took when
@@ -1271,7 +1293,6 @@ export class AudioEngine {
       console.error('[AudioEngine] play() rejected for', track.file.name, err)
       return
     }
-    this.tracksStarted++
     if (this.currentAudio !== audio) return
 
     this.playing = true

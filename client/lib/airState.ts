@@ -51,12 +51,17 @@ export interface AirInput {
   autoDjLocked: boolean
   /** The band is on the studio page, which has its own controls. */
   onStudio: boolean
+  /**
+   * This tab's show just ended and the station is still handing over (see
+   * StationStatusContext). The status in hand is about to change.
+   */
+  showEnding?: boolean
 }
 
 const OFF_MESSAGE = "Nothing’s playing. Nobody can tune in right now."
 
 export function airState(input: AirInput): AirState {
-  const { status, statusLoading, broadcastState, signal, micLatched, autoDjLocked, onStudio } = input
+  const { status, statusLoading, broadcastState, signal, micLatched, autoDjLocked, onStudio, showEnding } = input
 
   // ── This tab is on air ────────────────────────────────────────────────
   if (broadcastState === "live" || broadcastState === "reconnecting") {
@@ -89,6 +94,11 @@ export function airState(input: AirInput): AirState {
 
   // ── Everything else comes from the poll ───────────────────────────────
   const idle = { onAir: false, broadcasting: false }
+
+  // The status still describes the show that just ended: no guessing from it.
+  if (showEnding) {
+    return { ...idle, tone: "off", label: "SHOW ENDED", message: "Your show has ended. Checking what’s on air now…", action: null }
+  }
   const offAction: AirAction = autoDjLocked ? "go-live" : "start-autodj"
 
   if (!status) {

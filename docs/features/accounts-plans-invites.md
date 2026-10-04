@@ -1,6 +1,6 @@
 ---
 feature: Accounts, plans, Pro access, invites and the waitlist
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Http/Controllers/AccountController.php
   - api/app/Http/Controllers/InviteController.php
@@ -93,7 +93,7 @@ sources:
   - client/components/dashboard/ProRequestDialog.tsx
   - client/hooks/useAccessRequest.ts
   - client/components/dashboard/account/PlanCard.tsx
-fingerprint: bb517952b1322223
+fingerprint: 4f1f47b0fb614b81
 ---
 
 # Accounts, plans, Pro access, invites, waitlist
@@ -193,7 +193,7 @@ The `ExpirePlans` docblock says `plan_expires_at` "is set only by InviteRedempti
 5. `forceFill` `plan_id`, `invite_id`, `plan_expires_at`; reload `plan`.
 6. If the email is already verified, send `InviteRedeemed` now. If not, nothing is sent here (see the Verified listener below).
 
-`InviteException` (`errorCode`, message, status) is rendered by `bootstrap/app.php` as JSON `{message, code, errors:{invite_code:[message]}}` on every request, and only reported to Sentry when status is 500 or above.
+`InviteException` (`errorCode`, message, status) is rendered by `bootstrap/app.php` as JSON `{message, code, errors:{invite_code:[message]}}` on every request, and only reported to Sentry when status is 500 or above (`dontReportWhen` drops the rest before Sentry's reporter runs).
 
 **Three entry points:**
 
@@ -202,7 +202,7 @@ The `ExpirePlans` docblock says `plan_expires_at` "is set only by InviteRedempti
 | `POST /api/auth/register` with `invite_code` (`RegisterRequest`: nullable string max 40) | The user insert and redemption share a transaction, so a dead code **rolls back the account** and the request 422s on `invite_code`. The web page then remembers the code is dead and retries without it |
 | Google web callback: `GET /api/auth/google?invite=` parks the code in cookie `gocast_oauth_invite` (only if it matches `^[A-Za-z0-9-]{1,40}$`), the callback redeems it | Best effort: the account stands, and the popup message carries `invite:{applied:false,message}` |
 | `POST /api/auth/google/native` (`invite`, max 40) | Same best-effort behaviour, returned in the JSON |
-| `POST /api/invites/redeem` (`auth:sanctum`, outside `verified`, `throttle:10,1`, body `code` max 40) | Errors as above. Response `{plan, plan_expires_at}` and message "You're on {Plan}." |
+| `POST /api/invites/redeem` (`auth:sanctum`, outside `verified`, `throttle:10,1,invite-redeem`, body `code` max 40) | Errors as above. Response `{plan, plan_expires_at}` and message "You're on {Plan}." |
 
 Google sign-in links an existing password account by email and then redeems, which is why steps 2 and 3 exist. The callback deletes the `gocast_oauth_invite` cookie after use.
 
@@ -215,7 +215,7 @@ Google sign-in links an existing password account by email and then redeems, whi
 | Endpoint | Auth | Throttle | Body | Effect |
 |---|---|---|---|---|
 | `POST /api/waitlist/pro` | `auth:sanctum` (not `verified`) | global only | `social` required max 255; `message` nullable max 2000 | `WaitlistEntry::updateOrCreate(email = account email, plan = 'pro')`, stores `user_id`. Email and plan are never read from the body |
-| `POST /api/waitlist` | public | `throttle:3,60` per IP | `email` required; `plan` must be `custom` (`StoreWaitlistRequest::PUBLIC_PLANS`); `social` required; `message` | same upsert with `user_id` null |
+| `POST /api/waitlist` | public | `throttle:3,60,waitlist` per IP | `email` required; `plan` must be `custom` (`StoreWaitlistRequest::PUBLIC_PLANS`); `social` required; `message` | same upsert with `user_id` null |
 
 - Resubmitting overwrites the same row. If the row was `rejected` it is reopened to `pending` (`reopen()` clears reviewer and time); an `approved` row is left alone.
 - A create, or an update that changed `social`, `message` or `status`, fires an AdminTelegram alert if the row is `pending` (hooked on the model in `AppServiceProvider`, `AdminTelegram::accessRequested`; inert without a bot token). An identical resubmit changes nothing and sends nothing; a resubmit that reopens a rejected row does. The DB column `social` is nullable, but both requests require it.

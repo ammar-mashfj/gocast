@@ -42,6 +42,75 @@ Order:
 | R5 | Pages: Overview → Studio + Go live → AutoDJ → Schedule → Audience → Your shows → Station settings → Account → Create station | [x] all pages reviewed |
 | R6 | Guardrails: lint ban on arbitrary values / raw palette in dashboard code, Playwright screenshots per page × state | [~] 6.1–6.3 reviewed; 6.4 docs built, awaiting review |
 
+### QA pass and parity with main (2026-10-03 → 04)
+
+Four testers went through every dashboard page on this branch in headless
+Chromium at 390 / 820 / 1440px on the keeper accounts, after listing every
+feature main's code has on each page. Main was merged in first
+(`e145a37`: frame watchdog, cueing, session-expiry redirect). All fixes below
+are uncommitted on `feat/design-system`.
+
+**Bugs fixed**
+
+- Go live could fail with a 429 and leave the station running: every
+  unnamed `throttle:N,M` shared one per-user counter (each route now names
+  its limiter), and goLive() started the station a second time right after
+  the checks (now skipped within 30s; 429 gets its own message).
+- Typed delete confirm stayed armed after "Keep …" (ConfirmDialog now clears
+  on every open).
+- Studio said "Nothing queued" with a queue loaded, and Next skipped track 1.
+- After End show the band said "live from another browser" (stale status):
+  the shared poll re-reads until the handover settles; the band says
+  SHOW ENDED meanwhile.
+- Phone sheets had no way out but the scrim: × shows on phones, sheets close
+  on a pull down from the grabber, Embed focuses Copy so Esc works.
+- Phone layout: schedule slot times clipped, studio clock clipped, toasts
+  over the tab bar, playlist chips hidden.
+- Smaller: starting-state copy and toast, fault announcements
+  (role=alert), End dialog says what listeners hear, wrap "Tracks" counts
+  only tracks that aired 30s, tab title, Audience last label is the date,
+  Your shows names the DJ software, copy fallback (execCommand, then the
+  full value selected), Jingles select width, password "false" toast,
+  links with spaces.
+
+**Restored from main** (decided 2026-10-04)
+
+| Main had | Where it is now |
+|---|---|
+| Encoder bitrate | Under "Audio lost": `128 kbps`, amber `N kbps · slow line` below 128 |
+| Keyboard shortcuts list | Dialog behind a keyboard icon beside Mic settings (not a fold: keeps the studio's height) |
+| Time until the queue loops | Running order header: `loops in m:ss`, or "repeating this track" |
+| "get ready" in the last 20s | The clock's LEFT label reads GET READY, amber, from 20s |
+| This broadcast: started, data sent | On air tile `since 2:24 PM` (station clock); Audio lost tile `131 KB sent` |
+| Elapsed / duration on the bar | Either side of the progress bar |
+| "Nobody has joined yet" | Listening tile `nobody yet` until the first listener |
+| Pre-flight listener-link Copy, storage line | Copy after the link (tagged owner URL); `3 MB of 2.0 GB` in the running order card |
+| Library playlist count, Free "plays only on Pro", upload help link | Stats line; `?` at the end of the drop hint |
+| Overview "nobody right now — your peak is N" | Listening now panel |
+| Encoder values in full | They wrap instead of truncating |
+
+**Dropped on purpose — don't flag again**
+
+- Studio "How the studio works" help link (Ammar, 2026-10-04).
+- Studio listener sparkline (left alone in R5.2).
+- Track / playlist / jingle delete confirms are not red: only permanent
+  deletes of a station or account are (R3).
+- Phone track rows truncate titles harder: Edit / Delete are words, per the
+  prototype.
+- A failed go-live leaves the station running: the sweep turns it off.
+- Delete account no longer submits on Enter.
+- End show closes with 1006 in the browser: harbor drops TCP without a close
+  frame (verified on the raw socket). Harmless; main does the same.
+
+**Open**
+
+- Studio fitting one screen: desktop scrolls 226px at 1440×900 (right
+  column), more on tablet / phone. Options proposed, not decided.
+- Needs a person or a device: listening (ducking, Broadcast voice,
+  monitor, cue), Safari / iPhone (goLive now runs after the checks, not in
+  the tap), touch drag, swipe-to-close on a real phone.
+- After deploy: `engine_rebuilds` in drop reports; 429s with per-route limits.
+
 ### Architecture (2026-10-01)
 
 - **`components/ds/` is the dashboard's component layer**, built to the
@@ -714,6 +783,15 @@ so web and mobile stay one system:
       confirmation.
 - [ ] **Nested Disclosure** — a question folded inside an open card keeps
       its own chevron state.
+- [ ] **Sheets close on a pull** — the phone sheet's grabber strip is a
+      28px drag handle; a 120px pull (or a third of the sheet) or a quick
+      flick closes it, otherwise it springs back. The × shows on phones too.
+- [ ] **StatTile `compact`** — a smaller value below 640px so a row of
+      three fits a clock; the sub line may carry two items that wrap.
+- [ ] **Clock label GET READY** — the countdown's LEFT label turns amber
+      GET READY for the last 20s of a track.
+- [ ] **CopyField fallback** — when copying fails, the well shows the full
+      value selected and the button reads "Copy it yourself".
 
 ## Phase 0 — Setup
 
@@ -1018,3 +1096,7 @@ Redirect-only routes, nothing to style: `/dashboard/stations`,
 - 2026-10-01 — Page 8 (broadcasts) built.
 - 2026-10-01 — Page 9 (account) built.
 - 2026-10-01 — Page 10 (create station) + dashboard error page built; leftover scan done.
+- 2026-10-03 — Main merged in (`e145a37`). Four-tester QA pass over every page at three sizes; findings and fixes under "QA pass and parity with main".
+- 2026-10-03 — Blockers fixed (shared throttle counter, double start, armed delete confirm, idle NowPlaying, stale "another browser", phone sheets), then phone layout and eleven smaller bugs.
+- 2026-10-03 — Ammar's dev server served CSS without dashboard.css across restarts; `rm -rf client/.next` fixed it (not the code — proved on a second server).
+- 2026-10-04 — Missing-from-main features restored (bitrate, shortcuts dialog, loop time, GET READY, start time, data sent, elapsed/length, nobody-yet, pre-flight copy + storage, library counts + help link, overview peak, encoder values in full); studio help link dropped.

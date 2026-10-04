@@ -12,8 +12,11 @@ import { useEngineVersion } from "@/lib/useEngine"
 import { cn } from "@/lib/utils"
 import { formatTrackTime as formatTime } from "@/lib/format"
 
-/** Under this many seconds the time left turns amber: time to talk it up. */
-const ENDING_SOON_S = 15
+/**
+ * Under this many seconds the time left turns amber and its label reads
+ * GET READY: time to be at the mic to talk over the end of the song.
+ */
+const ENDING_SOON_S = 20
 
 /**
  * Talk-up cues: the moments a host needs to be at the mic before the song
@@ -55,6 +58,34 @@ function useEngineFrame(engine: Engine | null, onFrame: (engine: Engine) => void
   }, [engine])
 }
 
+type QueueItem = { title: string; artist?: string | null }
+
+/**
+ * What plays after this track, in the running order's own words (mobile's
+ * upNextOf), and how many tracks are still to come. Repeat has no 'off' mode,
+ * so the queue never runs out.
+ *
+ * With nothing started yet (`currentIndex` -1), Play starts the first track,
+ * so that is what is next and every track is still to come.
+ */
+export function upNext(
+  queue: readonly QueueItem[],
+  currentIndex: number,
+  repeatMode: string,
+): { text: string; count: number } {
+  const label = (t: QueueItem) => [t.title, t.artist].filter(Boolean).join(" — ")
+  if (queue.length === 0) return { text: "Add music", count: 0 }
+  if (currentIndex < 0) return { text: label(queue[0]), count: queue.length }
+
+  const count = Math.max(0, queue.length - currentIndex - 1)
+  if (repeatMode === "one") return { text: "Holding this track", count }
+  if (queue.length === 1) return { text: "Looping this track", count }
+  const next = queue[(currentIndex + 1) % queue.length]
+  return {
+    text: currentIndex + 1 >= queue.length ? `${label(next)} (from the top)` : label(next),
+    count,
+  }
+}
 
 /**
  * What is playing, how long it has left, what comes next, and the transport:
@@ -83,20 +114,12 @@ export function NowPlaying() {
   const clockRef = useRef<HTMLSpanElement>(null)
   const clockWrapRef = useRef<HTMLDivElement>(null)
   const cueRef = useRef<HTMLParagraphElement>(null)
+  const clockLabelRef = useRef<HTMLSpanElement>(null)
+  const elapsedRef = useRef<HTMLSpanElement>(null)
+  const durationRef = useRef<HTMLSpanElement>(null)
   const prevLeft = useRef<number | null>(null)
 
-  // What plays after this track, in the running order's own words (mobile's
-  // upNextOf). Repeat has no 'off' mode, so the queue never runs out.
-  let nextText: string
-  if (queue.length === 0) nextText = "Add music"
-  else if (repeatMode === "one") nextText = "Holding this track"
-  else if (queue.length === 1) nextText = "Looping this track"
-  else {
-    const next = queue[(Math.max(0, currentIndex) + 1) % queue.length]
-    const label = [next.title, next.artist].filter(Boolean).join(" — ")
-    nextText = currentIndex + 1 >= queue.length ? `${label} (from the top)` : label
-  }
-  const upcoming = Math.max(0, queue.length - Math.max(0, currentIndex) - 1)
+  const { text: nextText, count: upcoming } = upNext(queue, currentIndex, repeatMode)
 
   // The playhead is read per frame, never memoised: every dependency such a
   // memo could take keeps a stable identity for the life of the deck, so it
@@ -114,10 +137,17 @@ export function NowPlaying() {
     if (clockRef.current) {
       clockRef.current.textContent = duration > 0 ? formatTime(left) : "–:––"
     }
+    if (elapsedRef.current) {
+      elapsedRef.current.textContent = current ? formatTime(elapsed) : "–:––"
+    }
+    if (durationRef.current) {
+      durationRef.current.textContent = duration > 0 ? formatTime(duration) : "–:––"
+    }
     if (clockWrapRef.current) {
       const soon = duration > 0 && eng.isPlaying() && left < ENDING_SOON_S
       if (clockWrapRef.current.dataset.soon !== String(soon)) {
         clockWrapRef.current.dataset.soon = String(soon)
+        if (clockLabelRef.current) clockLabelRef.current.textContent = soon ? "GET READY" : "LEFT"
       }
     }
 
@@ -146,10 +176,14 @@ export function NowPlaying() {
       <div className="flex items-center gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.75">
           <h2 className="truncate text-heading">
-            {track?.title ?? "Nothing queued"}
+            {track?.title ?? (queue.length > 0 ? "Queue loaded" : "Nothing queued")}
           </h2>
           <p className="truncate text-body-sm font-medium text-muted-foreground">
-            {track ? track.artist || "Unknown artist" : "Add music from the running order"}
+            {track
+              ? track.artist || "Unknown artist"
+              : queue.length > 0
+                ? "Nothing playing yet. Press play to start."
+                : "Add music from the running order"}
           </p>
         </div>
         <div
@@ -163,17 +197,25 @@ export function NowPlaying() {
           >
             –:––
           </span>
-          <span className="eyebrow-sm font-medium text-text-faint">LEFT</span>
+          <span ref={clockLabelRef} className="eyebrow-sm font-medium text-text-faint group-data-[soon=true]:text-pro">
+            LEFT
+          </span>
           <p ref={cueRef} className="sr-only" role="status" />
         </div>
       </div>
 
-      <div className="h-1.25 overflow-hidden rounded-full bg-foreground/8" aria-hidden>
-        <div
-          ref={barRef}
-          className={cn("h-full bg-foreground transition-opacity duration-200", micActive && "opacity-35")}
-          style={{ width: "0%" }}
-        />
+      {/* Elapsed and length either side of the bar, on its own line: the
+          row is the label's height, so the card grows by a few pixels. */}
+      <div className="flex items-center gap-2.5 font-mono text-micro text-text-faint tabular-nums" aria-hidden>
+        <span ref={elapsedRef} className="w-9">–:––</span>
+        <div className="h-1.25 flex-1 overflow-hidden rounded-full bg-foreground/8">
+          <div
+            ref={barRef}
+            className={cn("h-full bg-foreground transition-opacity duration-200", micActive && "opacity-35")}
+            style={{ width: "0%" }}
+          />
+        </div>
+        <span ref={durationRef} className="w-9 text-right">–:––</span>
       </div>
 
       <div className="flex items-center gap-2">

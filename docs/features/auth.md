@@ -1,6 +1,6 @@
 ---
 feature: Authentication and sessions
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Http/Controllers/AuthController.php
   - api/app/Http/Controllers/GoogleAuthController.php
@@ -77,7 +77,7 @@ sources:
   - client/components/dashboard/account/ProfileForm.tsx
   - client/components/dashboard/account/PasswordForm.tsx
   - client/components/dashboard/account/DeleteAccount.tsx
-fingerprint: acbae7b7204ee3a4
+fingerprint: 797d611c0cfb495b
 ---
 
 # Authentication and sessions
@@ -147,14 +147,14 @@ All under `routes/api.php`, prefixed `/api`.
 | `GET /auth/google` | none | `auth` | `GoogleAuthController::redirect` |
 | `GET /auth/google/callback` | none | `auth` | `GoogleAuthController::callback` |
 | `POST /auth/google/native` | none | `auth` | `GoogleAuthController::native` |
-| `POST /auth/password/forgot` | none | `auth` + `3,1` | `PasswordResetController::forgot` |
-| `POST /auth/password/reset` | none | `auth` + `10,1` | `PasswordResetController::reset` |
+| `POST /auth/password/forgot` | none | `auth` + `3,1,password-forgot` | `PasswordResetController::forgot` |
+| `POST /auth/password/reset` | none | `auth` + `10,1,password-reset` | `PasswordResetController::reset` |
 | `GET /invites/{code}` | none | `auth` | `InviteController::show` (see [accounts doc](accounts-plans-invites.md)) |
 | `POST /logout` | sanctum | none | `AuthController::logout` |
 | `GET /user` | sanctum | none | `AuthController::user` |
-| `POST /invites/redeem` | sanctum | `10,1` | `InviteController::redeem` |
-| `POST /email/resend` | sanctum | `6,1` | `EmailVerificationController::send` |
-| `POST /email/verify` | sanctum | `10,1` | `EmailVerificationController::verify` |
+| `POST /invites/redeem` | sanctum | `10,1,invite-redeem` | `InviteController::redeem` |
+| `POST /email/resend` | sanctum | `6,1,email-resend` | `EmailVerificationController::send` |
+| `POST /email/verify` | sanctum | `10,1,email-verify` | `EmailVerificationController::verify` |
 | `PATCH /account/profile` | sanctum | none | `AccountController::updateProfile` |
 | `PATCH /account/password` | sanctum | none | `AccountController::updatePassword` |
 | `DELETE /account` | sanctum | none | `AccountController::destroy` |
@@ -166,14 +166,14 @@ Notifications routes and `POST /waitlist/pro` are inside `auth:sanctum` but outs
 
 ### Throttles, exactly
 
-Defined in `AppServiceProvider::boot()` and inline (`throttle:N,M` means N requests per M minutes):
+Defined in `AppServiceProvider::boot()` and inline (`throttle:N,M,prefix` means N requests per M minutes, counted under its own prefix; every inline throttle in `routes/api.php` names one, so routes no longer share a single per-user counter):
 
 | Limiter | Limit | Keyed by |
 |---|---|---|
 | `auth` | **10 per minute** | IP (`$request->ip()`, trusted proxies give the real client IP) |
-| `throttle:3,1` on `/password/forgot` | 3 per minute | user id if authenticated, else IP |
-| `throttle:10,1` on `/password/reset`, `/email/verify`, `/invites/redeem` | 10 per minute | user id, or IP for reset |
-| `throttle:6,1` on `/email/resend` | 6 per minute | user id |
+| `throttle:3,1,password-forgot` on `/password/forgot` | 3 per minute | user id if authenticated, else IP |
+| `throttle:10,1,password-reset` / `email-verify` / `invite-redeem` on `/password/reset`, `/email/verify`, `/invites/redeem` | 10 per minute each, separate counters | user id, or IP for reset |
+| `throttle:6,1,email-resend` on `/email/resend` | 6 per minute | user id |
 | `internal` | 300 per minute | IP |
 | login lockout (below) | 5 failures then 15 min | email + IP |
 
@@ -328,12 +328,12 @@ Files: `client/actions/auth.ts`, `client/lib/cookies.ts`, `client/lib/session.ts
 
 ### `proxy.ts` (Next.js middleware)
 Matcher excludes `api`, `embed`, `_next/static`, `_next/image`, `.png`, `.svg`. It reads `token` and the parsed `user` cookie:
-- `/auth/login` or `/auth/register` with a token **and** a verified `user` cookie: redirect to `/dashboard/stations`.
+- `/auth/login` or `/auth/register` with a token **and** a verified `user` cookie: redirect to `/dashboard/stations`, **unless** the URL carries `?expired=1` (sent by `redirectIfSessionExpired` after a server-side 401; bouncing it would loop back to the same 401).
 - `/dashboard*` without a token or without a verified `user` cookie: redirect to `/auth/login`.
 It never validates the token, and `email_verified_at` comes from a cookie the visitor can edit. It is a UX redirect only.
 
 ### Dashboard layout (server)
-`app/dashboard/layout.tsx` requires both cookies, `JSON.parse`s the user cookie **without a try/catch**, redirects an unverified user to `/auth/login` (which reopens the dialog), then calls `GET /user` and the station lookup in parallel. A failed `/user` is not fatal: `Account = {email, plan: null}`, and consumers must treat `null` as "unknown", not "free" (`usePlan()`, `useAutoDjLocked()` and siblings in `AccountContext.tsx`). `RealtimeProvider` gets `userId` from the cookie.
+`app/dashboard/layout.tsx` requires both cookies, `JSON.parse`s the user cookie **without a try/catch**, redirects an unverified user to `/auth/login` (which reopens the dialog), then calls `GET /user` and the station lookup in parallel. A `/user` 401 calls `redirectIfSessionExpired` (`lib/api-server.ts`), which redirects to `/auth/login?expired=1`; the layout wraps every dashboard route, the client-rendered studio included, so this is the catch-all. The server-rendered pages (overview, library, schedule, settings, audience, broadcasts) call it on their own fetches too, since they render in parallel. Any other `/user` failure is not fatal: `Account = {email, plan: null}`, and consumers must treat `null` as "unknown", not "free" (`usePlan()`, `useAutoDjLocked()` and siblings in `AccountContext.tsx`). `RealtimeProvider` gets `userId` from the cookie.
 
 ### `getSession()` (`lib/session.ts`)
 For server components (marketing navbar and hero CTA). Signed in only if **both** `token` and `user` cookies are present and the user cookie parses; any disagreement is "signed out" so a stranger is never shown "Open dashboard". A parse error returns null instead of throwing, because it runs in the marketing layout.
@@ -409,7 +409,7 @@ Server-to-server calls use a shared secret, not a token.
 5. **Reset and verify code attempt limits are resettable.** `forgot`, `resend`, register and login all re-issue a code with `attempts = 0`. The 5-attempt cap only bounds one issued code; the real brute-force brake is the throttle (3/min forgot per IP, 10/min reset per IP, 10/min verify per user). A six-digit space is small against a distributed attacker.
 6. **No token pruning.** `sanctum:prune-expired` is not scheduled anywhere (`routes/console.php`). Each login adds a token row and expired rows stay forever. Mobile logins pile up as `GoCast app (android)` rows the same way.
 7. **Tokens are never refreshed or rotated.** A fixed 30-day life: a signed-in user is signed out on day 30 at a random moment (a 401, the `?expired=1` toast). There is no "list or revoke my sessions" endpoint. The mobile code comments mention "revoked from the web's sessions list"; that list does not exist.
-8. **The two web cookies expire on different clocks.** `user` lives 7 days, `token` 30. After 7 days `proxy.ts` and the dashboard layout redirect to login even though the token is valid (an unnecessary re-login). In the other direction, a revoked or expired token with a fresh `user` cookie renders the dashboard shell; server-component `apiFetch` calls then throw `ApiFetchError` 401 (an error page) until a client axios 401 triggers the redirect. `apiFetch` has no 401 handling.
+8. **The two web cookies expire on different clocks.** `user` lives 7 days, `token` 30. After 7 days `proxy.ts` and the dashboard layout redirect to login even though the token is valid (an unnecessary re-login). In the other direction, a revoked or expired token with a fresh `user` cookie passes `proxy.ts`; the dashboard layout's `/user` call then gets a 401 and `redirectIfSessionExpired` sends the visitor to `/auth/login?expired=1`. `apiFetch` itself still has no 401 handling (on purpose: the public station page shares it, and a 401 there must not send a listener to a login form), so a new dashboard server fetch that catches its own errors must call `redirectIfSessionExpired` or it will show an error page instead. The stale `user` cookie is not cleared by the server redirect; the `?expired=1` exemption in `proxy.ts` is what lets the login page render.
 9. **The `user` cookie is client-controlled** and trusted by `proxy.ts` and the layout for `email_verified_at` and `id`. That is safe only because the API re-checks everything; do not put an authorisation decision on it. `RealtimeProvider` takes `userId` from it.
 10. **`JSON.parse` on the `user` cookie has no try/catch in `app/dashboard/layout.tsx` and in `getUser()`.** A corrupt cookie throws (`getSession()` is the only guarded reader).
 11. **axios reads `token` via `document.cookie`,** which cannot see an HttpOnly cookie. The branch is dead in a current session; auth works through the cookie header alone. Removing the cookie-reading code, or making `token` readable, would change behaviour, so leave it.

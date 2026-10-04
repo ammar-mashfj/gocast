@@ -117,8 +117,8 @@ export function EndBroadcastButton({ className }: { className?: string }) {
           (after === "off_air"
             ? "Everyone listening is cut off and the station goes off air."
             : after === "silence"
-              ? "AutoDJ takes over with nothing to play, so the station goes silent and switches off in a few minutes."
-              : "AutoDJ takes back the station straight away.") +
+              ? "Your show stops for everyone listening. AutoDJ has nothing to play, so they hear silence and the station switches off in a few minutes."
+              : "Your show stops for everyone listening, and they hear AutoDJ straight away.") +
           " Your queue is kept for next time."
         }
         confirmLabel={ending ? "Ending…" : "End show"}

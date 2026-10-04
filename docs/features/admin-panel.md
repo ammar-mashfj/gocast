@@ -1,6 +1,6 @@
 ---
 feature: Admin panel (/admin Blade back office)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/routes/admin.php
   - api/bootstrap/app.php
@@ -39,6 +39,7 @@ sources:
   - api/app/Services/WatermarkClipLibrary.php
   - api/app/Services/InviteRedemption.php
   - api/app/Jobs/SendAdminTelegramAlert.php
+  - api/app/Services/UserAgentParser.php
   - api/app/Jobs/ReloadWatermarkClips.php
   - api/app/Notifications/ProAccessGranted.php
   - api/app/Notifications/ProductUpdate.php
@@ -67,7 +68,7 @@ sources:
   - api/config/services.php
   - api/config/station_events.php
   - api/config/notifications.php
-fingerprint: 9a79a725fe1ec56a
+fingerprint: 379b25c5040bdcbc
 ---
 
 # Admin panel
@@ -131,7 +132,7 @@ Route model binding: `{station}` binds on `slug` (`Station::getRouteKeyName`), `
 
 - **Tiles** (Stations, Powered on, Live now and Featured are links; Powered on/Live now/Featured keep the search and the other filters, clicking the active one clears it; the Stations tile clears the state and featured filters but keeps the search; Users is not a link): Stations (`Station::count()`), Powered on (`desired_state = running`, labelled "owner intent, not containers"), Live now (an open `StreamSession`, `ended_at IS NULL`), Featured (`featured` count, with "N of 4 slots filled" from `Station::FEATURED_RAIL_SIZE = 4` and a note when on-air featured stations exceed the rail or some are powered off; the number turns warning-coloured when featured > 0 and none are on air), Users (`User::count()`, soft-deleted excluded).
 - **Filter form** (GET): `search` (`LIKE %..%` on station name, slug, or owner email; `%`/`_` in the term are not escaped), `featured=1` checkbox, hidden `state` carried through. `state` accepts only `running` or `live`; anything else is ignored. Clear link when any filter is active.
-- **Table** (25 per page, newest first, `withQueryString`): station name (links to the timeline), slug (opens the public `FRONTEND_URL/station/{slug}` in a new tab), owner email (`-` if the owner is soft-deleted, since the relation excludes trashed users), plan badge (`none` if no plan), Power badge (`desired_state`), Live badge ("on air", from a `withExists` subquery so it is one query per page), track count, created (relative), Featured column.
+- **Table** (25 per page, newest first, `withQueryString`): station name (links to the timeline), slug (opens the public `FRONTEND_URL/station/{slug}` in a new tab), owner email (`-` if the owner is soft-deleted, since the relation excludes trashed users), plan badge (`none` if no plan), Power badge (`desired_state`), Live badge ("on air", from a `withExists` subquery so it is one query per page), **Browser** and **IP** of the latest broadcast (not the latest login: three correlated subqueries pick `client`, `ip_address`, `country` from the station's newest `stream_sessions` row by `started_at`; Browser is `UserAgentParser::browser` + `device`, or the raw agent truncated to 24 chars when the browser is `Other`; IP carries a flag emoji and the country code when `country` is set; `-` when null, which is the case for sessions from before the origin was recorded and for an encoder's IP), track count, created (relative), Featured column.
 - **Featured column**: a badge `featured` (primary if running) or `featured · off` (warning outline if powered off; tooltip shows `featured_at`), a Feature/Unfeature button (POST, no confirm), and, when the station has an owner, an **Upgrade** button that opens a per-row `<dialog>`.
 - **Upgrade dialog fields**: `plan_id` (every plan except slug `free`, ordered by id, first one preselected), `term` (required, no preselected value: `1-week`, `2-weeks`, `1-month`, `2-months`, `3-months`, or `none` = "No end date"), `note` (required textarea, `maxlength=2000`). A yellow alert appears in the dialog when the owner already has a non-free plan with no `plan_expires_at` ("anything but No end date will send them back to Free"). Submit posts to `upgrade/preview`.
 - Soft-deleted stations do not appear in the list (default `SoftDeletes` scope). There is no link to their timeline from the list; you need the URL (or the Telegram alert link).
@@ -147,7 +148,7 @@ Reads only `station_events` (`Station::events()` is `hasMany(StationEvent)->late
 - Header buttons: back to list, "Open station page", and a red "in trash since ..." badge when soft-deleted.
 - Stat strip: owner email + plan name, Power (`desired_state`), Live (`isLive()`, open stream session), Tracks (`loadCount('tracks')`), Last ready (`last_ready_at`, "last Icecast accept").
 - "Last 24 hours" card: counts per event type over the last day (`reorder()` then `groupBy type`; hidden when there are none). Each chip links to the timeline filtered by that type.
-- Table columns: When (relative + `d M H:i:s`; for a collapsed run, "back to <earliest time>"), Event (coloured badge with an English gloss, plus the raw type in monospace, and "x N" for a run), Source (+ causer label: the causer's email or name, else `type#id`), Detail (the `properties` JSON as a key/value list; scalars via `var_export`).
+- Table columns: When (relative + `d M H:i:s`; for a collapsed run, "back to <earliest time>"), Event (coloured badge with an English gloss, plus the raw type in monospace, and "x N" for a run; `studio_drop` is a warning badge glossed "Studio lost its connection — the browser's side of it", `uplink_check` is glossed "Go-live connection check" with the default ghost badge), Source (+ causer label: the causer's email or name, else `type#id`), Detail (the `properties` JSON as a key/value list; scalars via `var_export`).
 - **Collapse rule** (`collapse()`): consecutive rows with the same `type`, `source` and identical `properties` fold into one row with a count. It runs **within a page only**, so a run that crosses a page boundary shows as two rows.
 - Vocabulary and retention live in [Observability and events](observability-and-events.md). Retention is `STATION_EVENT_RETENTION_DAYS` (default 30) via `stations:prune-events` at 04:50 nightly (`routes/console.php`). Container-sourced events are rate-capped per station at `station_events.max_per_minute` (default 60) inside `StationEvent::record`, and `record()` swallows its own failures, so a quiet timeline is not proof nothing happened.
 
@@ -296,7 +297,7 @@ Not a page, but part of the operator surface. `AdminTelegram` is called from mod
 
 ## Tests
 
-`api/tests/Feature/Admin/`: `AuthenticationTest` (login, wrong password, customer refused, 5-attempt lockout, redirects, logout), `StationIndexTest`, `StationFeatureTest`, `StationTimelineTest` (order, isolation, collapse, filters, trashed station), `StationUpgradeTest`, `AccessRequestIndexTest`, `AccessRequestReviewTest`, `AccountProvisionTest` (verified email, stopped station, no mail, password shown once), `InviteTest`, `AnnouncementTest` (preview writes nothing, dedupe, lock, history grouping), `RawEmailTest`, `WatermarkClipTest`. Also `tests/Feature/SendAnnouncementTest.php` (sender and command), `tests/Feature/AdminTelegramAlertTest.php`, `tests/Feature/Console/AdminResetPasswordCommandTest.php`. There is no test for `admin:create`, for `plans:expire` interacting with an admin upgrade, or for the inline-JS quoting issue (gap 14).
+`api/tests/Feature/Admin/`: `AuthenticationTest` (login, wrong password, customer refused, 5-attempt lockout, redirects, logout), `StationIndexTest` (does not cover the Browser/IP columns), `StationFeatureTest`, `StationTimelineTest` (order, isolation, collapse, filters, trashed station), `StationUpgradeTest`, `AccessRequestIndexTest`, `AccessRequestReviewTest`, `AccountProvisionTest` (verified email, stopped station, no mail, password shown once), `InviteTest`, `AnnouncementTest` (preview writes nothing, dedupe, lock, history grouping), `RawEmailTest`, `WatermarkClipTest`. Also `tests/Feature/SendAnnouncementTest.php` (sender and command), `tests/Feature/AdminTelegramAlertTest.php`, `tests/Feature/Console/AdminResetPasswordCommandTest.php`. There is no test for `admin:create`, for `plans:expire` interacting with an admin upgrade, or for the inline-JS quoting issue (gap 14).
 
 ## History
 

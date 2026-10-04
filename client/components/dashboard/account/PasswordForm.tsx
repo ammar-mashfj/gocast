@@ -41,7 +41,7 @@ export function PasswordForm({ user, onUpdated }: { user: User; onUpdated: (user
     } catch (err) {
       const errors = err instanceof AxiosError ? (err.response?.data?.errors as Record<string, string[]> | undefined) : undefined
       const first = errors ? Object.values(errors).flat()[0] : null
-      toast.error(first ?? (err instanceof AxiosError && err.response?.data?.message) ?? "Couldn’t change your password")
+      toast.error(first ?? (err instanceof AxiosError ? err.response?.data?.message : undefined) ?? "Couldn’t change your password")
     } finally {
       setSaving(false)
     }

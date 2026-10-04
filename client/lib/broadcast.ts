@@ -85,6 +85,12 @@ const STATION_READY_TIMEOUT_MS = 20000
  * be the one the show gets, and the sweep may have stopped the station.
  */
 const READY_STALE_MS = 3 * 60_000
+/**
+ * A station the checklist brought up this recently is taken as still up when
+ * Start goes on air. Start usually follows the checks within a second, and
+ * asking again then was a second `POST /start` on every go-live.
+ */
+const STATION_FRESH_MS = 30_000
 const STATION_READY_POLL_MS = 1000
 
 /**
@@ -303,6 +309,8 @@ export class BroadcastManager {
   private startOptions: BroadcastStartOptions | undefined
   /** When the checklist last finished, for {@link READY_STALE_MS}. */
   private readyAt = 0
+  /** When the station was last confirmed on air, for {@link STATION_FRESH_MS}. */
+  private stationCheckedAt = 0
   /**
    * Set while Start re-checks what the host already watched pass. The steps
    * still update here, so a failure can name its step, but the list on screen
@@ -382,7 +390,8 @@ export class BroadcastManager {
   /**
    * Go on air from `ready`: open the socket, then start the queue.
    *
-   * The station is checked again first. `POST /start` is idempotent, so on a
+   * The station is checked again first, unless the checklist confirmed it
+   * within {@link STATION_FRESH_MS}. `POST /start` is idempotent, so on a
    * station that is still running it costs one request; on one the sweep
    * stopped while the host sat on the Start screen it brings it back. A
    * checklist older than {@link READY_STALE_MS}, or a mic that has gone away
@@ -403,7 +412,7 @@ export class BroadcastManager {
         await this.engine.destroy()
         this.engine = null
         await this.runChecks(this.startOptions)
-      } else {
+      } else if (Date.now() - this.stationCheckedAt > STATION_FRESH_MS) {
         this.setActiveStep('station')
         await this.ensureStationOnAir()
         this.updateStep('station', 'done')
@@ -627,6 +636,7 @@ export class BroadcastManager {
       monitor: old.isMonitorEnabled(),
       monitorVolume: old.getMonitorVolume(),
       latched: old.isMicLatched(),
+      tracksPlayed: old.getTracksPlayed(),
     }
 
     // stop() or fail() can land at any await below. Each sets `stopping` and
@@ -649,6 +659,7 @@ export class BroadcastManager {
       engine.setMonitorVolume(carry.monitorVolume)
       engine.setMonitorEnabled(carry.monitor)
       if (carry.latched) engine.setMicLatched(true)
+      engine.carryTracksPlayed(carry.tracksPlayed)
       // Same song, same second, playing or paused. restoreQueue() brings the
       // queue back in the same order, less any file the browser has lost
       // since — restoredIndex() maps across that, and a song that was lost
@@ -709,6 +720,7 @@ export class BroadcastManager {
    * silence while we were away.
    */
   private async ensureStationOnAir(readyTimeoutMs = STATION_READY_TIMEOUT_MS): Promise<void> {
+    this.stationCheckedAt = 0
     try {
       await api.post(`/stations/${this.stationSlug}/start`)
     } catch (err) {
@@ -717,6 +729,9 @@ export class BroadcastManager {
       // verbatim — the API writes them for humans.
       if (response?.status === 422 || response?.status === 403) {
         throw new Error(response.data?.message ?? 'This station cannot go on air right now')
+      }
+      if (response?.status === 429) {
+        throw new Error('Too many tries in a row. Wait a minute, then try again.')
       }
       throw new Error('Could not bring the station on air — please try again')
     }
@@ -727,7 +742,10 @@ export class BroadcastManager {
         const { data } = await api.get<{ data: { ready: boolean } }>(
           `/stations/${this.stationSlug}/status`,
         )
-        if (data.data.ready) return
+        if (data.data.ready) {
+          this.stationCheckedAt = Date.now()
+          return
+        }
       } catch {
         // Status is a live read from the container; a blip here is not a
         // reason to abandon the broadcast.
@@ -739,6 +757,7 @@ export class BroadcastManager {
     // accepts the connection the moment it is listening, so a container that
     // finishes booting late still picks the stream up — the broadcaster may
     // just lose the first few seconds.
+    this.stationCheckedAt = Date.now()
   }
 
   /**
@@ -1223,6 +1242,11 @@ export class BroadcastManager {
       try { await this.engine?.flushEncoder() } catch { /* worker already gone */ }
     }
 
+    // The browser reports this close as 1006, wasClean=false, every time:
+    // harbor answers a close frame by dropping the TCP connection without
+    // sending one back (checked on the raw socket, 2026-10-04). Harmless:
+    // this.ws is already let go below and `stopping` is set, so watchForDrop
+    // ignores it and nothing is reported or reconnected.
     try { this.ws?.close(1000, 'broadcast ended') } catch { /* already closing */ }
     this.ws = null
     await this.engine?.destroy()

@@ -1,6 +1,6 @@
 ---
 feature: Configuration reference (every env var and config key)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/config/activitylog.php
   - api/config/analytics.php
@@ -75,7 +75,7 @@ sources:
   - mobile/src/lib/auth.tsx
   - mobile/src/broadcast/broadcastManager.ts
   - mobile/scripts/ingest-proxy.mjs
-fingerprint: 6dc172c23ce365bf
+fingerprint: 8cb9b4322890f607
 ---
 
 # Configuration reference
@@ -137,7 +137,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `FILESYSTEM_DISK` | `local` | `local` | Default disk. Uploads go to the `public` disk (`storage/app/public`, symlinked by deploy); `s3` is defined but nothing stores to it. | default ok |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_URL`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | none | listed, blank | S3/SES/SQS/DynamoDB options. **Nothing in `app/` uses the `s3` disk, SES or SQS**; these are template residue (see Gaps). | unused |
 | `ACTIVITYLOG_ENABLED` (true), `ACTIVITYLOG_BUFFER_ENABLED` (false) | see left | not listed | Spatie activity log (vendor); the app calls `activity()` from the admin controllers (`AccountController`, `InviteController`, `AnnouncementController`). `clean_after_days` is a literal 365. | default ok |
-| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. | optional / unset / -  |
+| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. Tests force it blank (`phpunit.xml` and `TestCase`), because a live DSN in `api/.env` turned every failure-asserting test into a real Sentry issue. | optional / unset / forced blank |
 | `SENTRY_SEND_DEFAULT_PII` | `false` | `false` | `sentry.send_default_pii`. | default ok |
 | `SENTRY_TRACES_SAMPLE_RATE` | null | `0` | Performance tracing rate. Anything above 0 in dev adds visible latency to every API call. | default ok / `0` |
 | `SENTRY_SAMPLE_RATE` (1.0), `SENTRY_PROFILES_SAMPLE_RATE`, `SENTRY_RELEASE`, `SENTRY_ENVIRONMENT`, `SENTRY_ORG_ID`, `SENTRY_STRICT_TRACE_CONTINUATION`, `SENTRY_ENABLE_LOGS`, `SENTRY_LOG_FLUSH_THRESHOLD`, `SENTRY_LOG_LEVEL`/`SENTRY_LOGS_LEVEL`, `SENTRY_SPOTLIGHT` (commented out) and the 30-odd `SENTRY_BREADCRUMBS_*` / `SENTRY_TRACE_*` toggles | see `sentry.php` | not listed | Stock sentry-laravel options, all default. `ignore_transactions` is a literal `['/up']`. | default ok |
@@ -283,9 +283,9 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 
 ## Test environment (API)
 
-`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
+`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `SENTRY_LARAVEL_DSN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
 
-- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands.
+- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands. It blanks `SENTRY_LARAVEL_DSN` the same way (`putenv`, `$_ENV`, `$_SERVER`).
 - Why it matters: `LiquidsoapSupervisor::inTestMode()` is `app()->runningUnitTests()`. If it returns false, `Station::factory()->create()` spawns real containers on the host daemon.
 - Not forced, so inherited from `api/.env`: `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_*` (a real Redis is used by the tests that touch `Redis::`), `APP_KEY`, `INTERNAL_API_KEY`, `LIQUIDSOAP_SYSTEM_DIR` (defaults to the real `/var/gocast/system`), and everything else. Tests override individual config with `config([...])` about 90 times across 46 files.
 - `PULSE_ENABLED`, `TELESCOPE_ENABLED` and `NIGHTWATCH_ENABLED` are forced but no Pulse/Telescope/Nightwatch config exists in `api/config` (harmless leftovers).
@@ -296,28 +296,28 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 
 | Variable | Default | Meaning | Reader | Prod / Dev |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:3`, `next.config.ts` | required (build-time) / required |
+| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:4`, `next.config.ts` | required (build-time) / required |
 | `NEXT_PUBLIC_APP_URL` | `""` | Public web origin: canonical links, OG tags, sitemap, robots, embed snippet, share links, station player links. | `lib/env.ts` (`env.appUrl`), about 18 files (sitemap, robots, layout, dashboard pages, `lib/embed.ts`) | required / required |
 | `NEXT_PUBLIC_ICECAST_URL` | `""` | Icecast listener base for the direct-stream fallback in the player, embed and homepage hero. | `env.icecastUrl` in `PlayerView`, `EmbedPlayer`, `HeroStationPlayer` | required / required |
 | `NEXT_PUBLIC_PUSHER_KEY` | `""` | Ably app key (`APP_ID.KEY_ID`, the part before the colon). **Empty is the client-side kill switch**: `lib/echo.ts` returns null and every hook polls. | `lib/echo.ts` via `env.broadcastKey` | optional / optional |
 | `NEXT_PUBLIC_PUSHER_HOST` | `""` | Pusher-protocol host (`main.pusher.ably.net`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_PUSHER_PORT` | `443` | Port (`Number(...)`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_BROADCAST_AUTH_URL` | `""` | Where Echo signs private subscriptions (`{api-host}/broadcasting/auth`, a sibling of `/api`). | `lib/echo.ts` | with key |
-| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
+| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. The browser client also has literal filters: `denyUrls` `app://`, `ignoreErrors` for in-app-browser bridge noise (`/\b\w*browser is not defined/` and two others), and `allowUrls: [/\/_next\//]` so only errors thrown from the Next bundle are kept (stackless events such as rejected promises still pass; errors from inline scripts are dropped). | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
 | `SENTRY_AUTH_TOKEN` | none | Build-time source-map upload token, read by `@sentry/nextjs`'s build plugin (org `gocast`, project `javascript-nextjs` are literals in `next.config.ts`). Passed by `deploy-native.sh:build_client`. | plugin (vendor) | optional (build) |
 | `RENDER_API_KEY` | none | Server-only. Sent as `X-Render-Key` on the Next server's own public-API fetches so they skip the 60/min limit. Must equal the API's. In prod it comes from `/etc/gocast/client.env` through the systemd unit's `EnvironmentFile=-`. | `lib/public-api.ts:16` | recommended / optional |
-| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:3` | unused in prod / optional |
+| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:4` | unused in prod / optional |
 | `INTERNAL_ICECAST_URL` | `http://127.0.0.1:8888` | Dev-only rewrite target for `/stream-proxy/*` (avoids Icecast's missing CORS preflight). Undeclared in `.env.example` (present in the dev `.env.local`). | `next.config.ts:120` | ignored / optional |
 | `LIQUIDSOAP_HLS_DIR` | `/var/gocast/hls` | Dev-only: directory the `/hls-proxy/*` route serves (`NODE_ENV === "development"` only; 404 otherwise). Only `.m3u8`, `.aac`, `.ts`, `.m4s`, `.mp4` are served. | `app/hls-proxy/[...path]/route.ts:25` | ignored / optional |
 | `ANALYZE` | none | `"true"` enables the bundle analyzer. | `next.config.ts:5` | - |
 | `CI` | none | Also makes the Sentry build plugin verbose (`silent: !process.env.CI`, `next.config.ts:184`); Sentry traffic is tunnelled through `/monitoring`. | `next.config.ts` | build |
-| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:195-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
+| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:191-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
 | `NEXT_RUNTIME` | set by Next | Picks the Sentry server or edge config. | `instrumentation.ts` | - |
 | `NEXT_TELEMETRY_DISABLED`, `PORT`, `HOSTNAME` | set in the systemd unit / deploy | Next runtime settings (`PORT=__CLIENT_PORT__`, `HOSTNAME=127.0.0.1`). | `gocast-client.service` | native only |
 | `E2E_BASE_URL`, `E2E_API_URL`, `CI` | `http://localhost:3000`, `http://localhost:8000`, unset | Playwright base URLs and CI mode. | `playwright.config.ts` | test only |
 | `E2E_CAPTURE` | unset | Lifts `grepInvert: /@(screenshots\|visual)/`, so the capture specs run; set by `npm run test:visual` and `test:help-shots`. | `playwright.config.ts` | test only |
 
-Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:195-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
+Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:191-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
 
 ## Mobile app (`mobile/`)
 

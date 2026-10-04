@@ -27,11 +27,22 @@ export function Stat({ label, value, sub, trend, className }: StatProps) {
   )
 }
 
-export function StatTile({ label, value, sub, good, className }: Omit<StatProps, "trend"> & { good?: boolean }) {
+export function StatTile({
+  label,
+  value,
+  sub,
+  good,
+  compact,
+  className,
+}: Omit<StatProps, "trend"> & {
+  good?: boolean
+  /** A smaller value on phones, for a row of three where a clock has to fit. */
+  compact?: boolean
+}) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-2 rounded-well bg-card p-3.5", className)}>
       <span className="eyebrow font-medium text-text-faint">{label}</span>
-      <span className={cn("font-display text-meter font-bold tabular-nums", good && "text-ok")}>{value}</span>
+      <span className={cn("font-display font-bold tabular-nums", compact ? "text-meter-sm sm:text-meter" : "text-meter", good && "text-ok")}>{value}</span>
       {sub && <span className="text-caption text-text-faint">{sub}</span>}
     </div>
   )

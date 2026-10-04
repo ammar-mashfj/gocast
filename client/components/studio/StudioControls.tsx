@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { MicSettings } from "./MicSettings"
+import { ShortcutsDialog } from "./ShortcutsDialog"
 
 /**
  * Keep mic open: the big latch under the talk pad (the prototype's). Off, a
@@ -35,7 +36,7 @@ export function MicLatchButton() {
 
 /**
  * The row under the latch: Monitor (with its volume — a desktop's speakers
- * have no hardware rocker) and the mic settings.
+ * have no hardware rocker), the mic settings and the keyboard shortcuts.
  *
  * The monitor taps the music bus post-duck and never the mic, so no routing
  * exists that could feed the microphone back into itself (see audioEngine).
@@ -75,7 +76,10 @@ export function StudioControls() {
         />
       </div>
 
-      {!micDisabled && <MicSettings />}
+      <div className="flex gap-2">
+        {!micDisabled && <MicSettings />}
+        <ShortcutsDialog micDisabled={micDisabled} />
+      </div>
     </div>
   )
 }

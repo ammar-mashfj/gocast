@@ -3,7 +3,8 @@
 import { useRef, useState } from "react"
 import { IconLoader2, IconPlus } from "@tabler/icons-react"
 import type { usePreflightQueue } from "@/hooks/usePreflightQueue"
-import { formatTrackTime } from "@/lib/format"
+import { formatBytes, formatTrackTime } from "@/lib/format"
+import { QUEUE_BYTE_LIMIT } from "@/lib/audioEngine"
 import { queueMeta } from "@/lib/preflightQueue"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
@@ -126,6 +127,12 @@ export function RunningOrderCard({
             e.target.value = ""
           }}
         />
+        {/* The browser keeps the files, up to a cap: how much of it is used. */}
+        {tracks && tracks.length > 0 && (
+          <span className="ml-auto font-mono text-caption text-text-faint tabular-nums">
+            {formatBytes(tracks.reduce((sum, t) => sum + t.file.size, 0))} of {formatBytes(QUEUE_BYTE_LIMIT)}
+          </span>
+        )}
       </div>
       <p className="text-body-sm text-text-faint">Or drop audio files onto the list. {FORMATS}.</p>
 

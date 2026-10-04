@@ -47,6 +47,13 @@ function input(over: Partial<AirInput> = {}): AirInput {
 }
 
 describe("airState — from the poll", () => {
+  it("says the show ended, not who is live, while the station hands over", () => {
+    // The read from mid-show: a browser broadcaster, live audio on air.
+    const stale = status({ source: "live", broadcaster: true, live_source: { type: "browser", client: "Chrome" } })
+    expect(airState(input({ status: stale, showEnding: true }))).toMatchObject({ label: "SHOW ENDED", tone: "off", action: null, onAir: false })
+    expect(airState(input({ status: stale })).message).toBe("You’re live from another browser.")
+  })
+
   it("says checking until the first read, then no answer if it failed", () => {
     expect(airState(input({ status: null, statusLoading: true }))).toMatchObject({ label: "CHECKING", tone: "off", action: null })
     expect(airState(input({ status: null, statusLoading: false }))).toMatchObject({ label: "NO ANSWER", action: null })

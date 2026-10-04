@@ -300,7 +300,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
               ) : mode === "interval" ? (
                 <Select
                   aria-label="Minutes between jingles"
-                  className="w-40"
+                  className="min-w-48 flex-1"
                   value={String(intervalMinutes)}
                   onChange={(v) => setIntervalMinutes(Number(v))}
                   disabled={!enabled}
@@ -309,7 +309,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
               ) : (
                 <Select
                   aria-label="Tracks between jingles"
-                  className="w-40"
+                  className="min-w-48 flex-1"
                   value={String(everyTracks)}
                   onChange={(v) => setEveryTracks(Number(v))}
                   disabled={!enabled}

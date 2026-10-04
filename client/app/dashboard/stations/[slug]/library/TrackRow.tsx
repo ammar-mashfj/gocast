@@ -367,18 +367,20 @@ export function TrackRow({
         <span className={cn("truncate text-body-sm", track.artist ? "text-muted-foreground" : "text-text-faint italic")}>
           {track.artist ?? "Unknown artist"}
         </span>
+        {/* Phones have no playlists column, so the chips sit under the
+            title: "not in a playlist" is the one thing a row must say. */}
+        {chips !== undefined && (
+          <div className="mt-1 flex min-w-0 flex-wrap gap-1.25 md:hidden">
+            <PlaylistChips chips={chips} />
+          </div>
+        )}
       </div>
 
       <div className="hidden min-w-0 flex-wrap gap-1.25 md:flex">
         {chips === undefined ? (
           <span className="text-body-sm text-muted-foreground">{formatDate(track.created_at)}</span>
-        ) : chips.length === 0 ? (
-          // A track in no playlist never plays: the one state worth flagging.
-          <Tag variant="warn" title="A track in no playlist never plays.">Not in a playlist</Tag>
         ) : (
-          chips.map((name) => (
-            <Tag key={name} className="max-w-40 truncate">{name}</Tag>
-          ))
+          <PlaylistChips chips={chips} />
         )}
       </div>
 
@@ -411,4 +413,15 @@ export function TrackRow({
       </div>
     </div>
   )
+}
+
+/** The playlists a track is in, or the warning that it is in none. */
+function PlaylistChips({ chips }: { chips: string[] }) {
+  // A track in no playlist never plays: the one state worth flagging.
+  if (chips.length === 0) {
+    return <Tag variant="warn" title="A track in no playlist never plays.">Not in a playlist</Tag>
+  }
+  return chips.map((name) => (
+    <Tag key={name} className="max-w-40 truncate">{name}</Tag>
+  ))
 }

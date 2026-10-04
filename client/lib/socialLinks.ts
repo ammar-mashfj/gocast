@@ -153,6 +153,13 @@ export function resolveSocialLink(link: SocialLink): ResolvedSocialLink | null {
     return null
   }
 
+  // Chromium's parser takes "https://not a url" and percent-encodes the
+  // spaces into the host; the API's url rule refuses it. A host is labels of
+  // letters, digits, hyphens (and underscores, which the API allows).
+  if (!/^[a-z0-9_-]+(\.[a-z0-9_-]+)*$/i.test(parsed.hostname)) {
+    return null
+  }
+
   const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "")
   const platform = findPlatform(hostname)
   const label = link.label?.trim()

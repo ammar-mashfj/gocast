@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Station;
 use App\Models\User;
 use Illuminate\Testing\TestResponse;
 
@@ -33,4 +34,19 @@ it('refuses a body far bigger than a probe', function () {
 
 it('needs a signed-in user', function () {
     probe('x')->assertUnauthorized();
+});
+
+it('keeps its own rate limit, apart from the other throttled routes', function () {
+    $owner = User::factory()->create();
+    Station::factory()->for($owner, 'user')->create(['slug' => 'jazz']);
+    actingAs($owner);
+
+    // A full minute's worth of check reports...
+    for ($i = 0; $i < 20; $i++) {
+        $this->postJson('/api/stations/jazz/uplink-checks', ['outcome' => 'ok', 'kbps' => 900, 'bitrate' => 128])->assertOk();
+    }
+    $this->postJson('/api/stations/jazz/uplink-checks', ['outcome' => 'ok', 'kbps' => 900, 'bitrate' => 128])->assertTooManyRequests();
+
+    // ...leaves the probe's own budget untouched.
+    probe('')->assertOk();
 });

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useMemo } from "react"
+import { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import { flushSync } from "react-dom"
 import { toast } from "sonner"
 import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash } from "@tabler/icons-react"
@@ -317,6 +317,7 @@ export function FileQueue() {
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
             Your show’s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
+            {engine && currentIndex >= 0 && <LoopsIn engine={engine} />}
             {queue.length > 0 && (
               <span>
                 {" · "}
@@ -434,4 +435,36 @@ export function FileQueue() {
       )}
     </section>
   )
+}
+
+/**
+ * Seconds until the running order wraps back to its first track: what is
+ * left of the one playing, plus every track after it. Unknown durations (a
+ * file whose metadata hasn't loaded) count as nothing rather than guessed.
+ */
+export function secondsUntilLoop(durations: readonly number[], currentIndex: number, elapsed: number): number {
+  if (currentIndex < 0 || currentIndex >= durations.length) return 0
+  const left = Math.max(0, (durations[currentIndex] || 0) - elapsed)
+  return durations.slice(currentIndex + 1).reduce((sum, d) => sum + (d || 0), left)
+}
+
+/**
+ * "· loops in 9:12" in the running order's header, so the host knows how long
+ * before the list comes round again. Ticks once a second on its own, so the
+ * list itself doesn't re-render with it. On Repeat track it never loops.
+ */
+function LoopsIn({ engine }: { engine: NonNullable<ReturnType<typeof useBroadcast>["engine"]> }) {
+  const read = () =>
+    engine.getRepeatMode() === "one"
+      ? null
+      : secondsUntilLoop(engine.getQueue().map((t) => t.duration), engine.getCurrentIndex(), engine.getElapsed())
+  const [left, setLeft] = useState(read)
+  useEffect(() => {
+    const timer = setInterval(() => setLeft(read()), 1000)
+    return () => clearInterval(timer)
+    // `read` closes over the engine only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine])
+
+  return <span>{left === null ? " · repeating this track" : ` · loops in ${formatTrackTime(Math.round(left))}`}</span>
 }

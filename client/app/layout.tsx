@@ -229,7 +229,12 @@ y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
           />
         )}
         {children}
-        <Toaster />
+        {/* Bottom offsets read a variable so a page with a bottom bar (the
+            dashboard's phone tab bar) can lift its toasts clear of it. */}
+        <Toaster
+          offset={{ bottom: "var(--toast-offset-bottom, 24px)" }}
+          mobileOffset={{ bottom: "var(--toast-offset-bottom, 16px)" }}
+        />
         <RouterBridge />
       </body>
     </html>

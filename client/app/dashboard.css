@@ -309,6 +309,13 @@
    The Toaster is shared with marketing (app/layout.tsx), so this is scoped;
    the variables go on each toast because the toaster's own inline style
    would beat them there. */
+@media (max-width: 39.99rem) {
+  /* Above the phone tab bar (54px tabs + 6px top padding + its border),
+     not over it. */
+  .dark:has([data-slot="tab-bar"]) {
+    --toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+}
 .dark:has([data-surface="dashboard"]) [data-sonner-toast] {
   --normal-bg: var(--ds-surface-strong);
   --normal-border: transparent;

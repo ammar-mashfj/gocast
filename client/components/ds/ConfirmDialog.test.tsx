@@ -34,6 +34,18 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).toHaveBeenCalledOnce()
   })
 
+  it("clears the typed text whenever it is reopened", async () => {
+    const { rerender } = render(<ConfirmDialog {...base} tone="danger" confirmText="night-shift" />)
+    await userEvent.type(screen.getByLabelText(/to confirm/), "night-shift")
+    expect(screen.getByRole("button", { name: "Delete forever" })).toBeEnabled()
+
+    // Keep closes through the parent, which is the path that used to skip the reset.
+    rerender(<ConfirmDialog {...base} open={false} tone="danger" confirmText="night-shift" />)
+    rerender(<ConfirmDialog {...base} tone="danger" confirmText="night-shift" />)
+    expect(screen.getByLabelText(/to confirm/)).toHaveValue("")
+    expect(screen.getByRole("button", { name: "Delete forever" })).toBeDisabled()
+  })
+
   it("can't be dismissed while busy", async () => {
     const onOpenChange = vi.fn()
     render(<ConfirmDialog {...base} busy onOpenChange={onOpenChange} />)
