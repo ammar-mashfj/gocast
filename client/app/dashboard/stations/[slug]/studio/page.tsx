@@ -24,7 +24,8 @@ import { useTransportHealth } from "@/components/studio/signal"
  * status band's, above every page; the studio never draws a second copy.
  *
  * Shortcuts: Space talk (PushToTalk), K play/pause, N/P next/previous, R
- * repeat, M monitor, L keep the mic open.
+ * repeat, M monitor, L keep the mic open. Listed for the host in
+ * ShortcutsDialog (in StudioControls); keep the two in step.
  */
 export default function StudioPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -98,7 +99,7 @@ export default function StudioPage() {
 
       <div className="flex min-w-0 flex-col gap-3.5">
         <NowPlaying />
-        <StudioStats stats={stats} transport={transport} />
+        <StudioStats stats={stats} transport={transport} timeZone={station?.timezone ?? null} />
         <FileQueue />
         <YourLinkCard url={`${env.appUrl}/station/${slug}`} appUrl={env.appUrl} slug={slug} stationName={stationName} />
         <EndBroadcastButton />

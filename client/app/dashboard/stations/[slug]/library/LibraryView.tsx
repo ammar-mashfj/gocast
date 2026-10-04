@@ -64,6 +64,9 @@ export function LibraryView({
   const stats = [
     `${lib.tracks.length} ${lib.tracks.length === 1 ? "track" : "tracks"}`,
     lib.totalSeconds > 0 ? formatAirtime(Math.round(lib.totalSeconds)) : null,
+    `${lib.playlists.length} ${lib.playlists.length === 1 ? "playlist" : "playlists"}`,
+    // Free can hold a library but AutoDJ won't play it: said where the counts are.
+    locked ? "plays only on Pro" : null,
     `${formatBytes(lib.meta.storage_used_bytes)} of ${formatBytes(lib.meta.storage_cap_bytes)}`,
   ].filter(Boolean)
 
@@ -229,7 +232,8 @@ export function LibraryView({
 
       <p className="max-w-[34rem] text-body-sm text-pretty text-text-faint">
         {locked ? "On Pro, drop" : "Drop"} MP3, M4A, AAC, FLAC, OGG or WAV files anywhere on the list, up to 300 MB each. A track can be in any
-        number of playlists; the default one plays when nothing else is scheduled.
+        number of playlists; the default one plays when nothing else is scheduled.{" "}
+        <HelpLink article="upload-your-music" label="file formats and size limits for uploads" className="align-middle" />
       </p>
 
       <JinglesDialog open={jinglesOpen} onClose={() => setJinglesOpen(false)} station={station} onStorageChange={lib.applyStorageDelta} />

@@ -50,4 +50,11 @@ describe("StatusBand", () => {
     expect(band).toHaveTextContent("3 LISTENING")
     expect(screen.getByRole("button", { name: "Open studio" })).toBeInTheDocument()
   })
+
+  it("reads a fault out as an alert, and stays quiet otherwise", () => {
+    const { rerender } = render(<StatusBand tone="live" label="LIVE" message="You’re live." />)
+    expect(screen.getByRole("alert")).toBeEmptyDOMElement()
+    rerender(<StatusBand tone="warn" label="LOSING AUDIO" message="Your connection is losing audio." />)
+    expect(screen.getByRole("alert")).toHaveTextContent("LOSING AUDIO. Your connection is losing audio.")
+  })
 })

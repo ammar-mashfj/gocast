@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { useParams, useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { usePreflightQueue } from "@/hooks/usePreflightQueue"
 import { useMicPreview } from "@/hooks/useMicPreview"
 import api from "@/lib/axios"
 import { env } from "@/lib/env"
+import { copyText } from "@/lib/clipboard"
+import { taggedStationUrl } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
 import type { StationStatus } from "@/interfaces/StationStatus"
 import { Button } from "@/components/ds/Button"
@@ -225,7 +228,8 @@ export default function GoLivePage() {
         </Button>
         <div className="flex flex-wrap justify-between gap-3 text-body-sm text-text-faint">
           <span>
-            Listeners tune in at <span className="font-mono text-muted-foreground">{playerUrl.replace(/^https?:\/\//, "")}</span>
+            Listeners tune in at <span className="font-mono text-muted-foreground">{playerUrl.replace(/^https?:\/\//, "")}</span>{" "}
+            <CopyLink url={taggedStationUrl(env.appUrl, station.slug, "owner")} />
           </span>
           <Link href={`/dashboard/stations/${station.slug}`} className="text-muted-foreground hover:text-foreground">
             Not now
@@ -251,4 +255,31 @@ function readResumeFromStart(): boolean {
   } catch {
     return false
   }
+}
+
+/** "Copy" after the listener link, to paste it out before going on air. */
+function CopyLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  async function copy() {
+    if (await copyText(url)) setCopied(true)
+    else toast.error(`Couldn’t copy. The link is ${url}`)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="cursor-pointer font-semibold text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {copied ? "Copied" : "Copy"}
+      <span className="sr-only"> listener link</span>
+      <span className="sr-only" aria-live="polite">{copied ? "Listener link copied" : ""}</span>
+    </button>
+  )
 }

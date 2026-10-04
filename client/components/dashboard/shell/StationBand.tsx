@@ -41,7 +41,7 @@ function Band({ slug }: { slug: string }) {
   const pathname = usePathname()
   const { state: broadcastState, stationSlug, engine, liveSince, micDisabled } = useBroadcast()
   useEngineVersion(engine)
-  const { status, loading } = useStationStatus(slug)
+  const { status, loading, showEnding } = useStationStatus(slug)
   const autoDjLocked = useAutoDjLocked()
 
   const broadcasting = (broadcastState === "live" || broadcastState === "reconnecting") && stationSlug === slug
@@ -57,6 +57,7 @@ function Band({ slug }: { slug: string }) {
     micLatched: !micDisabled && (engine?.isMicLatched() ?? false),
     autoDjLocked,
     onStudio,
+    showEnding,
   })
 
   // Off the studio page the show's stats keep ticking here, so a peak

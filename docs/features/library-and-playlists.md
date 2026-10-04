@@ -1,6 +1,6 @@
 ---
 feature: Library, uploads and playlists
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - api/routes/api.php
   - api/app/Http/Controllers/TrackController.php
@@ -89,7 +89,7 @@ sources:
   - client/hooks/useTrackPreview.ts
   - client/lib/playlistSwatches.ts
   - api/config/queue.php
-fingerprint: b77c4cb616d14cdd
+fingerprint: 19dd431bd05d2de4
 ---
 
 # Library, uploads and playlists
@@ -253,18 +253,18 @@ Every playlist-write endpoint answers with the playlist's full ordered member li
 
 ### Web dashboard (`/dashboard/stations/{slug}/library`)
 
-Sidebar "AutoDJ" links to `/dashboard/library`, which is only a redirect to the user's station (`getMyStation()`) or `/dashboard`. The page (`library/page.tsx`, title "AutoDJ") server-fetches the station, `GET /tracks` (music) and `GET /playlists` in parallel; 404 or 403 becomes `notFound()`. All state and every edit live in `useLibrary` (applied optimistically to both the library list and the per-playlist member cache, refetched on failure); `LibraryView` lays it out and owns which dialog is open; the child views are presentational.
+Sidebar "AutoDJ" links to `/dashboard/library`, which is only a redirect to the user's station (`getMyStation()`) or `/dashboard`. The page (`library/page.tsx`, title "AutoDJ") server-fetches the station, `GET /tracks` (music) and `GET /playlists` in parallel; 404 or 403 becomes `notFound()`, a 401 goes to `/auth/login?expired=1` (`redirectIfSessionExpired`). All state and every edit live in `useLibrary` (applied optimistically to both the library list and the per-playlist member cache, refetched on failure); `LibraryView` lays it out and owns which dialog is open; the child views are presentational.
 
-- **Header** (`PageHeader` "AutoDJ" with a help link to `playlists-and-the-rotation`; a PRO tag when locked): **Jingles** and **Add tracks** (uploads join the open playlist, else the default), then a mono stats line "N TRACKS · runtime · X OF Y" (storage).
+- **Header** (`PageHeader` "AutoDJ" with a help link to `playlists-and-the-rotation`; a PRO tag when locked): **Jingles** and **Add tracks** (uploads join the open playlist, else the default), then a mono, uppercased stats line "N tracks · runtime · N playlists · X of Y" (storage), with "plays only on Pro" before the storage figure when locked.
 - **`AutoDjStrip`** (not on Free): AutoDJ's own state on the shared status poll, with a violet switch: ON AIR · AUTODJ (track, time left, next), SILENCE (amber, "Add tracks"), STARTING, NOT HEARD, CHECKING, OFF ("Switch it on to play your music…"), or LIVE ("AutoDJ takes back the station when you end", switch disabled). Switching off asks "Stop AutoDJ on {name}?" first when listeners would be cut off. Same rules and actions as the overview hero (`stationHero`, `useStationPower`).
 - **Locked (Free) state**: `AutoDjUpsell` (PRO tag, "Keep {station} on air when you're not", Request Pro), then "Preview of the playlist editor": the list stays browsable, no Add tracks or Jingles button; Jingles in the ⋯ menu shows a PRO tag and is disabled; New playlist is disabled. A drop on the card still runs `upload()` and gets the "isn't included in your plan" toast.
 - **Rail** (`PlaylistRail`): LIBRARY ("All tracks" with its count) and PLAYLISTS (each with its schedule swatch; the default marked), "New playlist" (`PlaylistNameDialog`, 60 chars, server 422 duplicate-name error shown inline). A column from `md`, a scrolling chip row on a phone. Initial selection is the default playlist.
-- **The table card** (the whole card is the drop target; files dropped anywhere upload into what is open). Toolbar (`LibraryToolbar`): an inset search field ("N found"), one sort (`ds/Select`), and ⋯ (Jingles, "Fix artist tags" with a count when any track in view has no artist). Below it: the upload progress, a thin storage bar (red at 95 %, violet otherwise), and the "N tracks have no artist. Listeners see 'Unknown artist'." note (Fix tags / Dismiss). Rows (`TrackRow`, one grid for both views): select or drag handle, #, title + artist, playlist chips (library) or date added (playlist; hidden below `md`), length, actions. Hovering or focusing a row turns the # into a preview button (`useTrackPreview`, one `Audio` per list) that plays `GET /tracks/{id}/audio`, an owner-only, range-capable file response (`TrackController::audio`, `Cache-Control: private`). The now-playing row is marked (`now_playing` matched by **title + artist**, only when `source === "autodj"`; duplicate pairs match the first row). `LibraryFooter` shows what is shown and "Show all N" past 50 rows.
+- **The table card** (the whole card is the drop target; files dropped anywhere upload into what is open). Toolbar (`LibraryToolbar`): an inset search field ("N found"), one sort (`ds/Select`), and ⋯ (Jingles, "Fix artist tags" with a count when any track in view has no artist). Below it: the upload progress, a thin storage bar (red at 95 %, violet otherwise), and the "N tracks have no artist. Listeners see 'Unknown artist'." note (Fix tags / Dismiss). Rows (`TrackRow`, one grid for both views): select or drag handle, #, title + artist, playlist chips (library; the amber "Not in a playlist" tag when none) or date added (playlist), that column hidden below `md`, where the library view's chips move under the title instead, length, actions. Hovering or focusing a row turns the # into a preview button (`useTrackPreview`, one `Audio` per list) that plays `GET /tracks/{id}/audio`, an owner-only, range-capable file response (`TrackController::audio`, `Cache-Control: private`). The now-playing row is marked (`now_playing` matched by **title + artist**, only when `source === "autodj"`; duplicate pairs match the first row). `LibraryFooter` shows what is shown and "Show all N" past 50 rows.
 - **All tracks** (`AllTracksView`, sorts Recently added / Title / Longest): per-row edit and delete, multi-select with "Add to playlist" (`AddToPlaylistDialog`, one `POST /playlists/{id}/tracks`) and bulk delete (confirm, then optimistic removal, then the server library replaces state and playlists are refetched). A track in no playlist says so and the footer counts them. Clicking a row's body toggles its selection.
 - **Playlist view** (`PlaylistView`, sorts Play order / Title / Longest): the playlist's name with "Plays when nothing's scheduled" on the default; members loaded on first open and cached; drag reorder (only in Play order, and not while shuffled: "shuffle ignores manual order — switch it off to reorder"); per-row edit and "Remove from playlist"; ⋯ adds Shuffle (a checkbox item), Add from library (`TrackPicker`, candidates = library minus members), Rename, Make default, Delete playlist.
 - **Fix tags** (`FixTagsDialog`): tracks with no artist in the current view; saves one `PATCH /tracks/{id}` per row, sequentially, tolerating partial failure.
-- **Jingles dialog** (`JinglesDialog`): fetches `GET /tracks?kind=jingle` on open; list with delete (no edit, no reorder); a drop zone; frequency as one row of presets (`jinglePresets.ts`: 30 min, 1 hr, 3 tracks, 5 tracks) plus **Custom**, which opens the full controls (interval 5/10/15/30/60/120 min, or every 2/3/5/8/10/15/20 tracks); settings (`jingles_enabled`, `jingle_mode`, interval or count) saved via `PATCH /stations/{slug}`. The API accepts 60 s to 4 h and 1 to 100; the station-side validation lives in [Station management](station-management-dashboard.md).
-- Footnote: "Drop MP3, M4A, AAC, FLAC, OGG or WAV files anywhere on the list, up to 300 MB each…" ("On Pro, drop…" when locked).
+- **Jingles dialog** (`JinglesDialog`): fetches `GET /tracks?kind=jingle` on open; list with delete (no edit, no reorder); a drop zone; frequency as one row of presets (`jinglePresets.ts`: 30 min, 1 hr, 3 tracks, 5 tracks) plus **Custom**, which opens the full controls (interval 5/10/15/30/60/120 min, or every 2/3/5/8/10/15/20 tracks, each a `ds/Select` that stretches, `min-w-48 flex-1`); settings (`jingles_enabled`, `jingle_mode`, interval or count) saved via `PATCH /stations/{slug}`. The API accepts 60 s to 4 h and 1 to 100; the station-side validation lives in [Station management](station-management-dashboard.md).
+- Footnote: "Drop MP3, M4A, AAC, FLAC, OGG or WAV files anywhere on the list, up to 300 MB each…" ("On Pro, drop…" when locked), ending with a `HelpLink` to `upload-your-music`.
 - `loading.tsx` draws the same layout as skeletons.
 
 ### Mobile (`mobile/src/app/station/[slug]/library.tsx`)
@@ -279,7 +279,7 @@ The Library tab: storage card, then one collapsible card per playlist (default f
 ### Not part of this feature despite the names
 
 - `client/lib/listenerLibrary.ts` is the **listener's** saved-stations and history, in `localStorage` (`gocast:saved-stations:v1` capped at 50, `gocast:history:v1` capped at 8). Used by the homepage `ListenerLibrary` and `PlayerView`. Nothing to do with tracks.
-- `client/lib/queueStore.ts` is the **web studio's** local queue: IndexedDB database `gocast` v3 (stores `queue` and `playback`, both scoped by station slug), keeps `File` objects and the playback offset so a refresh keeps the queue; ordered by a saved `position`. It is separate from the server library; see [Web studio](broadcasting-web-studio.md).
+- `client/lib/queueStore.ts` is the **web studio's** local queue: IndexedDB database `gocast` v4 (stores `queue`, `playback` and `order`, all scoped by station slug), keeps `File` objects and the playback offset so a refresh keeps the queue; ordered by the station's `order` record (each track's saved `position` is the fallback for older queues). It is separate from the server library; see [Web studio](broadcasting-web-studio.md).
 
 ## Gaps and traps
 

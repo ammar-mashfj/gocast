@@ -1,6 +1,6 @@
 ---
 feature: Liquidsoap station script (the audio path as code)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/resources/views/liquidsoap/station.blade.php
   - api/config/liquidsoap.php
@@ -24,7 +24,10 @@ sources:
   - api/app/Models/StationEvent.php
   - api/app/Providers/AppServiceProvider.php
   - api/app/Services/StationStatusService.php
-fingerprint: 0f0f6306976445a7
+  - api/app/Services/BroadcastOrigin.php
+  - api/app/Http/Controllers/BroadcastTokenController.php
+  - client/lib/broadcast.ts
+fingerprint: edadc0017eff9946
 ---
 
 # Liquidsoap station script
@@ -97,7 +100,7 @@ live_in = input.harbor(<slug>, port=harbor_input_port, auth=harbor_auth,
 | `icy` | true | literal | Accept in-band metadata from source clients (BUTT, Mixxx). |
 | charsets | `UTF-8` | `liquidsoap.metadata_charset` | Set for both the Icecast-protocol and the webcast path. |
 
-Two protocols share the port: the webcast WebSocket (the browser studio) and the Icecast source protocol (BUTT, Mixxx, libshout clients). The router container that lets encoders reach it is in [Encoder ingest](encoder-ingest.md).
+Two protocols share the port: the webcast WebSocket (the browser studio) and the Icecast source protocol (BUTT, Mixxx, libshout clients). The router container that lets encoders reach it is in [Encoder ingest](encoder-ingest.md). Harbor answers a WebSocket close frame by dropping the TCP connection without sending a close frame back (checked on the raw socket, 2026-10-04), so a browser always reports `1006` / `wasClean=false` when the studio ends a show normally; `client/lib/broadcast.ts` ignores that close (it has already set `stopping`), so no `studio_drop` is reported.
 
 ### Connection callbacks, `live_connected`, `via` (lines 280-410)
 
@@ -314,7 +317,7 @@ All go to `{api_url}` (default `http://host.docker.internal:8081`, the internal-
 
 The `/api/internal/metrics` route (`MetricsController`, Prometheus format, same key) exists in Laravel but the station script never calls it and the script has no Prometheus exporter.
 
-`StationEventController` details that matter to the script: `event` must be one of `StationEvent::CONTAINER_TYPES` (`boot`, `shutdown`, `icecast_connected`, `icecast_disconnected`, `icecast_error`, `live_connected`, `live_disconnected`); anything else is 422. Unknown slug is 404. `slug` max 64, `event` max 32, `client` max 255 nullable, `via` nullable in (`browser`, `external`), an absent `via` defaults to `browser`. `client` is trimmed and an empty string becomes null. Effects: cache `station-event:{id}` for 3600s, a `StationEvent` row, `last_ready_at` on `icecast_connected`, a `StreamSession` opened on `live_connected` (idempotent: an open session is left alone; a `SendStationLiveNotifications` job is dispatched delayed 2 minutes) and closed on `live_disconnected`. A queued `StationStateChanged` broadcast goes out for `shutdown`, the three Icecast events, and both live events (not `boot`). The old `live_silent` / `live_audio` events (from the removed dead-air guard) now get 422 from a container that was rendered before the removal.
+`StationEventController` details that matter to the script: `event` must be one of `StationEvent::CONTAINER_TYPES` (`boot`, `shutdown`, `icecast_connected`, `icecast_disconnected`, `icecast_error`, `live_connected`, `live_disconnected`); anything else is 422. Unknown slug is 404. `slug` max 64, `event` max 32, `client` max 255 nullable, `via` nullable in (`browser`, `external`), an absent `via` defaults to `browser`. `client` is trimmed and an empty string becomes null. Effects: cache `station-event:{id}` for 3600s, a `StationEvent` row, `last_ready_at` on `icecast_connected`, a `StreamSession` opened on `live_connected` (idempotent: an open session is left alone; a `SendStationLiveNotifications` job is dispatched delayed 2 minutes; for `via` other than `external` the row's `ip_address` and `country` are filled from `BroadcastOrigin`, which `BroadcastTokenController` cached from the broadcaster's token request, since harbor itself only sees a proxy; encoder sessions get none) and closed on `live_disconnected`. A queued `StationStateChanged` broadcast goes out for `shutdown`, the three Icecast events, and both live events (not `boot`). The old `live_silent` / `live_audio` events (from the removed dead-air guard) now get 422 from a container that was rendered before the removal.
 
 `HarborAuthController` details: validation `slug` required max 255, `password` nullable max 2048, `user` nullable max 255, `address` nullable max 255. Empty password refused. Station looked up first (deleted station refuses even a valid token). A valid broadcast token (MAC, expiry, station binding; `BroadcastTokenService::verify`) is accepted for any plan. Otherwise the station's `stream_key` is compared with `hash_equals` and requires the owner's `canUseEncoder()`. Refusals answer 403 with the reason as the body. Harbor authenticates once when the socket opens, so a plan downgrade does not cut a running broadcast. The `address` in an encoder refusal is the station-router's address, not the broadcaster's (routed TCP without PROXY protocol).
 

@@ -53,6 +53,12 @@ export function StatusBand({ tone, label, message, meta, children, className }: 
         </StatusLamp>
       </span>
       <p className="min-w-48 flex-1 text-sm leading-snug font-semibold">{message}</p>
+      {/* A fault (losing audio, a slow line, silence) is read out in full and
+          at once: the polite label above only says the state changed. Always
+          rendered, so a fault arriving is a change the reader hears. */}
+      <p role="alert" className="sr-only">
+        {tone === "warn" ? `${label}. ${message}` : ""}
+      </p>
       {meta && <div className="flex items-center gap-3.5 font-mono text-xs font-semibold tracking-widest tabular-nums">{meta}</div>}
       {children && <div className="flex items-center gap-1.5">{children}</div>}
     </section>

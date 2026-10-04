@@ -41,6 +41,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Main"
+      data-slot="tab-bar"
       className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-background px-2.5 pt-1.5 pb-[env(safe-area-inset-bottom)] sm:hidden"
     >
       {TABS.map((t) => (

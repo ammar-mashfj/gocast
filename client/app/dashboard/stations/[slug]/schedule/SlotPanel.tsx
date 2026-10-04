@@ -137,7 +137,7 @@ function TimeStepper({ label, value, onChange }: { label: string; value: string;
           type="button"
           onClick={() => step(-SNAP)}
           aria-label={`${label} 15 minutes earlier`}
-          className="flex h-full w-11.5 shrink-0 cursor-pointer items-center justify-center rounded-button text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-full w-9 shrink-0 sm:w-11.5 cursor-pointer items-center justify-center rounded-button text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconMinus className="size-4" />
         </button>
@@ -146,13 +146,13 @@ function TimeStepper({ label, value, onChange }: { label: string; value: string;
           step={SNAP * 60}
           value={value}
           onChange={(e) => e.target.value && onChange(e.target.value)}
-          className="min-w-0 flex-1 bg-transparent text-center font-mono text-meter-sm tabular-nums outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+          className="min-w-0 flex-1 bg-transparent text-center font-mono text-base tabular-nums sm:text-meter-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
         />
         <button
           type="button"
           onClick={() => step(SNAP)}
           aria-label={`${label} 15 minutes later`}
-          className="flex h-full w-11.5 shrink-0 cursor-pointer items-center justify-center rounded-button text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-full w-9 shrink-0 sm:w-11.5 cursor-pointer items-center justify-center rounded-button text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconPlus className="size-4" />
         </button>

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
+import { copyText } from "@/lib/clipboard"
 import { Button } from "@/components/ds/Button"
 import { Disclosure } from "@/components/ds/Disclosure"
 import { StationEncoder } from "@/interfaces/Station"
@@ -46,11 +47,11 @@ export function EncoderConnection({
   const [copied, setCopied] = useState<string | null>(null)
 
   async function copy(label: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value)
+    // The values now show in full, so a failed copy can point at them.
+    if (await copyText(value)) {
       setCopied(label)
       setTimeout(() => setCopied((c) => (c === label ? null : c)), 1600)
-    } catch {
+    } else {
       toast.error("Couldn't copy — select the value and copy it manually")
     }
   }
@@ -129,7 +130,7 @@ export function EncoderConnection({
             <div key={field.label} className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
               <div className="flex items-center gap-3">
                 <dt className="w-20 shrink-0 eyebrow-sm text-text-faint">{field.label}</dt>
-                <dd className="min-w-0 flex-1 truncate font-mono text-body-sm text-foreground">
+                <dd className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">
                   {hidden ? "•".repeat(16) : field.value}
                 </dd>
                 {field.secret && (

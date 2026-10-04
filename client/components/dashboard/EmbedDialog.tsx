@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { copyText } from "@/lib/clipboard"
 import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import {
@@ -34,6 +35,7 @@ interface EmbedDialogProps {
  */
 export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDialogProps) {
   const [copied, setCopied] = useState(false)
+  const copyRef = useRef<HTMLButtonElement>(null)
   const snippet = embedSnippet(slug, stationName)
 
   useEffect(() => {
@@ -43,17 +45,21 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
   }, [copied])
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(snippet)
-      setCopied(true)
-    } catch {
-      toast.error("Couldn't copy — select the code and copy it manually")
-    }
+    if (await copyText(snippet)) setCopied(true)
+    else toast.error("Couldn't copy — select the code and copy it manually")
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg">
+      {/* Focus starts on Copy, not in the preview: inside the iframe, Esc
+          goes to the player and the dialog can't hear it. */}
+      <DialogContent
+        size="lg"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          copyRef.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Embed on your site</DialogTitle>
           <DialogDescription>
@@ -100,7 +106,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
         </div>
 
         <DialogFooter>
-          <Button size="lg" onClick={copy}>
+          <Button ref={copyRef} size="lg" onClick={copy}>
             {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
             <span>{copied ? "Copied" : "Copy code"}</span>
           </Button>

@@ -50,10 +50,10 @@ Route::middleware('throttle:auth')->prefix('auth')->group(function () {
     // tighter throttle (3/min) on code requests so attackers can't spam the
     // endpoint to trigger emails / DoS the mail provider.
     Route::post('/password/forgot', [PasswordResetController::class, 'forgot'])
-        ->middleware('throttle:3,1')
+        ->middleware('throttle:3,1,password-forgot')
         ->name('password.forgot');
     Route::post('/password/reset', [PasswordResetController::class, 'reset'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,password-reset')
         ->name('password.reset');
 });
 
@@ -67,6 +67,12 @@ Route::get('/invites/{code}', [InviteController::class, 'show'])
     ->name('invites.show');
 
 // Authenticated routes — protected by Sanctum token; no extra throttle (Laravel's global limiter applies).
+//
+// Every numeric throttle in this file names its own limiter (the third
+// argument). Without one, Laravel keys the counter on the user (or IP) alone,
+// so all `throttle:N,M` routes share a single count: three uplink probes, a
+// check report and a broadcast token would eat into the station-start limit,
+// and a couple of go-live retries answered 429.
 Route::middleware('auth:sanctum')->group(function () {
     // Always accessible while authenticated — needed to resolve identity, sign out,
     // complete verification, or manage the account even when the email isn't verified yet.
@@ -78,17 +84,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // here (rather than at registration) is still waiting on its code — the
     // plan should not wait with it. Throttled because every miss is a guess.
     Route::post('/invites/redeem', [InviteController::class, 'redeem'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,invite-redeem')
         ->name('invites.redeem');
 
     // 6-digit code flow. /resend issues a fresh code (throttled against spam);
     // /verify validates a submitted code and marks the email verified.
     Route::post('/email/resend', [EmailVerificationController::class, 'send'])
-        ->middleware('throttle:6,1')
+        ->middleware('throttle:6,1,email-resend')
         ->name('verification.send');
 
     Route::post('/email/verify', [EmailVerificationController::class, 'verify'])
-        ->middleware('throttle:10,1')
+        ->middleware('throttle:10,1,email-verify')
         ->name('verification.verify');
 
     // The dashboard bell. Inside auth but deliberately OUTSIDE `verified`,
@@ -137,51 +143,51 @@ Route::middleware('auth:sanctum')->group(function () {
         // exactly the kind of action an unverified signup shouldn't reach, and
         // owning a station already requires verification.
         Route::post('/auth/broadcast-token', BroadcastTokenController::class)
-            ->middleware('throttle:30,1');
+            ->middleware('throttle:30,1,broadcast-token');
 
         // The go-live connection check: the studio times an upload to this to
-        // pick a bitrate, or to refuse a line too slow to broadcast on. Two
-        // requests per attempt; see UplinkProbeController.
+        // pick a bitrate, or to refuse a line too slow to broadcast on. Three
+        // requests per attempt (two empty, one timed); see client/lib/uplinkProbe.ts.
         Route::post('/broadcast/uplink-probe', UplinkProbeController::class)
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:20,1,uplink-probe');
 
         // Station power switch. Creating a station configures it; starting it
         // is what spawns a Liquidsoap container and puts a mount on Icecast.
         // Throttled because each start is a docker run — a hammered button
         // shouldn't be able to thrash the daemon.
         Route::post('/stations/{station:slug}/start', [StationPowerController::class, 'start'])
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:20,1,station-start');
         Route::post('/stations/{station:slug}/stop', [StationPowerController::class, 'stop'])
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:20,1,station-stop');
 
         // The studio's account of a dropped broadcast socket: what the page
         // was doing and whether the reconnect worked. Admin monitoring only;
         // see StudioDropController.
         Route::post('/stations/{station:slug}/studio-drops', StudioDropController::class)
-            ->middleware('throttle:30,1');
+            ->middleware('throttle:30,1,studio-drops');
 
         // The go-live connection check's verdict, for tuning its thresholds.
         // Admin monitoring only; see UplinkCheckController.
         Route::post('/stations/{station:slug}/uplink-checks', UplinkCheckController::class)
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:20,1,uplink-checks');
 
         // Skip the current AutoDJ track — a telnet command to the running
         // container, no restart involved.
         Route::post('/stations/{station:slug}/skip', [StationPowerController::class, 'skip'])
-            ->middleware('throttle:30,1');
+            ->middleware('throttle:30,1,station-skip');
 
         // Live audio state, read from the station's own container. Polled by
         // the dashboard while a station is starting and by the broadcast
         // pre-flight before publishing, so it gets a roomier limit.
         Route::get('/stations/{station:slug}/status', StationStatusController::class)
-            ->middleware('throttle:120,1');
+            ->middleware('throttle:120,1,station-status');
 
         // The owner's audience report. Read-only and a handful of grouped
         // scans over indexed windows, but not free either — throttled at a
         // rate that comfortably covers switching between the 7/30/90 ranges
         // without letting the page be held open as a query generator.
         Route::get('/stations/{station:slug}/audience', AudienceController::class)
-            ->middleware('throttle:60,1');
+            ->middleware('throttle:60,1,station-audience');
 
         // Mint a new encoder password. No body — the server picks the value,
         // so there is nothing for the client to send. Throttled hard: this is
@@ -192,7 +198,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // not a window count — this read `6,1` and meant six per minute, which
         // is 360 an hour and not a throttle in any sense the comment claimed.
         Route::post('/stations/{station:slug}/stream-key', [StreamKeyController::class, 'rotate'])
-            ->middleware('throttle:6,60');
+            ->middleware('throttle:6,60,stream-key');
 
         // Advertised show times. A full-list PUT rather than row CRUD: the
         // owner edits a short ordered list, and position is the array index.
@@ -250,7 +256,7 @@ Route::middleware('throttle:public')->group(function () {
     Route::get('/public/stations/{slug}/embed', [PublicEmbedController::class, 'show']);
     // Tighter throttle on the email-capture endpoint specifically — abuse vector is high.
     Route::post('/public/stations/{slug}/notify', [StationNotifyController::class, 'store'])
-        ->middleware('throttle:5,60');
+        ->middleware('throttle:5,60,station-notify');
 });
 
 // Listener analytics — the player telling us it exists, is still there, and
@@ -280,7 +286,7 @@ Route::prefix('public')->group(function () {
 // up a white-label deal should not have to create a free station first. The
 // email is therefore unverified, and StoreWaitlistRequest whitelists `plan`
 // so a client cannot post `pro` here and skip the authenticated route below.
-Route::middleware('throttle:3,60')->group(function () {
+Route::middleware('throttle:3,60,waitlist')->group(function () {
     Route::post('/waitlist', [WaitlistController::class, 'store']);
 });
 
@@ -331,4 +337,4 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
 // every request must carry a valid Svix signature for RESEND_WEBHOOK_SECRET;
 // the controller routes each event type to its handler.
 Route::post('/webhooks/resend', ResendWebhookController::class)
-    ->middleware('throttle:120,1');
+    ->middleware('throttle:120,1,resend-webhook');

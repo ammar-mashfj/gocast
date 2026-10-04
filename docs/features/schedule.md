@@ -1,6 +1,6 @@
 ---
 feature: Schedule (show times + AutoDJ slots)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - api/app/Models/StationSchedule.php
   - api/app/Models/AutodjSlot.php
@@ -43,7 +43,7 @@ sources:
   - client/lib/comingUp.ts
   - client/components/ds/DayToggle.tsx
   - client/app/dashboard/stations/[slug]/settings/TimezoneCombobox.tsx
-fingerprint: 928f62c10c713c45
+fingerprint: ee398de6bc77d9cd
 ---
 
 # Schedule
@@ -152,7 +152,7 @@ The Schedule page is a full-width week timeline that is also the editor (`WeekGr
 - **Blocks, not rows.** Each API slot row is split into one block per day on load. On save, identical blocks (same playlist, name, start and end) are merged back into multi-day rows. The API and the data model are unchanged.
 - **Drag along an empty stretch** to draw a block, clamped to the free space around it (`freeBounds`). A plain click makes one hour from the quarter hour clicked (`freeSpanAt`). New blocks use the first non-default playlist. The "Add slot" button adds an hour at the next free hour.
 - **Dragging a left or right edge changes that one day only.** It snaps to 15 minutes, stops at the neighbouring block (the server refuses overlaps), and a block stays between 15 minutes and 24 hours long. A drag can carry a block past midnight.
-- **Clicking a slot (or drawing a new one) opens it in a dialog** (`SlotPanel` inside the planner's `Dialog`). Edge drags deliberately don't open it, so the modal never covers the grid mid-drag. **The dialog edits every ticked day at once.** Ticking a day copies the block onto it, unticking removes that copy, and Delete removes all of them.
+- **Clicking a slot (or drawing a new one) opens it in a dialog** (`SlotPanel` inside the planner's `Dialog`). Edge drags deliberately don't open it, so the modal never covers the grid mid-drag. **The dialog edits every ticked day at once.** Ticking a day copies the block onto it, unticking removes that copy, and Delete removes all of them. Start and end are `TimeStepper`s: a time input between − and + buttons that move it 15 minutes; on phones the buttons are narrower (`w-9`, `w-11.5` from `sm`) and the time is `text-base`, so both fit the sheet.
 - **On a phone (below the `md` breakpoint, 768px) the grid is replaced by the Android app's layout** (`DayList`): a strip of the seven days with this week's dates, then the picked day's rows top to bottom, in the app's order (show times with a grey dashed edge, linking to settings, then AutoDJ slots by playlist swatch, or the default playlist "All day" when none falls on that day). A slot that runs past midnight shows on the next day as "→ 02:00". Tapping a row opens the same `SlotPanel` dialog; "Add slot on Tuesday" puts an hour on the day being looked at, at the first free hour from now (today) or from 06:00. Both layouts are in the markup and CSS picks one, so the blocks and the selection survive a resize. Drawing and edge drags exist only on the grid. A sticky bar with the save state and Save appears at the bottom on phones once there are unsaved changes, because the header's Save has scrolled away by then. "NOW" on a row means the station's clock is inside it, not that it is playing; the banner says what plays.
 - **Explicit Save** (autosave was tried and dropped on 2026-09-29): the Save button in the page header sends the same full-list `PUT /autodj-slots` without `timezone`. It's disabled when nothing changed, while blocks overlap, or while the station has no timezone. A lamp beside it says "All saved" (green), "Unsaved changes", "Not saved: slots overlap", "Not saved: no timezone" or "Not saved" (amber); a failed save also shows the server's error in a `Notice`. Leaving with unsaved changes triggers the browser's warning.
 - **Two cards above the week** (`ScheduleNow`): **Right now** is the plan, labelled as a plan: the playlist AutoDJ has lined up from `programme` (`describeProgramme`: "until 10:00 · then Main rotation", or "All day, until another slot starts."), plus "AutoDJ is off right now." when the station is off; on Free, "Off air unless you're live". **Your next show** is the next show time (`comingUp`), "You start it from the studio", or "None planned" with a link to add show times. What the station is actually doing is the status band's, above every page; the station clock is in the top bar. The planned playlist is refetched when `programme.until` passes.

@@ -16,6 +16,10 @@ const FROM: Record<StreamSessionSource, string> = {
   external: "Own software",
 }
 
+/** The software by name when the encoder sent one, as the overview's recent shows say it. */
+const from = (show: StreamSession) =>
+  (show.source_type === "external" && show.client) || (FROM[show.source_type] ?? show.source_type)
+
 /**
  * Shared by the head row and every show row, so the columns line up. On a
  * phone FROM drops out (it's in the opened row instead).
@@ -145,7 +149,7 @@ function ShowRow({
             {clock.format(started)} – {clock.format(new Date(show.ended_at!))}
           </span>
         </span>
-        <span className="hidden truncate text-sm text-muted-foreground md:block">{FROM[show.source_type] ?? show.source_type}</span>
+        <span className="hidden truncate text-sm text-muted-foreground md:block">{from(show)}</span>
         <span className="flex min-w-0 flex-col gap-1.5 md:flex-row-reverse md:items-center md:gap-3">
           <span className="font-mono text-body-sm text-muted-foreground tabular-nums md:w-16 md:shrink-0">{formatAirtime(Math.round(seconds(show)))}</span>
           <span aria-hidden className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-control">
@@ -175,7 +179,7 @@ function ShowRow({
           <StatTile
             className="bg-surface-inset"
             label="From"
-            value={FROM[show.source_type] ?? show.source_type}
+            value={from(show)}
             sub={show.source_type === "external" && show.client ? show.client : undefined}
           />
         </div>

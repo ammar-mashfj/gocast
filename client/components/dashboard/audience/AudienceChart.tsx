@@ -97,7 +97,7 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
               className={cn(
                 cn("w-full transition-colors", daily.length > 60 ? "rounded-t-xs" : "rounded-t-tag"),
                 // The mobile Audience chart: past days AutoDJ's dim violet,
-                // the day under the pointer (or today) lit violet.
+                // the day under the pointer (or the latest) lit violet.
                 d.listener_minutes > 0
                   ? hovered === i || (hovered === null && i === daily.length - 1)
                     ? "bg-on-air"
@@ -117,7 +117,10 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
 
       <div className="flex justify-between font-mono text-micro tracking-wider text-text-faint uppercase">
         <span>{label(daily[0].day)}</span>
-        <span>Today</span>
+        {/* The date, not "Today": the buckets are UTC days, and for anyone
+            whose midnight isn't UTC's that bar is yesterday for part of
+            every day. */}
+        <span>{label(daily[daily.length - 1].day)}</span>
       </div>
 
       {!hasData && (

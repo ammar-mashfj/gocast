@@ -1,6 +1,6 @@
 ---
 feature: Data model (database schema, models, seeded plans)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/database/migrations/0001_01_01_000000_create_users_table.php
   - api/database/migrations/0001_01_01_000001_create_cache_table.php
@@ -143,7 +143,7 @@ sources:
   - api/database/migrations/2026_09_30_120000_add_origin_to_stream_sessions_table.php
   - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
   - api/app/Services/BroadcastOrigin.php
-fingerprint: d491feab50344f5e
+fingerprint: eddb6097646b2a54
 ---
 
 # Data model

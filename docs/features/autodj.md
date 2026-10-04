@@ -1,6 +1,6 @@
 ---
 feature: AutoDJ (playback, rotation order, handover)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/AutoDjProgramme.php
@@ -59,7 +59,7 @@ sources:
   - client/lib/comingUp.ts
   - client/components/dashboard/overview/SetupChecklist.tsx
   - client/hooks/useStationStatusPoll.ts
-fingerprint: 7d20c986978930fa
+fingerprint: d70bc05fd1cf7577
 ---
 
 # AutoDJ
@@ -172,7 +172,7 @@ Owned by [Station lifecycle](station-lifecycle.md); the AutoDJ-specific parts ar
 
 ### Skip
 
-`POST /stations/{slug}/skip` (`throttle:30,1`, policy `update`) sends `playlist_m3u.skip` over telnet, returning 409 `station_not_running` if the station is not running, 503 `station_unreachable` if telnet fails, else `{message: "Skipped."}` and forgets the cached status. **No client calls it today** (see Gaps). Skipping consumes a track from the cursor/deck like any other boundary; it is not undoable.
+`POST /stations/{slug}/skip` (`throttle:30,1,station-skip`, a limiter of its own; policy `update`) sends `playlist_m3u.skip` over telnet, returning 409 `station_not_running` if the station is not running, 503 `station_unreachable` if telnet fails, else `{message: "Skipped."}` and forgets the cached status. **No client calls it today** (see Gaps). Skipping consumes a track from the cursor/deck like any other boundary; it is not undoable.
 
 ## How AutoDJ interacts with live broadcasts
 
@@ -223,19 +223,19 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 
 ### Web dashboard overview
 
-`(overview)/page.tsx` fetches the station, its sessions and its playlists in parallel. It no longer fetches a playlist's tracks: there is no AutoDJ track-preview card on the overview any more. A failed playlists fetch only affects the checklist; 404 or 403 on the station gives `notFound()`.
+`(overview)/page.tsx` fetches the station, its sessions and its playlists in parallel. It no longer fetches a playlist's tracks: there is no AutoDJ track-preview card on the overview any more. A failed playlists fetch only affects the checklist; 404 or 403 on the station gives `notFound()`, a 401 goes to `/auth/login?expired=1`.
 
 - **The hero** (`components/dashboard/overview/OverviewHero.tsx`, decisions in `client/lib/stationHero.ts`) on one shared status poll (`useStationStatus` → `StationStatusProvider`):
   - Labels in priority order: NOT REACHING LISTENERS (`degraded`), STARTING, LIVE, OFF AIR, CHECKING / STATUS UNKNOWN (no status yet / no answer), NO SOUND (`source` silence), ON AIR · AUTODJ. LIVE is keyed on `broadcasterAttached` (this tab's broadcast, or `status.broadcaster`, or `live_source` for old containers), not on `state`, but `degraded` and `starting` outrank it.
   - ON AIR · AUTODJ: "Your station is playing itself." and "AutoDJ is on {playlist}. It hands over when you go live, and takes back when you end." (the playlist from `programme`). That handover is wording, not a mechanism (see "How AutoDJ interacts"). During the live tail: "Your show has ended." / "Listeners are hearing its last few seconds." and "Handing back to AutoDJ soon…" when the plan has AutoDJ and the playlist has tracks.
-  - Buttons: Go live whenever nobody is live (Open studio when this tab is live, "Hear your stream ↗" when someone else is). Off air: **"Start AutoDJ" for plans with AutoDJ; only "Go live" for plans without** (`useAutoDjLocked`). Running: "Stop AutoDJ" while AutoDJ plays (confirm "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ, because it drops listeners), else "Turn station off" without a confirm; hidden while another browser is live. An external-encoder stop the API refuses opens "Cut off this broadcast?", which retries with `force: true`.
+  - Buttons: Go live whenever nobody is live (Open studio when this tab is live, "Hear your stream ↗" when someone else is). Off air: **"Start AutoDJ" for plans with AutoDJ; only "Go live" for plans without** (`useAutoDjLocked`). Running: "Stop AutoDJ" while AutoDJ plays (confirm "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ, because it drops listeners), else "Turn station off" without a confirm; hidden while another browser is live. An external-encoder stop the API refuses opens "Cut off this broadcast?", which retries with `force: true`. Start AutoDJ toasts "Your station is starting up" (`useStationPower`; the start is only accepted, the band then says what it lands on), and the listener panel says "Your station is starting. Counting begins once it’s on air." until it is.
   - **`NowPlayingWell`** while AutoDJ plays: title · artist from `status.now_playing` (held across the gaps between tracks; cleared on stop and on any broadcaster change), the time left (violet, mono) and a progress bar written per animation frame by `useTrackProgress` (only with `source` `autodj` and a non-negative `remaining`; snap-back tolerance 2.5 s), and "Up next" from `up_next[0]`. "On air — waiting for track info" when the rotation has tracks but no title yet.
   - There is **no Skip button**; it was removed from the overview.
 - **Status pacing**: 2 s with no status yet, while `starting`, during a live tail, and during live takeover; 30 s when `offline`; otherwise 10 s (30 s while the realtime socket is connected), pulled in to `remaining * 1000 + 750 ms` (min 3 s) near a track end so the title updates just after a boundary; back-off up to 30 s on failures (2 s doubling); no reads while the tab is hidden, one on return. Realtime station signals trigger a refetch, coalesced over 120 ms. One poll serves the hero, the status band and the sidebar lamp.
-- **Status band** (every page): ON AIR · AUTODJ with "AutoDJ is playing {title} by {artist}." and Go live; SILENCE (amber) "AutoDJ is on but has nothing to play. Listeners hear silence." with Add tracks (`client/lib/airState.ts`).
+- **Status band** (every page): ON AIR · AUTODJ with "AutoDJ is playing {title} by {artist}." and Go live; SILENCE (amber) "AutoDJ is on but has nothing to play. Listeners hear silence." with Add tracks (`client/lib/airState.ts`). Right after this tab ends a show it says SHOW ENDED, "Your show has ended. Checking what’s on air now…", until a status read shows the handover done (at most 15 s), rather than guessing from a status that still describes the show.
 - **Coming up** (`ComingUpCard`, `lib/comingUp.ts`): AutoDJ's next slot change from `programme.next`, in violet, beside your next show times.
 - **Setup checklist**: "Fill AutoDJ's playlist" (not on Free) is done when the **default** playlist's `track_count > 0` (from the playlists fetch).
-- `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio end sheet (`EndSheet` in `mobile/src/components/studio/Sheets.tsx`, fetched only when the plan has AutoDJ) to warn about an empty rotation. The mobile copy says "your library is empty", but the number is the resolved playlist's track count, not the library's.
+- `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio end sheet (`EndSheet` in `mobile/src/components/studio/Sheets.tsx`, fetched only when the plan has AutoDJ) to warn about an empty rotation (web: "Your show stops for everyone listening. AutoDJ has nothing to play, so they hear silence and the station switches off in a few minutes." versus "Your show stops for everyone listening, and they hear AutoDJ straight away."). The mobile copy says "your library is empty", but the number is the resolved playlist's track count, not the library's.
 
 ### Elsewhere
 

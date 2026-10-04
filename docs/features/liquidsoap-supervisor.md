@@ -1,6 +1,6 @@
 ---
 feature: Liquidsoap supervisor (station container management)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/config/liquidsoap.php
@@ -34,7 +34,7 @@ sources:
   - infra/native/docker-compose.native.yml
   - infra/native/deploy-native.sh
   - api/database/migrations/2026_08_29_090000_add_container_index_to_stations_table.php
-fingerprint: 1b39fc54075a3458
+fingerprint: 7949282d24cfb3c7
 ---
 
 # Liquidsoap supervisor
@@ -198,7 +198,7 @@ The subnet must equal the one the network is really created with. In the native 
 
 - `applyJingleSettings()` and `applyWatermarkSettings()` return true in tests because `telnet()` returns ''.
 - **Not guarded:** `destroyArtifacts()` (real filesystem deletes, which is why `StationObserverTest` can assert on it), `renderLiqFile()` is only reached through `up()`, and `containerIp()` / `containerHost()` / `ingestUrl()` are pure and run for real.
-- The guard depends on the environment being `testing`. `tests/TestCase.php::createApplication()` forces `APP_ENV=testing` before boot because docker compose's `env_file` leaks `APP_ENV=local`, which otherwise disables the guard and lets factory-created stations spawn real containers on the host daemon.
+- The guard depends on the environment being `testing`. `tests/TestCase.php::createApplication()` forces `APP_ENV=testing` before boot because docker compose's `env_file` leaks `APP_ENV=local`, which otherwise disables the guard and lets factory-created stations spawn real containers on the host daemon. (It also blanks `SENTRY_LARAVEL_DSN`, unrelated to the supervisor.)
 - Existing tests exercise command construction by invoking the private flag builders via reflection (`tests/Feature/LiquidsoapSupervisorTest.php`), not the daemon.
 
 ## StationObserver: keeping a running container in step

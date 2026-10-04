@@ -52,6 +52,14 @@ export function ConfirmDialog({
   confirmText,
 }: ConfirmDialogProps) {
   const [typed, setTyped] = useState("")
+  // Every opening starts empty, however the last one closed (Keep, Esc, the
+  // scrim, or the parent after a confirm): a box still holding the name
+  // would leave the delete armed.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setTyped("")
+  }
   const inputId = useId()
   // Case-insensitive: slugs and emails are, and a phone keyboard capitalises.
   const matches = !confirmText || typed.trim().toLowerCase() === confirmText.toLowerCase()
@@ -61,12 +69,11 @@ export function ConfirmDialog({
       open={open}
       onOpenChange={(next) => {
         if (busy) return
-        if (!next) setTyped("")
         onOpenChange(next)
       }}
     >
-      <DialogContent size="sm" showCloseButton={false}>
-        <DialogHeader className="sm:pr-0">
+      <DialogContent size="sm" showCloseButton={false} swipeToClose>
+        <DialogHeader className="pr-0">
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>

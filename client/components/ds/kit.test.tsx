@@ -124,12 +124,27 @@ describe("CopyField", () => {
     expect(screen.getByRole("button", { name: "Copy station link" })).toHaveTextContent("Copied")
   })
 
-  it("admits a blocked clipboard", async () => {
+  it("falls back to the old copy when the clipboard is blocked", async () => {
     const user = userEvent.setup()
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"))
-    render(<CopyField label="Station link" value="x" />)
+    const exec = vi.fn().mockReturnValue(true)
+    document.execCommand = exec
+    render(<CopyField label="Station link" value="https://gocast.fm/x?utm_source=owner" display="gocast.fm/x" />)
     await user.click(screen.getByRole("button", { name: "Copy station link" }))
-    expect(screen.getByRole("button", { name: "Copy station link" })).toHaveTextContent("Couldn’t copy")
+    expect(exec).toHaveBeenCalledWith("copy")
+    expect(screen.getByRole("button", { name: "Copy station link" })).toHaveTextContent("Copied")
+  })
+
+  it("shows the whole value, selected, when nothing can copy", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"))
+    document.execCommand = vi.fn().mockReturnValue(false)
+    render(<CopyField label="Station link" value="https://gocast.fm/x?utm_source=owner" display="gocast.fm/x" />)
+    await user.click(screen.getByRole("button", { name: "Copy station link" }))
+    expect(screen.getByRole("button", { name: "Copy station link" })).toHaveTextContent("Copy it yourself")
+    const field = screen.getByRole("textbox", { name: "Station link" }) as HTMLInputElement
+    expect(field.value).toBe("https://gocast.fm/x?utm_source=owner")
+    expect(field.selectionEnd).toBe(field.value.length)
   })
 })
 

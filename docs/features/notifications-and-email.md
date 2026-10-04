@@ -1,6 +1,6 @@
 ---
 feature: Notifications and email (bell, transactional mail, outreach, station-live alerts, Resend webhook)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Notifications/Bell/BellNotification.php
   - api/app/Notifications/Bell/BellPayload.php
@@ -91,7 +91,7 @@ sources:
   - api/tests/Feature/SendAnnouncementTest.php
   - api/tests/Feature/Admin/RawEmailTest.php
   - client/components/dashboard/shell/UpdatesMenu.tsx
-fingerprint: bac58f35e016ab8f
+fingerprint: 7aed5bb535bf8f83
 ---
 
 # Notifications and email
@@ -113,8 +113,8 @@ Queued = the class `implements ShouldQueue`. Laravel queues one job per channel,
 
 | Class | Trigger (file) | Recipient | Channels | Queued | Dedup / throttle |
 |---|---|---|---|---|---|
-| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min, `/email/verify` 10/min |
-| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min |
+| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min (`throttle:6,1,email-resend`), `/email/verify` 10/min (`throttle:10,1,email-verify`) |
+| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min (`throttle:3,1,password-forgot`) |
 | `PasswordChangedNotification` | `PasswordResetController::reset` and `AccountController::updatePassword`; carries the request IP | the user | mail | yes | none |
 | `EmailChangedNotification` | `AccountController::updateProfile` when the email changed; routed with `Notification::route('mail', $previousEmail)` | the **old** address | mail | yes | none |
 | `WelcomeNotification` | `Verified` event listener in `AppServiceProvider` (email code verified, or Google sign-up) unless the account has both `invite_id` and a plan (then `InviteRedeemed`); a Google sign-up that is already verified fires no event | the user | database + mail | yes | fires once per `Verified` event; nothing else prevents a second |
@@ -179,7 +179,7 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Station-live alerts ("Notify me when live")
 
-1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60` (5 per 60 minutes per IP). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
+1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60,station-notify` (5 per 60 minutes per IP, its own counter). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
 2. **Trigger**: two places dispatch `SendStationLiveNotifications` with a **2-minute delay**: `StreamSessionController::store` (a broadcast session started via the API; skipped if the station was already live, sampled before closing stragglers and excluding a ghost session) and `StationEventController::openSession` (harbor/encoder connect event that opens a new session; not dispatched when an open session already exists).
 3. **Send**: the job (`SendStationLiveNotifications::handle`) exits silently if the station is gone or the specific session has ended. Otherwise it sends `StationLiveNotification` (mail only, queued) to every subscription with `notified_at IS NULL` via `Notification::route('mail', $email)` and stamps `notified_at` after handing each to the queue. Each subscription therefore gets one email per (re)subscription, ever.
 4. **Email**: subject "{Station} is live on GoCast", "Listen now" button to `{FRONTEND_URL}/station/{slug}`, footer "You asked us to let you know when this station started broadcasting." No unsubscribe link or header.
@@ -200,7 +200,7 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Inbound email and the Resend webhook
 
-`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1`), public but signed:
+`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1,resend-webhook`), public but signed:
 
 1. Empty `RESEND_WEBHOOK_SECRET` returns `503 Webhook not configured`.
 2. Svix signature checked with `Resend\WebhookSignature::verify` (`svix-id`, `svix-timestamp`, `svix-signature`); failure returns `401`.

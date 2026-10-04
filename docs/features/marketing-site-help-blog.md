@@ -1,6 +1,6 @@
 ---
 feature: Marketing site, help centre and blog
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - client/app/layout.tsx
   - client/app/sitemap.ts
@@ -125,7 +125,7 @@ sources:
   - client/hooks/useAccessRequest.ts
   - client/components/dashboard/station-form/StationForm.tsx
   - client/app/dashboard/stations/[slug]/live/page.tsx
-fingerprint: df9b0df4c84db036
+fingerprint: 42cb4f15e7181610
 ---
 
 # Marketing site, help centre and blog
@@ -174,7 +174,7 @@ The public, signed-out face of GoCast: the homepage, `/help` (17 task articles),
 - `WaitlistButton` opens `ProAccessDialog` (`client/components/ProAccessDialog.tsx`), passing `plan`. Only the Custom card on the homepage uses it now.
 - The dialog has two modes keyed on `plan === "pro"`. **Custom** (public): fields email, link, message; `POST /waitlist` with `{email, plan, social, message}`. **Pro**: the dashboard no longer uses this component; it draws its own `components/dashboard/ProRequestDialog.tsx` (ds kit, mounted once by `client/contexts/ProRequestContext.tsx`, opened by every "Request Pro" button: sidebar plan card, Account plan card, AutoDJ/Schedule/Audience upsells, the DJ-software fold, the Embed button). Both draw the form from `hooks/useAccessRequest.ts`, so the rules match: `POST /waitlist/pro` with `{social, message}`; the server reads email and plan from the session.
 - Client validation: email regex (custom only); `social` must contain a `.` ("full link"); `message` max 2000, `social` max 255. Errors: 401 session expired, 429 "Too many attempts", 422 "check the details", else generic.
-- API (`api/routes/api.php`): `POST /waitlist` sits under `throttle:3,60` (3 per IP per hour), unauthenticated. `POST /waitlist/pro` is `auth:sanctum` only, deliberately outside `verified`.
+- API (`api/routes/api.php`): `POST /waitlist` sits under `throttle:3,60,waitlist` (3 per IP per hour, its own limiter), unauthenticated. `POST /waitlist/pro` is `auth:sanctum` only, deliberately outside `verified`.
 - `StoreWaitlistRequest`: `plan` must be `custom` (`PUBLIC_PLANS`), so posting `pro` publicly is a 422. `social` required, max 255; `message` nullable max 2000; `email` required, max 255.
 - `WaitlistController::record` does `updateOrCreate(['email','plan'], ...)`: resubmitting overwrites social/message. A `rejected` row is reopened to pending; an `approved` row is left alone. Responds 201 `{message: "Request received."}`.
 - `WaitlistEntry` has statuses pending/approved/rejected, `$fillable` excludes review columns. `isGrantable()` is true only for a pending row with a `user_id`, so Custom rows (no `user_id`) are never grantable. Model events call `AdminTelegram::accessRequested` (registered in `AppServiceProvider`), which is inert without `TELEGRAM_BOT_TOKEN`. Review UI is in [admin-panel](admin-panel.md); granting is in [accounts-plans-invites](accounts-plans-invites.md).

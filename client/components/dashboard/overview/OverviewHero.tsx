@@ -99,7 +99,13 @@ export function OverviewHero({ station }: { station: Station }) {
         )}
       </div>
 
-      <ListeningNow slug={station.slug} hero={hero} autoDjLocked={autoDjLocked} className={surface.panel} />
+      <ListeningNow
+        slug={station.slug}
+        hero={hero}
+        autoDjLocked={autoDjLocked}
+        peak={station.stats?.peak_listeners ?? 0}
+        className={surface.panel}
+      />
 
       <ConfirmDialog
         open={confirmStop}
@@ -193,22 +199,39 @@ function HeroButton({
 }
 
 /** The hero's right panel: the listener count, big. */
-function ListeningNow({ slug, hero, autoDjLocked, className }: { slug: string; hero: Hero; autoDjLocked: boolean; className: string }) {
+function ListeningNow({
+  slug,
+  hero,
+  autoDjLocked,
+  peak,
+  className,
+}: {
+  slug: string
+  hero: Hero
+  autoDjLocked: boolean
+  /** The most ever listening at once, so an empty room reads against the station's best. */
+  peak: number
+  className: string
+}) {
   const onAir = hero.tone !== "off"
   const count = useListenerCount(slug, onAir)
   const shown = useCountUp(onAir ? count : null)
   const line =
-    !onAir
-      ? autoDjLocked
-        ? "Go live to start counting."
-        : "Start AutoDJ or go live to start counting."
-      : count === null
-        ? "Counting who’s tuned in…"
-        : count === 0
-          ? "Nobody yet. Share your link below."
-          : hero.tone === "live"
-            ? "Tuned in to your show right now."
-            : "On your player page and the direct stream."
+    hero.headline === "starting"
+      ? "Your station is starting. Counting begins once it’s on air."
+      : !onAir
+        ? autoDjLocked
+          ? "Go live to start counting."
+          : "Start AutoDJ or go live to start counting."
+        : count === null
+          ? "Counting who’s tuned in…"
+          : count === 0
+            ? peak > 0
+              ? `Nobody right now. Your peak is ${peak.toLocaleString()}.`
+              : "Nobody yet. Share your link below."
+            : hero.tone === "live"
+              ? "Tuned in to your show right now."
+              : "On your player page and the direct stream."
 
   return (
     <div className={cn("flex min-w-0 flex-[1_1_16rem] flex-col gap-2.5 p-6 sm:p-7", className)}>

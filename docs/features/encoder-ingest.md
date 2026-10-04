@@ -1,6 +1,6 @@
 ---
 feature: Encoder ingest (BUTT, Mixxx, any Icecast source client)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - infra/native/station-router/ingest.js
   - infra/native/station-router/nginx.conf
@@ -38,6 +38,7 @@ sources:
   - api/routes/api.php
   - api/resources/views/liquidsoap/station.blade.php
   - client/components/dashboard/EncoderConnection.tsx
+  - client/lib/clipboard.ts
   - client/app/dashboard/stations/[slug]/settings/EncoderCard.tsx
   - client/app/dashboard/stations/[slug]/settings/EncoderSection.tsx
   - client/contexts/AccountContext.tsx
@@ -48,7 +49,7 @@ sources:
   - client/lib/stationHero.ts
   - client/components/dashboard/overview/OverviewHero.tsx
   - client/components/ds/Disclosure.tsx
-fingerprint: 6a48dbd1c4c05163
+fingerprint: 25ee764e2b51e0f1
 ---
 
 # Encoder ingest
@@ -180,7 +181,7 @@ Other values passed to `bump()` are silently ignored (label cardinality guard). 
 | When minted | In `Station::booted()` `creating` (`??=`), for **every** station on every plan, and backfilled by the migration for all existing stations including soft-deleted (via the model so the cast applies, `timestamps = false` so `updated_at` is not touched). Free stations hold a key they cannot use. |
 | Rotation | `POST /api/stations/{slug}/stream-key` (`StreamKeyController::rotate`). `rotateStreamKey()` uses `forceFill` and stamps `stream_key_rotated_at`. No request body; the client cannot choose the value. |
 | Who can choose | Nobody. `stream_key` is absent from the update request, and `Station` is `$guarded = []` so the protection is the request class, not the model. |
-| Rotation guards | `auth:sanctum`, `verified`, `throttle:6,60` (six per **sixty minutes**), `authorize('update')` (owner only), then `canUseEncoder()` else 403 `code: encoder_not_available`. |
+| Rotation guards | `auth:sanctum`, `verified`, `throttle:6,60,stream-key` (six per **sixty minutes**, on its own named counter so other throttled routes don't eat into it), `authorize('update')` (owner only), then `canUseEncoder()` else 403 `code: encoder_not_available`. |
 | Audit | `StationEvent::TYPE_STREAM_KEY_ROTATED` (`stream_key_rotated`, source owner), without the key. Admin monitoring only. |
 | Lifetime | Long-lived. There is no expiry, no per-encoder key and no revocation list. Only replace-all. |
 | APP_KEY rotation | Every stored key becomes undecryptable. Harbor auth treats that as "no match" (refusal, not a 500), the API returns `password: null`, and the owner recovers by rotating. |
@@ -240,7 +241,7 @@ After harbor: `buffer(buffer=2., max=10.)`, then straight into `fallback(track_s
 - Unavailable (plan allows it, `encoder` absent): "Own-software broadcasting isn't available on this server yet."
 - Available: the "Pick Icecast 2 … fill in these five values" instruction, `EncoderConnection`, a **New key** button ("Pasted your key somewhere public? Make a new one."; confirm dialog "Generate a new stream key?", then POST, toast, `router.refresh()`), four folded questions (turn the station on first; Shoutcast doesn't work; does a new key kick me off; is this connection private) and a "Still not connecting?" link to `/help/my-encoder-wont-connect` (new tab). After rotating, the card holds the response's `{key, rotated_at}` as an override and reveals the key, dropping the override when the refreshed prop's `rotated_at` is at or after it (handles out-of-order refreshes).
 
-**`EncoderConnection`** (`components/dashboard/EncoderConnection.tsx`, now used only by the settings card): presentational. Five rows on inset wells (Server, Port, Mount, Username, Password), each with a Copy button ("Copied" for a moment; toast on clipboard failure); Password is masked as 16 bullets with a Show/Hide button (`revealed` is controlled by the parent). `password === null` renders "Unavailable" with the hint that the server can no longer read the key and to choose New key, with no copy button. A folded "Where these go in BUTT, Mixxx and ffmpeg" gives per-client steps (BUTT mountpoint without the leading slash; Mixxx host without `http://`; ffmpeg command with a literal `KEY` placeholder, not the real key).
+**`EncoderConnection`** (`components/dashboard/EncoderConnection.tsx`, now used only by the settings card): presentational. Five rows on inset wells (Server, Port, Mount, Username, Password), values shown in full (wrapping with `break-all`, not truncated), each with a Copy button that uses `copyText()` (`client/lib/clipboard.ts`: Clipboard API, falling back to a hidden-textarea `execCommand('copy')` for plain-http LAN pages); "Copied" for a moment, a toast to copy by hand when both fail. Password is masked as 16 bullets with a Show/Hide button (`revealed` is controlled by the parent). `password === null` renders "Unavailable" with the hint that the server can no longer read the key and to choose New key, with no copy button. A folded "Where these go in BUTT, Mixxx and ffmpeg" gives per-client steps (BUTT mountpoint without the leading slash; Mixxx host without `http://`; ffmpeg command with a literal `KEY` placeholder, not the real key).
 
 **Going live from an encoder**: there is no encoder path in the dashboard's go-live flow any more (the old `GoLiveTrigger` picker and its `ConnectionWatcher` were removed with the 2026-10-01 redesign). Go live is the browser studio; an encoder simply connects with the settings values while the station is on.
 

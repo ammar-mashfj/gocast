@@ -1,6 +1,6 @@
 ---
 feature: API reference (HTTP routes, middleware, scheduled commands)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/routes/api.php
   - api/routes/admin.php
@@ -139,7 +139,7 @@ sources:
   - api/app/Http/Controllers/UplinkCheckController.php
   - api/app/Http/Controllers/StudioDropController.php
   - api/app/Services/BroadcastOrigin.php
-fingerprint: 424f56a0efde5fa7
+fingerprint: 3b2eed5d33c18d14
 ---
 
 # API reference
@@ -158,8 +158,9 @@ Every HTTP route the Laravel app in `api/` exposes, what guards it, what it acce
 - **Guest redirects.** `redirectGuestsTo`: `admin` and `admin/*` go to `route('admin.login')`, everything else returns null (so JSON callers get 401). `redirectUsersTo`: admin paths go to `admin.stations.index`, everything else to `/`.
 - **CORS (`api/config/cors.php`).** Paths `api/*`, `sanctum/csrf-cookie`, `broadcasting/auth`; origins from `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173,http://localhost:3000`); all methods and headers; `supports_credentials: true`; `max_age: 0`.
 - **Exception rendering.**
-  - `StationLifecycleException` (public props `errorCode`, `status`): rendered only for `expectsJson()` requests as `{message, code}` with `status`; reported (Sentry) only when `status >= 500`.
-  - `InviteException`: rendered as JSON regardless of `Accept`: `{message, code, errors: {invite_code: [message]}}`; reported only when `status >= 500`.
+  - `StationLifecycleException` (public props `errorCode`, `status`): rendered only for `expectsJson()` requests as `{message, code}` with `status`.
+  - `InviteException`: rendered as JSON regardless of `Accept`: `{message, code, errors: {invite_code: [message]}}`.
+  - Reporting: `dontReportWhen` drops both exception types when `status < 500`, so only faults (e.g. `station_start_failed`, 503) reach Sentry. It has to be `dontReportWhen`, not a `reportable()` returning false: reportable callbacks run in registration order and Sentry's (registered first by `Integration::handles`) has already sent the event by then.
   - Everything else uses Laravel defaults: `ValidationException` is 422 `{message, errors}`, `AuthorizationException` is 403 `{message: "This action is unauthorized."}`, model-not-found is 404.
   - `Sentry\Laravel\Integration::handles` is wired in.
 
@@ -191,7 +192,7 @@ Every HTTP route the Laravel app in `api/` exposes, what guards it, what it acce
 | `listener-beat` | 20/min | route param `token` (not IP, on purpose) | `beat` and `end` |
 | `notification-poll` | 30/min | user id | `GET /notifications/unread-count` |
 
-Inline limiters use Laravel's `throttle:max,minutes`. Beware `throttle:6,60` on `stream-key`: six per **sixty minutes**.
+Inline limiters use Laravel's `throttle:max,minutes,prefix`. Every numeric throttle in `api/routes/api.php` names its own prefix (the third argument, shown in the tables below, e.g. `throttle:20,1,station-start`), so each route keeps its own counter. Without a prefix Laravel keys the counter on the user id (or domain+IP) alone, and every unnamed `throttle:N,M` route shared one count: a go-live's uplink probes, check report and broadcast token used up the station-start limit and returned 429. A new inline throttle must carry a prefix too. Beware `throttle:6,60,stream-key`: six per **sixty minutes**.
 
 ## Authentication surfaces
 
@@ -218,8 +219,8 @@ Paths are relative to `/api`. All auth routes are inside `throttle:auth` (10/min
 | GET | `/auth/google` | | `GoogleAuthController@redirect` | 302 to Google |
 | GET | `/auth/google/callback` | | `GoogleAuthController@callback` | HTML page |
 | POST | `/auth/google/native` | | `GoogleAuthController@native` | mobile |
-| POST | `/auth/password/forgot` | `throttle:3,1`, name `password.forgot` | `PasswordResetController@forgot` | always 200 |
-| POST | `/auth/password/reset` | `throttle:10,1`, name `password.reset` | `PasswordResetController@reset` | |
+| POST | `/auth/password/forgot` | `throttle:3,1,password-forgot`, name `password.forgot` | `PasswordResetController@forgot` | always 200 |
+| POST | `/auth/password/reset` | `throttle:10,1,password-reset`, name `password.reset` | `PasswordResetController@reset` | |
 | GET | `/invites/{code}` | `throttle:auth`, name `invites.show` | `InviteController@show` | public invite lookup |
 
 ### `POST /auth/register`
@@ -251,9 +252,9 @@ Group `auth:sanctum`. Unverified accounts can reach these.
 |---|---|---|---|---|
 | POST | `/logout` | | `AuthController@logout` | deletes the current access token, forgets cookie; `{message:"Logged out."}` |
 | GET | `/user` | | `AuthController@user` | `{data: UserResource}` (plan eager-loaded) |
-| POST | `/invites/redeem` | `throttle:10,1`, `invites.redeem` | `InviteController@redeem` | body `code` required string max 40; `InviteRedemption::redeem`; 200 `{data:{plan:{slug,name}, plan_expires_at}, message:"You're on <Plan>."}` |
-| POST | `/email/resend` | `throttle:6,1`, `verification.send` | `EmailVerificationController@send` | already verified: `{data,message:"Email already verified."}`; else sends a code, `{data, message:"Verification email sent."}` |
-| POST | `/email/verify` | `throttle:10,1`, `verification.verify` | `EmailVerificationController@verify` | body `code` required `digits:6`; errors as in password reset (expired, 5 attempts, invalid); on success marks verified, fires `Verified`, deletes the code; `{data: fresh user, message:"Email verified."}`. An already verified account gets 200 `Email already verified.` before any code check |
+| POST | `/invites/redeem` | `throttle:10,1,invite-redeem`, `invites.redeem` | `InviteController@redeem` | body `code` required string max 40; `InviteRedemption::redeem`; 200 `{data:{plan:{slug,name}, plan_expires_at}, message:"You're on <Plan>."}` |
+| POST | `/email/resend` | `throttle:6,1,email-resend`, `verification.send` | `EmailVerificationController@send` | already verified: `{data,message:"Email already verified."}`; else sends a code, `{data, message:"Verification email sent."}` |
+| POST | `/email/verify` | `throttle:10,1,email-verify`, `verification.verify` | `EmailVerificationController@verify` | body `code` required `digits:6`; errors as in password reset (expired, 5 attempts, invalid); on success marks verified, fires `Verified`, deletes the code; `{data: fresh user, message:"Email verified."}`. An already verified account gets 200 `Email already verified.` before any code check |
 | GET | `/notifications` | | `NotificationController@index` | see below |
 | GET | `/notifications/unread-count` | `throttle:notification-poll` | `@unreadCount` | `{data:{unread_count, capped_at}}` |
 | POST | `/notifications/read-all` | | `@markAllRead` | `{data:{unread_count:0}}` |
@@ -286,18 +287,18 @@ All below sit inside `auth:sanctum` + `verified`. Unless stated, the owner check
 | GET | `/stations/{station}/sessions` | | `StreamSessionController@index` |
 | POST | `/stations/{station}/sessions` | | `@store` |
 | DELETE | `/stations/{station}/sessions/{session}` | | `@destroy` |
-| POST | `/stations/{slug}/start` | `throttle:20,1` | `StationPowerController@start` |
-| POST | `/stations/{slug}/stop` | `throttle:20,1` | `@stop` |
-| POST | `/stations/{slug}/skip` | `throttle:30,1` | `@skip` |
-| GET | `/stations/{slug}/status` | `throttle:120,1` | `StationStatusController` |
-| GET | `/stations/{slug}/audience` | `throttle:60,1` | `AudienceController` |
-| POST | `/stations/{slug}/stream-key` | `throttle:6,60` | `StreamKeyController@rotate` |
+| POST | `/stations/{slug}/start` | `throttle:20,1,station-start` | `StationPowerController@start` |
+| POST | `/stations/{slug}/stop` | `throttle:20,1,station-stop` | `@stop` |
+| POST | `/stations/{slug}/skip` | `throttle:30,1,station-skip` | `@skip` |
+| GET | `/stations/{slug}/status` | `throttle:120,1,station-status` | `StationStatusController` |
+| GET | `/stations/{slug}/audience` | `throttle:60,1,station-audience` | `AudienceController` |
+| POST | `/stations/{slug}/stream-key` | `throttle:6,60,stream-key` | `StreamKeyController@rotate` |
 | PUT | `/stations/{slug}/schedules` | | `StationScheduleController@replace` |
 | PUT | `/stations/{slug}/autodj-slots` | | `AutodjSlotController@replace` |
-| POST | `/auth/broadcast-token` | `throttle:30,1` | `BroadcastTokenController` |
-| POST | `/broadcast/uplink-probe` | `throttle:20,1` | `UplinkProbeController` |
-| POST | `/stations/{slug}/uplink-checks` | `throttle:20,1` | `UplinkCheckController` |
-| POST | `/stations/{slug}/studio-drops` | `throttle:30,1` | `StudioDropController` |
+| POST | `/auth/broadcast-token` | `throttle:30,1,broadcast-token` | `BroadcastTokenController` |
+| POST | `/broadcast/uplink-probe` | `throttle:20,1,uplink-probe` | `UplinkProbeController` |
+| POST | `/stations/{slug}/uplink-checks` | `throttle:20,1,uplink-checks` | `UplinkCheckController` |
+| POST | `/stations/{slug}/studio-drops` | `throttle:30,1,studio-drops` | `StudioDropController` |
 | POST | `/upload/{type}` | `throttle:uploads`, `type` in `images|sounds` | `UploadController` |
 
 (In the file the non-resource routes are written `{station:slug}`; the effect is identical to the resource routes because the model already keys on slug.)
@@ -327,9 +328,9 @@ Fields: `id, user_id, name, slug, description, genre, timezone, artwork_url, fea
 - `broadcast-token`: also caches the caller's IP and country for the station (`BroadcastOrigin::remember`, 6 h), which harbor's `live_connected` attaches to the session it opens (`stream_sessions.ip_address`, `country`). Body `station_slug` required string max 255. 403 `{message:"You do not own this station."}` for a missing or foreign station (same message for both); 200 `{token, expires_in: 60, ingest_url}`. `ingest_url` from `LiquidsoapSupervisor::ingestUrl`. Not plan gated (browser studio works on Free). Verification at harbor (`BroadcastTokenService::verify`) checks only signature, station slug and expiry; it does not re-check that the user still owns the station.
 
 ### Go-live connection check and studio drop reports
-- `uplink-probe`: any authenticated, verified user; the raw request body is read and its length returned, `{bytes}`; 413 over 256 KB. Nothing is stored. The web studio times an empty and a 96 KB post to estimate upload speed ([Web studio](broadcasting-web-studio.md)).
+- `uplink-probe`: any authenticated, verified user; the raw request body is read and its length returned, `{bytes}`; 413 over 256 KB. Nothing is stored. The web studio sends three per attempt (an untimed warm-up and a timed empty request for the round trip, then a timed 96 KB post) to estimate upload speed (`client/lib/uplinkProbe.ts`), which is why the route has its own `uplink-probe` limiter ([Web studio](broadcasting-web-studio.md)).
 - `uplink-checks`: authorize update; body `outcome` required `ok|lowered|blocked|failed`, `kbps`, `bitrate` (0..320), `net_type` (max 16), `net_effective` (max 8), `net_downlink`, `net_rtt`, all nullable. Records an `uplink_check` station event (source `owner`). 200 `{recorded: true}`.
-- `studio-drops`: authorize update; body `drops` array 1..20, each with `id` (required, max 40, `[A-Za-z0-9_-]`), `outcome` (`reconnected|gave_up|stopped|page_closed|unknown`), `dropped_at` (date) and optional page/network/socket facts (`down_ms`, `attempts`, `last_error`, `close_code`, `close_reason`, `was_clean`, `visibility`, `hidden_for_ms`, `frozen`, `online`, `net_*`, `buffered_bytes`, `wake_lock`, `bitrate`, `uplink_kbps`, …). Each id is recorded once (`Cache::add` dedupe) as a `studio_drop` event (source `owner`). 200 `{recorded: n}`. Admin monitoring only.
+- `studio-drops`: authorize update; body `drops` array 1..20, each with `id` (required, max 40, `[A-Za-z0-9_-]`), `outcome` (`reconnected|gave_up|stopped|page_closed|unknown`), `dropped_at` (date) and optional page/network/socket facts (`down_ms`, `attempts`, `last_error`, `close_code`, `close_reason`, `was_clean`, `visibility`, `hidden_for_ms`, `frozen`, `online`, `net_*`, `buffered_bytes`, `wake_lock`, `bitrate`, `uplink_kbps`, and the audio-engine facts `audio_state` (max 16), `frame_age_ms`, `engine_rebuilds` (0..100), …). Each id is recorded once (`Cache::add` dedupe) as a `studio_drop` event (source `owner`). 200 `{recorded: n}`. Admin monitoring only.
 
 ### Sessions (`stations.sessions`)
 Only `index` has a caller: the dashboard overview, Your shows (`/dashboard/broadcasts`, with `?finished=1` and paging) and the mobile station home read it. Nothing in `client/` or `mobile/` calls `POST` or `DELETE` on this resource; the web studio and encoders get their session row from harbor's `live_connected` event (`POST /internal/station-event`). `store` is written for a future desktop client (`source_type` `electron`) and is exercised only by tests.
@@ -400,7 +401,7 @@ Group `throttle:public` (60/min/IP, exempt with `X-Render-Key`). Paths under `/a
 | GET | `/public/stations/{slug}` | `@show` | `StationResource` with `schedules` and indexability; 404 if missing |
 | GET | `/public/stations/{slug}/listeners` | `ListenerCountController@show` | `{data:{count, state, is_live, is_on_air, now_playing{title,artist}}}`; count from `ListenerAnalytics::liveCount`; now playing prefers the container status, falls back to Redis metadata |
 | GET | `/public/stations/{slug}/embed` | `PublicEmbedController@show` | `StationResource`; **404 unless the owner's plan has `embed_enabled`** |
-| POST | `/public/stations/{slug}/notify` (extra `throttle:5,60`) | `StationNotifyController@store` | body `email` (trimmed, lower-cased, required email max 255); upserts `StationNotifySubscription` and resets `notified_at` to null; 200 `{message:"We'll email you when <name> goes live."}`; 404 for unknown slug |
+| POST | `/public/stations/{slug}/notify` (extra `throttle:5,60,station-notify`) | `StationNotifyController@store` | body `email` (trimmed, lower-cased, required email max 255); upserts `StationNotifySubscription` and resets `notified_at` to null; 200 `{message:"We'll email you when <name> goes live."}`; 404 for unknown slug |
 
 Listener analytics beacons (prefix `/public`, **not** in the `public` bucket): 
 
@@ -413,7 +414,7 @@ Listener analytics beacons (prefix `/public`, **not** in the `public` bucket):
 Note the public station payload reuses `StationResource`, so it exposes `user_id`, `icecast_mount` and `desired_state` to anonymous callers.
 
 ### Waitlist (public)
-`POST /waitlist` (`throttle:3,60`, `StoreWaitlistRequest`): `email` required email max 255; `plan` required, must be in `PUBLIC_PLANS = ['custom']`; `social` required string max 255; `message` nullable string max 2000. `WaitlistEntry::updateOrCreate(email+plan)`; a previously `rejected` entry is reopened. 201 `{message:"Request received."}`. `POST /waitlist/pro` (authenticated, not verified-gated; `StoreProAccessRequest`: `social` required max 255, `message` nullable max 2000): same upsert with the account's email, `plan='pro'` and `user_id`. Both fire the admin Telegram `accessRequested` alert on created/updated.
+`POST /waitlist` (`throttle:3,60,waitlist`, `StoreWaitlistRequest`): `email` required email max 255; `plan` required, must be in `PUBLIC_PLANS = ['custom']`; `social` required string max 255; `message` nullable string max 2000. `WaitlistEntry::updateOrCreate(email+plan)`; a previously `rejected` entry is reopened. 201 `{message:"Request received."}`. `POST /waitlist/pro` (authenticated, not verified-gated; `StoreProAccessRequest`: `social` required max 255, `message` nullable max 2000): same upsert with the account's email, `plan='pro'` and `user_id`. Both fire the admin Telegram `accessRequested` alert on created/updated.
 
 ## Internal container callbacks
 
@@ -429,7 +430,7 @@ Group `['internal', 'throttle:internal']` (`X-Internal-Key`; 300/min/IP).
 
 ## Webhooks and mail links
 
-- `POST /api/webhooks/resend` (`throttle:120,1`, `ResendWebhookController`): 503 `{message:"Webhook not configured."}` when no secret; 401 `{message:"Invalid signature."}` when Svix verification fails; unknown `type` returns `{status:"ignored"}`. `HANDLERS` maps only `email.received` to `App\Webhooks\Resend\EmailReceived`. Dedupe with `Cache::add('resend-webhook:'.svix-id, 1 day)`, returning `{status:"duplicate"}`; otherwise dispatches `HandleResendWebhook` (3 tries, backoff 10 s then 60 s) and returns `{status:"queued"}`. If dispatch throws, the dedupe key is forgotten and it re-throws. `EmailReceived` fetches the message from the Resend API (`services.resend.key`, 15 s timeout) and posts an admin Telegram alert.
+- `POST /api/webhooks/resend` (`throttle:120,1,resend-webhook`, `ResendWebhookController`): 503 `{message:"Webhook not configured."}` when no secret; 401 `{message:"Invalid signature."}` when Svix verification fails; unknown `type` returns `{status:"ignored"}`. `HANDLERS` maps only `email.received` to `App\Webhooks\Resend\EmailReceived`. Dedupe with `Cache::add('resend-webhook:'.svix-id, 1 day)`, returning `{status:"duplicate"}`; otherwise dispatches `HandleResendWebhook` (3 tries, backoff 10 s then 60 s) and returns `{status:"queued"}`. If dispatch throws, the dedupe key is forgotten and it re-throws. `EmailReceived` fetches the message from the Resend API (`services.resend.key`, 15 s timeout) and posts an admin Telegram alert.
 - `GET /unsubscribe` and `POST /unsubscribe` (`web.php`, `signed`, names `unsubscribe`, `unsubscribe.store`): `show` renders the confirm page (query `email`; `done` if already suppressed). `store` requires query `email` (400 if empty), optional `invite` code, records an `EmailSuppression`; a body field `List-Unsubscribe=One-Click` (RFC 8058) returns an empty 200, otherwise the confirmation page. CSRF-exempt.
 - `GET /` renders the `welcome` view. `GET /up` is Laravel's health check. `GET /sanctum/csrf-cookie`, `/broadcasting/auth`, `storage/{path}` (GET/PUT, vendor local-disk route), and dev-only `POST /_boost/browser-logs` are vendor registrations.
 

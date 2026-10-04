@@ -1,6 +1,6 @@
 ---
 feature: Mobile station console (Overview, Audience, Schedule, Library, Show times)
-verified: 2026-10-01 against f6a201c plus uncommitted work (dashboard design-system rollout R1–R6.3)
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - mobile/src/app/station/[slug]/_layout.tsx
   - mobile/src/app/station/[slug]/index.tsx
@@ -51,7 +51,7 @@ sources:
   - api/app/Models/User.php
   - api/config/liquidsoap.php
   - api/config/analytics.php
-fingerprint: 1256decd0bbfc95e
+fingerprint: 7cea9b813fa00697
 ---
 
 # Mobile station console
@@ -111,7 +111,7 @@ Going live, the studio, and the encoder are documented in [mobile-studio-and-enc
 | Data | Endpoint | Refresh |
 |---|---|---|
 | Station (name, artwork, `state`, `stats`, `schedules`) | `GET /stations/{slug}` via the shell | On mount; after any power action; pull-to-refresh |
-| Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle 120/min) |
+| Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle `station-status`, 120/min) |
 | Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`, and ignores the newer `summary` block and `?finished=1` filter the web uses) | Focus + every 30 s |
 | Listener count | `GET /public/stations/{slug}/listeners` via `useListeners` (`broadcast/hooks.ts`) | Every 10 s (`LISTENERS_POLL_MS`), only while the station runs and this phone is not live |
 
@@ -137,7 +137,7 @@ An action error (start/stop failure) renders as a line inside the hero, not a to
 
 | Action | Call | Notes |
 |---|---|---|
-| Start AutoDJ | `POST /stations/{slug}/start` (throttle 20/min) | `busy='start'`; on success runs `onChanged` (reload station, poll status, reload sessions). API returns 202; the container needs a few seconds, so the card shows STARTING... until status says otherwise. |
+| Start AutoDJ | `POST /stations/{slug}/start` (throttle `station-start`, 20/min) | `busy='start'`; on success runs `onChanged` (reload station, poll status, reload sessions). API returns 202; the container needs a few seconds, so the card shows STARTING... until status says otherwise. |
 | Turn station off | `POST /stations/{slug}/stop`, no body | Button "Turn station off" at the foot of the page, **only when `canTurnOff`**. If the source is `autodj` and nothing is attached, the phone asks first (bottom sheet: "Turn <name> off?" / "Keep it on"). Otherwise it stops immediately. Disabled until a status snapshot exists. |
 | Force stop | Same call with `{force: true}` | Only offered after the API answers **409 `station_is_live_external`** (an encoder is on air). The sheet becomes "Cut the broadcast off?" with the API's message and "Cut it off". Any other error code closes the sheet and shows the error line. |
 
@@ -167,7 +167,7 @@ Errors are read from `ApiError.body.code`. The API's codes for these calls come 
 
 ## Audience (`audience.tsx`)
 
-- Endpoint: `GET /stations/{slug}/audience[?days=N]` (throttle 60/min), refetched every 60 s and on focus. Initial call has no `days`.
+- Endpoint: `GET /stations/{slug}/audience[?days=N]` (throttle `station-audience`, 60/min), refetched every 60 s and on focus. Initial call has no `days`.
 - The API answers **200 for every plan**; entitlement is in the payload (`AudienceController`). `analytics_days <= 0` (Free, or a user with no plan row) returns `locked: true` with only `live` and `peak_all_time`. Otherwise `plan_days` is clamped to the retention config (default 90) and `days` is honoured only when it is 7, 30 or 90 (`min(requested, plan_days)`), else the plan's window.
 - Range picker: a `7d / 30d / 90d` segmented control, shown only when more than one option is `<= plan_days`. A Pro plan gets all three. Default is the plan's own window (90), so the first paint is the 90-day view.
 

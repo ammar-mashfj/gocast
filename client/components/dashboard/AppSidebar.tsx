@@ -137,7 +137,7 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
 
 /** The band's state without the studio's detail: enough for a lamp. */
 function useCoarseAir(slug: string | null) {
-  const { status, loading } = useStationStatus(slug ?? "", slug !== null)
+  const { status, loading, showEnding } = useStationStatus(slug ?? "", slug !== null)
   const { state, stationSlug } = useBroadcast()
   const autoDjLocked = useAutoDjLocked()
   return airState({
@@ -148,6 +148,7 @@ function useCoarseAir(slug: string | null) {
     micLatched: false,
     autoDjLocked,
     onStudio: false,
+    showEnding,
   })
 }
 
