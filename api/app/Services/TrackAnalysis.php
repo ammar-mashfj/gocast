@@ -18,6 +18,7 @@ final readonly class TrackAnalysis
         public ?float $truePeakDb = null,
         public ?float $cueInSeconds = null,
         public ?float $cueOutSeconds = null,
+        public ?float $decodedSeconds = null,
         public ?string $error = null,
     ) {}
 

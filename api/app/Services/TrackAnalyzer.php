@@ -5,10 +5,10 @@ namespace App\Services;
 use Illuminate\Support\Facades\Process;
 
 /**
- * Measures one audio file: how loud it is, and where the audio actually
- * starts and stops.
+ * Measures one audio file: how loud it is, how long it really is, and where
+ * the audio actually starts and stops.
  *
- * Two numbers and two timestamps, from a single ffmpeg pass that decodes the
+ * Two numbers, two timestamps and a length, from a single ffmpeg pass that decodes the
  * file once and discards the output. Nothing is written and the original is
  * never modified — the results become `liq_amplify` / `liq_cue_in` /
  * `liq_cue_out` annotations, so every correction happens at playback time and
@@ -68,7 +68,32 @@ class TrackAnalyzer
             truePeakDb: $loudness['input_tp'],
             cueInSeconds: $cueIn,
             cueOutSeconds: $cueOut,
+            decodedSeconds: $this->parseDecodedSeconds($output),
         );
+    }
+
+    /**
+     * How long the file really is, and nothing else.
+     *
+     * For tracks analysed before the length was kept. A plain decode with no
+     * filters, so it runs many times faster than analyze(), whose cost is
+     * the loudness meter. Null when ffmpeg could not decode the file.
+     */
+    public function measureDuration(string $absolutePath, ?float $durationSeconds = null): ?float
+    {
+        if (! is_file($absolutePath) || ! is_readable($absolutePath)) {
+            return null;
+        }
+
+        try {
+            $result = Process::timeout(self::timeoutFor($durationSeconds))->run($this->command($absolutePath, filters: false));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $seconds = $this->parseDecodedSeconds($result->errorOutput().$result->output());
+
+        return $seconds !== null && $seconds > 0 ? $seconds : null;
     }
 
     /**
@@ -84,20 +109,25 @@ class TrackAnalyzer
      * preferred over `ebur128` only because it prints JSON. The two were
      * checked against each other on known signals and agree to 0.05 dB.
      *
+     * `$filters` false is measureDuration()'s plain decode: no `-af`, and
+     * `-vn` so embedded cover art is not decoded alongside the audio.
+     *
      * @return list<string>
      */
-    private function command(string $absolutePath): array
+    private function command(string $absolutePath, bool $filters = true): array
     {
-        $filters = sprintf(
-            'silencedetect=noise=%sdB:d=%s,loudnorm=print_format=json',
-            $this->float((float) config('liquidsoap.analysis_silence_db', -50)),
-            $this->float((float) config('liquidsoap.analysis_silence_seconds', 0.25)),
-        );
+        $args = $filters
+            ? ['-af', sprintf(
+                'silencedetect=noise=%sdB:d=%s,loudnorm=print_format=json',
+                $this->float((float) config('liquidsoap.analysis_silence_db', -50)),
+                $this->float((float) config('liquidsoap.analysis_silence_seconds', 0.25)),
+            )]
+            : ['-vn'];
 
         $binary = trim((string) config('liquidsoap.analysis_ffmpeg', ''));
 
         if ($binary !== '') {
-            return [$binary, '-hide_banner', '-nostats', '-i', $absolutePath, '-af', $filters, '-f', 'null', '-'];
+            return [$binary, '-hide_banner', '-nostats', '-i', $absolutePath, ...$args, '-f', 'null', '-'];
         }
 
         // No local ffmpeg: borrow the station image's, which is the same build
@@ -114,7 +144,7 @@ class TrackAnalyzer
             '--entrypoint', 'ffmpeg',
             '-v', $absolutePath.':/analysis-input:ro',
             (string) config('liquidsoap.image', 'gocast/liquidsoap:latest'),
-            '-hide_banner', '-nostats', '-i', '/analysis-input', '-af', $filters, '-f', 'null', '-',
+            '-hide_banner', '-nostats', '-i', '/analysis-input', ...$args, '-f', 'null', '-',
         ];
     }
 

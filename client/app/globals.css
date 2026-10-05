@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./dashboard.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -22,19 +23,24 @@
   --font-heading: var(--font-display-face), var(--font-body), ui-sans-serif, sans-serif;
 
   /* Brand color tokens used across the marketing site.
-     Defined as solid colors so Tailwind's /opacity modifiers work. */
-  --color-violet-full: #8b5cf6;
-  --color-violet-muted: #a78bfa;
-  --color-violet: #c4b5fd;
-  --color-violet-subtle: #1f1145;
-  --color-violet-border: #8b5cf6;
-  --color-emerald-live: #10b981;
-  --color-text-primary: #fafafa;
-  --color-text-secondary: #d4d4d8;
-  --color-text-muted: #a1a1aa;
-  --color-text-faint: #7d7d87;
-  --color-border-subtle: #27272a;
-  --color-dark: #08080d;
+     Defined as solid colors so Tailwind's /opacity modifiers work.
+     Every colour token below reads a `--ds-*` variable first and falls back
+     to the marketing value: `@theme inline` bakes the value into each
+     utility, so a token that isn't a variable can't be overridden per
+     surface. The dashboard sets the `--ds-*` variables (see the
+     `[data-surface="dashboard"]` block below); marketing sets none. */
+  --color-violet-full: var(--ds-violet-full, #8b5cf6);
+  --color-violet-muted: var(--ds-violet-muted, #a78bfa);
+  --color-violet: var(--ds-violet, #c4b5fd);
+  --color-violet-subtle: var(--ds-violet-subtle, #1f1145);
+  --color-violet-border: var(--ds-violet-border, #8b5cf6);
+  --color-emerald-live: var(--ds-emerald-live, #10b981);
+  --color-text-primary: var(--ds-text-primary, #fafafa);
+  --color-text-secondary: var(--ds-text-secondary, #d4d4d8);
+  --color-text-muted: var(--ds-text-muted, #a1a1aa);
+  --color-text-faint: var(--ds-text-faint, #7d7d87);
+  --color-border-subtle: var(--ds-border-subtle, #27272a);
+  --color-dark: var(--ds-dark, #08080d);
 
   /* Station-state vocabulary (PRODUCT.md, DESIGN.md "The One Meaning Rule").
      Every hue in the dashboard answers one question and nothing else:
@@ -44,16 +50,37 @@
        fault  — listeners are not hearing what you think (red)
        pro    — a Pro plan capability (amber)
      Red is reserved for faults. A healthy broadcast is never drawn in it. */
-  --color-live: #34d399;
-  --color-live-text: #6ee7b7;
-  --color-on-air: #a78bfa;
-  --color-mic: #38bdf8;
-  --color-mic-text: #7dd3fc;
-  --color-fault: var(--destructive);
-  --color-fault-text: #fca5a5;
-  --color-pro: #f59e0b;
-  --color-pro-text: #fcd34d;
-  --color-panel: #101018;
+  --color-live: var(--ds-live, #34d399);
+  --color-live-text: var(--ds-live-text, #6ee7b7);
+  --color-on-air: var(--ds-on-air, #a78bfa);
+  --color-mic: var(--ds-mic, #38bdf8);
+  --color-mic-text: var(--ds-mic-text, #7dd3fc);
+  --color-fault: var(--ds-fault, var(--destructive));
+  --color-fault-text: var(--ds-fault-text, #fca5a5);
+  --color-pro: var(--ds-pro, #f59e0b);
+  --color-pro-text: var(--ds-pro-text, #fcd34d);
+  --color-panel: var(--ds-panel, #101018);
+  /* Added with the GoCast Design System (dashboard only in practice; the
+     fallbacks keep them usable anywhere):
+       live-ink / pro-ink — text ON a solid live or amber fill (never white)
+       *-tint             — the low-lightness wash behind a state's panel
+       on-air-text        — violet readable as text
+       ok                 — a check passed, something saved. Not on air. */
+  --color-live-ink: var(--ds-live-ink, #052e1c);
+  --color-live-tint: var(--ds-live-tint, #0b2a1f);
+  --color-live-soft: var(--ds-live-soft, #a7f3d0);
+  --color-live-dim: var(--ds-live-dim, #0f1a16);
+  --color-on-air-text: var(--ds-on-air-text, #c4b5fd);
+  --color-on-air-tint: var(--ds-on-air-tint, #1f1145);
+  /* AutoDJ's two dark violets (mobile theme autodjDim / autodjArtA): the
+     audience chart's past days and the schedule's quieter playlist shades. */
+  --color-on-air-dim: var(--ds-on-air-dim, #3b0764);
+  --color-on-air-deep: var(--ds-on-air-deep, #2e1065);
+  --color-pro-ink: var(--ds-pro-ink, #1a1206);
+  --color-pro-tint: var(--ds-pro-tint, #33260f);
+  --color-fault-tint: var(--ds-fault-tint, #3a1418);
+  --color-ok: var(--ds-ok, #34d399);
+  --color-ok-text: var(--ds-ok-text, #6ee7b7);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -211,21 +238,21 @@
 }
 
 html, body, #root {
-  background: #08080d;
+  background: var(--background);
   min-height: 100vh;
 }
 
 /* The parts of the page no component draws still belong to the system. */
 .dark ::selection {
-  background: rgb(139 92 246 / 0.35);
-  color: #fafafa;
+  background: var(--ds-selection, rgb(139 92 246 / 0.35));
+  color: var(--foreground);
 }
 .dark {
-  caret-color: #c4b5fd;
-  scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+  caret-color: var(--ds-caret, #c4b5fd);
+  scrollbar-color: var(--ds-scrollbar, rgb(255 255 255 / 0.14)) transparent;
 }
 .dark :focus-visible {
-  outline-color: #c4b5fd;
+  outline-color: var(--ds-focus, #c4b5fd);
 }
 
 /* ── Motion grammar ───────────────────────────────────────────────────────
@@ -302,15 +329,6 @@ html, body, #root {
    a hairline rule, so un-boxed sections still read as separate. Direct
    children only: a card nested inside a section never draws one. */
 .sheet-rules > [data-slot="card"]:not(:first-child) {
-  border-top: 1px solid rgb(255 255 255 / 0.07);
+  border-top: 1px solid var(--border);
   padding-top: 1.5rem;
-}
-
-/* Toasts clear the broadcast mini controller (BroadcastMiniController), which
-   sits in the same bottom-right corner: 64px tall, 20px up on desktop and
-   12px + the safe area on phones, plus a 12px gap. !important because sonner
-   writes these offsets as inline custom properties on the toaster itself. */
-html[data-mini-controller] [data-sonner-toaster] {
-  --offset-bottom: 96px !important;
-  --mobile-offset-bottom: calc(88px + env(safe-area-inset-bottom)) !important;
 }

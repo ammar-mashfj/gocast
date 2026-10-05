@@ -109,11 +109,15 @@ class TrackController extends Controller
         $playlistId = $request->playlistId();
         $playlist = $playlistId === null ? null : $station->playlists()->whereKey($playlistId)->first();
 
+        $jingleList = $kind === Track::KIND_JINGLE
+            ? $this->importer->jingleListFor($station, $request->jingleListId())
+            : null;
+
         $created = [];
         $errors = [];
         foreach ($request->file('files', []) as $idx => $file) {
             try {
-                $created[] = $this->importer->import($station, $file, $kind, $playlist, $request->nameFor($idx));
+                $created[] = $this->importer->import($station, $file, $kind, $playlist, $request->nameFor($idx), $jingleList);
             } catch (RuntimeException $e) {
                 // Quota exceeded mid-batch — surface which file and stop;
                 // partial successes are kept (status code reflects that).
@@ -143,19 +147,19 @@ class TrackController extends Controller
         ], $status);
     }
 
-    public function update(UpdateTrackRequest $request, Track $track, PlaylistFileWriter $writer): JsonResponse
+    public function update(UpdateTrackRequest $request, Track $track): JsonResponse
     {
         $this->authorize('update', $track);
 
-        $track->update($request->validated());
-        // For a jingle, title/artist are baked into the annotate: URIs in
-        // jingles.m3u, which Liquidsoap caches on read — without a rewrite,
-        // edits stick in the DB but listeners keep hearing the old
-        // StreamTitle on every replay. A music track needs none of this (the
-        // rotation reads the DB per request), but write() is cheap and
-        // idempotent, so it is not worth branching on kind here.
-        $writer->write($track->station);
-        $writer->reload($track->station);
+        // Nothing to push: every track, jingles included, is read from the
+        // database when it is next handed to the station.
+        $data = $request->validated();
+
+        if (array_key_exists('jingle_list_id', $data)) {
+            $track->forceFill(['jingle_list_id' => $data['jingle_list_id']]);
+        }
+
+        $track->update(array_intersect_key($data, array_flip(['title', 'artist'])));
 
         return response()->json(['data' => new TrackResource($track)]);
     }

@@ -120,4 +120,44 @@ class AutoDjProgramme
             'next' => $next,
         ];
     }
+
+    /**
+     * Start times of "exactly on time" slots strictly after `$after` and
+     * at or before `$until`, earliest first.
+     *
+     * A hard start is left out when nothing changes on air at it, so there
+     * is no reason to fade a song for it: the slot's playlist is empty (it
+     * falls through to the default, see resolve()), or it is the playlist
+     * already playing — an all-day slot on consecutive days, back-to-back
+     * slots on one playlist, a hard slot on the default.
+     *
+     * @return list<CarbonImmutable>
+     */
+    public function hardStartsBetween(Station $station, CarbonImmutable $after, CarbonImmutable $until): array
+    {
+        $timezone = $station->timezone;
+
+        if ($timezone === null || $until <= $after) {
+            return [];
+        }
+
+        $starts = [];
+
+        foreach ($station->autodjSlots as $slot) {
+            if (! $slot->startsHard()) {
+                continue;
+            }
+
+            foreach ($slot->windowsBetween($after, $until, $timezone) as [$start]) {
+                if ($start > $after && $start <= $until && $slot->playlist?->tracks()->exists()
+                    && $this->resolve($station, $start->subMillisecond())['playlist']?->getKey() !== $slot->playlist_id) {
+                    $starts[] = $start;
+                }
+            }
+        }
+
+        sort($starts);
+
+        return $starts;
+    }
 }

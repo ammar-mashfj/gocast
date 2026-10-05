@@ -1,17 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { IconPlaylist, IconStarFilled } from "@tabler/icons-react"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
+} from "@/components/ds/Dialog"
 import { cn } from "@/lib/utils"
+import { playlistSwatch } from "@/lib/playlistSwatches"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
 
@@ -61,7 +59,7 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Add {noun} to…</DialogTitle>
           <DialogDescription>
@@ -73,7 +71,7 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
 
         {playlists.length > 0 && (
           <div className="flex flex-col gap-1 max-h-[50vh] overflow-y-auto">
-            {playlists.map((playlist) => (
+            {playlists.map((playlist, i) => (
               <button
                 key={playlist.id}
                 type="button"
@@ -81,20 +79,14 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
                 onClick={() => void pick(playlist.id)}
                 aria-busy={saving === playlist.id}
                 className={cn(
-                  "flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm cursor-pointer transition-colors outline-none",
-                  "hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60 disabled:cursor-default",
-                  saving === playlist.id && "bg-muted",
+                  "flex min-h-12 cursor-pointer items-center gap-3 rounded-control px-3.5 py-3 text-left transition-colors outline-none",
+                  "hover:bg-surface-control focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+                  saving === playlist.id && "bg-surface-control",
                 )}
               >
-                <span className="shrink-0 inline-flex text-muted-foreground">
-                  {playlist.is_default ? (
-                    <IconStarFilled size={13} className="text-violet-muted" />
-                  ) : (
-                    <IconPlaylist size={15} />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{playlist.name}</span>
-                <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
+                <span aria-hidden className={cn("size-3 shrink-0 rounded-swatch", playlistSwatch(i).dot)} />
+                <span className="min-w-0 flex-1 truncate text-body font-semibold">{playlist.name}</span>
+                <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">
                   {saving === playlist.id ? "Adding…" : railDetail(playlist)}
                 </span>
               </button>
@@ -102,11 +94,6 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving !== null}>
-            Cancel
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

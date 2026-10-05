@@ -26,6 +26,7 @@ class AutodjSlotResource extends JsonResource
             'days' => array_map('intval', $this->days),
             'start_time' => substr($this->start_time, 0, 5),
             'end_time' => substr($this->end_time, 0, 5),
+            'start_mode' => $this->start_mode,
             'position' => $this->position,
         ];
     }

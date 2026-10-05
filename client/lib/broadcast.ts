@@ -1,10 +1,20 @@
-import { AudioEngine, assertBroadcastSupported } from './audioEngine'
+import { openMic, rememberMicDevice, savedMicDeviceId } from './mic'
+import { AudioEngine, BITRATE_TIERS, DEFAULT_BITRATE, assertBroadcastSupported, type Bitrate } from './audioEngine'
 import api from './axios'
 import { captureDrop, flushDrops, resolveDrop } from './studioDropLog'
+import { MIN_UPLINK_KBPS, checkUplink, reportUplinkCheck } from './uplinkProbe'
 
-export type BroadcastStep = 'station' | 'mic' | 'engine' | 'stream'
+/**
+ * The checklist. Connecting is not one of them: it happens on Start, after
+ * the list has finished, and the lamp covers it ("Going live…").
+ */
+export type BroadcastStep = 'network' | 'station' | 'mic' | 'engine'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
-export type BroadcastState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'error'
+/**
+ * `ready`: every check has passed and the engine is built, but no socket is
+ * open, so nothing is on air. The host goes on air with {@link BroadcastManager.goLive}.
+ */
+export type BroadcastState = 'idle' | 'connecting' | 'ready' | 'live' | 'reconnecting' | 'error'
 
 export interface BroadcastStartOptions {
   /** Music only: no microphone is requested or mixed. */
@@ -41,6 +51,12 @@ export interface TransportStats {
   /** Epoch ms of the most recent dropped frame, or 0 if none. */
   lastDropAt: number
   connected: boolean
+  /** What the encoder is producing right now, in kbps. */
+  bitrate: Bitrate
+  /** Audio accepted by the socket but not yet sent, as playing time. */
+  backlogMs: number
+  /** The upload is falling behind: see CONGESTED_BACKLOG_MS. */
+  congested: boolean
 }
 
 interface BroadcastCallbacks {
@@ -62,6 +78,19 @@ const HELLO_GRACE_MS = 600
 // A cold container needs roughly 3–5s to build its audio graph and connect to
 // Icecast. Wait up to 20s before publishing anyway — see ensureStationOnAir.
 const STATION_READY_TIMEOUT_MS = 20000
+
+/**
+ * How long a finished checklist stays good. Past this, Start runs the whole
+ * checklist again before connecting: the upload measured minutes ago may not
+ * be the one the show gets, and the sweep may have stopped the station.
+ */
+const READY_STALE_MS = 3 * 60_000
+/**
+ * A station the checklist brought up this recently is taken as still up when
+ * Start goes on air. Start usually follows the checks within a second, and
+ * asking again then was a second `POST /start` on every go-live.
+ */
+const STATION_FRESH_MS = 30_000
 const STATION_READY_POLL_MS = 1000
 
 /**
@@ -97,6 +126,28 @@ const RECONNECT_JITTER = 0.2
  */
 const RECONNECT_STATION_READY_TIMEOUT_MS = 8000
 
+/**
+ * Most unsent audio the socket may hold before new frames are dropped
+ * instead of queued. Past about 10s of silence harbor's input timeout drops
+ * the source, so a backlog that is left to grow ends the broadcast; capping
+ * it keeps something arriving and keeps what listeners hear close to live.
+ */
+const BACKLOG_CAP_MS = 4000
+/** A backlog this deep means the upload is not keeping up with the encoder. */
+const CONGESTED_BACKLOG_MS = 2000
+/** How often the backlog is sampled, off the encoder's own frames. */
+const BACKLOG_SAMPLE_MS = 1000
+/** Consecutive congested samples before stepping the bitrate down. */
+const STEP_DOWN_AFTER_SAMPLES = 3
+/** Time for a step down to drain the backlog before judging it. */
+const STEP_DOWN_COOLDOWN_MS = 10000
+/** Below this the line is keeping up with room to spare. */
+const CLEAR_BACKLOG_MS = 300
+/**
+ * How long the line must stay clear before trying one tier up. Long, because
+ * stepping up onto a line that can't hold it costs listeners another stall.
+ */
+const STEP_UP_AFTER_CLEAR_MS = 5 * 60 * 1000
 /**
  * Frame watchdog. The encoder emits a frame roughly every 93ms whenever the
  * audio graph is running, silence included, so a gap this long means the
@@ -221,6 +272,27 @@ export class BroadcastManager {
    */
   private peakBufferedBytes = 0
   /**
+   * Current ingest bitrate: set by the go-live connection check, then moved
+   * a tier at a time by {@link sampleBacklog} as the upload falls behind or
+   * recovers.
+   */
+  private bitrate: Bitrate = DEFAULT_BITRATE
+  /** What the go-live check measured, for drop reports. */
+  private uplinkKbps: number | null = null
+  private lastBacklogSampleAt = 0
+  private congestedSamples = 0
+  private lastBitrateChangeAt = 0
+  /** When the backlog last became clear, or 0 while it isn't. */
+  private clearSince = 0
+  /**
+   * The socket's backlog at the last bitrate change, which was encoded at
+   * the old rate: its bytes, its playing time, and {@link bytesSent} then.
+   * The socket drains in order, so those bytes leave before anything newer.
+   */
+  private carryBytes = 0
+  private carryMs = 0
+  private bytesSentAtShift = 0
+  /**
    * Last metadata pushed to harbor. Harbor forgets it when the source
    * disconnects, so a reconnect that didn't re-send it would leave every
    * listener looking at whatever was playing before the drop.
@@ -233,6 +305,19 @@ export class BroadcastManager {
    * metadata into the stream.
    */
   private sentMetadataKey: string | null = null
+  /** What {@link start} was called with, for a stale checklist to re-run. */
+  private startOptions: BroadcastStartOptions | undefined
+  /** When the checklist last finished, for {@link READY_STALE_MS}. */
+  private readyAt = 0
+  /** When the station was last confirmed on air, for {@link STATION_FRESH_MS}. */
+  private stationCheckedAt = 0
+  /**
+   * Set while Start re-checks what the host already watched pass. The steps
+   * still update here, so a failure can name its step, but the list on screen
+   * stays as it was: showing the same checks run twice reads as the page
+   * repeating itself.
+   */
+  private quietSteps = false
   /** When the engine last emitted an encoded frame, socket or not. */
   private lastFrameAt = 0
   private frameWatchdog: ReturnType<typeof setInterval> | null = null
@@ -242,15 +327,13 @@ export class BroadcastManager {
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
     const steps: BroadcastStepInfo[] = [
+      { id: 'network', label: 'Checking your connection', status: 'pending' },
       { id: 'station', label: 'Bringing your station on air', status: 'pending' },
     ]
     if (!skipMic) {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
-    steps.push(
-      { id: 'engine', label: 'Setting up audio engine', status: 'pending' },
-      { id: 'stream', label: 'Connecting to stream server', status: 'pending' },
-    )
+    steps.push({ id: 'engine', label: 'Setting up audio engine', status: 'pending' })
     return steps
   }
 
@@ -259,22 +342,32 @@ export class BroadcastManager {
     this.callbacks = callbacks
   }
 
-  private updateStep(id: BroadcastStep, status: StepStatus, errorMessage?: string) {
+  private emitSteps() {
+    if (!this.quietSteps) this.callbacks.onStepChange([...this.steps])
+  }
+
+  private updateStep(id: BroadcastStep, status: StepStatus, errorMessage?: string, label?: string) {
     this.steps = this.steps.map((s) =>
-      s.id === id ? { ...s, status, errorMessage } : s,
+      s.id === id ? { ...s, status, errorMessage, label: label ?? s.label } : s,
     )
-    this.callbacks.onStepChange([...this.steps])
+    this.emitSteps()
   }
 
   private setActiveStep(id: BroadcastStep) {
     this.steps = this.steps.map((s) =>
       s.id === id ? { ...s, status: 'active' as StepStatus } : s,
     )
-    this.callbacks.onStepChange([...this.steps])
+    this.emitSteps()
   }
 
   /**
-   * Begin broadcasting. Mic → engine → webcast. On any failure, calls {@link fail}.
+   * Run the go-live checklist up to, not including, the socket: connection,
+   * station, mic, engine. Ends in `ready` with nothing on air, and the host
+   * goes on air with {@link goLive}. On any failure, calls {@link fail}.
+   *
+   * The split is so the moment a host goes on air is one they choose. A
+   * socket that opened the moment the checks passed put them on air on a
+   * page with no controls, with the queue already playing.
    */
   async start(options?: BroadcastStartOptions): Promise<void> {
     this.stopping = false
@@ -282,59 +375,58 @@ export class BroadcastManager {
     this.reconnecting = false
     this.lastMetadata = null
     this.sentMetadataKey = null
-    this.steps = BroadcastManager.buildSteps(options?.skipMic)
+    this.startOptions = options
     this.callbacks.onStateChange('connecting')
-    this.callbacks.onStepChange([...this.steps])
 
     try {
-      // Before anything with a side effect: if this page can't capture audio
-      // at all, say so now. Bringing the station on air first would leave a
-      // container running for a broadcast that was never possible.
-      assertBroadcastSupported({ skipMic: options?.skipMic })
+      await this.runChecks(options)
+      this.readyAt = Date.now()
+      this.callbacks.onStateChange('ready')
+    } catch (err) {
+      await this.fail(err)
+    }
+  }
 
-      // Step 0: Make sure the station is on air and its Liquidsoap container
-      // is actually ready to consume our stream.
-      this.setActiveStep('station')
-      await this.ensureStationOnAir()
-      this.updateStep('station', 'done')
+  /**
+   * Go on air from `ready`: open the socket, then start the queue.
+   *
+   * The station is checked again first, unless the checklist confirmed it
+   * within {@link STATION_FRESH_MS}. `POST /start` is idempotent, so on a
+   * station that is still running it costs one request; on one the sweep
+   * stopped while the host sat on the Start screen it brings it back. A
+   * checklist older than {@link READY_STALE_MS}, or a mic that has gone away
+   * since (unplugged, revoked), is run again in full instead.
+   */
+  async goLive(): Promise<void> {
+    if (!this.engine || this.ws) return
+    this.callbacks.onStateChange('connecting')
+    // Inside the Start click: the one moment a resume is sure to be allowed.
+    void this.engine.resume().catch(() => {})
 
-      // Step 1: Microphone (skipped in music-only mode).
-      if (!options?.skipMic) {
-        this.setActiveStep('mic')
-        this.micStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            // All three OFF deliberately. They are tuned for speech on a call:
-            // autoGainControl rides the level of anything it hears, and
-            // noiseSuppression treats sustained tones as noise — between them
-            // they audibly chew music. A radio broadcaster's mic sits in the
-            // same mixer as the queue, so this must stay clean.
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            channelCount: 2,
-          },
-        })
-        this.updateStep('mic', 'done')
+    try {
+      this.quietSteps = true
+      const micGone = this.micStream?.getAudioTracks().some((t) => t.readyState === 'ended') ?? false
+      if (micGone || Date.now() - this.readyAt > READY_STALE_MS) {
+        this.micStream?.getTracks().forEach((t) => t.stop())
+        this.micStream = null
+        await this.engine.destroy()
+        this.engine = null
+        await this.runChecks(this.startOptions)
+      } else if (Date.now() - this.stationCheckedAt > STATION_FRESH_MS) {
+        this.setActiveStep('station')
+        await this.ensureStationOnAir()
+        this.updateStep('station', 'done')
       }
+      this.quietSteps = false
 
-      // Step 2: Audio engine — mic + queue mixer, encoding MP3 off-thread.
-      // Frames go out through handleChunk.
-      this.setActiveStep('engine')
-      this.engine = await this.createEngine()
-      await this.engine.restoreQueue()
-      this.updateStep('engine', 'done')
-
-      // Step 3: webcast handshake.
-      this.setActiveStep('stream')
       await this.connectWebcast()
-      this.updateStep('stream', 'done')
 
       // Socket is up and accepted — safe to resume saved playback. Starting
       // earlier would encode audio that gets dropped for want of a socket,
       // clipping the first seconds of the broadcast.
       // Not awaited: it waits on the track's metadata, which a background tab
       // may not load until it is shown, and the broadcast is live either way.
-      void this.engine.resumePlayback({ fromStart: options?.resumeFromStart }).catch((err) => {
+      void this.engine?.resumePlayback({ fromStart: this.startOptions?.resumeFromStart }).catch((err) => {
         console.error('[BroadcastManager] could not resume saved playback:', err)
       })
 
@@ -349,6 +441,75 @@ export class BroadcastManager {
     }
   }
 
+  /** The checklist itself, minus the socket. Throws on the first failure. */
+  private async runChecks(options?: BroadcastStartOptions): Promise<void> {
+    this.bitrate = DEFAULT_BITRATE
+    this.uplinkKbps = null
+    this.lastBacklogSampleAt = 0
+    this.congestedSamples = 0
+    this.lastBitrateChangeAt = 0
+    this.clearSince = 0
+    this.carryBytes = 0
+    this.carryMs = 0
+    this.steps = BroadcastManager.buildSteps(options?.skipMic)
+    this.emitSteps()
+
+    // Before anything with a side effect: if this page can't capture audio
+    // at all, say so now. Bringing the station on air first would leave a
+    // container running for a broadcast that was never possible.
+    assertBroadcastSupported({ skipMic: options?.skipMic })
+
+    // Before the station too: a line that can't carry the lowest bitrate
+    // would start a container for a show that drops within minutes.
+    this.setActiveStep('network')
+    let uplink: Awaited<ReturnType<typeof checkUplink>>
+    try {
+      uplink = await checkUplink()
+    } catch (err) {
+      reportUplinkCheck(this.stationSlug, 'failed', { kbps: null, bitrate: null })
+      throw err
+    }
+    this.uplinkKbps = uplink.kbps
+    reportUplinkCheck(
+      this.stationSlug,
+      uplink.bitrate === null ? 'blocked' : uplink.bitrate < DEFAULT_BITRATE ? 'lowered' : 'ok',
+      uplink,
+    )
+    if (uplink.bitrate === null) {
+      throw new Error(
+        `Your connection is too slow to broadcast: it uploads about ${uplink.kbps} kbps, and a show needs at least ${MIN_UPLINK_KBPS}. `
+        + 'Move closer to your Wi-Fi, use a cable, or pause other uploads, then try again.',
+      )
+    }
+    this.bitrate = uplink.bitrate
+    this.updateStep(
+      'network',
+      'done',
+      undefined,
+      uplink.bitrate < DEFAULT_BITRATE ? `Slow connection: sending at ${uplink.bitrate} kbps to keep up` : undefined,
+    )
+
+    // Step 0: Make sure the station is on air and its Liquidsoap container
+    // is actually ready to consume our stream.
+    this.setActiveStep('station')
+    await this.ensureStationOnAir()
+    this.updateStep('station', 'done')
+
+    // Step 1: Microphone (skipped in music-only mode).
+    if (!options?.skipMic) {
+      this.setActiveStep('mic')
+      this.micStream = await this.openSavedMic()
+      this.updateStep('mic', 'done')
+    }
+
+    // Step 2: Audio engine — mic + queue mixer, encoding MP3 off-thread.
+    // Frames go out through handleChunk.
+    this.setActiveStep('engine')
+    this.engine = await this.createEngine()
+    await this.engine.restoreQueue()
+    this.updateStep('engine', 'done')
+  }
+
   /**
    * Encoded frames go straight out over the socket as binary webcast frames;
    * before the socket exists — and while a reconnect is in progress — they
@@ -357,7 +518,10 @@ export class BroadcastManager {
    */
   private handleChunk = (chunk: ArrayBuffer) => {
     this.lastFrameAt = Date.now()
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    this.sampleBacklog()
+    // A full backlog drops the frame like a closed socket does: queueing
+    // it would only push the show further behind live.
+    if (this.ws?.readyState === WebSocket.OPEN && this.backlogMs() < BACKLOG_CAP_MS) {
       this.ws.send(chunk)
       const buffered = this.ws.bufferedAmount
       if (buffered > this.peakBufferedBytes) this.peakBufferedBytes = buffered
@@ -388,7 +552,7 @@ export class BroadcastManager {
    *   studio's "Audio paused" notice asks for that tap instead.
    */
   private async createEngine(awaitResume = true, signal?: AbortSignal): Promise<AudioEngine> {
-    const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug, signal)
+    const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug, this.bitrate, signal)
     // The context starts suspended under the autoplay policy, and a
     // suspended context produces no frames for the worklet to capture.
     // Resume now — on a first start we are inside the user gesture that
@@ -472,6 +636,7 @@ export class BroadcastManager {
       monitor: old.isMonitorEnabled(),
       monitorVolume: old.getMonitorVolume(),
       latched: old.isMicLatched(),
+      tracksPlayed: old.getTracksPlayed(),
     }
 
     // stop() or fail() can land at any await below. Each sets `stopping` and
@@ -494,6 +659,7 @@ export class BroadcastManager {
       engine.setMonitorVolume(carry.monitorVolume)
       engine.setMonitorEnabled(carry.monitor)
       if (carry.latched) engine.setMicLatched(true)
+      engine.carryTracksPlayed(carry.tracksPlayed)
       // Same song, same second, playing or paused. restoreQueue() brings the
       // queue back in the same order, less any file the browser has lost
       // since — restoredIndex() maps across that, and a song that was lost
@@ -554,6 +720,7 @@ export class BroadcastManager {
    * silence while we were away.
    */
   private async ensureStationOnAir(readyTimeoutMs = STATION_READY_TIMEOUT_MS): Promise<void> {
+    this.stationCheckedAt = 0
     try {
       await api.post(`/stations/${this.stationSlug}/start`)
     } catch (err) {
@@ -562,6 +729,9 @@ export class BroadcastManager {
       // verbatim — the API writes them for humans.
       if (response?.status === 422 || response?.status === 403) {
         throw new Error(response.data?.message ?? 'This station cannot go on air right now')
+      }
+      if (response?.status === 429) {
+        throw new Error('Too many tries in a row. Wait a minute, then try again.')
       }
       throw new Error('Could not bring the station on air — please try again')
     }
@@ -572,7 +742,10 @@ export class BroadcastManager {
         const { data } = await api.get<{ data: { ready: boolean } }>(
           `/stations/${this.stationSlug}/status`,
         )
-        if (data.data.ready) return
+        if (data.data.ready) {
+          this.stationCheckedAt = Date.now()
+          return
+        }
       } catch {
         // Status is a live read from the container; a blip here is not a
         // reason to abandon the broadcast.
@@ -584,6 +757,7 @@ export class BroadcastManager {
     // accepts the connection the moment it is listening, so a container that
     // finishes booting late still picks the stream up — the broadcaster may
     // just lose the first few seconds.
+    this.stationCheckedAt = Date.now()
   }
 
   /**
@@ -700,7 +874,7 @@ export class BroadcastManager {
             // and validates the short-lived token as the password.
             user: this.stationSlug,
             password: token,
-            audio: AudioEngine.encoderInfo(),
+            audio: this.engine?.encoderInfo(),
           },
         }))
 
@@ -747,6 +921,8 @@ export class BroadcastManager {
         bufferedBytes: ws.bufferedAmount,
         peakBufferedBytes: this.peakBufferedBytes,
         wakeLockHeld: this.wakeLock !== null,
+        bitrate: this.bitrate,
+        uplinkKbps: this.uplinkKbps,
         audioState: this.engine?.getContextState() ?? null,
         frameAgeMs: this.lastFrameAt ? Date.now() - this.lastFrameAt : null,
         engineRebuilds: this.rebuildTimes.length,
@@ -891,6 +1067,83 @@ export class BroadcastManager {
     this.visibilityHandler = null
   }
 
+  /**
+   * Unsent audio inside the socket, as playing time. Bytes queued before the
+   * last bitrate change count at the rate they were encoded at: after a step
+   * from 128 to 64, reading them at 64 would double the backlog, drop fresh
+   * frames at the cap, and trigger a second step down on stale data.
+   */
+  private backlogMs(): number {
+    const buffered = this.ws?.bufferedAmount ?? 0
+    // Whatever is buffered beyond what was sent since the change is still
+    // the old backlog draining.
+    const carried = Math.min(
+      this.carryBytes,
+      Math.max(0, buffered - (this.bytesSent - this.bytesSentAtShift)),
+    )
+    const carriedMs = carried === 0 ? 0 : this.carryMs * (carried / this.carryBytes)
+    // bits ÷ kbps = ms
+    return carriedMs + ((buffered - carried) * 8) / this.bitrate
+  }
+
+  /**
+   * Fit the bitrate to the upload, once a second off the encoder's frames.
+   *
+   * Not a timer: a hidden tab's timers can be throttled to once a minute, and a
+   * broadcast is exactly what runs hidden. The encoder keeps its pace.
+   *
+   * Down a tier when the backlog stays deep for a few seconds, then wait for
+   * it to drain before judging again. Up a tier only after minutes of a clear
+   * line, and never past the default.
+   */
+  private sampleBacklog(): void {
+    const now = Date.now()
+    if (now - this.lastBacklogSampleAt < BACKLOG_SAMPLE_MS) return
+    this.lastBacklogSampleAt = now
+
+    if (!this.established || this.ws?.readyState !== WebSocket.OPEN) {
+      this.congestedSamples = 0
+      this.clearSince = 0
+      return
+    }
+
+    const backlog = this.backlogMs()
+    if (backlog >= CONGESTED_BACKLOG_MS) {
+      this.clearSince = 0
+      this.congestedSamples++
+      if (
+        this.congestedSamples >= STEP_DOWN_AFTER_SAMPLES
+        && now - this.lastBitrateChangeAt >= STEP_DOWN_COOLDOWN_MS
+      ) {
+        this.shiftBitrate(1)
+      }
+      return
+    }
+
+    this.congestedSamples = 0
+    if (backlog > CLEAR_BACKLOG_MS) {
+      this.clearSince = 0
+    } else if (this.clearSince === 0) {
+      this.clearSince = now
+    } else if (now - this.clearSince >= STEP_UP_AFTER_CLEAR_MS) {
+      this.shiftBitrate(-1)
+      this.clearSince = now
+    }
+  }
+
+  /** One tier down (1) or up (-1) in BITRATE_TIERS, which runs best first. */
+  private shiftBitrate(direction: 1 | -1): void {
+    const next = BITRATE_TIERS[BITRATE_TIERS.indexOf(this.bitrate) + direction]
+    if (next === undefined || !this.engine) return
+    this.carryMs = this.backlogMs()
+    this.carryBytes = this.ws?.bufferedAmount ?? 0
+    this.bytesSentAtShift = this.bytesSent
+    this.bitrate = next
+    this.engine.setBitrate(next)
+    this.lastBitrateChangeAt = Date.now()
+    this.congestedSamples = 0
+  }
+
   /** Push the current track's title/artist to harbor as a metadata frame. */
   private sendMetadata(title: string, artist: string): void {
     // Remembered even when it can't be sent, so the reconnect can replay it.
@@ -908,6 +1161,7 @@ export class BroadcastManager {
     // Include the run still open right now, so a live dropout is visible as it
     // happens rather than only once frames start flowing again.
     const openRun = this.dropRunStart === 0 ? 0 : Date.now() - this.dropRunStart
+    const backlogMs = this.ws?.readyState === WebSocket.OPEN ? this.backlogMs() : 0
     return {
       bytesSent: this.bytesSent,
       chunksSent: this.chunksSent,
@@ -915,6 +1169,9 @@ export class BroadcastManager {
       droppedMs: this.droppedMs + openRun,
       lastDropAt: this.lastDropAt,
       connected: this.ws?.readyState === WebSocket.OPEN,
+      bitrate: this.bitrate,
+      backlogMs,
+      congested: backlogMs >= CONGESTED_BACKLOG_MS,
     }
   }
 
@@ -924,6 +1181,39 @@ export class BroadcastManager {
 
   getMicStream(): MediaStream | null {
     return this.micStream
+  }
+
+  /**
+   * The mic chosen last time, or the default when there is none or it can't
+   * be opened (unplugged, renamed after a reboot): a remembered mic that has
+   * gone must never be what stops a show going live. A refused permission is
+   * not that case and still fails the step.
+   */
+  private async openSavedMic(): Promise<MediaStream> {
+    const saved = savedMicDeviceId()
+    if (saved) {
+      try {
+        return await openMic(saved)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'NotAllowedError') throw err
+      }
+    }
+    return openMic()
+  }
+
+  /**
+   * Swap to another microphone before going on air, and remember it for the
+   * next show. Only at `ready`: mid-show the swap would cut the audio.
+   * Throws if the device can't be opened, leaving the current mic in place.
+   */
+  async switchMic(deviceId: string): Promise<MediaStream> {
+    if (!this.engine || !this.micStream || this.ws) throw new Error('Not ready to change microphone')
+    const next = await openMic(deviceId)
+    this.engine.setMicStream(next)
+    this.micStream.getTracks().forEach((t) => t.stop())
+    this.micStream = next
+    rememberMicDevice(deviceId)
+    return next
   }
 
   getSessionId(): string | null {
@@ -952,6 +1242,11 @@ export class BroadcastManager {
       try { await this.engine?.flushEncoder() } catch { /* worker already gone */ }
     }
 
+    // The browser reports this close as 1006, wasClean=false, every time:
+    // harbor answers a close frame by dropping the TCP connection without
+    // sending one back (checked on the raw socket, 2026-10-04). Harmless:
+    // this.ws is already let go below and `stopping` is set, so watchForDrop
+    // ignores it and nothing is reported or reconnected.
     try { this.ws?.close(1000, 'broadcast ended') } catch { /* already closing */ }
     this.ws = null
     await this.engine?.destroy()
@@ -996,6 +1291,8 @@ export class BroadcastManager {
   }
 
   private async fail(err: unknown) {
+    // A failed re-check is shown: the list below says which step it was.
+    this.quietSteps = false
     // Failing ends the show as surely as stop() does, and anything still in
     // flight (a reconnect attempt, an engine rebuild) checks this flag to
     // know it must not bring the broadcast back. start() clears it.

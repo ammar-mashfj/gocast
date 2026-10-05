@@ -18,10 +18,9 @@
       $hlsVariant      — string (encoder label AND the media-playlist filename;
                                  config('liquidsoap.hls_variant') — see the HLS
                                  block below for why it is shared with the URL)
-      $jinglesEnabled  — bool   (initial state of the jingle switch)
-      $jingleInterval  — float  (minimum seconds between two jingles)
-      $jingleByTracks  — bool   (space jingles by track count, not by time)
-      $jingleEveryTracks — int  (tracks between jingles in that mode)
+      $scriptVersion   — int    (sent on every next-track ask; Laravel only
+                                 serves jingles and hard starts to a script
+                                 at AutoDjScheduler::PLANNING_SCRIPT or later)
 
       Free-tier watermark — platform-owned, never the owner's to change:
       $watermarkSupported — bool  (build it into the graph at all)
@@ -483,23 +482,39 @@ live = live_raw
 #
 # retry_delay is rendered rather than left at Liquidsoap's 0.1s default: that
 # would mean ten requests per second, forever, for every empty station.
+#
+# Two headers tell Laravel's AutoDJ clock where it stands. X-Gocast-Script is
+# this script's version: Laravel only plans jingles and hard starts for a
+# script that has no jingle logic of its own and applies the fade below.
+# X-Gocast-Fresh is "1" on the first ask after boot: nothing is queued, so
+# the answer starts now rather than after a track Laravel handed to a
+# container that no longer exists. It stays "1" until an ask is answered: a
+# failed ask (unreachable, timed out, 5xx) leaves nothing queued here, even if
+# Laravel recorded a track it handed out that this container never received.
+autodj_fresh = ref(true)
+
 def autodj_next() =
+  fresh = if autodj_fresh() then "1" else "0" end
   try
     r = http.get(
       {!! json_encode($nextTrackUrl) !!},
       headers=[
         ("Accept", "text/plain"),
-        ("X-Internal-Key", {!! json_encode($internalApiKey) !!})
+        ("X-Internal-Key", {!! json_encode($internalApiKey) !!}),
+        ("X-Gocast-Script", "{{ (int) $scriptVersion }}"),
+        ("X-Gocast-Fresh", fresh)
       ],
       timeout=5.
     )
 
     if r.status_code == 200 then
+      autodj_fresh := false
       uri = string.trim(string_of(r))
       if uri == "" then null else request.create(uri) end
     elsif r.status_code == 204 then
       # No rotation. Expected, and silent on purpose: logging it would print a
       # line every retry_delay seconds for the life of every live-only station.
+      autodj_fresh := false
       null
     else
       log.severe("autodj: next-track answered HTTP #{r.status_code} — rotation stalled")
@@ -521,168 +536,38 @@ autodj = request.dynamic(
   autodj_next
 )
 
-# `playlist` registered a `.skip` telnet command for free; `request.dynamic`
-# does not — it offers `.flush_and_skip`, which also throws away the track
-# already fetched for the crossfade. StationPowerController sends
-# "{{ $liqSource }}.skip", so we register that name ourselves and point it at
-# the source's own skip. Verified over telnet: without this the command answers
-# "unknown command" and skip-track silently does nothing.
-autodj.register_command(
-  description = "Skip the current AutoDJ track",
-  "skip",
-  fun (_) -> begin autodj.skip() ; "Done" end
-)
+# DISABLED 2026-10-05: skip-track is no longer used (the Skip button is gone
+# and StationPowerController::skip is commented out), so the telnet command it
+# sent is no longer registered. Kept for reference. A skip would also throw off
+# the AutoDJ start-time clock planned in docs/JINGLES-AND-HARD-SLOTS-PLAN.md.
+#
+# # `playlist` registered a `.skip` telnet command for free; `request.dynamic`
+# # does not — it offers `.flush_and_skip`, which also throws away the track
+# # already fetched for the crossfade. StationPowerController sends
+# # "{{ $liqSource }}.skip", so we register that name ourselves and point it at
+# # the source's own skip. Verified over telnet: without this the command answers
+# # "unknown command" and skip-track silently does nothing.
+# autodj.register_command(
+#   description = "Skip the current AutoDJ track",
+#   "skip",
+#   fun (_) -> begin autodj.skip() ; "Done" end
+# )
 
-# === Jingles ===
+# === Jingles and hard starts: decided by Laravel ===
 #
-# Station IDs, liners, sweepers — whatever the owner uploaded to the jingle
-# list. This is the one m3u left in the graph (PlaylistFileWriter writes it on
-# every track mutation): a jingle stays a list rather than joining the rotation
-# query above, because it is not a rotation entry — it must not take its turn
-# in order, must not be reordered by the user's drag handles, and must not be
-# crossfaded.
+# There is no jingle logic in this script any more. Laravel decides, at every
+# next-track ask, whether the next thing is a song or a jingle (from the
+# owner's jingle lists and their rules), and hands it over like any track.
+# A jingle arrives annotated `jingle="true"`, which the crossfade and the
+# listener metadata below still key on.
 #
-# The reload defect that drove the rotation off a playlist file does not bite
-# here: `jingles_m3u.reload` also restarts the list at index 0, but the list is
-# shuffled per read and a jingle is a few seconds long, so there is no cursor
-# worth preserving.
-#
-# `mode = "randomize"` shuffles within the list, so a station with three IDs
-# doesn't play them in a fixed cycle. `reload_mode = "never"` leaves reloading
-# to Laravel: it fires `jingles_m3u.reload` over telnet after any change.
-#
-# This block is rendered for EVERY station, including the majority that never
-# turn jingles on — see the interactive variables below for why. Measured on
-# 2.4.5: a station whose jingles.m3u is empty logs three lines about it at boot
-# and nothing ever again. `on_fail` does not fire, because nothing pulls from a
-# source the fallback never selects.
-jingles = playlist(
-  id = {!! json_encode($jinglesLiqSource) !!},
-  {!! json_encode("/data/playlists/{$jinglesFilename}") !!},
-  mode = "randomize",
-  reload_mode = "never",
-  on_fail = fun () -> begin
-    log(level=2, "jingles: no playable jingle — rotation continues uninterrupted")
-    ([] : [string])
-  end
-)
-
-# INTERACTIVE VARIABLES, not literals — and that is the whole point.
-#
-# Baked in as constants, changing either setting would mean re-rendering this
-# script and restarting the container, which drops every listener mid-track.
-# Nobody should lose their audience to change how often a station ID plays.
-# As interactive variables they are settable at runtime over the same telnet
-# socket that already drives playlist reloads:
-#
-#   var.set {{ $jinglesEnabledVar }} = true
-#   var.set {{ $jingleIntervalVar }} = 900.0
-#
-# LiquidsoapSupervisor::applyJingleSettings() sends exactly those two. The
-# values rendered here are the INITIAL state, read from the station row, so a
-# container that boots (or reboots) is already correct without anyone having to
-# push anything — telnet is the fast path, this is the source of truth.
-#
-# Verified on 2.4.5: a station booted with jingles off and a 600s interval,
-# then switched on at 5s over telnet, played its next jingle at the following
-# track boundary with no restart and no gap in the audio.
-{{-- Rendered as bare true/false: Liquidsoap has no truthy ints, and @json
-     would emit `1`/`0`, which is a type error rather than a wrong value. --}}
-jingles_enabled = interactive.bool({!! json_encode($jinglesEnabledVar) !!}, {{ $jinglesEnabled ? 'true' : 'false' }})
-jingle_by_tracks = interactive.bool({!! json_encode($jingleByTracksVar) !!}, {{ $jingleByTracks ? 'true' : 'false' }})
-jingle_interval = interactive.float({!! json_encode($jingleIntervalVar) !!}, {{ number_format($jingleInterval, 1, '.', '') }})
-jingle_every_tracks = interactive.int({!! json_encode($jingleEveryTracksVar) !!}, {{ $jingleEveryTracks }})
-
-# How many rotation tracks have played since the last jingle. Only consulted in
-# track mode, but counted always — so switching modes mid-broadcast doesn't
-# start from a stale number.
-#
-# The handlers are registered on the LEAF sources (the two playlists), not on
-# anything downstream: a track mark on the fallback would already have been
-# through cross(), and we would be counting transitions rather than tracks.
-#
-# synchronous=true here, against the convention everywhere else in this file.
-# The rule that makes the other callbacks asynchronous is that they do I/O —
-# an HTTP post on the streaming thread stalls audio for every listener. These
-# two do a single integer assignment, and they must be ORDERED with respect to
-# the track mark that triggered them: the fallback re-evaluates availability at
-# that same boundary, and a counter updated on a separate task can arrive after
-# the decision it was supposed to inform.
-tracks_since_jingle = ref(0)
-autodj.on_track(synchronous=true, fun (_) -> tracks_since_jingle := tracks_since_jingle() + 1)
-jingles.on_track(synchronous=true, fun (_) -> tracks_since_jingle := 0)
-
-# THIS is the whole scheduling mechanism, and it is worth understanding
-# because it is not obvious from reading it.
-#
-# There are two ways to space jingles and the owner picks one per station:
-#
-#   interval mode — "every 30 minutes". Predictable in wall-clock terms, which
-#                   is what legal IDs and sponsor reads are specified in, and
-#                   independent of how long the station's tracks are.
-#   track mode    — "every 5 tracks". Even musical density, which is what the
-#                   owner actually hears, at the cost of real-world spacing
-#                   that swings with track length.
-#
-# Rather than two graphs, there is one graph with two gates, and the mode
-# neutralises whichever gate it isn't using. That is what keeps the mode itself
-# switchable at runtime: a graph that changed shape per mode could only change
-# by restarting the container.
-#
-#   delay() is the TIME gate. It holds a source unavailable for N seconds after
-#   each of its own end-of-tracks, reading N as a getter per evaluation — which
-#   is why lowering the interval takes effect on the wait already in progress
-#   rather than the one after it. In track mode N is 0, so it never blocks.
-#
-#   jingle_due() is the COUNT gate, and also the on/off switch. In interval
-#   mode the count half is vacuously true, so delay() alone decides.
-#
-# source.available applies the count gate, and it is deliberately NOT
-# track_sensitive. That flag was here once and was a bug: it defers evaluation
-# of the PREDICATE to an end-of-track of the source it wraps — which is the
-# jingle, and the jingle is not playing while music runs. So the count was only
-# re-read when a jingle ended, latching a stale "true" and firing a jingle after
-# every single track, sometimes two back to back. Observed on a real station,
-# with jingle_due() true at counter=1 against a threshold of 3.
-#
-# The "only switch at a track boundary" guarantee comes from the fallback below,
-# which is where it belongs: that flag defers the SWITCH, this one deferred the
-# QUESTION. The only thing lost by evaluating continuously is that switching
-# jingles off mid-jingle now cuts it short rather than letting it finish — which
-# is a fair reading of "off" anyway.
-#
-# fallback(track_sensitive=true) is what makes the whole thing safe: it only
-# reconsiders which source wins AT A TRACK BOUNDARY. A jingle becoming ready
-# mid-song changes nothing; the switch happens when the current song ends. That
-# is the difference between "a station ID every half hour" and "a station ID
-# that chops a song in half every half hour" — and it is why this flag is
-# spelled out here rather than left to the default.
-#
-# Contrast the fallback further down, which is deliberately
-# track_sensitive=FALSE: a human broadcaster going live SHOULD interrupt
-# instantly rather than wait out a five-minute track.
-#
-# initial=true so a station does not open with a jingle: the delay starts
-# counting from boot, not from the first end-of-track. Track mode gets the same
-# protection for free, since the counter starts at zero.
-#
-# Fallible on both arms, which is correct — an empty jingle list or an empty
-# rotation just falls through to the silence bed below.
-def jingle_delay() =
-  if jingle_by_tracks() then 0.0 else jingle_interval() end
-end
-
-def jingle_due() =
-  jingles_enabled()
-  and (not jingle_by_tracks() or tracks_since_jingle() >= jingle_every_tracks())
-end
-
-jingle_arm = source.available(
-  delay(initial=true, jingle_delay, jingles),
-  jingle_due
-)
-
-autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])
+# The one thing this script does for that planning is the fade. A song that
+# would run past an "exactly on time" slot start or jingle arrives with
+# `liq_cue_out` on the boundary and `liq_fade_out` (seconds); fade.out reads
+# that key per track. The 0.1s default applies to every other track end and
+# is inaudible. Never `duration=0.`: measured on 2.4.5, it mutes the tracks
+# that follow.
+autodj_rotation = fade.out(track_sensitive=true, duration=0.1, autodj)
 
 @if ($applyAmplify)
 # === Per-track loudness ===
@@ -817,8 +702,8 @@ def autodj_cross(a, b) =
     # A jingle is never crossfaded. Sliding a produced station ID under the
     # tail of a song is the sound of an accident, and it defeats the point:
     # the ID exists to be heard cleanly. `jingle="true"` is annotated onto
-    # every entry in jingles.m3u by PlaylistFileWriter — a station with no
-    # jingles never carries it, so this branch is simply never taken there.
+    # every jingle Laravel's next-track serves — a station with no jingles
+    # never carries it, so this branch is simply never taken there.
     a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"
   then
     sequence([a.source, b.source])
@@ -1018,9 +903,10 @@ watermark = playlist(
   end
 )
 
-# Interactive for the same reason the jingle settings are: an upgrade must
-# silence this within seconds, without restarting the container and dropping
-# the listeners the owner just paid to keep.
+# Interactive variables, not literals: an upgrade must silence this within
+# seconds, without restarting the container and dropping the listeners the
+# owner just paid to keep. LiquidsoapSupervisor::applyWatermarkSettings()
+# sets them over telnet.
 watermark_enabled = interactive.bool({!! json_encode($watermarkEnabledVar) !!}, {{ $watermarkEnabled ? 'true' : 'false' }})
 watermark_interval = interactive.float({!! json_encode($watermarkIntervalVar) !!}, {{ number_format($watermarkInterval, 1, '.', '') }})
 watermark_duck = interactive.float({!! json_encode($watermarkDuckVar) !!}, {{ number_format($watermarkDuck, 3, '.', '') }})
@@ -1034,9 +920,11 @@ def watermark_due() =
   watermark_enabled() and (live.is_ready() or autodj_mix.is_ready())
 end
 
-# Not track_sensitive — same reasoning as the jingle arm above, plus a reason
-# of its own: a watermark rides on top rather than replacing a track, so it has
-# no boundary to wait for, and on a live stream there are none in any case.
+# Not track_sensitive. That flag defers evaluating the PREDICATE to an
+# end-of-track of the source it wraps — the watermark clip, which is not
+# playing in between — so the predicate would latch a stale answer. And a
+# watermark rides on top rather than replacing a track, so it has no boundary
+# to wait for; on a live stream there are none in any case.
 watermark_arm = source.available(
   delay(initial=true, watermark_interval, watermark),
   watermark_due

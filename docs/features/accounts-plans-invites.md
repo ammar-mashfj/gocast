@@ -1,6 +1,6 @@
 ---
 feature: Accounts, plans, Pro access, invites and the waitlist
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Http/Controllers/AccountController.php
   - api/app/Http/Controllers/InviteController.php
@@ -90,7 +90,10 @@ sources:
   - client/components/dashboard/AppSidebar.tsx
   - client/actions/auth.ts
   - mobile/src/app/account.tsx
-fingerprint: e6088aad5ddbdeca
+  - client/components/dashboard/ProRequestDialog.tsx
+  - client/hooks/useAccessRequest.ts
+  - client/components/dashboard/account/PlanCard.tsx
+fingerprint: a0b7bc3ca846c251
 ---
 
 # Accounts, plans, Pro access, invites, waitlist
@@ -132,14 +135,13 @@ Nothing else in `api/app` reads a plan. If you add a gate, add it here.
 | Gate | Plan field | Enforced at | Behaviour on refusal |
 |---|---|---|---|
 | Create a station | `max_stations` | `StoreStationRequest::authorize()` (`stations()->count() < plan->max_stations`; soft-deleted stations are not counted) | FormRequest returns the framework default 403 |
-| Put a second station on air | `max_running_stations` | `StationLifecycleService::assertCanRunAnother` (line ~301, `?? 1` if no plan). Counts stations with `desired_state = running`, excluding this one | `StationLifecycleException::concurrencyLimit` ("Your plan allows N stations on air at a time...") |
+| Put a second station on air | `max_running_stations` | `StationLifecycleService::assertCanRunAnother` (line ~291, `?? 1` if no plan). Counts stations with `desired_state = running`, excluding this one | `StationLifecycleException::concurrencyLimit` ("Your plan allows N stations on air at a time...") |
 | Upload to the AutoDJ library | `autodj_enabled` | `TrackController` (`assertAutoDjEnabled`, line ~102) | `autodj_not_available` |
-| Turn jingles on | `autodj_enabled` | `StationController::update`, only in the off-to-on direction | same code; turning off is always allowed |
-| Play the rotation | `autodj_enabled` | `AutoDjScheduler::next()` line 65, returns null before touching the cursor | `/internal/next-track` answers 204; music stops at the next track boundary |
-| Hear jingles | `autodj_enabled` | `Station::jinglesAudible()` (jingles_enabled AND `canUseAutoDj()`) | pushed live by `UserObserver::updated` |
+| Play the rotation and jingles | `autodj_enabled` | `AutoDjScheduler::next()` (first check, line ~97), returns null before touching the cursor, the jingle rotation or the clock (it only clears `autodj_queued_*`) | `/internal/next-track` answers 204; music and jingles stop at the next track boundary. Jingles are chosen in the same call, so they need no separate gate |
 | "Has playable rotation" for auto-stop | `autodj_enabled` | `StationAudioPolicy::hasPlayableRotation` via `StationLifecycleService::autoDjEnabled` | a free owner is never "playable", so the sweeper can power the station down |
 | AutoDJ slots (Schedule) | `autodj_enabled` | only at playback, through the same `next()` gate; the PUT is not gated (see [schedule](schedule.md)) | slots save but never play |
 | Playlists | none | `PlaylistController` is deliberately not plan-gated | UI locks it, API does not |
+| Jingle lists | none | `JingleListController` / `JingleListPolicy` are not plan-gated (ownership only); jingle uploads go through the `TrackController` upload gate above | UI locks it, API does not; lists save but never play |
 | Audience history | `analytics_days` | `AudienceController::__invoke` (line 48) | `<= 0` returns `locked: true` with only live count and all-time peak; else `plan_days` is first clamped to `analytics.retention_days` (`AudienceReport::clampWindow`, default 90), and the window is `min(requested, plan_days)` when `requested` is 7, 30 or 90 (`WINDOWS`), otherwise `plan_days` |
 | Embed player | `embed_enabled` | `PublicEmbedController::show` (`abort_unless(canEmbed(), 404)`) | 404 to the public, so a pasted snippet goes dark on downgrade |
 | Stream key / encoder | `encoder_enabled` | `StreamKeyController::rotate` (403 `encoder_not_available`); `HarborAuthController` line ~112 checks on every connection, refuses with reason `plan`; `StationResource` withholds `encoder` for a locked owner | encoder stops at next reconnect. The browser studio is not gated |
@@ -150,7 +152,7 @@ Helpers on `User`: `canUseAutoDj()`, `canEmbed()`, `canUseEncoder()`, `watermark
 
 ### What a plan change does live
 
-`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` and `applyJingleSettings` in separate try/catch blocks that log and swallow errors. Stopped stations pick up the new values when they next start. Rotation, encoder, embed and analytics need no push: they are read on each request.
+`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` in a try/catch that logs and swallows errors. Stopped stations pick up the new values when they next start. Rotation, jingles, encoder, embed and analytics need no push: they are read on each request (jingles are decided by `AutoDjScheduler::next()` at every track boundary).
 
 `UserObserver::deleting` (account deletion): a force delete force-deletes every station including trashed ones; a soft delete soft-deletes each station individually (a mass delete would skip `StationObserver::deleting` and orphan containers).
 
@@ -190,7 +192,7 @@ The `ExpirePlans` docblock says `plan_expires_at` "is set only by InviteRedempti
 5. `forceFill` `plan_id`, `invite_id`, `plan_expires_at`; reload `plan`.
 6. If the email is already verified, send `InviteRedeemed` now. If not, nothing is sent here (see the Verified listener below).
 
-`InviteException` (`errorCode`, message, status) is rendered by `bootstrap/app.php` as JSON `{message, code, errors:{invite_code:[message]}}` on every request, and only reported to Sentry when status is 500 or above.
+`InviteException` (`errorCode`, message, status) is rendered by `bootstrap/app.php` as JSON `{message, code, errors:{invite_code:[message]}}` on every request, and only reported to Sentry when status is 500 or above (`dontReportWhen` drops the rest before Sentry's reporter runs).
 
 **Three entry points:**
 
@@ -199,7 +201,7 @@ The `ExpirePlans` docblock says `plan_expires_at` "is set only by InviteRedempti
 | `POST /api/auth/register` with `invite_code` (`RegisterRequest`: nullable string max 40) | The user insert and redemption share a transaction, so a dead code **rolls back the account** and the request 422s on `invite_code`. The web page then remembers the code is dead and retries without it |
 | Google web callback: `GET /api/auth/google?invite=` parks the code in cookie `gocast_oauth_invite` (only if it matches `^[A-Za-z0-9-]{1,40}$`), the callback redeems it | Best effort: the account stands, and the popup message carries `invite:{applied:false,message}` |
 | `POST /api/auth/google/native` (`invite`, max 40) | Same best-effort behaviour, returned in the JSON |
-| `POST /api/invites/redeem` (`auth:sanctum`, outside `verified`, `throttle:10,1`, body `code` max 40) | Errors as above. Response `{plan, plan_expires_at}` and message "You're on {Plan}." |
+| `POST /api/invites/redeem` (`auth:sanctum`, outside `verified`, `throttle:10,1,invite-redeem`, body `code` max 40) | Errors as above. Response `{plan, plan_expires_at}` and message "You're on {Plan}." |
 
 Google sign-in links an existing password account by email and then redeems, which is why steps 2 and 3 exist. The callback deletes the `gocast_oauth_invite` cookie after use.
 
@@ -212,14 +214,14 @@ Google sign-in links an existing password account by email and then redeems, whi
 | Endpoint | Auth | Throttle | Body | Effect |
 |---|---|---|---|---|
 | `POST /api/waitlist/pro` | `auth:sanctum` (not `verified`) | global only | `social` required max 255; `message` nullable max 2000 | `WaitlistEntry::updateOrCreate(email = account email, plan = 'pro')`, stores `user_id`. Email and plan are never read from the body |
-| `POST /api/waitlist` | public | `throttle:3,60` per IP | `email` required; `plan` must be `custom` (`StoreWaitlistRequest::PUBLIC_PLANS`); `social` required; `message` | same upsert with `user_id` null |
+| `POST /api/waitlist` | public | `throttle:3,60,waitlist` per IP | `email` required; `plan` must be `custom` (`StoreWaitlistRequest::PUBLIC_PLANS`); `social` required; `message` | same upsert with `user_id` null |
 
 - Resubmitting overwrites the same row. If the row was `rejected` it is reopened to `pending` (`reopen()` clears reviewer and time); an `approved` row is left alone.
 - A create, or an update that changed `social`, `message` or `status`, fires an AdminTelegram alert if the row is `pending` (hooked on the model in `AppServiceProvider`, `AdminTelegram::accessRequested`; inert without a bot token). An identical resubmit changes nothing and sends nothing; a resubmit that reopens a rejected row does. The DB column `social` is nullable, but both requests require it.
 - Only Pro-with-`user_id` requests are grantable (`isGrantable()`: pending and `user_id` not null). Custom enquiries can only be dismissed.
 - Admin actions (see [admin-panel](admin-panel.md)): `approve` (locks the row, marks approved, writes the plan and a fixed end date, sends `ProAccessGranted`), `dismiss` (refused for an approved row), `revoke` (approved back to pending, plan to Free, no email), `reopen` (rejected to pending). Approval looks up the plan by `entry.plan`; the account's plan is written even if the user is already on a paid plan, and `invite_id` is left as is.
-- **Where the form lives.** Web: `ProAccessDialog` (title "Request Pro access", copy says Pro is in beta and free; requires a `social` value containing a "."; shows the account email read-only), mounted once by `ProRequestProvider` in the dashboard layout. Every upgrade affordance calls `useProRequest().open()`. `requested` is React state, reset on reload; there is no API to ask "have I already requested". The Custom card on the public pricing page reuses the same dialog with `plan="custom"`, which posts to the public endpoint with an email field. The pricing page has no Pro request button (removed on purpose). Mobile has none: its account screen's "Request Pro" opens `/dashboard` on the web.
-- Error mapping in the dialog: 401 session expired, 429 too many attempts, 422 check details, anything else generic.
+- **Where the form lives.** Web dashboard: `components/dashboard/ProRequestDialog.tsx` (ds kit; title "Request Pro", copy says Pro is in beta and free; a "Link to your public page" field that must contain a "."; an optional message; the account email shown read-only; amber "Request access"), mounted once by `ProRequestProvider` in the dashboard layout. Every upgrade affordance calls `useProRequest().open()` (sidebar and Account plan cards, AutoDJ/Schedule/Audience upsells, the DJ-software fold, Embed). The form's state, validation, endpoint choice and error mapping are `hooks/useAccessRequest.ts`, shared with the marketing kit's `ProAccessDialog`. `requested` is React state, reset on reload; there is no API to ask "have I already requested". The Custom card on the public pricing page and the homepage waitlist use `ProAccessDialog` (title "Request Pro access", marketing kit) with `plan="custom"`, which posts to the public endpoint with an email field. The pricing page has no Pro request button (removed on purpose). Mobile has none: its account screen's "Request Pro" opens `/dashboard` on the web.
+- Error mapping (`useAccessRequest`): 401 session expired, 429 too many attempts, 422 check details, anything else generic.
 
 ## Account self-service
 
@@ -237,7 +239,7 @@ Google sign-in links an existing password account by email and then redeems, whi
 
 Scheduled hourly, `withoutOverlapping` (`routes/console.php`). It picks users where `plan_expires_at <= now()` with `lazyById(500)` (keyset paging, because the loop nulls the column it filters on), sets `plan_id` to Free and `plan_expires_at` to null on each, one save per user so `UserObserver` fires, then sends `PlanExpired` only if the ended plan differs from Free. Fails with an error if no `free` plan exists.
 
-It deletes and stops nothing. Caps apply only when creating or starting, so a downgraded account keeps its station and library. The visible effects: rotation stops at the next track boundary, jingles are pushed off, uploads and slot playback are refused, the encoder key stops working on reconnect, the embed 404s, audience history locks, and a second running station cannot be started. `PlanExpired` copy promises the station and uploads are untouched, and says the AutoDJ library "no longer accepts new uploads" only when the ended plan had AutoDJ and Free does not.
+It deletes and stops nothing. Caps apply only when creating or starting, so a downgraded account keeps its station and library. The visible effects: rotation and jingles stop at the next track boundary, uploads and slot playback are refused, the encoder key stops working on reconnect, the embed 404s, audience history locks, and a second running station cannot be started. `PlanExpired` copy promises the station and uploads are untouched, and says the AutoDJ library "no longer accepts new uploads" only when the ended plan had AutoDJ and Free does not.
 
 ## Notifications owned by this feature
 
@@ -269,9 +271,9 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 
 | Surface | What it does with this feature |
 |---|---|
-| Web `/dashboard/settings` ("Account") | `PlanCard` (plan name, "Up to N listeners at once", AutoDJ sentence, "Request Pro" if AutoDJ locked; renders nothing when the plan is unknown), Profile form, Change/Set password, Danger zone with delete dialog (typed email). Reads `user` from the cookie via `getUser()`, not from the API, so name and email are as of last `saveAuth`. **`plan.expires_at` is not shown here** |
+| Web `/dashboard/settings` ("Account") | `components/dashboard/account/`: `PlanCard` (nothing while the plan is unknown; Pro = `slug !== "free"`: amber card, PRO tag, "You're on {name}" and what the plan includes from its flags (`planIncludes`: listener cap, AutoDJ, embeds, own DJ software, N days of audience history), plus "Ends {date}, then your account moves to Free." when `expires_at` is set; no billing button. Free: plain card, "Your station plays only while you're live.", Request Pro), `ProfileForm`, `PasswordForm` ("Password" or "Set a password"; one new-password field with Show, the `confirmed` rule sent the same value), `DeleteAccount` (typed email). Reads `user` from the cookie via `getUser()` after mount, not from the API, so name and email are as of last `saveAuth` |
 | Web dashboard layout | Fetches `/user` once server-side and provides it through `AccountProvider`; `usePlan()` is null on a failed fetch, and the `use*Locked()` hooks treat null as "not locked" (`useAutoDjLocked`, `useAudienceLocked`, `useEmbedLocked`, `useEncoderLocked`) so a timeout never paints an upsell on a paying user. The API is the real gate |
-| Web sidebar | "Pro" badge on items with `lock: "autodj"` (AutoDJ and Schedule, since Schedule is AutoDJ slots only) or `"audience"` (Audience); the links stay live on purpose. Plan card with "Request Pro" when AutoDJ locked, "Requested" state per session; a paid plan's name is a badge next to the user's name in the footer instead |
+| Web sidebar | An amber PRO tag on items with `lock: "autodj"` (AutoDJ and Schedule, since Schedule is AutoDJ slots only) or `"audience"` (Audience); the links stay live on purpose. Plan card with "Request Pro" when AutoDJ locked, "Requested" state per session; a paid plan shows a PRO tag next to the user's name in the footer instead |
 | Web `/auth/register?invite=CODE` | `useInvite` calls `GET /invites/{code}` and shows a banner: valid (plan and days), closed used/expired, invalid, or unchecked (lookup failed, code is still sent). Submit is disabled while the lookup is `checking`. The code is only sent when the state is valid or unchecked. `invite_used`, `invite_already_redeemed`, `invite_expired`, `invite_not_found` errors flip the banner so a retry goes without the code. Google button passes `invite` on the popup URL; the outcome toast comes from the popup message |
 | Mobile | `account.tsx` shows plan name, listeners, AutoDJ and an "Ends" date from `expires_at`; "Request Pro" (shown only when `plan.slug === 'free'`) opens the web dashboard. No invite entry anywhere; native Google sign-in supports an `invite` field but the app does not send one (no file under `mobile/src` mentions invites). |
 | Admin (boundary) | Requests queue, invites page, provision account, station upgrade: [admin-panel](admin-panel.md) |
@@ -306,7 +308,7 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 - `api/tests/Feature/Console/ExpirePlansTest.php`, `NudgeInactiveBroadcastersTest.php`, `UnsubscribeTest.php`, `WaitlistControllerTest.php`
 - `api/tests/Feature/Auth/UserEntitlementsTest.php` (plan block on `/user`)
 - `api/tests/Feature/Account/AccountDeletionConfirmationTest.php`, `AccountDeletionCascadeTest.php`, `PasswordChangeNotificationTest.php`
-- Gate tests: `PublicEmbedTest.php`, `HarborAuthTest.php`, `AudienceControllerTest.php`, `NextTrackControllerTest.php`, `WatermarkTest.php`, `StationJingleSettingsTest.php`, `Notifications/BellContractTest.php`
+- Gate tests: `PublicEmbedTest.php`, `HarborAuthTest.php`, `AudienceControllerTest.php`, `NextTrackControllerTest.php`, `WatermarkTest.php` (also covers `plans:expire` pushing the watermark), `JingleListControllerTest.php`, `Notifications/BellContractTest.php`
 
 Targeted runs only; the full API suite takes minutes.
 

@@ -3,14 +3,10 @@
 import { useMemo, useState } from "react"
 import {
   IconArrowsShuffle,
-  IconDotsVertical,
   IconLoader2,
   IconPencil,
-  IconPlaylist,
   IconPlaylistAdd,
-  IconSearch,
   IconStar,
-  IconStarFilled,
   IconTrash,
 } from "@tabler/icons-react"
 import {
@@ -28,23 +24,15 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
+import { Button } from "@/components/ds/Button"
+import { DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ds/Menu"
+import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Track } from "@/interfaces/Track"
 import { useTrackPreview } from "@/hooks/useTrackPreview"
 import { TrackListHeader, TrackRow, type TrackEditFields } from "./TrackRow"
+import { LibraryFooter, LibraryToolbar } from "./LibraryToolbar"
 
 type SortKey = "order" | "title" | "length"
 
@@ -168,154 +156,101 @@ export function PlaylistView({
         : "plays in order, then loops",
   ].filter(Boolean) as string[]
 
+  const menu = (
+    <>
+      {/* Shuffle's state is still on screen without opening this: the
+          summary under the playlist name says "shuffled" or "plays in
+          order". The check here is for changing it. */}
+      <DropdownMenuCheckboxItem
+        checked={playlist.order === "shuffle"}
+        disabled={locked || savingOrder}
+        onCheckedChange={() => onToggleOrder()}
+      >
+        <IconArrowsShuffle size={15} />
+        Shuffle
+      </DropdownMenuCheckboxItem>
+      <DropdownMenuItem onClick={onAddFromLibrary} disabled={tracks === null}>
+        <IconPlaylistAdd size={15} />
+        Add from library
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={onRename}>
+        <IconPencil size={15} />
+        Rename
+      </DropdownMenuItem>
+      {!playlist.is_default && (
+        <DropdownMenuItem onClick={onSetDefault}>
+          <IconStar size={15} />
+          Make default
+        </DropdownMenuItem>
+      )}
+      {!playlist.is_default && (
+        <DropdownMenuItem onClick={onDelete}>
+          <IconTrash size={15} />
+          Delete playlist
+        </DropdownMenuItem>
+      )}
+      {menuItems && (
+        <>
+          <DropdownMenuSeparator />
+          {menuItems}
+        </>
+      )}
+    </>
+  )
+
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <span className="size-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-            {playlist.is_default ? (
-              <IconStarFilled size={15} className="text-violet-muted" />
-            ) : (
-              <IconPlaylist size={16} className="text-muted-foreground" />
-            )}
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-base font-medium truncate">{playlist.name}</h2>
-              {/* Neutral: "default" is a role the playlist has, not a
-                  station state, so it gets none of the state colours. */}
-              {playlist.is_default && (
-                <Badge
-                  variant="outline"
-                  className="border-white/[0.09] bg-transparent px-1.5 text-[11px] text-muted-foreground shrink-0"
-                  title="Plays whenever nothing else is scheduled, and where uploads land by default."
-                >
-                  Default
-                </Badge>
-              )}
-            </div>
-            <div className="text-xs text-muted-foreground truncate">
-              {tracks === null ? "Loading…" : summary.join(" • ")}
-            </div>
-          </div>
+      <div className="flex flex-col gap-1.5 px-5.5 pt-5 pb-3.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="min-w-0 truncate font-display text-title-sm">{playlist.name}</h2>
+          {/* Neutral: "default" is a role the playlist has, not a station state. */}
+          {playlist.is_default && <Tag title="New uploads land in it too.">Plays when nothing’s scheduled</Tag>}
         </div>
+        <p className="font-mono text-caption text-text-faint">{tracks === null ? "Loading…" : summary.join(" \u00b7 ")}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 p-3 border-b border-border">
-        <div className="relative flex-1 min-w-[220px]">
-          <IconSearch
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-          />
-          <Input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setLimit(INITIAL_LIMIT)
-            }}
-            placeholder="Search this playlist"
-            className="h-9 pl-9 pr-16 text-sm"
-          />
-          {q !== "" && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
-              {visible.length} found
-            </span>
-          )}
-        </div>
-
-        {/* One sort control, not three chips. The toolbar used to carry ten
-            always-visible controls between this row and the page header;
-            what remains is search, sort, the page's one primary action
-            (Add tracks, up in the header) and this ⋯ for everything else. */}
-        <Select
-          aria-label="Sort tracks"
-          value={sort}
-          onChange={setSort}
-          options={SORTS}
-          className="w-36 [&>button]:h-9"
-        />
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="Playlist actions">
-              <IconDotsVertical size={16} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            {/* Shuffle's state is still on screen without opening this: the
-                summary under the playlist name says "shuffled" or "plays in
-                order". The check here is for changing it. */}
-            <DropdownMenuCheckboxItem
-              checked={playlist.order === "shuffle"}
-              disabled={locked || savingOrder}
-              onCheckedChange={() => onToggleOrder()}
-            >
-              <IconArrowsShuffle size={15} />
-              Shuffle
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuItem onClick={onAddFromLibrary} disabled={tracks === null}>
-              <IconPlaylistAdd size={15} />
-              Add from library
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onRename}>
-              <IconPencil size={15} />
-              Rename
-            </DropdownMenuItem>
-            {!playlist.is_default && (
-              <DropdownMenuItem onClick={onSetDefault}>
-                <IconStar size={15} />
-                Make default
-              </DropdownMenuItem>
-            )}
-            {!playlist.is_default && (
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <IconTrash size={15} />
-                Delete playlist
-              </DropdownMenuItem>
-            )}
-            {menuItems && (
-              <>
-                <DropdownMenuSeparator />
-                {menuItems}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <LibraryToolbar
+        query={query}
+        onQuery={(next) => {
+          setQuery(next)
+          setLimit(INITIAL_LIMIT)
+        }}
+        found={q !== "" ? visible.length : null}
+        placeholder="Search this playlist"
+        sort={sort}
+        onSort={setSort}
+        sorts={SORTS}
+        menuLabel="Playlist actions"
+        menu={menu}
+      />
 
       {belowToolbar}
 
       {tracks === null ? (
-        <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
-          <IconLoader2 size={16} className="animate-spin" />
+        <div className="flex items-center justify-center gap-2 border-t border-line py-14 text-body-sm text-muted-foreground">
+          <IconLoader2 className="size-4 animate-spin" />
           Loading playlist…
         </div>
       ) : members.length === 0 ? (
-        <div className="flex flex-col items-center text-center py-14 gap-2">
-          <IconPlaylist size={28} className="text-muted-foreground" />
-          <div className="text-sm font-medium">Nothing in {playlist.name} yet</div>
-          <p className="text-xs text-muted-foreground max-w-sm">
+        <div className="flex flex-col items-center gap-1.5 border-t border-line px-5.5 py-14 text-center">
+          <p className="text-body font-semibold">Nothing in {playlist.name} yet</p>
+          <p className="max-w-sm text-body-sm text-muted-foreground">
             {playlist.is_default
               ? "This is what plays when nothing else is scheduled — empty, the station goes on air to silence."
               : "Add tracks from your library, or drop files here to upload straight into it."}
           </p>
-          {/* "Add from library" lives in the ⋯ menu once the playlist has
-              rows; an empty playlist is exactly when it is needed, so it is
-              on the surface here. */}
-          <Button variant="outline" className="mt-2" onClick={onAddFromLibrary}>
-            <IconPlaylistAdd size={15} data-icon="inline-start" />
+          {/* In the ⋯ menu once there are rows; here it is what's needed. */}
+          <Button variant="subtle" className="mt-3" onClick={onAddFromLibrary}>
             Add from library
           </Button>
         </div>
       ) : (
         <>
-          <TrackListHeader />
+          <TrackListHeader fourth="Added" />
 
-          {/* `id` is not cosmetic — without it this tree fails to hydrate; see
-              the note on the library's previous single list: dnd-kit derives
-              aria ids from a module-scoped counter the server keeps
-              incrementing across requests. */}
+          {/* `id` is not cosmetic: dnd-kit derives aria ids from a
+              module-scoped counter, and without it this tree fails to hydrate. */}
           <DndContext
             id={`playlist-${playlist.id}`}
             sensors={sensors}
@@ -340,21 +275,14 @@ export function PlaylistView({
             </SortableContext>
           </DndContext>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border text-xs text-muted-foreground">
-            <span>
-              {q !== ""
-                ? `Showing ${shown.length} of ${visible.length} matches`
-                : `Showing ${shown.length} of ${members.length}`}
-              {!canReorder && members.length > 1 && (
-                <span className="ml-2 text-text-faint">{reorderHint}</span>
-              )}
-            </span>
-            {shown.length < visible.length && (
-              <Button variant="outline" size="sm" onClick={() => setLimit(visible.length)}>
-                Show all {visible.length}
-              </Button>
-            )}
-          </div>
+          {q !== "" && visible.length === 0 && (
+            <p className="border-t border-line px-5.5 py-8 text-body text-muted-foreground">Nothing matches “{query.trim()}”.</p>
+          )}
+
+          <LibraryFooter showAll={shown.length < visible.length ? { count: visible.length, onClick: () => setLimit(visible.length) } : undefined}>
+            {q !== "" ? `Showing ${shown.length} of ${visible.length} matches` : `Showing ${shown.length} of ${members.length}`}
+            {!canReorder && members.length > 1 && <span> {reorderHint}</span>}
+          </LibraryFooter>
         </>
       )}
     </>

@@ -6,7 +6,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { trackCount, type Playlist } from '../../lib/station';
 import { colors, SWATCHES } from '../../lib/theme';
 import { Overlay } from '../Overlay';
-import { Button, T, TextField } from '../ui';
+import { Button, Switch, T, TextField } from '../ui';
 
 /** One row of the week, as the editor handles it. `index` is its place in the saved list; null when new. */
 export type Entry =
@@ -19,6 +19,8 @@ export type Entry =
       start: string;
       end: string;
       playlistId: string;
+      /** 'hard' starts exactly on time; 'soft' after the song playing then ends. */
+      startMode: 'soft' | 'hard';
     };
 
 /** Monday first, as the week strip; values are the API's (0 = Sunday). */
@@ -125,7 +127,7 @@ export function ScheduleEditor({
         <T weight={400} size={14} tone="muted" lineHeight={1.45}>
           {draft.kind === 'show'
             ? 'Tells listeners when to tune in: it shows on your player page. Nothing starts on its own; you still press Go live.'
-            : 'What AutoDJ plays while you’re not live. It switches at the next track break, so it can start a minute or two late. Going live always takes over.'}
+            : 'What AutoDJ plays while you’re not live. It switches at the next track break, so it can start a minute or two late, unless you set it to start exactly on time. Going live always takes over.'}
         </T>
 
         <TextField
@@ -241,6 +243,27 @@ export function ScheduleEditor({
           </View>
         )}
 
+        {draft.kind === 'slot' && (
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: draft.startMode === 'hard' }}
+            onPress={() => update({ startMode: draft.startMode === 'hard' ? 'soft' : 'hard' })}
+            style={styles.toggle}
+          >
+            <View style={{ flex: 1, gap: 2 }}>
+              <T weight={600} size={15}>
+                Start exactly on time
+              </T>
+              <T weight={500} size={12} tone="faint" lineHeight={1.4}>
+                {draft.startMode === 'hard'
+                  ? `Starts at ${draft.start} on the dot. AutoDJ picks a song that ends in time, or fades out the one playing.`
+                  : `Starts after the song playing at ${draft.start} ends.`}
+              </T>
+            </View>
+            <Switch on={draft.startMode === 'hard'} />
+          </Pressable>
+        )}
+
         {!!error && (
           <T weight={600} size={13} tone="liveText" lineHeight={1.4} accessibilityRole="alert">
             {error}
@@ -338,5 +361,13 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   swatch: { width: 32, height: 32, borderRadius: 9 },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.bg,
+    borderRadius: 16,
+    padding: 14,
+  },
   delete: { alignItems: 'center', paddingVertical: 12 },
 });

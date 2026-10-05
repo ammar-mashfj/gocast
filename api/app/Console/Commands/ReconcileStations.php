@@ -195,7 +195,7 @@ class ReconcileStations extends Command
             }
 
             try {
-                $playlistWriter->write($station);
+                $playlistWriter->prepare($station);
                 $supervisor->up($station);
                 $this->line("  ✓ started {$slug}");
 
@@ -268,7 +268,7 @@ class ReconcileStations extends Command
 
             try {
                 $supervisor->removeContainer(LiquidsoapSupervisor::CONTAINER_PREFIX.$slug);
-                $playlistWriter->write($station);
+                $playlistWriter->prepare($station);
                 $supervisor->up($station);
 
                 Cache::put(self::RECREATES_PREFIX.$slug, $recreates + 1, now()->addHour());

@@ -1,6 +1,6 @@
 ---
 feature: Notifications and email (bell, transactional mail, outreach, station-live alerts, Resend webhook)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Notifications/Bell/BellNotification.php
   - api/app/Notifications/Bell/BellPayload.php
@@ -75,10 +75,8 @@ sources:
   - api/database/migrations/2026_04_20_122249_create_station_notify_subscriptions_table.php
   - api/database/migrations/2026_09_15_100000_add_created_at_index_to_notifications_table.php
   - api/database/migrations/2026_09_15_130100_create_email_suppressions_table.php
-  - client/components/dashboard/NotificationBell.tsx
   - client/components/dashboard/NotificationItem.tsx
   - client/components/dashboard/NotificationDetailDialog.tsx
-  - client/components/dashboard/NotificationIcon.tsx
   - client/hooks/useNotifications.ts
   - client/lib/notifications.ts
   - client/interfaces/Notification.ts
@@ -92,7 +90,8 @@ sources:
   - api/tests/Feature/PruneNotificationsTest.php
   - api/tests/Feature/SendAnnouncementTest.php
   - api/tests/Feature/Admin/RawEmailTest.php
-fingerprint: f0607d5cfdefd3bf
+  - client/components/dashboard/shell/UpdatesMenu.tsx
+fingerprint: 6b74c9f57d98536f
 ---
 
 # Notifications and email
@@ -114,8 +113,8 @@ Queued = the class `implements ShouldQueue`. Laravel queues one job per channel,
 
 | Class | Trigger (file) | Recipient | Channels | Queued | Dedup / throttle |
 |---|---|---|---|---|---|
-| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min, `/email/verify` 10/min |
-| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min |
+| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min (`throttle:6,1,email-resend`), `/email/verify` 10/min (`throttle:10,1,email-verify`) |
+| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min (`throttle:3,1,password-forgot`) |
 | `PasswordChangedNotification` | `PasswordResetController::reset` and `AccountController::updatePassword`; carries the request IP | the user | mail | yes | none |
 | `EmailChangedNotification` | `AccountController::updateProfile` when the email changed; routed with `Notification::route('mail', $previousEmail)` | the **old** address | mail | yes | none |
 | `WelcomeNotification` | `Verified` event listener in `AppServiceProvider` (email code verified, or Google sign-up) unless the account has both `invite_id` and a plan (then `InviteRedeemed`); a Google sign-up that is already verified fires no event | the user | database + mail | yes | fires once per `Verified` event; nothing else prevents a second |
@@ -167,11 +166,11 @@ Rows are always looked up through `$request->user()->notifications()->findOrFail
 
 ### Web UI (`client/`)
 
-- `NotificationBell` is mounted in `DashboardHeader`. Popover 22rem/24rem wide, feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications" with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
+- The bell is **Updates** (`components/dashboard/shell/UpdatesMenu.tsx`), a text button in the dashboard top bar with an unread count badge (`formatUnreadCount`, capped at the API's `capped_at`, e.g. "99+"). Popover `min(22rem, 100vw − 2rem)` wide (24rem from `sm`), feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications." with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
 - `useNotifications` polls `/notifications/unread-count` every 60 s **only while the tab is visible** (stops on hidden, refreshes on becoming visible if 60 s have passed). The feed loads when the popover opens. Read/mark-all/delete are optimistic with rollback and a sequence guard so an in-flight feed response cannot overwrite a newer mutation. The UI never passes `filter` or `category`.
-- `NotificationItem`: unread rows have a dot and a tint; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
-- `NotificationIcon` maps only these icon keys: `bell`, `radio`, `microphone`, `invite`, `plan-upgraded`, `plan-expired`, `megaphone`, `warning`. Anything else (including a custom announcement `icon`) renders the bell.
-- Level colours: `info` muted, `success` violet, `warning` foreground, `error` fault text.
+- `NotificationItem`: a dot before each row coloured by level while unread (`notificationDotClass` in `lib/notifications.ts`), grey once read; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
+- The web dashboard no longer draws the `icon` key (`NotificationIcon` was removed with the old header); the level dot replaces it. `icon` is still stored and sent.
+- Level dot colours (`LEVEL_DOTS`): `info` and `warning` off-white, `success` violet, `error` error red.
 - No realtime push: the only update paths are the 60 s poll and opening the popover. (`api/routes/channels.php` mentions moving the bell onto the Ably transport as a future idea; it is not done.)
 
 ### Mobile
@@ -180,7 +179,7 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Station-live alerts ("Notify me when live")
 
-1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60` (5 per 60 minutes per IP). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
+1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60,station-notify` (5 per 60 minutes per IP, its own counter). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
 2. **Trigger**: two places dispatch `SendStationLiveNotifications` with a **2-minute delay**: `StreamSessionController::store` (a broadcast session started via the API; skipped if the station was already live, sampled before closing stragglers and excluding a ghost session) and `StationEventController::openSession` (harbor/encoder connect event that opens a new session; not dispatched when an open session already exists).
 3. **Send**: the job (`SendStationLiveNotifications::handle`) exits silently if the station is gone or the specific session has ended. Otherwise it sends `StationLiveNotification` (mail only, queued) to every subscription with `notified_at IS NULL` via `Notification::route('mail', $email)` and stamps `notified_at` after handing each to the queue. Each subscription therefore gets one email per (re)subscription, ever.
 4. **Email**: subject "{Station} is live on GoCast", "Listen now" button to `{FRONTEND_URL}/station/{slug}`, footer "You asked us to let you know when this station started broadcasting." No unsubscribe link or header.
@@ -201,7 +200,7 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Inbound email and the Resend webhook
 
-`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1`), public but signed:
+`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1,resend-webhook`), public but signed:
 
 1. Empty `RESEND_WEBHOOK_SECRET` returns `503 Webhook not configured`.
 2. Svix signature checked with `Resend\WebhookSignature::verify` (`svix-id`, `svix-timestamp`, `svix-signature`); failure returns `401`.

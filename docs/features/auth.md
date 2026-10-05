@@ -1,6 +1,6 @@
 ---
 feature: Authentication and sessions
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/app/Http/Controllers/AuthController.php
   - api/app/Http/Controllers/GoogleAuthController.php
@@ -72,7 +72,12 @@ sources:
   - mobile/src/app/welcome.tsx
   - mobile/src/app/_layout.tsx
   - mobile/src/app/account.tsx
-fingerprint: 427b0ee7f764aa68
+  - client/hooks/useEmailVerification.ts
+  - client/components/dashboard/account/VerifyEmailDialog.tsx
+  - client/components/dashboard/account/ProfileForm.tsx
+  - client/components/dashboard/account/PasswordForm.tsx
+  - client/components/dashboard/account/DeleteAccount.tsx
+fingerprint: 322605d5ac5ead0d
 ---
 
 # Authentication and sessions
@@ -142,14 +147,14 @@ All under `routes/api.php`, prefixed `/api`.
 | `GET /auth/google` | none | `auth` | `GoogleAuthController::redirect` |
 | `GET /auth/google/callback` | none | `auth` | `GoogleAuthController::callback` |
 | `POST /auth/google/native` | none | `auth` | `GoogleAuthController::native` |
-| `POST /auth/password/forgot` | none | `auth` + `3,1` | `PasswordResetController::forgot` |
-| `POST /auth/password/reset` | none | `auth` + `10,1` | `PasswordResetController::reset` |
+| `POST /auth/password/forgot` | none | `auth` + `3,1,password-forgot` | `PasswordResetController::forgot` |
+| `POST /auth/password/reset` | none | `auth` + `10,1,password-reset` | `PasswordResetController::reset` |
 | `GET /invites/{code}` | none | `auth` | `InviteController::show` (see [accounts doc](accounts-plans-invites.md)) |
 | `POST /logout` | sanctum | none | `AuthController::logout` |
 | `GET /user` | sanctum | none | `AuthController::user` |
-| `POST /invites/redeem` | sanctum | `10,1` | `InviteController::redeem` |
-| `POST /email/resend` | sanctum | `6,1` | `EmailVerificationController::send` |
-| `POST /email/verify` | sanctum | `10,1` | `EmailVerificationController::verify` |
+| `POST /invites/redeem` | sanctum | `10,1,invite-redeem` | `InviteController::redeem` |
+| `POST /email/resend` | sanctum | `6,1,email-resend` | `EmailVerificationController::send` |
+| `POST /email/verify` | sanctum | `10,1,email-verify` | `EmailVerificationController::verify` |
 | `PATCH /account/profile` | sanctum | none | `AccountController::updateProfile` |
 | `PATCH /account/password` | sanctum | none | `AccountController::updatePassword` |
 | `DELETE /account` | sanctum | none | `AccountController::destroy` |
@@ -161,14 +166,14 @@ Notifications routes and `POST /waitlist/pro` are inside `auth:sanctum` but outs
 
 ### Throttles, exactly
 
-Defined in `AppServiceProvider::boot()` and inline (`throttle:N,M` means N requests per M minutes):
+Defined in `AppServiceProvider::boot()` and inline (`throttle:N,M,prefix` means N requests per M minutes, counted under its own prefix; every inline throttle in `routes/api.php` names one, so routes no longer share a single per-user counter):
 
 | Limiter | Limit | Keyed by |
 |---|---|---|
 | `auth` | **10 per minute** | IP (`$request->ip()`, trusted proxies give the real client IP) |
-| `throttle:3,1` on `/password/forgot` | 3 per minute | user id if authenticated, else IP |
-| `throttle:10,1` on `/password/reset`, `/email/verify`, `/invites/redeem` | 10 per minute | user id, or IP for reset |
-| `throttle:6,1` on `/email/resend` | 6 per minute | user id |
+| `throttle:3,1,password-forgot` on `/password/forgot` | 3 per minute | user id if authenticated, else IP |
+| `throttle:10,1,password-reset` / `email-verify` / `invite-redeem` on `/password/reset`, `/email/verify`, `/invites/redeem` | 10 per minute each, separate counters | user id, or IP for reset |
+| `throttle:6,1,email-resend` on `/email/resend` | 6 per minute | user id |
 | `internal` | 300 per minute | IP |
 | login lockout (below) | 5 failures then 15 min | email + IP |
 
@@ -271,7 +276,7 @@ On success: `signInGoogleUser`, then `200 {data: UserResource (with plan), token
 
 ### Web UI
 
-There is **no standalone verify page**. `VerifyEmailDialog` is a modal used by the login page, the register page and the Account page. It cannot be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
+There is **no standalone verify page**. The flow is `client/hooks/useEmailVerification.ts`, drawn by two dialogs: `components/auth/VerifyEmailDialog.tsx` (marketing kit) on the login and register pages, and `components/dashboard/account/VerifyEmailDialog.tsx` (dashboard ds kit) on the Account page. Neither can be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
 
 The login and register pages open the dialog when the `user` cookie shows an unverified account, so a person returning with a dangling unverified session lands on the modal, not on a form.
 
@@ -294,9 +299,9 @@ A reset works on a Google-only account too (it has no password; the reset sets o
 - `name`: `sometimes|required|string|max:255`. `email`: `sometimes|required|string|email|max:255`, unique ignoring self. `current_password`: required **only when the email is changing**, and must satisfy Laravel's `current_password` rule.
 - On email change: `email_verified_at = null`, new verification code sent, and an `EmailChangedNotification` sent on demand to the **old** address (`Notification::route('mail', $previousEmail)`).
 - Existing tokens are **not** revoked on an email change.
-- A Google-only account has no password, so it **cannot change its email** through this endpoint (`current_password` is required and cannot pass). The web Account page shows the password field for any email edit; a Google user must first use "Set password".
+- A Google-only account has no password, so it **cannot change its email** through this endpoint (`current_password` is required and cannot pass). The web Account page shows the "Current password" field as soon as the email is edited; a Google user must first use "Set a password".
 - Response: `{data: $user->fresh(), message}` (raw model).
-- Web: `client/app/dashboard/settings/page.tsx`. After an email change it saves the new cookie and opens `VerifyEmailDialog`.
+- Web: `client/components/dashboard/account/ProfileForm.tsx` (on `/dashboard/settings`). After an email change it saves the new cookie and, when the new address is unverified, opens the dashboard's `VerifyEmailDialog`.
 
 ### Password: `PATCH /account/password` (`UpdatePasswordRequest`)
 - `current_password` required only if the account has a password (`password !== null`), must pass `current_password`; `password` required, min 8, `confirmed`, `different:current_password`.
@@ -311,7 +316,7 @@ A reset works on a Google-only account too (it has no password; the reset sets o
 
 `POST /logout` deletes **only the current token** (`currentAccessToken()->delete()`), and clears the `token` cookie. Other devices stay signed in. **It does not fire Laravel's `Logout` event**, so nothing sets `logout_at` (see gaps).
 
-- Web: `useSignOut()` is the single path (sidebar menu, homepage user menu). If a broadcast is `live`, `reconnecting` or `connecting` and the caller has not already confirmed, it asks `window.confirm` first ("Sign out will end your broadcast."). It posts `/logout` best-effort, calls `clearAuth()` (removes the `user` cookie and a legacy JS-readable `token`), toasts, and pushes to `/` (a shared module-level flag disables every sign-out button while in flight).
+- Web: `useSignOut()` is the single path (sidebar menu, homepage user menu). If a broadcast is `live`, `reconnecting` or `connecting` and the caller has not already confirmed, it asks `window.confirm` first ("Sign out will end your broadcast."). The dashboard sidebar asks with its own dialog ("Sign out and end your broadcast?") and passes `confirmed`. It posts `/logout` best-effort, calls `clearAuth()` (removes the `user` cookie and a legacy JS-readable `token`), toasts, and pushes to `/` (a shared module-level flag disables every sign-out button while in flight).
 - Mobile: `signOut()` posts `/logout` ignoring errors, then `endSession()`: drops the token from memory and SecureStore, sets state to `signedOut`, and calls the native Google module's `signOut()`. The Account screen stops a live broadcast first and confirms if on air.
 
 ## Web: how the browser stays signed in
@@ -323,12 +328,12 @@ Files: `client/actions/auth.ts`, `client/lib/cookies.ts`, `client/lib/session.ts
 
 ### `proxy.ts` (Next.js middleware)
 Matcher excludes `api`, `embed`, `_next/static`, `_next/image`, `.png`, `.svg`. It reads `token` and the parsed `user` cookie:
-- `/auth/login` or `/auth/register` with a token **and** a verified `user` cookie: redirect to `/dashboard/stations`.
+- `/auth/login` or `/auth/register` with a token **and** a verified `user` cookie: redirect to `/dashboard/stations`, **unless** the URL carries `?expired=1` (sent by `redirectIfSessionExpired` after a server-side 401; bouncing it would loop back to the same 401).
 - `/dashboard*` without a token or without a verified `user` cookie: redirect to `/auth/login`.
 It never validates the token, and `email_verified_at` comes from a cookie the visitor can edit. It is a UX redirect only.
 
 ### Dashboard layout (server)
-`app/dashboard/layout.tsx` requires both cookies, `JSON.parse`s the user cookie **without a try/catch**, redirects an unverified user to `/auth/login` (which reopens the dialog), then calls `GET /user` and the station lookup in parallel. A failed `/user` is not fatal: `Account = {email, plan: null}`, and consumers must treat `null` as "unknown", not "free" (`usePlan()`, `useAutoDjLocked()` and siblings in `AccountContext.tsx`). `RealtimeProvider` gets `userId` from the cookie.
+`app/dashboard/layout.tsx` requires both cookies, `JSON.parse`s the user cookie **without a try/catch**, redirects an unverified user to `/auth/login` (which reopens the dialog), then calls `GET /user` and the station lookup in parallel. A `/user` 401 calls `redirectIfSessionExpired` (`lib/api-server.ts`), which redirects to `/auth/login?expired=1`; the layout wraps every dashboard route, the client-rendered studio included, so this is the catch-all. The server-rendered pages (overview, library, schedule, settings, audience, broadcasts) call it on their own fetches too, since they render in parallel. Any other `/user` failure is not fatal: `Account = {email, plan: null}`, and consumers must treat `null` as "unknown", not "free" (`usePlan()`, `useAutoDjLocked()` and siblings in `AccountContext.tsx`). `RealtimeProvider` gets `userId` from the cookie.
 
 ### `getSession()` (`lib/session.ts`)
 For server components (marketing navbar and hero CTA). Signed in only if **both** `token` and `user` cookies are present and the user cookie parses; any disagreement is "signed out" so a stranger is never shown "Open dashboard". A parse error returns null instead of throwing, because it runs in the marketing layout.
@@ -341,7 +346,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 - `/auth/login`: email and password, "Forgot password?", "Continue with Google". On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).
 - `/auth/register`: name, email, password, confirm, Google button. Reads `?invite=` and calls `GET /invites/{code}` on load to show a banner (`valid`, `closed used/expired`, `invalid`, or `unchecked` when the lookup failed for a non-404 reason). The submit button is disabled while checking. `invite_code` is only sent when the state is `valid` or `unchecked`. The Google button passes the code on the popup URL only in those states. Field errors from the API are placed under their inputs, and an email "taken" error offers "Sign in instead". Password 8-char rule is client-validated too.
 - `/auth/layout.tsx`: `robots: noindex, follow`, logo, dark background.
-- `Account` page (`/dashboard/settings`, "Account"): profile, change or set password, danger zone with typed-email confirmation. It seeds its form from the `user` cookie, not from the API.
+- `Account` page (`/dashboard/settings`, "Account", `components/dashboard/account/`): plan card, profile (Save disabled until something changed), password ("Password": current + new, or "Set a password": new only; one new-password field with Show/Hide, `password_confirmation` sent equal to it), and "Delete account…" with a typed-email `ConfirmDialog`. It seeds its forms from the `user` cookie after mount, not from the API.
 
 ## Mobile
 
@@ -404,7 +409,7 @@ Server-to-server calls use a shared secret, not a token.
 5. **Reset and verify code attempt limits are resettable.** `forgot`, `resend`, register and login all re-issue a code with `attempts = 0`. The 5-attempt cap only bounds one issued code; the real brute-force brake is the throttle (3/min forgot per IP, 10/min reset per IP, 10/min verify per user). A six-digit space is small against a distributed attacker.
 6. **No token pruning.** `sanctum:prune-expired` is not scheduled anywhere (`routes/console.php`). Each login adds a token row and expired rows stay forever. Mobile logins pile up as `GoCast app (android)` rows the same way.
 7. **Tokens are never refreshed or rotated.** A fixed 30-day life: a signed-in user is signed out on day 30 at a random moment (a 401, the `?expired=1` toast). There is no "list or revoke my sessions" endpoint. The mobile code comments mention "revoked from the web's sessions list"; that list does not exist.
-8. **The two web cookies expire on different clocks.** `user` lives 7 days, `token` 30. After 7 days `proxy.ts` and the dashboard layout redirect to login even though the token is valid (an unnecessary re-login). In the other direction, a revoked or expired token with a fresh `user` cookie renders the dashboard shell; server-component `apiFetch` calls then throw `ApiFetchError` 401 (an error page) until a client axios 401 triggers the redirect. `apiFetch` has no 401 handling.
+8. **The two web cookies expire on different clocks.** `user` lives 7 days, `token` 30. After 7 days `proxy.ts` and the dashboard layout redirect to login even though the token is valid (an unnecessary re-login). In the other direction, a revoked or expired token with a fresh `user` cookie passes `proxy.ts`; the dashboard layout's `/user` call then gets a 401 and `redirectIfSessionExpired` sends the visitor to `/auth/login?expired=1`. `apiFetch` itself still has no 401 handling (on purpose: the public station page shares it, and a 401 there must not send a listener to a login form), so a new dashboard server fetch that catches its own errors must call `redirectIfSessionExpired` or it will show an error page instead. The stale `user` cookie is not cleared by the server redirect; the `?expired=1` exemption in `proxy.ts` is what lets the login page render.
 9. **The `user` cookie is client-controlled** and trusted by `proxy.ts` and the layout for `email_verified_at` and `id`. That is safe only because the API re-checks everything; do not put an authorisation decision on it. `RealtimeProvider` takes `userId` from it.
 10. **`JSON.parse` on the `user` cookie has no try/catch in `app/dashboard/layout.tsx` and in `getUser()`.** A corrupt cookie throws (`getSession()` is the only guarded reader).
 11. **axios reads `token` via `document.cookie`,** which cannot see an HttpOnly cookie. The branch is dead in a current session; auth works through the cookie header alone. Removing the cookie-reading code, or making `token` readable, would change behaviour, so leave it.

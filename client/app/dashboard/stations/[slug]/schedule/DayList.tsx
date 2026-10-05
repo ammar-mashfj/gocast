@@ -3,11 +3,12 @@
 import { useState } from "react"
 import Link from "next/link"
 import { IconPlus } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import { cn } from "@/lib/utils"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { StationSchedule } from "@/interfaces/Station"
 import { DAY_NAMES } from "./days"
+import { weekDates } from "./weekDates"
 import { WEEK_ORDER, type Swatch } from "./WeekGrid"
 import { DAY_MINUTES, freeSpanAt, segments, toClock, type Block } from "./weekModel"
 
@@ -123,19 +124,19 @@ export function DayList({
               aria-label={DAY_NAMES[weekday]}
               onClick={() => setPicked(weekday)}
               className={cn(
-                "flex h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl transition-colors motion-reduce:transition-none",
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet",
-                on ? "bg-foreground text-background" : "bg-white/[0.04] text-foreground hover:bg-white/[0.07]",
+                "flex h-17 cursor-pointer flex-col items-center justify-center gap-1 rounded-button transition-colors motion-reduce:transition-none",
+                "outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                on ? "bg-foreground text-background" : "bg-card text-foreground hover:bg-surface-raised",
               )}
             >
-              <span className={cn("font-mono text-[10.5px] font-semibold tracking-[0.08em]", !on && "text-muted-foreground")}>
+              <span className={cn("eyebrow-sm", !on && "text-muted-foreground")}>
                 {DAY_LABEL[weekday]}
               </span>
-              <span className={cn("text-lg font-bold leading-5 tabular-nums", weekday === today && !on && "text-violet")}>
-                {dates ? dates[i] : " "}
+              <span className={cn("font-display text-meter-sm font-extrabold tabular-nums", weekday === today && !on && "text-on-air-text")}>
+                {dates ? dates[i].getDate() : " "}
               </span>
               <span className="flex h-1.5 items-center gap-1" aria-hidden="true">
-                {hasShow && <span className="size-1.5 rounded-full bg-live" />}
+                {hasShow && <span className={cn("size-1.5 rounded-full", on ? "bg-background/50" : "bg-foreground/45")} />}
                 {hasSlot && <span className={cn("size-1.5 rounded-full", on ? "bg-background/60" : "bg-on-air")} />}
               </span>
             </button>
@@ -144,21 +145,22 @@ export function DayList({
       </div>
 
       {empty ? (
-        <p className="rounded-xl bg-white/[0.03] px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="border-t border-line px-1 py-3.5 text-sm text-muted-foreground">
           {locked
             ? `Nothing on ${DAY_NAMES[day]}.`
             : `Nothing on ${DAY_NAMES[day]} yet. ${defaultPlaylist?.name ?? "Your default playlist"} plays all day.`}
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col [&>li+li]:border-t [&>li+li]:border-line">
           {dayShows.map((show) => (
             <li key={`show-${show.id}`}>
               <Link
                 href={showsHref}
                 title="Edit in Station settings"
-                className="flex gap-3.5 rounded-xl bg-white/[0.03] p-3.5 hover:bg-white/[0.05]"
+                className="flex gap-3.5 rounded-control px-1 py-3 hover:bg-card"
               >
-                <span aria-hidden="true" className="w-1 shrink-0 rounded-full bg-live" />
+                {/* Your show times: dashed, not red — red is live right now. */}
+                <span aria-hidden="true" className="w-0 shrink-0 border-l-3 border-dashed border-foreground/40" />
                 <Row time={show.start_time} title={show.label || "Show time"} sub="Show time · on your player page" />
               </Link>
             </li>
@@ -175,8 +177,8 @@ export function DayList({
                   disabled={readOnly}
                   onClick={() => onSelect(s.block.key)}
                   className={cn(
-                    "flex w-full gap-3.5 rounded-xl bg-white/[0.03] p-3.5 text-left",
-                    !readOnly && "cursor-pointer hover:bg-white/[0.05]",
+                    "flex w-full gap-3.5 rounded-control px-1 py-3 text-left",
+                    !readOnly && "cursor-pointer hover:bg-card",
                     clash && "outline-2 outline-offset-1 outline-fault",
                   )}
                 >
@@ -187,7 +189,8 @@ export function DayList({
                     sub={
                       clash
                         ? "Overlaps another slot"
-                        : describe(playlist, s.block.label.trim() ? (playlist?.name ?? "AutoDJ") : "AutoDJ")
+                        : describe(playlist, s.block.label.trim() ? (playlist?.name ?? "AutoDJ") : "AutoDJ") +
+                          (s.head && s.block.startMode === "hard" ? " · starts on time" : "")
                     }
                     subTone={clash ? "fault" : undefined}
                     now={inNow(s.from, s.to)}
@@ -198,7 +201,7 @@ export function DayList({
           })}
 
           {!locked && daySegments.length === 0 && (
-            <li className="flex gap-3.5 rounded-xl bg-white/[0.03] p-3.5">
+            <li className="flex gap-3.5 px-1 py-3">
               <span aria-hidden="true" className="w-1 shrink-0 rounded-full bg-on-air/50" />
               <Row
                 time="All day"
@@ -213,17 +216,17 @@ export function DayList({
 
       {!locked && !readOnly && (
         <Button
-          type="button"
-          variant="outline"
-          className="w-full"
+          size="lg"
+          variant="ghost"
+          full
           disabled={addSpan === null}
           title={addSpan === null ? `${DAY_NAMES[day]} is full.` : undefined}
           onClick={() => addSpan && onCreate(day, addSpan)}
         >
-          <IconPlus data-icon="inline-start" />
+          <IconPlus />
           Add slot on {DAY_NAMES[day]}
           {addSpan && (
-            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+            <span className="font-mono text-caption text-muted-foreground tabular-nums">
               {toClock(addSpan[0])}–{toClock(addSpan[1])}
             </span>
           )}
@@ -249,43 +252,15 @@ function Row({
   return (
     <>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="font-mono text-[12px] text-muted-foreground tabular-nums">{time}</span>
-        <span className="truncate text-[15px] font-semibold">{title}</span>
-        <span className={cn("truncate text-xs", subTone === "fault" ? "text-fault-text" : "text-muted-foreground")}>{sub}</span>
+        <span className="font-mono text-caption text-muted-foreground tabular-nums">{time}</span>
+        <span className="truncate font-display text-lead font-bold">{title}</span>
+        <span className={cn("truncate text-body-sm", subTone === "fault" ? "text-fault-text" : "text-text-faint")}>{sub}</span>
       </span>
       {now && (
-        <span className="h-fit shrink-0 rounded-md bg-on-air px-1.5 py-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-black">
+        <span className="h-fit shrink-0 rounded-tag bg-on-air px-1.5 py-1 eyebrow-sm text-live-ink">
           NOW
         </span>
       )}
     </>
   )
-}
-
-/**
- * The day-of-month for each of this week's days, Monday first, on the
- * station's calendar (or the browser's without a zone). A station in Tokyo
- * can already be on tomorrow when its owner in Lisbon opens the page.
- */
-function weekDates(timeZone: string | null): number[] {
-  let today: Date
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timeZone ?? undefined,
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-    }).formatToParts(new Date())
-    const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "", 10)
-    today = new Date(get("year"), get("month") - 1, get("day"))
-  } catch {
-    today = new Date()
-  }
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
-  return WEEK_ORDER.map((_, i) => {
-    const d = new Date(monday)
-    d.setDate(monday.getDate() + i)
-    return d.getDate()
-  })
 }

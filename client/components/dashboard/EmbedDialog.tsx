@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { copyText } from "@/lib/clipboard"
 import { IconCheck, IconCopy } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ds/Dialog"
 import { EMBED_HEIGHT, embedSnippet, embedUrl } from "@/lib/embed"
 
 interface EmbedDialogProps {
@@ -34,6 +35,7 @@ interface EmbedDialogProps {
  */
 export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDialogProps) {
   const [copied, setCopied] = useState(false)
+  const copyRef = useRef<HTMLButtonElement>(null)
   const snippet = embedSnippet(slug, stationName)
 
   useEffect(() => {
@@ -43,22 +45,26 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
   }, [copied])
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(snippet)
-      setCopied(true)
-    } catch {
-      toast.error("Couldn't copy — select the code and copy it manually")
-    }
+    if (await copyText(snippet)) setCopied(true)
+    else toast.error("Couldn't copy — select the code and copy it manually")
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Focus starts on Copy, not in the preview: inside the iframe, Esc
+          goes to the player and the dialog can't hear it. */}
+      <DialogContent
+        size="lg"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          copyRef.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Embed on your site</DialogTitle>
           <DialogDescription>
             Paste this where you want the player to appear. Listeners on your site
-            count toward {stationName}&apos;s audience like any other.
+            count toward {stationName}’s audience like any other.
           </DialogDescription>
         </DialogHeader>
 
@@ -68,7 +74,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
             snippet below does not jump when the player loads. */}
         {open && (
           <div
-            className="overflow-hidden rounded-lg border border-border bg-background"
+            className="overflow-hidden rounded-chip border border-border bg-background"
             style={{ height: EMBED_HEIGHT }}
           >
             <iframe
@@ -88,7 +94,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
               of the first line on a phone; it lives in the footer now. */}
           <pre
             aria-label="Embed code"
-            className="overflow-x-auto whitespace-pre rounded-lg border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed text-text-secondary"
+            className="overflow-x-auto whitespace-pre rounded-chip border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed text-text-secondary"
           >
             <code>{snippet}</code>
           </pre>
@@ -100,7 +106,7 @@ export function EmbedDialog({ open, onOpenChange, slug, stationName }: EmbedDial
         </div>
 
         <DialogFooter>
-          <Button onClick={copy} className="w-full sm:w-auto">
+          <Button ref={copyRef} size="lg" onClick={copy}>
             {copied ? <IconCheck data-icon="inline-start" /> : <IconCopy data-icon="inline-start" />}
             <span>{copied ? "Copied" : "Copy code"}</span>
           </Button>

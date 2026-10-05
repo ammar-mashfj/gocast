@@ -72,6 +72,7 @@ class TrackFactory extends Factory
             'true_peak_db' => $truePeakDb,
             'cue_in_seconds' => $cueIn,
             'cue_out_seconds' => $cueOut ?? max(10.0, ((float) ($attributes['duration_seconds'] ?? 180)) - 2.0),
+            'duration_measured_at' => now(),
             'analyzed_at' => now(),
             'analysis_error' => null,
         ]);

@@ -1,6 +1,6 @@
 ---
 feature: Configuration reference (every env var and config key)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/config/activitylog.php
   - api/config/analytics.php
@@ -33,6 +33,7 @@ sources:
   - api/app/Http/Resources/StationResource.php
   - api/app/Http/Controllers/GoogleAuthController.php
   - api/app/Services/TrackAnalyzer.php
+  - api/app/Services/AutoDjScheduler.php
   - api/app/Console/Commands/ReconcileStations.php
   - api/app/Services/AdminTelegram.php
   - api/app/Jobs/SendAdminTelegramAlert.php
@@ -75,7 +76,7 @@ sources:
   - mobile/src/lib/auth.tsx
   - mobile/src/broadcast/broadcastManager.ts
   - mobile/scripts/ingest-proxy.mjs
-fingerprint: 69fdb2202c439477
+fingerprint: f2c8753e9a07e87a
 ---
 
 # Configuration reference
@@ -90,7 +91,7 @@ Notation used in tables: **Prod / Dev / Test** says whether the value must be se
 
 - No file under `api/app`, `api/routes`, `api/bootstrap`, `api/database` or `api/resources` calls `env()` (grepped). Everything goes through `config(...)`, so `config:cache` is safe. The tables below are therefore the complete list of what the API reads from the environment (plus Laravel's own framework config, see below).
 - Laravel 11+ merges `vendor/laravel/framework/config/*.php` under the app's config. `api/config/hashing.php` does not exist in the repo, so `BCRYPT_ROUNDS` is read from the framework's `hashing.php` (`'rounds' => env('BCRYPT_ROUNDS', 12)`), not from any app file. That is why it looks "unread" in a grep of `api/config`.
-- `APP_ENV` matters in exactly two app code paths: `LiquidsoapSupervisor::inTestMode()` (`app()->runningUnitTests()`, `LiquidsoapSupervisor.php:181`) and `E2EAuthCommand` (`app()->environment(['local','testing'])`). See "Test environment" below.
+- `APP_ENV` matters in exactly two app code paths: `LiquidsoapSupervisor::inTestMode()` (`app()->runningUnitTests()`, `LiquidsoapSupervisor.php:159`) and `E2EAuthCommand` (`app()->environment(['local','testing'])`). See "Test environment" below.
 - `api/config/app.php` hardcodes `timezone` to `UTC` (no env var). All schedule and station times are stored in UTC; per-station timezones are a separate data concern (see [Schedule](schedule.md)).
 - Laravel's `.env` is loaded by the app only when config is not cached. On the native host `config:cache` is on, so `.env` edits need `php artisan config:cache` (deploy does it). Anything a subprocess needs (`DOCKER_HOST`) must be a real process env var, see "Native host".
 
@@ -120,7 +121,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `SESSION_DOMAIN` | none (null) | `.gocast.fm` | Sessions **and** the auth cookie's domain: `AuthController::authCookie()`/`forgetAuthCookie()` (`AuthController.php:157,170`) and `GoogleAuthController.php:308`. Wrong or unset in prod means the cookie is host-only on `api.` and the web app on `gocast.fm` never sees it. | required / unset / - |
 | `SESSION_PATH`, `SESSION_ENCRYPT`, `SESSION_EXPIRE_ON_CLOSE`, `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE`, `SESSION_PARTITIONED_COOKIE`, `SESSION_CONNECTION`, `SESSION_STORE`, `SESSION_TABLE`, `SESSION_COOKIE` | `/`, false, false, null, true, `lax`, false, null, null, `sessions`, `{app-slug}-session` | first two listed | Stock session settings (vendor). The auth cookie itself is built with `secure = $request->isSecure()`, `httpOnly = true`, `sameSite = lax` in code, not from these. | default ok |
 | `CACHE_STORE` | `database` | `redis` | Default cache (vendor and app `Cache::`). `CACHE_PREFIX`, `DB_CACHE_*`, `REDIS_CACHE_*`, `MEMCACHED_*`, `DYNAMODB_*` are stock store options. The scheduler's `onOneServer`/locks and reconciler strike counters use this. | required / any / forced `array` |
-| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `DB_QUEUE*`, `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
+| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `REDIS_QUEUE_RETRY_AFTER` defaults to **1800** s (not the stock 90): it must stay above the longest job timeout, `AnalyzeTrack` scaling up to `TrackAnalyzer::MAX_TIMEOUT_SECONDS` + 30 for a long mix. `DB_QUEUE*`, other `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
 | `DB_CONNECTION` | `sqlite` | `mysql` | Default DB. Tests force `mysql`, not sqlite. | required `mysql` / `mysql` / forced `mysql` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `127.0.0.1`, `3306`, `laravel`, `root`, empty | `127.0.0.1`, `3306`, `gocast`, `gocast`, blank | MySQL connection. Tests force `DB_DATABASE=gocast_test` and clear `DB_URL`. | required / required / partly forced |
 | `DB_URL`, `DB_SOCKET`, `DB_CHARSET` (`utf8mb4`), `DB_COLLATION` (`utf8mb4_unicode_ci`), `DB_FOREIGN_KEYS`, `DB_SSLMODE`, `MYSQL_ATTR_SSL_CA`, `DB_ENCRYPT`, `DB_TRUST_SERVER_CERTIFICATE` | see config | not listed | Stock DB options; `DB_ENCRYPT` and `DB_TRUST_SERVER_CERTIFICATE` are inside commented lines in `database.php` (dead). | default ok |
@@ -137,7 +138,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `FILESYSTEM_DISK` | `local` | `local` | Default disk. Uploads go to the `public` disk (`storage/app/public`, symlinked by deploy); `s3` is defined but nothing stores to it. | default ok |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_URL`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | none | listed, blank | S3/SES/SQS/DynamoDB options. **Nothing in `app/` uses the `s3` disk, SES or SQS**; these are template residue (see Gaps). | unused |
 | `ACTIVITYLOG_ENABLED` (true), `ACTIVITYLOG_BUFFER_ENABLED` (false) | see left | not listed | Spatie activity log (vendor); the app calls `activity()` from the admin controllers (`AccountController`, `InviteController`, `AnnouncementController`). `clean_after_days` is a literal 365. | default ok |
-| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. | optional / unset / -  |
+| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. Tests force it blank (`phpunit.xml` and `TestCase`), because a live DSN in `api/.env` turned every failure-asserting test into a real Sentry issue. | optional / unset / forced blank |
 | `SENTRY_SEND_DEFAULT_PII` | `false` | `false` | `sentry.send_default_pii`. | default ok |
 | `SENTRY_TRACES_SAMPLE_RATE` | null | `0` | Performance tracing rate. Anything above 0 in dev adds visible latency to every API call. | default ok / `0` |
 | `SENTRY_SAMPLE_RATE` (1.0), `SENTRY_PROFILES_SAMPLE_RATE`, `SENTRY_RELEASE`, `SENTRY_ENVIRONMENT`, `SENTRY_ORG_ID`, `SENTRY_STRICT_TRACE_CONTINUATION`, `SENTRY_ENABLE_LOGS`, `SENTRY_LOG_FLUSH_THRESHOLD`, `SENTRY_LOG_LEVEL`/`SENTRY_LOGS_LEVEL`, `SENTRY_SPOTLIGHT` (commented out) and the 30-odd `SENTRY_BREADCRUMBS_*` / `SENTRY_TRACE_*` toggles | see `sentry.php` | not listed | Stock sentry-laravel options, all default. `ignore_transactions` is a literal `['/up']`. | default ok |
@@ -149,14 +150,14 @@ From `api/config/services.php`. The "reader" is the app file that consumes the k
 | Variable | Default | Meaning | Reader | Prod / Dev / Test |
 |---|---|---|---|---|
 | `FRONTEND_URL` | `http://localhost:5173` | Public web app origin. Builds every link in emails, bell payloads, Telegram alerts and the Google OAuth return redirect. **The default is the old Vite port; the web dev server is `:3000`**, so leaving it unset in dev sends emails pointing at a dead port. | `Notifications/{StationLive,InactiveBroadcasterNudge,Welcome,ProAccessGranted,InviteRedeemed,PlanExpired}Notification.php`, `Notifications/Bell/BellPayload.php:253`, `Models/Invite.php:196`, `Services/AdminTelegram.php:182`, `resources/views/admin/{station,stations}.blade.php`, `GoogleAuthController.php:323` (fallback `http://localhost:3000` is unreachable because the config default is non-null; a value that does not parse to an origin makes it `abort(500)`) | required / set to `:3000` / - |
-| `INTERNAL_API_KEY` | none | Shared secret for `/api/internal/*` and for the station harbor status endpoint. Empty makes `VerifyInternalKey` throw `RuntimeException('INTERNAL_API_KEY is not configured')` (a 500), so **nobody can go live**. It is written into every rendered `.liq` file (`station.blade.php:127,187,492,1108,1267`) and sent as `X-Internal-Key` by `StationStatusService` (`:284`). | `Http/Middleware/VerifyInternalKey.php`, `LiquidsoapSupervisor.php:1136`, `StationStatusService.php:284` | required / required / any |
+| `INTERNAL_API_KEY` | none | Shared secret for `/api/internal/*` and for the station harbor status endpoint. Empty makes `VerifyInternalKey` throw `RuntimeException('INTERNAL_API_KEY is not configured')` (a 500), so **nobody can go live**. It is written into every rendered `.liq` file (`station.blade.php:126,186,502,993,1152`) and sent as `X-Internal-Key` by `StationStatusService` (`:284`). | `Http/Middleware/VerifyInternalKey.php`, `LiquidsoapSupervisor.php:1056`, `StationStatusService.php:284` | required / required / any |
 | `RENDER_API_KEY` | none | Lifts the `public` rate limit (60/min/IP) for requests carrying a matching `X-Render-Key` (the Next server's SSR fetches). Blank means no exemption and nothing else breaks. Must equal the client's `RENDER_API_KEY`. | `Providers/AppServiceProvider.php:54` | required for SEO safety / optional / - |
 | `RESEND_API_KEY` | none | Resend API key: the `resend` mailer transport (vendor) and the inbound-email lookup. | vendor mail; `Webhooks/Resend/EmailReceived.php:30` | required if `MAIL_MAILER=resend` |
 | `RESEND_WEBHOOK_SECRET` | none | Svix signing secret for `POST /api/webhooks/resend`. Blank makes the endpoint answer 503 to everything. | `ResendWebhookController.php:38` | required only for inbound-email alerts |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_CHAT_ID` | none | Operator alerts. Alerts are off (no error) when **either** the token or the chat id is blank. `phpunit.xml` blanks the token so tests never message the real chat. | `Jobs/SendAdminTelegramAlert.php:31-32`, `Services/AdminTelegram.php:170` (blank-check covers both values) | optional / optional / forced blank token |
 | `GOOGLE_CLIENT_ID` | none | Google web OAuth client ID. Also the audience the native token verifier requires (mobile app). | `Services/GoogleIdTokenVerifier.php:43`; Socialite (vendor) | required for Google sign-in |
 | `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | none | Web OAuth secret and callback (`${APP_URL}/api/auth/google/callback`). Read by Socialite's google driver (`services.google.*`), not by app code. | `Laravel\Socialite` (vendor) | required for web Google sign-in |
-| `ICECAST_SOURCE_PASSWORD` | none | Password each station's `output.icecast` uses to publish; rendered into the `.liq` (`station.blade.php:1284`, `LiquidsoapSupervisor.php:1133`). Also substituted into Icecast's own config by `setup-native.sh`. | `LiquidsoapSupervisor.php`, `station.blade.php` | required / required / any |
+| `ICECAST_SOURCE_PASSWORD` | none | Password each station's `output.icecast` uses to publish; rendered into the `.liq` (`station.blade.php:1168`, `LiquidsoapSupervisor.php:1053`). Also substituted into Icecast's own config by `setup-native.sh`. | `LiquidsoapSupervisor.php`, `station.blade.php` | required / required / any |
 | `ICECAST_ADMIN_USER` | `admin` | Basic-auth user for Icecast `/admin/stats`. | `Console/Commands/SyncListenerCounts.php:48` | default ok |
 | `ICECAST_ADMIN_PASSWORD` | none | Its password. Blank makes `stations:sync-listeners` fail with an error every minute (`SyncListenerCounts.php:52-56`). | `SyncListenerCounts.php:49` | required / required |
 | `ICECAST_INTERNAL_URL` | `http://127.0.0.1:8000` | In-network base URL for Icecast's admin API. Not the public listener URL. On the native host it should be the loopback `ICECAST_PORT`. | `SyncListenerCounts.php:47` | set to real port / set |
@@ -191,23 +192,23 @@ Every key is read by app code (grep of `config('liquidsoap.*')` finds a reader f
 
 | Variable | Default | Meaning | Reader | Prod / Dev / Test |
 |---|---|---|---|---|
-| `LIQUIDSOAP_LIQ_DIR` | `/var/gocast/liq` | Host dir where rendered `{slug}.liq` files are written and mounted read-only at `/station.liq`. | LS `:165` | default ok / default ok / forced `/tmp/gocast-test/liq` |
-| `LIQUIDSOAP_PLAYLISTS_DIR` | `/var/gocast/playlists` | Host dir of per-station m3u/track dirs, mounted read-only at `/data/playlists`. | LS `:166`, `PlaylistFileWriter.php:180`, `StationObserver.php:144` | forced `/tmp/gocast-test/playlists` |
-| `LIQUIDSOAP_HLS_DIR` | `/var/gocast/hls` | Host dir HLS segments are written to, mounted read-write at `/data/hls`; served by nginx in prod. The **client** has its own `LIQUIDSOAP_HLS_DIR` for the dev proxy. | LS `:167` | forced `/tmp/gocast-test/hls` |
-| `LIQUIDSOAP_SYSTEM_DIR` | `/var/gocast/system` | Platform-shared audio (watermark clips), mounted read-only at `/data/system`. Also the default location of the GeoLite2 file. | LS `:168`, `WatermarkClipLibrary.php:41` | default ok |
-| `LIQUIDSOAP_HLS_VARIANT` | `aac` | HLS rendition name: the encoder label in the `.liq` **and** the media-playlist filename in the URL. Changing it 404s players holding the old URL. | LS `:1150`, `StationResource.php:377` | default ok |
-| `LIQUIDSOAP_HLS_BASE_URL` | empty | Public base for HLS (`{base}/{slug}/{variant}.m3u8`). Empty makes `hls_url` null and the player falls back to Icecast. Dev value points at the client's `/hls-proxy`. | `StationResource.php:371` | required for HLS / dev proxy URL / - |
-| `LIQUIDSOAP_ICECAST_HOST` | `host.docker.internal` | Icecast host **as seen from inside a station container**. | LS `:1141` | default ok |
-| `LIQUIDSOAP_ICECAST_PORT` | `8000` | Its port. Must match `ICECAST_PORT` in `domains.env`. | LS `:1142` | must match host Icecast |
-| `LIQUIDSOAP_API_URL` | `http://host.docker.internal:8081` | Base URL a container uses to call Laravel back. Port must equal `INTERNAL_API_PORT`. Also used for the `next-track` URL. | LS `:1143,1172` | must match `INTERNAL_API_PORT` |
-| `LIQUIDSOAP_CONTAINER_SUBNET` | `172.28.0.0/16` | Base for computing each station's fixed IP (`base + container_index + 2`). Prefix must be 1 to 30 and the offset must fit the block, else `RuntimeException` (a station past the ceiling refuses to start). Must equal the `gocast-network` subnet in `docker-compose.native.yml` (which also sets `ip_range 172.28.255.0/24`). | LS `:780` | must match compose |
-| `LIQUIDSOAP_TELNET_RESOLVE` | `ip` | `ip` = compute the container IP; `name` = use the container name via Docker DNS. `name` from the host makes stations sit in `starting` forever. | LS `:834` | `ip` / `ip` (native) / forced `name` |
-| `LIQUIDSOAP_HARBOR_INPUT_PORT` | `8090` | Port inside each container that broadcasters connect to. The station router **hardcodes 8090** (`infra/native/station-router/ingest.js:126`), so this cannot be changed alone. | LS `:864,1153` | leave at `8090` |
-| `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` | `10.0` | Seconds harbor waits on a stalled source before dropping it (reconnect window). | LS `:1154` | |
-| `LIQUIDSOAP_INGEST_URL` | none | Public WebSocket template the studio connects to, `{slug}` substituted (prod: `wss://stream.host/broadcast/{slug}`). Unset falls back to the container's bridge IP (dev only). | LS `:857` | required (prod) / unset |
-| `LIQUIDSOAP_ENCODER_HOST` | none | Hostname printed for BUTT/Mixxx. **Unset means not deployed**: `StationResource` omits the whole `encoder` block (it is also omitted unless the viewer is the station owner and `canUseEncoder()`). | `StationResource.php:251-253` | set where the router is published |
-| `LIQUIDSOAP_ENCODER_PORT` | `8010` | Port for encoders; must equal `INGEST_PORT` in `domains.env`. | `StationResource.php:254` | must match `INGEST_PORT` |
-| `LIQUIDSOAP_HARBOR_PORT` | `8080` | Harbor HTTP `/status` and `/healthz` port inside the container. Also the Docker `--health-cmd` target. | LS `:1046,1146`, `StationStatusService.php:251` | |
+| `LIQUIDSOAP_LIQ_DIR` | `/var/gocast/liq` | Host dir where rendered `{slug}.liq` files are written and mounted read-only at `/station.liq`. | LS `:143` | default ok / default ok / forced `/tmp/gocast-test/liq` |
+| `LIQUIDSOAP_PLAYLISTS_DIR` | `/var/gocast/playlists` | Host dir of per-station track dirs (uploaded audio; no playlist file is written any more), mounted read-only at `/data/playlists`. | LS `:144`, `PlaylistFileWriter.php:105`, `StationObserver.php:118` | forced `/tmp/gocast-test/playlists` |
+| `LIQUIDSOAP_HLS_DIR` | `/var/gocast/hls` | Host dir HLS segments are written to, mounted read-write at `/data/hls`; served by nginx in prod. The **client** has its own `LIQUIDSOAP_HLS_DIR` for the dev proxy. | LS `:145` | forced `/tmp/gocast-test/hls` |
+| `LIQUIDSOAP_SYSTEM_DIR` | `/var/gocast/system` | Platform-shared audio (watermark clips), mounted read-only at `/data/system`. Also the default location of the GeoLite2 file. | LS `:146`, `WatermarkClipLibrary.php:41` | default ok |
+| `LIQUIDSOAP_HLS_VARIANT` | `aac` | HLS rendition name: the encoder label in the `.liq` **and** the media-playlist filename in the URL. Changing it 404s players holding the old URL. | LS `:1070`, `StationResource.php:370` | default ok |
+| `LIQUIDSOAP_HLS_BASE_URL` | empty | Public base for HLS (`{base}/{slug}/{variant}.m3u8`). Empty makes `hls_url` null and the player falls back to Icecast. Dev value points at the client's `/hls-proxy`. | `StationResource.php:364` | required for HLS / dev proxy URL / - |
+| `LIQUIDSOAP_ICECAST_HOST` | `host.docker.internal` | Icecast host **as seen from inside a station container**. | LS `:1061` | default ok |
+| `LIQUIDSOAP_ICECAST_PORT` | `8000` | Its port. Must match `ICECAST_PORT` in `domains.env`. | LS `:1062` | must match host Icecast |
+| `LIQUIDSOAP_API_URL` | `http://host.docker.internal:8081` | Base URL a container uses to call Laravel back. Port must equal `INTERNAL_API_PORT`. Also used for the `next-track` URL. | LS `:1063,1086` | must match `INTERNAL_API_PORT` |
+| `LIQUIDSOAP_CONTAINER_SUBNET` | `172.28.0.0/16` | Base for computing each station's fixed IP (`base + container_index + 2`). Prefix must be 1 to 30 and the offset must fit the block, else `RuntimeException` (a station past the ceiling refuses to start). Must equal the `gocast-network` subnet in `docker-compose.native.yml` (which also sets `ip_range 172.28.255.0/24`). | LS `:700` | must match compose |
+| `LIQUIDSOAP_TELNET_RESOLVE` | `ip` | `ip` = compute the container IP; `name` = use the container name via Docker DNS. `name` from the host makes stations sit in `starting` forever. | LS `:754` | `ip` / `ip` (native) / forced `name` |
+| `LIQUIDSOAP_HARBOR_INPUT_PORT` | `8090` | Port inside each container that broadcasters connect to. The station router **hardcodes 8090** (`infra/native/station-router/ingest.js:126`), so this cannot be changed alone. | LS `:784,1073` | leave at `8090` |
+| `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` | `10.0` | Seconds harbor waits on a stalled source before dropping it (reconnect window). | LS `:1074` | |
+| `LIQUIDSOAP_INGEST_URL` | none | Public WebSocket template the studio connects to, `{slug}` substituted (prod: `wss://stream.host/broadcast/{slug}`). Unset falls back to the container's bridge IP (dev only). | LS `:777` | required (prod) / unset |
+| `LIQUIDSOAP_ENCODER_HOST` | none | Hostname printed for BUTT/Mixxx. **Unset means not deployed**: `StationResource` omits the whole `encoder` block (it is also omitted unless the viewer is the station owner and `canUseEncoder()`). | `StationResource.php:248-250` | set where the router is published |
+| `LIQUIDSOAP_ENCODER_PORT` | `8010` | Port for encoders; must equal `INGEST_PORT` in `domains.env`. | `StationResource.php:251` | must match `INGEST_PORT` |
+| `LIQUIDSOAP_HARBOR_PORT` | `8080` | Harbor HTTP `/status` and `/healthz` port inside the container. Also the Docker `--health-cmd` target. | LS `:966,1066`, `StationStatusService.php:251` | |
 | `LIQUIDSOAP_HARBOR_TIMEOUT` | `1.5` | Seconds Laravel waits for `/status`. | `StationStatusService.php:286` | |
 | `LIQUIDSOAP_STATUS_TTL` | `2` | Cache seconds for a pulled status. | `StationStatusService.php:137,166` | |
 | `LIQUIDSOAP_STATUS_DOWN_TTL` | `15` | Cache seconds when Docker confirmed the container is gone. | `StationStatusService.php:136` | not in either template |
@@ -216,57 +217,59 @@ Every key is read by app code (grep of `config('liquidsoap.*')` finds a reader f
 
 | Variable | Default | Meaning | Reader |
 |---|---|---|---|
-| `LIQUIDSOAP_IMAGE` | `gocast/liquidsoap:latest` | Image for stations **and** for the ffmpeg analysis container. The Dockerfile pins Liquidsoap to v2.4.5 but the tag Laravel runs is whatever this says. | LS `:206`, `TrackAnalyzer.php:109` |
-| `LIQUIDSOAP_CONTAINER_CPUS` | `0.5` | `docker run --cpus`; empty string omits the flag. | LS `:1073` |
-| `LIQUIDSOAP_CONTAINER_MEMORY` | `512m` | `--memory` and `--memory-swap` (same value); empty omits. Too low SIGKILLs a station at boot with empty logs; the supervisor reports an OOM kill as "ran out of memory while starting". | LS `:1079` |
-| `LIQUIDSOAP_CONTAINER_PIDS_LIMIT` | `256` | `--pids-limit`; `0` omits. | LS `:1012` |
-| `LIQUIDSOAP_CONTAINER_INIT` | `false` | Adds `--init`. | LS `:1018` |
-| `LIQUIDSOAP_STOP_TIMEOUT` | `5` | SIGTERM grace seconds, clamped to at most `DOCKER_TIMEOUT_SECONDS - 3` (= 7). | LS `:221` |
-| `LIQUIDSOAP_START_VERIFY_DELAY_MS` | `750` | Wait after `docker run` before checking the container is still up; `<=0` skips. | LS `:912` |
-| `LIQUIDSOAP_HEALTHCHECK` | `true` | Whether to add Docker `--health-*` flags. | LS `:1042` |
-| `LIQUIDSOAP_HEALTH_INTERVAL`, `_TIMEOUT`, `_RETRIES`, `_START_PERIOD` | `15`, `3`, `3`, `45` | Docker health probe timing (seconds; retries a count). | LS `:1055-1058` |
+| `LIQUIDSOAP_IMAGE` | `gocast/liquidsoap:latest` | Image for stations **and** for the ffmpeg analysis container. The Dockerfile pins Liquidsoap to v2.4.5 but the tag Laravel runs is whatever this says. | LS `:184`, `TrackAnalyzer.php:146` |
+| `LIQUIDSOAP_CONTAINER_CPUS` | `0.5` | `docker run --cpus`; empty string omits the flag. | LS `:993` |
+| `LIQUIDSOAP_CONTAINER_MEMORY` | `512m` | `--memory` and `--memory-swap` (same value); empty omits. Too low SIGKILLs a station at boot with empty logs; the supervisor reports an OOM kill as "ran out of memory while starting". | LS `:999` |
+| `LIQUIDSOAP_CONTAINER_PIDS_LIMIT` | `256` | `--pids-limit`; `0` omits. | LS `:932` |
+| `LIQUIDSOAP_CONTAINER_INIT` | `false` | Adds `--init`. | LS `:938` |
+| `LIQUIDSOAP_STOP_TIMEOUT` | `5` | SIGTERM grace seconds, clamped to at most `DOCKER_TIMEOUT_SECONDS - 3` (= 7). | LS `:199` |
+| `LIQUIDSOAP_START_VERIFY_DELAY_MS` | `750` | Wait after `docker run` before checking the container is still up; `<=0` skips. | LS `:832` |
+| `LIQUIDSOAP_HEALTHCHECK` | `true` | Whether to add Docker `--health-*` flags. | LS `:962` |
+| `LIQUIDSOAP_HEALTH_INTERVAL`, `_TIMEOUT`, `_RETRIES`, `_START_PERIOD` | `15`, `3`, `3`, `45` | Docker health probe timing (seconds; retries a count). | LS `:975-978` |
 | `LIQUIDSOAP_UNHEALTHY_PASSES` | `2` | Consecutive reconcile passes before an unhealthy container is recreated. | `ReconcileStations.php:223` |
 | `LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR` | `3` | Recreate cap per station per hour. | `ReconcileStations.php:224` |
 | `LIQUIDSOAP_STRANDED_SESSION_STRIKES` | `3` | Reconcile passes an open session may disagree with its container before being closed. | `ReconcileStations.php:381` |
-| `LIQUIDSOAP_STATION_STORAGE_BYTES` | `3 GiB` | Per-station library cap, checked at upload and shown in the library meter. | `TrackImporter.php:48`, `TrackController.php:78` |
+| `LIQUIDSOAP_STATION_STORAGE_BYTES` | `3 GiB` | Per-station library cap, checked at upload and shown in the library meter. | `TrackImporter.php:50`, `TrackController.php:79` |
 | `LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS` | `30` | Days before soft-deleted stations are erased; `0` disables. Overridden by `--days`. | `PruneDeletedStations.php:44` |
 | `LIQUIDSOAP_SILENT_STOP_SECONDS` | `600` (the code fallback in `StationAudioPolicy::windowSeconds()` is `60`, but the config key always exists so it never applies) | How long a silent station with nothing to fall back to may run before the sweep stops it; `0` disables auto-stop. | `StationAudioPolicy.php:80` |
 | `LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS` | `150` | Shortcut window after a web studio broadcast ends; `0` turns it off. Web and mobile reconnect budgets are set relative to this. | `StationAudioPolicy.php:95` |
 | `LIQUIDSOAP_SILENCE_RMS_THRESHOLD` | `0.0001` | Output level at or below which a station counts as silent. | `StationAudioPolicy.php:108` |
-| `LIQUIDSOAP_RMS_WINDOW_SECONDS` | `2` | RMS averaging window for the level meter (also its update interval). | LS `:1156` |
+| `LIQUIDSOAP_RMS_WINDOW_SECONDS` | `2` | RMS averaging window for the level meter (also its update interval). | LS `:1076` |
 
 ### Audio behaviour rendered into the script
 
 | Variable | Default | Meaning | Reader |
 |---|---|---|---|
-| `LIQUIDSOAP_AUTODJ_RETRY_DELAY` | `10.0` | Seconds the script waits before re-asking for a track after "nothing to play" (floored at 1.0). | LS `:1169` |
-| `LIQUIDSOAP_CROSSFADE_ENABLED` | `false` | AutoDJ crossfade kill switch. Off means hard cuts. Off by default because crossfade wedged AutoDJ on Liquidsoap 2.4.0 and has not yet been observed working on 2.4.5. | LS `:1211` |
-| `LIQUIDSOAP_CROSSFADE_DURATION` / `_FADE` | `5` / `3` | Cross window and fade envelope seconds; fade is clamped to `max(duration - 0.5, 0.1)`. | LS `:1212,1218` |
-| `LIQUIDSOAP_CROSSFADE_HIGH_DB`, `_MEDIUM_DB`, `_MARGIN_DB` | `-15`, `-32`, `4` | Smart-transition loudness thresholds. | LS `:1239-1241` |
-| `LIQUIDSOAP_LIMITER_THRESHOLD_DB` | `-1.0` | Peak limiter ceiling (dBFS). | LS `:1225` |
-| `LIQUIDSOAP_LIMITER_INCLUDE_LIVE` | `true` | Limiter at the bottom of the graph (guards live too) versus AutoDJ arm only. | LS `:1226` |
-| `LIQUIDSOAP_LIVE_BROADCAST_TEXT` | `Live Broadcast` | Placeholder title when a broadcaster sends none. | LS `:1230` |
-| `LIQUIDSOAP_METADATA_CHARSET` | `UTF-8` | Charset for in-band broadcaster metadata. | LS `:1231` |
-| `LIQUIDSOAP_GC_SPACE_OVERHEAD` | `80` | OCaml GC `space_overhead`; `0` omits the block. | LS `:1233` |
-| `LIQUIDSOAP_APPLY_AMPLIFY` | `true` | Whether the graph applies the per-track loudness gain annotation. | LS `:1238`, `PlaylistFileWriter.php:336` |
-| `LIQUIDSOAP_WATERMARK_ENABLED` | `true` | Install-wide watermark kill switch; per-station state comes from the owner's plan. | LS `:1195`, `ReloadWatermarkClips.php:43`, `Models/User.php:86`, `Admin/WatermarkClipController.php:35` |
-| `LIQUIDSOAP_WATERMARK_INTERVAL` | `600` | Seconds between watermarks, floored at 60. | LS `:742`, admin controller |
-| `LIQUIDSOAP_WATERMARK_DUCK` | `0.15` | Portion of station audio kept while the clip plays, clamped to `[0.01, 1]`. | LS `:753` |
-| `LIQUIDSOAP_WATERMARK_FADE` | `1.0` | Duck ramp seconds. | LS `:1203` |
+| `LIQUIDSOAP_AUTODJ_RETRY_DELAY` | `10.0` | Seconds the script waits before re-asking for a track after "nothing to play" (floored at 1.0). | LS `:1083` |
+| `LIQUIDSOAP_HARD_START_EARLY_SECONDS` | `20.0` | Hard starts (an "exactly on time" AutoDJ slot or an exact-time jingle): with fewer than this many seconds left before one, AutoDJ starts it early instead of playing a fragment of a song; also the most a jingle filler before a hard slot may leave over. Read per request by Laravel, **not** rendered into the script, so it applies to running stations at once (on a planning script). | `AutoDjScheduler.php:202` (`earlyStart()`, floored at 0); not in either template |
+| `LIQUIDSOAP_HARD_START_FADE_SECONDS` | `2.0` | Fade-out length on a song trimmed to end on a hard start (sent per track as `liq_fade_out`). Read per request by Laravel, not rendered. | `AutoDjScheduler.php:208` (`fadeOut()`, floored at 0.1); not in either template |
+| `LIQUIDSOAP_CROSSFADE_ENABLED` | `false` | AutoDJ crossfade kill switch. Off means hard cuts. Off by default because crossfade wedged AutoDJ on Liquidsoap 2.4.0 and has not yet been observed working on 2.4.5. | LS `:1108` |
+| `LIQUIDSOAP_CROSSFADE_DURATION` / `_FADE` | `5` / `3` | Cross window and fade envelope seconds; fade is clamped to `max(duration - 0.5, 0.1)`. | LS `:1109,1115` |
+| `LIQUIDSOAP_CROSSFADE_HIGH_DB`, `_MEDIUM_DB`, `_MARGIN_DB` | `-15`, `-32`, `4` | Smart-transition loudness thresholds. | LS `:1136-1138` |
+| `LIQUIDSOAP_LIMITER_THRESHOLD_DB` | `-1.0` | Peak limiter ceiling (dBFS). | LS `:1122` |
+| `LIQUIDSOAP_LIMITER_INCLUDE_LIVE` | `true` | Limiter at the bottom of the graph (guards live too) versus AutoDJ arm only. | LS `:1123` |
+| `LIQUIDSOAP_LIVE_BROADCAST_TEXT` | `Live Broadcast` | Placeholder title when a broadcaster sends none. | LS `:1127` |
+| `LIQUIDSOAP_METADATA_CHARSET` | `UTF-8` | Charset for in-band broadcaster metadata. | LS `:1128` |
+| `LIQUIDSOAP_GC_SPACE_OVERHEAD` | `80` | OCaml GC `space_overhead`; `0` omits the block. | LS `:1130` |
+| `LIQUIDSOAP_APPLY_AMPLIFY` | `true` | Whether the graph applies the per-track loudness gain annotation. | LS `:1135`, `PlaylistFileWriter.php:239` |
+| `LIQUIDSOAP_WATERMARK_ENABLED` | `true` | Install-wide watermark kill switch; per-station state comes from the owner's plan. | LS `:1097`, `ReloadWatermarkClips.php:43`, `Models/User.php:86`, `Admin/WatermarkClipController.php:35` |
+| `LIQUIDSOAP_WATERMARK_INTERVAL` | `600` | Seconds between watermarks, floored at 60. | LS `:662`, admin controller |
+| `LIQUIDSOAP_WATERMARK_DUCK` | `0.15` | Portion of station audio kept while the clip plays, clamped to `[0.01, 1]`. | LS `:673` |
+| `LIQUIDSOAP_WATERMARK_FADE` | `1.0` | Duck ramp seconds. | LS `:1105` |
 | `LIQUIDSOAP_WATERMARK_CLIP_MAX_BYTES` | `5 MiB` | Upload size cap for the admin clip form. | `StoreWatermarkClipRequest.php:28`, `WatermarkClipController.php:39` |
 
 ### Track analysis (queued job and a docker one-shot)
 
 | Variable | Default | Meaning | Reader |
 |---|---|---|---|
-| `LIQUIDSOAP_ANALYSIS_ENABLED` | `true` | Master switch for loudness/cue analysis; `tracks:analyze` refuses to run when off. | `TrackImporter.php:154`, `AnalyzeTracksCommand.php:37` |
-| `LIQUIDSOAP_ANALYSIS_FFMPEG` | empty | Path to a local ffmpeg. Empty runs ffmpeg in a `docker run --rm --network none` one-shot of `LIQUIDSOAP_IMAGE`. | `TrackAnalyzer.php:90` |
-| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | Seconds per file; floored at 5. | `TrackAnalyzer.php:285` |
-| `LIQUIDSOAP_LOUDNESS_TARGET` | `-14.0` | Target LUFS. | `Services/TrackAnalysis.php:62` |
-| `LIQUIDSOAP_LOUDNESS_CEILING` | `-1.0` | True-peak ceiling dB. | `TrackAnalysis.php:63` |
-| `LIQUIDSOAP_LOUDNESS_MAX_GAIN` | `12.0` | Maximum gain applied dB. | `TrackAnalysis.php:64` |
-| `LIQUIDSOAP_ANALYSIS_SILENCE_DB` / `_SECONDS` | `-50.0` / `0.25` | Silence-detect threshold and minimum length for cue points. | `TrackAnalyzer.php:86-87` |
-| `LIQUIDSOAP_CUE_MIN_PLAYABLE` | `5.0` | Minimum playable seconds after cuts. | `TrackAnalysis.php:92` |
+| `LIQUIDSOAP_ANALYSIS_ENABLED` | `true` | Master switch for loudness/cue analysis (which also measures the decoded length into `tracks.duration_seconds`/`duration_measured_at`); `tracks:analyze` refuses to run when off. `tracks:measure-durations` does not check it. | `TrackImporter.php:171`, `AnalyzeTracksCommand.php:37` |
+| `LIQUIDSOAP_ANALYSIS_FFMPEG` | empty | Path to a local ffmpeg, used by analysis and by the plain-decode length measurement (`TrackAnalyzer::measureDuration`). Empty runs ffmpeg in a `docker run --rm --network none` one-shot of `LIQUIDSOAP_IMAGE`. | `TrackAnalyzer.php:127` |
+| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | The **floor** of the per-file analysis timeout (itself floored at 5); the real limit scales to one eighth of the track's length, capped at 1500 s (`TrackAnalyzer::timeoutFor`). | `TrackAnalyzer.php:340` |
+| `LIQUIDSOAP_LOUDNESS_TARGET` | `-14.0` | Target LUFS. | `Services/TrackAnalysis.php:63` |
+| `LIQUIDSOAP_LOUDNESS_CEILING` | `-1.0` | True-peak ceiling dB. | `TrackAnalysis.php:64` |
+| `LIQUIDSOAP_LOUDNESS_MAX_GAIN` | `12.0` | Maximum gain applied dB. | `TrackAnalysis.php:65` |
+| `LIQUIDSOAP_ANALYSIS_SILENCE_DB` / `_SECONDS` | `-50.0` / `0.25` | Silence-detect threshold and minimum length for cue points. | `TrackAnalyzer.php:122-123` |
+| `LIQUIDSOAP_CUE_MIN_PLAYABLE` | `5.0` | Minimum playable seconds after cuts. | `TrackAnalysis.php:93` |
 
 ## What a station container actually receives
 
@@ -275,17 +278,17 @@ Assembled by `LiquidsoapSupervisor::baseRunCommand/sandboxFlags/healthFlags/reso
 - **Environment variables: none.** No `-e`/`--env` flag is emitted anywhere. `infra/liquidsoap/Dockerfile` sets no `ENV`/`ARG` either (only pins `savonet/liquidsoap:v2.4.5` and installs ffmpeg).
 - **Flags:** `--name gocast-liquidsoap-{slug}`, `--network gocast-network`, `--ip {computed}`, `--restart unless-stopped`, `--add-host host.docker.internal:host-gateway`, `--stop-signal SIGTERM`, `--stop-timeout`, labels `gocast.station` and `gocast.station_id`, log rotation `max-size=10m` `max-file=3`, `--cap-drop ALL`, `--security-opt no-new-privileges`, plus the config-driven `--pids-limit`, `--init`, `--health-*`, `--cpus`, `--memory`/`--memory-swap`.
 - **Mounts:** `{liq_dir}/{slug}.liq:/station.liq:ro`, `{playlists_dir}/{slug}:/data/playlists:ro`, `{hls_dir}/{slug}:/data/hls` (rw), `{system_dir}:/data/system:ro` (always, even with watermarks off).
-- **Baked into the `.liq` at render time (`renderLiqFile`):** Icecast host/port/source password, the API base URL and next-track URL, the `INTERNAL_API_KEY` (so the rendered file on disk contains two secrets; keep `/var/gocast/liq` unreadable to others), harbor ports and timeout, RMS window, HLS variant, crossfade/limiter/watermark/GC/amplify settings, live text and charset, retry delay, and per-station jingle settings. Hardcoded in the template: telnet on `0.0.0.0:1234`, log level 2, MP3 128 kbps at 44.1 kHz for Icecast.
+- **Baked into the `.liq` at render time (`renderLiqFile`):** Icecast host/port/source password, the API base URL and next-track URL, the `INTERNAL_API_KEY` (so the rendered file on disk contains two secrets; keep `/var/gocast/liq` unreadable to others), harbor ports and timeout, RMS window, HLS variant, crossfade/limiter/watermark/GC/amplify settings, live text and charset, retry delay, and the script version (`AutoDjScheduler::PLANNING_SCRIPT`, sent back as `X-Gocast-Script`). Jingle rules are not in the script: Laravel applies them per next-track request. Hardcoded in the template: telnet on `0.0.0.0:1234`, log level 2, MP3 128 kbps at 44.1 kHz for Icecast.
 - **Timeouts inside the supervisor (constants, not env):** docker command 10 s, docker read 3 s, telnet 3 s (`LiquidsoapSupervisor.php:79,93,106`).
 - The station's own `docker run` for analysis uses `--network none`, so analysis cannot reach Icecast or the API.
 
-Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appears in the script does not affect an already-running station** until it is re-rendered and recreated. Exceptions: the station's jingle settings and the watermark enabled/interval/duck are interactive variables pushed over telnet (`applyJingleSettings`, `applyWatermarkSettings`, the latter called from `UserObserver.php:120` when an owner's plan changes), so they change live, but the interval/duck pushed are whatever config held at that moment. See [Liquidsoap supervisor](liquidsoap-supervisor.md) and [Liquidsoap station script](liquidsoap-station-script.md).
+Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appears in the script does not affect an already-running station** until it is re-rendered and recreated. Exceptions: the watermark enabled/interval/duck are interactive variables pushed over telnet (`applyWatermarkSettings`, called from `UserObserver.php:115` when an owner's plan changes), so they change live, but the interval/duck pushed are whatever config held at that moment. See [Liquidsoap supervisor](liquidsoap-supervisor.md) and [Liquidsoap station script](liquidsoap-station-script.md).
 
 ## Test environment (API)
 
-`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
+`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `SENTRY_LARAVEL_DSN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
 
-- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands.
+- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands. It blanks `SENTRY_LARAVEL_DSN` the same way (`putenv`, `$_ENV`, `$_SERVER`).
 - Why it matters: `LiquidsoapSupervisor::inTestMode()` is `app()->runningUnitTests()`. If it returns false, `Station::factory()->create()` spawns real containers on the host daemon.
 - Not forced, so inherited from `api/.env`: `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_*` (a real Redis is used by the tests that touch `Redis::`), `APP_KEY`, `INTERNAL_API_KEY`, `LIQUIDSOAP_SYSTEM_DIR` (defaults to the real `/var/gocast/system`), and everything else. Tests override individual config with `config([...])` about 90 times across 46 files.
 - `PULSE_ENABLED`, `TELESCOPE_ENABLED` and `NIGHTWATCH_ENABLED` are forced but no Pulse/Telescope/Nightwatch config exists in `api/config` (harmless leftovers).
@@ -296,27 +299,28 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 
 | Variable | Default | Meaning | Reader | Prod / Dev |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:3`, `next.config.ts` | required (build-time) / required |
+| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:4`, `next.config.ts` | required (build-time) / required |
 | `NEXT_PUBLIC_APP_URL` | `""` | Public web origin: canonical links, OG tags, sitemap, robots, embed snippet, share links, station player links. | `lib/env.ts` (`env.appUrl`), about 18 files (sitemap, robots, layout, dashboard pages, `lib/embed.ts`) | required / required |
 | `NEXT_PUBLIC_ICECAST_URL` | `""` | Icecast listener base for the direct-stream fallback in the player, embed and homepage hero. | `env.icecastUrl` in `PlayerView`, `EmbedPlayer`, `HeroStationPlayer` | required / required |
 | `NEXT_PUBLIC_PUSHER_KEY` | `""` | Ably app key (`APP_ID.KEY_ID`, the part before the colon). **Empty is the client-side kill switch**: `lib/echo.ts` returns null and every hook polls. | `lib/echo.ts` via `env.broadcastKey` | optional / optional |
 | `NEXT_PUBLIC_PUSHER_HOST` | `""` | Pusher-protocol host (`main.pusher.ably.net`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_PUSHER_PORT` | `443` | Port (`Number(...)`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_BROADCAST_AUTH_URL` | `""` | Where Echo signs private subscriptions (`{api-host}/broadcasting/auth`, a sibling of `/api`). | `lib/echo.ts` | with key |
-| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
+| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. The browser client also has literal filters: `denyUrls` `app://`, `ignoreErrors` for in-app-browser bridge noise (`/\b\w*browser is not defined/` and two others), and `allowUrls: [/\/_next\//]` so only errors thrown from the Next bundle are kept (stackless events such as rejected promises still pass; errors from inline scripts are dropped). | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
 | `SENTRY_AUTH_TOKEN` | none | Build-time source-map upload token, read by `@sentry/nextjs`'s build plugin (org `gocast`, project `javascript-nextjs` are literals in `next.config.ts`). Passed by `deploy-native.sh:build_client`. | plugin (vendor) | optional (build) |
 | `RENDER_API_KEY` | none | Server-only. Sent as `X-Render-Key` on the Next server's own public-API fetches so they skip the 60/min limit. Must equal the API's. In prod it comes from `/etc/gocast/client.env` through the systemd unit's `EnvironmentFile=-`. | `lib/public-api.ts:16` | recommended / optional |
-| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:3` | unused in prod / optional |
+| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:4` | unused in prod / optional |
 | `INTERNAL_ICECAST_URL` | `http://127.0.0.1:8888` | Dev-only rewrite target for `/stream-proxy/*` (avoids Icecast's missing CORS preflight). Undeclared in `.env.example` (present in the dev `.env.local`). | `next.config.ts:120` | ignored / optional |
 | `LIQUIDSOAP_HLS_DIR` | `/var/gocast/hls` | Dev-only: directory the `/hls-proxy/*` route serves (`NODE_ENV === "development"` only; 404 otherwise). Only `.m3u8`, `.aac`, `.ts`, `.m4s`, `.mp4` are served. | `app/hls-proxy/[...path]/route.ts:25` | ignored / optional |
 | `ANALYZE` | none | `"true"` enables the bundle analyzer. | `next.config.ts:5` | - |
 | `CI` | none | Also makes the Sentry build plugin verbose (`silent: !process.env.CI`, `next.config.ts:184`); Sentry traffic is tunnelled through `/monitoring`. | `next.config.ts` | build |
-| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:195-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
+| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:191-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
 | `NEXT_RUNTIME` | set by Next | Picks the Sentry server or edge config. | `instrumentation.ts` | - |
 | `NEXT_TELEMETRY_DISABLED`, `PORT`, `HOSTNAME` | set in the systemd unit / deploy | Next runtime settings (`PORT=__CLIENT_PORT__`, `HOSTNAME=127.0.0.1`). | `gocast-client.service` | native only |
 | `E2E_BASE_URL`, `E2E_API_URL`, `CI` | `http://localhost:3000`, `http://localhost:8000`, unset | Playwright base URLs and CI mode. | `playwright.config.ts` | test only |
+| `E2E_CAPTURE` | unset | Lifts `grepInvert: /@(screenshots\|visual)/`, so the capture specs run; set by `npm run test:visual` and `test:help-shots`. | `playwright.config.ts` | test only |
 
-Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:195-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
+Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:191-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
 
 ## Mobile app (`mobile/`)
 

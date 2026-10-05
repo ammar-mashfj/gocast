@@ -41,6 +41,14 @@ class StoreTrackRequest extends FormRequest
                 'ulid',
                 Rule::exists('playlists', 'id')->where('station_id', $this->route('station')->id),
             ],
+            // Which jingle list a jingle upload joins. Absent, the station's
+            // first list (one is made if there is none). Ignored for music.
+            'jingle_list_id' => [
+                'sometimes',
+                'nullable',
+                'ulid',
+                Rule::exists('jingle_lists', 'id')->where('station_id', $this->route('station')->id),
+            ],
             'files' => ['required', 'array', 'min:1', 'max:30'],
             'files.*' => [
                 'required',
@@ -73,6 +81,13 @@ class StoreTrackRequest extends FormRequest
     public function kind(): string
     {
         return (string) $this->validated('kind', Track::KIND_MUSIC);
+    }
+
+    public function jingleListId(): ?string
+    {
+        $id = $this->validated('jingle_list_id');
+
+        return $id === null ? null : (string) $id;
     }
 
     public function playlistId(): ?string

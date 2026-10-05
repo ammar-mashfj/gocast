@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
-import { ProAccessDialog } from "@/components/ProAccessDialog"
+import { ProRequestDialog } from "@/components/dashboard/ProRequestDialog"
 import { useAccount } from "@/contexts/AccountContext"
 
 /**
@@ -53,10 +53,9 @@ export function ProRequestProvider({ children }: { children: React.ReactNode }) 
   return (
     <ProRequestContext.Provider value={value}>
       {children}
-      <ProAccessDialog
+      <ProRequestDialog
         open={isOpen}
         onOpenChange={setIsOpen}
-        plan="pro"
         accountEmail={account?.email}
         onSubmitted={markRequested}
       />

@@ -246,3 +246,19 @@ describe('on air', function () {
         Carbon::setTestNow();
     });
 });
+
+it('saves whether a slot starts exactly on time, soft when not said', function () {
+    putSlots($this->owner, $this->station, [
+        ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '09:00', 'start_mode' => 'hard'],
+        ['playlist_id' => $this->calm->id, 'days' => [2], 'start_time' => '06:00', 'end_time' => '09:00'],
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.autodj_slots.0.start_mode', AutodjSlot::START_HARD)
+        ->assertJsonPath('data.autodj_slots.1.start_mode', AutodjSlot::START_SOFT);
+});
+
+it('refuses an unknown start mode', function () {
+    putSlots($this->owner, $this->station, [
+        ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '09:00', 'start_mode' => 'sharp'],
+    ])->assertJsonValidationErrors('slots.0.start_mode');
+});

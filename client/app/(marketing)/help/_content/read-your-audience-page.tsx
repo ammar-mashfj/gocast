@@ -13,9 +13,9 @@ export default function Body() {
 
       <h2>The Chart Is Listening Time</h2>
       <p>
-        One line, and it is deliberately the only one. It plots{" "}
-        <strong>listening time per day</strong>{" "}&mdash; the total minutes people
-        spent listening &mdash; rather than a headcount.
+        One measure, and it is deliberately the only one: a bar per day of{" "}
+        <strong>listening time</strong>{" "}&mdash; the total minutes people spent
+        listening &mdash; rather than a headcount.
       </p>
       <p>
         That is the honest measure for radio. Forty people who each stayed for
@@ -24,8 +24,9 @@ export default function Body() {
         Listening time cannot be gamed by a link that gets clicked a lot.
       </p>
       <p>
-        Peak concurrent listeners, arrivals and distinct listeners are in the
-        tooltip when you hover a day. They are kept off the chart on purpose:
+        Hover a day and the line above the chart shows that day’s listening
+        time, its peak and how many listeners there were. Those last two are
+        kept off the chart on purpose:
         they live on completely different scales, and drawing two of them
         together would need a second axis, which makes crossings look like
         events when they mean nothing at all.
@@ -33,9 +34,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/audience-chart.webp"
-        alt="The audience page: listening time, listeners, peak listeners and average listen across the top, with a bar per day underneath showing listening time over the last thirty days."
-        width={2808}
-        height={722}
+        alt="The Audience page: Listening time, Daily listeners, Peak at once and Average listen across the top, and below them a bar per day of listening time over the last thirty days, today's in brighter violet."
+        width={2480}
+        height={854}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -56,9 +57,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/audience-breakdowns.webp"
-        alt="Four breakdown cards — countries with flags, devices, browsers and where listeners came from — each row showing its share, with a footnote naming how many listens could be placed."
-        width={2808}
-        height={1020}
+        alt="The Countries and Devices cards: each country with its two-letter code, listening time and share, a footnote naming how many listens could be placed, and the share of mobile, tablet and desktop."
+        width={2480}
+        height={726}
         className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
       />
 
@@ -84,8 +85,9 @@ export default function Body() {
 
       <h2>On the Free Plan</h2>
       <p>
-        You see the live listener count on your station page, and that is all
-        &mdash; there is no history. Pro keeps 90 days. See{" "}
+        The Audience page shows who is listening right now and the most
+        you’ve ever had at once &mdash; there is no history. Pro keeps 90
+        days. See{" "}
         <Link href="/help/free-and-pro">what you get on Free and on Pro</Link>.
       </p>
     </>

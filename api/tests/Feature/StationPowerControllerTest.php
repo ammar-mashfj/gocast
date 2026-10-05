@@ -3,7 +3,7 @@
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
-use App\Services\LiquidsoapSupervisor;
+// use App\Services\LiquidsoapSupervisor; — only the disabled skip tests used it
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\File;
 
@@ -60,13 +60,13 @@ it('starts a station and records when it went on air', function () {
         ->and($station->started_at)->not->toBeNull();
 });
 
-it('writes an empty jingles playlist when a station starts so Liquidsoap has a file to read', function () {
+it('creates the audio directory when a station starts so the container can mount it', function () {
     $user = proUser();
     $station = Station::factory()->for($user, 'user')->create();
 
     actingAs($user)->postJson("/api/stations/{$station->slug}/start")->assertStatus(202);
 
-    expect(file_exists($this->tmpDir.'/'.$station->slug.'/'.PlaylistFileWriter::JINGLES_FILENAME))->toBeTrue();
+    expect(is_dir($this->tmpDir.'/'.$station->slug))->toBeTrue();
 });
 
 it('stops a station and clears its start time', function () {
@@ -156,7 +156,8 @@ it('forbids controlling a station you do not own', function () {
 
     actingAs($stranger)->postJson("/api/stations/{$station->slug}/start")->assertForbidden();
     actingAs($stranger)->postJson("/api/stations/{$station->slug}/stop")->assertForbidden();
-    actingAs($stranger)->postJson("/api/stations/{$station->slug}/skip")->assertForbidden();
+    // skip-track disabled 2026-10-05 — see StationPowerController.
+    // actingAs($stranger)->postJson("/api/stations/{$station->slug}/skip")->assertForbidden();
     actingAs($stranger)->getJson("/api/stations/{$station->slug}/status")->assertForbidden();
 });
 
@@ -168,47 +169,59 @@ it('rejects unauthenticated power actions', function () {
     getJson("/api/stations/{$station->slug}/status")->assertUnauthorized();
 });
 
-it('refuses to skip on a station that is off air', function () {
-    $user = proUser();
-    $station = Station::factory()->for($user, 'user')->create();
-
-    actingAs($user)
-        ->postJson("/api/stations/{$station->slug}/skip")
-        ->assertStatus(409)
-        ->assertJsonPath('code', 'station_not_running');
-});
-
-it('sends a skip command to a running station', function () {
+it('no longer exposes the skip-track endpoint', function () {
     $user = proUser();
     $station = Station::factory()->for($user, 'user')->create([
         'desired_state' => Station::STATE_RUNNING,
     ]);
 
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->withArgs(fn (Station $s, string $command) => $s->is($station)
-            && $command === PlaylistFileWriter::LIQ_SOURCE.'.skip')
-        ->andReturn('');
-    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
-
     actingAs($user)
         ->postJson("/api/stations/{$station->slug}/skip")
-        ->assertOk();
+        ->assertNotFound();
 });
 
-it('reports a station that cannot be reached rather than pretending the skip worked', function () {
-    $user = proUser();
-    $station = Station::factory()->for($user, 'user')->create([
-        'desired_state' => Station::STATE_RUNNING,
-    ]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->andThrow(new RuntimeException('connection refused'));
-    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
-
-    actingAs($user)
-        ->postJson("/api/stations/{$station->slug}/skip")
-        ->assertStatus(503)
-        ->assertJsonPath('code', 'station_unreachable');
-});
+// DISABLED 2026-10-05 with the skip endpoint itself (see StationPowerController).
+// it('refuses to skip on a station that is off air', function () {
+//     $user = proUser();
+//     $station = Station::factory()->for($user, 'user')->create();
+//
+//     actingAs($user)
+//         ->postJson("/api/stations/{$station->slug}/skip")
+//         ->assertStatus(409)
+//         ->assertJsonPath('code', 'station_not_running');
+// });
+//
+// it('sends a skip command to a running station', function () {
+//     $user = proUser();
+//     $station = Station::factory()->for($user, 'user')->create([
+//         'desired_state' => Station::STATE_RUNNING,
+//     ]);
+//
+//     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+//     $supervisor->shouldReceive('telnet')
+//         ->once()
+//         ->withArgs(fn (Station $s, string $command) => $s->is($station)
+//             && $command === PlaylistFileWriter::LIQ_SOURCE.'.skip')
+//         ->andReturn('');
+//     $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+//
+//     actingAs($user)
+//         ->postJson("/api/stations/{$station->slug}/skip")
+//         ->assertOk();
+// });
+//
+// it('reports a station that cannot be reached rather than pretending the skip worked', function () {
+//     $user = proUser();
+//     $station = Station::factory()->for($user, 'user')->create([
+//         'desired_state' => Station::STATE_RUNNING,
+//     ]);
+//
+//     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+//     $supervisor->shouldReceive('telnet')->andThrow(new RuntimeException('connection refused'));
+//     $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+//
+//     actingAs($user)
+//         ->postJson("/api/stations/{$station->slug}/skip")
+//         ->assertStatus(503)
+//         ->assertJsonPath('code', 'station_unreachable');
+// });

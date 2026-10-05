@@ -77,6 +77,11 @@ export interface AutodjSlot {
   start_time: string
   /** "HH:MM"; at or before start means the slot runs past midnight. */
   end_time: string
+  /**
+   * "hard": starts exactly on time — the song before it is picked to fit, or
+   * faded out on the start. "soft": starts after that song ends.
+   */
+  start_mode: "soft" | "hard"
   position: number
 }
 
@@ -187,24 +192,6 @@ export interface Station {
    * an ingest router — see StationEncoder.
    */
   encoder?: StationEncoder
-  /** Play station IDs between AutoDJ tracks. Off means the jingle list is stored but silent. */
-  jingles_enabled: boolean
-  /**
-   * How jingles are spaced. "interval" is predictable in wall-clock terms
-   * (legal IDs, sponsor reads) but drifts on stations with long tracks;
-   * "tracks" gives even musical density but real-world spacing that swings
-   * with track length. Only the active mode's setting is used — the other is
-   * kept so switching back doesn't lose it.
-   */
-  jingle_mode: "interval" | "tracks"
-  /**
-   * Minimum seconds between two jingles, in "interval" mode. It is a floor,
-   * not a schedule: the jingle plays at the first track boundary AFTER this
-   * elapses, so it never cuts into a song.
-   */
-  jingle_interval_seconds: number
-  /** Rotation tracks between two jingles, in "tracks" mode. Same boundary rule. */
-  jingle_every_tracks: number
   /**
    * Owner-supplied links, in the order they are shown. An array rather than a
    * platform-keyed map because the list is freeform: two Discord servers are a

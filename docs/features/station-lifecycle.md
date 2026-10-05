@@ -1,6 +1,6 @@
 ---
 feature: Station lifecycle (power, state model, auto-stop)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system)
 sources:
   - api/app/Services/StationLifecycleService.php
   - api/app/Services/StationLifecycleException.php
@@ -14,6 +14,7 @@ sources:
   - api/app/Policies/StationPolicy.php
   - api/app/Models/StationEvent.php
   - api/app/Services/AutoDjProgramme.php
+  - api/app/Services/AutoDjScheduler.php
   - api/app/Observers/UserObserver.php
   - api/routes/admin.php
   - api/app/Jobs/StopStation.php
@@ -33,7 +34,6 @@ sources:
   - api/bootstrap/app.php
   - client/hooks/useStationStatus.ts
   - client/interfaces/StationStatus.ts
-  - client/components/dashboard/StationPower.tsx
   - client/components/studio/EndBroadcast.tsx
   - client/contexts/BroadcastContext.tsx
   - client/lib/broadcast.ts
@@ -46,7 +46,14 @@ sources:
   - mobile/src/components/studio/OnAir.tsx
   - mobile/src/app/live/[slug].tsx
   - mobile/src/app/account.tsx
-fingerprint: 8a2cfa3321bb4307
+  - client/hooks/useStationStatusPoll.ts
+  - client/contexts/StationStatusContext.tsx
+  - client/lib/airState.ts
+  - client/lib/stationHero.ts
+  - client/hooks/useStationPower.ts
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/shell/StationBand.tsx
+fingerprint: 6bafb464f82ecdbc
 ---
 
 # Station lifecycle
@@ -103,10 +110,9 @@ All under the `verified` middleware group in `api/routes/api.php`; all authorize
 |---|---|---|---|
 | `POST /stations/{slug}/start` | 20/min | `StationPowerController::start` | 202 + `StationResource` |
 | `POST /stations/{slug}/stop` (body `force` boolean) | 20/min | `StationPowerController::stop` | 200 + `StationResource` |
-| `POST /stations/{slug}/skip` | 30/min | `StationPowerController::skip` | Sends telnet `<LIQ_SOURCE>.skip`; 409 `station_not_running` if stopped; 503 `station_unreachable` if telnet fails |
 | `GET /stations/{slug}/status` | 120/min | `StationStatusController` | Live status (below) |
 
-Neither start nor stop waits for audio. Both call `StationStatusService::forget()` (drops the cached status) before responding. The client then polls status for readiness. Refusals are JSON `{message, code}`: 422 `station_limit_reached`, 503 `station_start_failed`, 409 `station_is_live` / `station_is_live_external`. `skip` has no lock and does not touch `desired_state`.
+Neither start nor stop waits for audio. Both call `StationStatusService::forget()` (drops the cached status) before responding. The client then polls status for readiness. Refusals are JSON `{message, code}`: 422 `station_limit_reached`, 503 `station_start_failed`, 409 `station_is_live` / `station_is_live_external`. The skip-track endpoint (`POST /stations/{slug}/skip`) is disabled as of 2026-10-05: its route and `StationPowerController::skip` are commented out, and no client calls it.
 
 ### `StationLifecycleService::start($station, $reason = 'owner')`
 
@@ -114,12 +120,12 @@ Under a per-station cache lock (`station-lifecycle:{id}`, TTL 30 s, waits up to 
 
 1. Refresh the row. If desired state is running **and** `supervisor->isRunning()`, return untouched (no restart, no event, no log). This is what makes a double click, and the studio's start-before-broadcast, safe: `LiquidsoapSupervisor::up()` restarts a running container, which drops every listener.
 2. If desired state is not running: `assertCanRunAnother()` then write `desired_state = running` and `started_at = now()`.
-3. `PlaylistFileWriter::write()` (jingle m3u), then `supervisor->up()`. Intent is saved **before** the container is touched so a failed `docker run` leaves the station `running` and the reconciler retries.
+3. `PlaylistFileWriter::prepare()` (only makes sure the station's audio directory exists), then `supervisor->up()`. Intent is saved **before** the container is touched so a failed `docker run` leaves the station `running` and the reconciler retries.
 4. `Log::info`, `StationEvent::TYPE_STARTED` with `reason`, then `event(StationStateChanged::for(..., 'started'))`. A start of a station that is `running` with its container down therefore records a second `started` event.
 
 Plan gate: `assertCanRunAnother()` counts the user's **other** stations with `desired_state = running` against `plan->max_running_stations` (`?? 1` when no plan). Over the limit throws `station_limit_reached` (422). Migration `2026_08_15_115900_add_feature_columns_to_plans_table.php` seeds free = 1, pro = 5 (plans can be edited later in the admin panel; read the plans table for today's values). Intent is counted, not containers: a crashed station still holds its slot. A start of a station that is already `running` but whose container is down skips the check and just re-runs `up()`.
 
-If the container dies within `liquidsoap.start_verify_delay_ms` (750 ms) of `docker run`, `LiquidsoapSupervisor::verifyStarted()` throws `station_start_failed` (503; message "ran out of memory while starting" when Docker says OOM-killed). Intent is already saved, so the station stays `running`, and steps 3-4's event/log/broadcast are skipped for that attempt. `bootstrap/app.php` renders `StationLifecycleException` as JSON `{message, code}` with its status and reports only status >= 500.
+If the container dies within `liquidsoap.start_verify_delay_ms` (750 ms) of `docker run`, `LiquidsoapSupervisor::verifyStarted()` throws `station_start_failed` (503; message "ran out of memory while starting" when Docker says OOM-killed). Intent is already saved, so the station stays `running`, and steps 3-4's event/log/broadcast are skipped for that attempt. `bootstrap/app.php` renders `StationLifecycleException` as JSON `{message, code}` with its status and reports only status >= 500, through `dontReportWhen` (checked before any reportable callback; a `reportable()` returning false was too late, since Sentry's callback had already sent the event). `InviteException` gets the same rule.
 
 ### `StationLifecycleService::stop($station, $force = false, $reason = 'owner', $cutExternal = false)`
 
@@ -138,11 +144,11 @@ Same lock. Steps, in this order (the order is load-bearing, see the docblock com
 
 ### Implicit start from the studios
 
-The web studio (`client/lib/broadcast.ts` `ensureStationOnAir`) and the mobile studio (`mobile/src/broadcast/broadcastManager.ts` same-named method) call `POST /start` themselves before connecting, then poll `/status` until `ready` (web 20 s, then publishes anyway; reconnect attempts wait 8 s). A 422 or 403 from start becomes the broadcast's error message. They do this on **every reconnect attempt**, which is how a station stopped for silence while the DJ was away comes back. Start goes through the same service with the default reason `'owner'`; the `'broadcast'` reason mentioned in the service docblock is never passed by any caller.
+The web studio (`client/lib/broadcast.ts` `ensureStationOnAir`) and the mobile studio (`mobile/src/broadcast/broadcastManager.ts` same-named method) call `POST /start` themselves before connecting, then poll `/status` until `ready` (web 20 s, then publishes anyway; reconnect attempts wait 8 s). A 422 or 403 from start becomes the broadcast's error message; on web a 429 becomes "Too many tries in a row. Wait a minute, then try again." The web studio's Start skips its second `POST /start` when the go-live checklist confirmed the station within 30 s (`STATION_FRESH_MS`). `POST /start` and `/stop` each have their own named limiter (`throttle:20,1,station-start`, `throttle:20,1,station-stop`); before they were named, every unnamed `throttle:N,M` route shared one per-user counter, so a go-live's probes, check report and token ate into the start limit. They do this on **every reconnect attempt**, which is how a station stopped for silence while the DJ was away comes back. Start goes through the same service with the default reason `'owner'`; the `'broadcast'` reason mentioned in the service docblock is never passed by any caller.
 
 ### `POST /stop` after a broadcast
 
-Both studios call `stop({ releaseStation: autoDjLocked })` when the user presses End (`client/components/studio/EndBroadcast.tsx`, `mobile/src/components/studio/OnAir.tsx`). If the account has no AutoDJ (`useAutoDjLocked`), the context retries `POST /stop` on 409 (delays 0, 400, 800, 1500, 2500 ms in `releaseStation`) to wait out harbor's disconnect callback, and any other status gives up (the sweep is the backstop). So for a Free account, ending the show switches the station off immediately; for a Pro account it hands back to AutoDJ and stays on.
+Both studios call `stop({ releaseStation: autoDjLocked })` when the user presses End (`client/components/studio/EndBroadcast.tsx`, which then replaces the page with the "That's a wrap" screen at `.../studio/wrap`; `mobile/src/components/studio/OnAir.tsx`). If the account has no AutoDJ (`useAutoDjLocked`), the context retries `POST /stop` on 409 (delays 0, 400, 800, 1500, 2500 ms in `releaseStation`) to wait out harbor's disconnect callback, and any other status gives up (the sweep is the backstop). So for a Free account, ending the show switches the station off immediately; for a Pro account it hands back to AutoDJ and stays on. Either way, the dashboard then re-reads status at once and every 1.5 s until a read shows nobody attached and `source !== "live"` (at most 15 s, `StationStatusContext` `useRereadWhenShowEnds`); meanwhile the band and sidebar lamp show SHOW ENDED, "Your show has ended. Checking what’s on air now…" (`airState` `showEnding`), and a `browser` `live_source` in the stale status is masked so this tab's finished show isn't read as "live from another browser".
 
 On mobile the show lives at module scope in `mobile/src/broadcast/BroadcastContext.tsx`, so it survives the app being swiped away, and three more things end it. The foreground notification's "End show" button (`onNotificationStop`) calls the same `stop({ releaseStation: autoDjLocked })`, with `autoDjLocked` mirrored into a module variable so it works with no screen mounted (after a swipe-away it keeps the last known plan). Signing out under a show (`mobile/src/app/account.tsx`, and the `signedOut` effect in the context when the API rejects the token) and cancelling the go-live countdown (`mobile/src/app/live/[slug].tsx` `cancel`) call `stop()` with **no** release: the station stays `running` and `stations:sweep` switches it off, after the 150 s studio-gone grace if a session had been opened, or the full silence window if the cancel landed before the socket connected (`ensureStationOnAir` has already sent `POST /start` by then, and `abandonStart` in `broadcastManager.ts` does not undo it).
 
@@ -214,7 +220,7 @@ The mobile studio's budget is `30 * 60_000` (`mobile/src/broadcast/broadcastMana
 
 ### AutoDJ audibility and "fault"
 
-`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()` (returns null for a non-AutoDJ plan), and in `Station::jinglesAudible()` (jingle arm requires the owner's switch and the plan, so a downgraded station does not keep meter signal from jingles). So:
+`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()`, which returns null for a non-AutoDJ plan and is now also where jingles come from: it serves a jingle only after it has found a music track to play, so a downgraded station or a jingle-only library puts nothing on the meter and stays eligible to stop. (A container rendered before 2026-10-05 still has its own jingle block and plays its frozen `jingles.m3u` until it is relaunched.) So:
 
 - Pro station, playlist has tracks, silent output: `Fault` (alert only, never stopped, stays on air).
 - Pro station, resolved playlist empty (even with a full library elsewhere): not a fault; eligible to stop.
@@ -238,7 +244,7 @@ Every minute (`console.php`). It compares `docker ps -a` to intent (`ReconcileSt
 
 Counters live in cache keys `station-unhealthy-passes:` (6 h), `station-recreates:` (1 h), `station-live-strikes:` (1 h). `--dry-run` supported. The command also exits FAILURE when any action throws.
 
-A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it rewrites the m3u and calls `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop).
+A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it calls `PlaylistFileWriter::prepare()` and `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop).
 
 ### What clients see in each failure
 
@@ -270,7 +276,7 @@ The container callback `POST /internal/station-event` (`StationEventController`,
 
 ### Studio drop reports (`studio_drop`)
 
-The container's `live_disconnected` never says why a broadcaster left. The web studio fills that in: when its socket closes mid-show, `client/lib/studioDropLog.ts` snapshots the page (visible or hidden, how long hidden, Chrome `freeze`/`resume`, `navigator.onLine`, Network Information type and speed, socket `bufferedAmount` now and at peak, wake lock held, close code) and stores it in localStorage at once. When the reconnect loop ends it adds the outcome (`reconnected`, `gave_up`, `stopped`), time down and attempts, then `POST /stations/{slug}/studio-drops` (`StudioDropController`, owner only, throttle 30/min, max 20 per request, whitelisted fields). Unsent reports go out on the next broadcast or by keepalive fetch on `pagehide` (as `page_closed` if still unresolved); the API drops repeats by report `id` for 2 days. Rows are `studio_drop`, source `owner`, shown on the admin station page. Admin monitoring only. The mobile studio does not report yet.
+The container's `live_disconnected` never says why a broadcaster left. The web studio fills that in: when its socket closes mid-show, `client/lib/studioDropLog.ts` snapshots the page (visible or hidden, how long hidden, Chrome `freeze`/`resume`, `navigator.onLine`, Network Information type and speed, socket `bufferedAmount` now and at peak, wake lock held, close code, ingest `bitrate` at the drop and the go-live check's `uplink_kbps`, and the audio engine's state: `audio_state`, `frame_age_ms` since the last encoded frame, `engine_rebuilds` by the frame watchdog, see [broadcasting-web-studio.md](broadcasting-web-studio.md) §5a) and stores it in localStorage at once. When the reconnect loop ends it adds the outcome (`reconnected`, `gave_up`, `stopped`), time down and attempts, then `POST /stations/{slug}/studio-drops` (`StudioDropController`, owner only, `throttle:30,1,studio-drops`, max 20 per request, whitelisted fields). Unsent reports go out on the next broadcast or by keepalive fetch on `pagehide` (as `page_closed` if still unresolved); the API drops repeats by report `id` for 2 days. Rows are `studio_drop`, source `owner`, shown on the admin station page. Its sibling `uplink_check` (one per browser go-live attempt, the connection check's verdict) is described in [broadcasting-web-studio.md](broadcasting-web-studio.md). Admin monitoring only. The mobile studio does not report yet.
 
 ## Data touched
 
@@ -285,11 +291,13 @@ The container's `live_disconnected` never says why a broadcaster left. The web s
 | Cache `station-status:{id}` | status cache | `StationStatusService` |
 | Cache `station-lifecycle:{id}` | lifecycle lock | `StationLifecycleService` |
 
-`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changes (jingle columns are instead pushed live over telnet, only when running); a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes watermark and jingle settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
+`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changes; a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes the watermark settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
 
 ## Surfaces
 
-**Web dashboard.** `client/components/dashboard/StationPower.tsx` is the power card. It polls `useStationStatus(slug)` (`client/hooks/useStationStatus.ts`): 2 s before the first answer, while `starting` or during a live handover (`source`/`broadcaster` disagree), 30 s while `offline`, otherwise just after the track is due to end (floor 3 s, ceiling 10 s, or 30 s when the websocket is connected), exponential backoff up to 30 s on failure, paused while the tab is hidden. A caller-supplied `intervalMs` (the encoder go-live panel passes 2 s) replaces the self-pacing only while the websocket is down. `StationStateChanged` signals (from `RealtimeContext`, `.station.state` on `user.{id}`) are coalesced for 120 ms into an immediate refetch; a signal older than the last seen is ignored. Headlines (`HEADLINE_LABEL`): Live, On air, No sound (source silence), Off air, Starting…, Checking…, Status unknown (no answer, or 10 s with none), Not reaching listeners (degraded). Headline precedence: `degraded` then `starting` (fault/starting), then broadcaster attached (live), then off, then no answer/checking, then silent vs on air. The buttons depend on state: off air shows "Start AutoDJ" (locked accounts see a "Go live" trigger instead); running shows "Go live" (`GoLiveTrigger`) and "Turn station off"; live from this browser shows "Open studio"; live from an encoder or another browser shows "Hear your stream" (Turn off is hidden only for a browser broadcast elsewhere, so an encoder broadcast can still be cut off). "Turn station off" (asks for confirmation when AutoDJ is playing; a `station_is_live_external` refusal opens "Cut off this broadcast?" which re-posts with `force: true`). The source line reads "Live from this browser / another browser / <encoder client> / an encoder", "Handing back to AutoDJ", "AutoDJ", "Silence".
+**Web dashboard.** Status comes from one shared poll per dashboard (`StationStatusProvider` in `client/contexts/StationStatusContext.tsx`, running `client/hooks/useStationStatusPoll.ts`; `useStationStatus(slug)` returns it for the account's station): 2 s before the first answer, while `starting` or during a live handover (`source`/`broadcaster` disagree), 30 s while `offline`, otherwise just after the track is due to end (floor 3 s, ceiling 10 s, or 30 s when the websocket is connected), exponential backoff up to 30 s on failure, reads skipped while the tab is hidden. A caller that passes its own `intervalMs` gets a separate poll whose fixed cadence replaces the self-pacing only while the websocket is down. `StationStateChanged` signals (from `RealtimeContext`, `.station.state` on `user.{id}`) are coalesced for 120 ms into an immediate refetch; a signal older than the last seen is ignored.
+
+Three places read it. The **status band** under the top bar and the sidebar's **station lamp** say it through `airState` (`client/lib/airState.ts`): OFF AIR, STARTING, CHECKING, NO ANSWER, NOT HEARD (degraded), SILENCE, ON AIR · AUTODJ, LIVE, and SHOW ENDED while this tab's just-ended show hands over; this tab's own broadcast outranks the poll. The band's one action: Start AutoDJ (Go live on a plan without AutoDJ) off air, Add tracks on silence, Go live under AutoDJ, Open studio / Close mic while live from this tab. The **overview hero** decides through `stationHero` (`client/lib/stationHero.ts`): labels LIVE, ON AIR · AUTODJ, NO SOUND, OFF AIR, STARTING, CHECKING, STATUS UNKNOWN, NOT REACHING LISTENERS, with precedence `degraded`, then `starting`, then broadcaster attached (live), then off, then no answer/checking, then silent vs on air. Buttons: Go live whenever nobody is live (disabled while running with the status unknown); Open studio when live from this browser; "Hear your stream ↗" when live from elsewhere; off air and not AutoDJ-locked adds Start AutoDJ; running adds "Stop AutoDJ" (while AutoDJ plays, after "Stop AutoDJ on {name}?") or "Turn station off", hidden only while a browser broadcasts elsewhere, so an encoder broadcast can still be cut off. The hero's listener panel says "Your station is starting. Counting begins once it’s on air." while starting. Power calls go through `client/hooks/useStationPower.ts` (success toasts "Your station is starting up", since a start is only accepted, and "Station is off air"): a `station_is_live_external` refusal opens "Cut off this broadcast?", which re-posts with `force: true`.
 
 **Mobile.** `mobile/src/lib/station.ts` `useStationStatus` mirrors the web cadence (2 s / 30 s / track-aware 3-10 s), refetches when the app becomes active, and has **no** websocket push. `mobile/src/components/station/usePower.ts` (`usePower`, used by `mobile/src/app/station/[slug]/index.tsx`) calls start/stop and shows the same force confirmation for `station_is_live_external` (the overview re-posts with `force: true`); the Turn off control is hidden while live from this phone or from another browser (`canTurnOff` in `index.tsx`), and an AutoDJ station with nobody attached gets a "Turn <name> off?" confirmation first. The studio's End uses the same 5-step `releaseStation` retry as web (`mobile/src/broadcast/BroadcastContext.tsx`).
 
@@ -325,4 +333,4 @@ The container's `live_disconnected` never says why a broadcaster left. The web s
 
 ## History
 
-Plans and handoffs (history, not spec): `docs/` audio-based auto-stop notes, `station-hardening-plan.md`, the station lifecycle artifact; superseded commands `stations:reap-idle` and `stations:reap-silent`.
+Plans and handoffs (history, not spec): `docs/` audio-based auto-stop notes, `station-hardening-plan.md`, the station lifecycle artifact; superseded commands `stations:reap-idle` and `stations:reap-silent`. 2026-10-05: jingles moved from the container into `AutoDjScheduler` (so the jingle telnet push and `jinglesAudible()` are gone) and skip-track was disabled; see `docs/JINGLES-AND-HARD-SLOTS-PLAN.md`.

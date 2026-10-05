@@ -51,6 +51,10 @@ export interface DropReport {
   peak_buffered_bytes?: number | null
   wake_lock?: boolean
   standalone?: boolean
+  /** Ingest bitrate at the drop, in kbps. */
+  bitrate?: number | null
+  /** Upload speed the go-live check measured, in kbps. */
+  uplink_kbps?: number | null
   audio_state?: string | null
   frame_age_ms?: number | null
   engine_rebuilds?: number
@@ -68,6 +72,8 @@ export interface DropContext {
   bufferedBytes: number | null
   peakBufferedBytes: number
   wakeLockHeld: boolean
+  bitrate: number
+  uplinkKbps: number | null
   /** The AudioContext's state at the close; anything but `running` means the engine was stopped. */
   audioState: string | null
   /** Since the engine last emitted a frame. Seconds here means the audio died before the socket did. */
@@ -187,6 +193,8 @@ export function captureDrop(slug: string, ctx: DropContext): string | null {
       peak_buffered_bytes: ctx.peakBufferedBytes,
       wake_lock: ctx.wakeLockHeld,
       standalone: typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches,
+      bitrate: ctx.bitrate,
+      uplink_kbps: ctx.uplinkKbps,
       audio_state: ctx.audioState ? ctx.audioState.slice(0, 16) : null,
       frame_age_ms: ctx.frameAgeMs,
       engine_rebuilds: ctx.engineRebuilds,

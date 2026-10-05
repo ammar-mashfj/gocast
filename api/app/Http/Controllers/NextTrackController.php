@@ -43,7 +43,7 @@ class NextTrackController extends Controller
         // queries per track boundary on every running station, on the one
         // path where latency turns into late audio.
         $station = Station::query()
-            ->with(['user.plan', 'defaultPlaylist', 'autodjSlots.playlist'])
+            ->with(['user.plan', 'defaultPlaylist', 'autodjSlots.playlist', 'jingleLists'])
             ->where('slug', $validated['slug'])
             ->first();
 
@@ -51,7 +51,14 @@ class NextTrackController extends Controller
             return response('', 404);
         }
 
-        $uri = $scheduler->next($station);
+        // Two headers from the station script (absent from older scripts):
+        // which script version is asking, and whether this is its first ask
+        // since it booted — nothing queued, so the answer starts now.
+        $uri = $scheduler->next(
+            $station,
+            fresh: $request->header('X-Gocast-Fresh') === '1',
+            script: (int) $request->header('X-Gocast-Script', '1'),
+        );
 
         if ($uri === null) {
             return response('', 204);

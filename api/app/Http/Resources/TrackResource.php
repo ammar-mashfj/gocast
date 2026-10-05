@@ -26,9 +26,12 @@ class TrackResource extends JsonResource
             'id' => $this->id,
             'station_id' => $this->station_id,
             'kind' => $this->kind,
+            'jingle_list_id' => $this->jingle_list_id,
             'title' => $this->title,
             'artist' => $this->artist,
             'duration_seconds' => $this->duration_seconds,
+            // Airtime from cue-in to cue-out, once the length is measured.
+            'airtime_seconds' => $this->airtimeSeconds(),
             'file_size_bytes' => $this->file_size_bytes,
             'position' => $this->whenPivotLoaded('playlist_track', fn () => (int) $this->pivot->position, $this->position),
             'playlist_ids' => $this->whenLoaded('playlists', fn () => $this->playlists->pluck('id')->values()),

@@ -1,6 +1,6 @@
 ---
 feature: Deployment and infrastructure
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - infra/native/setup-native.sh
   - infra/native/deploy-native.sh
@@ -38,6 +38,8 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/app/Services/TrackAnalyzer.php
   - api/app/Jobs/AnalyzeTrack.php
+  - api/app/Jobs/MeasureTrackDuration.php
+  - api/app/Console/Commands/MeasureTrackDurationsCommand.php
   - api/app/Console/Commands/SyncListenerCounts.php
   - api/app/Http/Middleware/UseAuthTokenCookie.php
   - api/app/Http/Middleware/VerifyInternalKey.php
@@ -48,7 +50,7 @@ sources:
   - client/proxy.ts
   - client/lib/env.ts
   - client/app/hls-proxy/[...path]/route.ts
-fingerprint: 2a6283df3ed80661
+fingerprint: 186cf84a9c77be95
 ---
 
 # Deployment and infrastructure
@@ -129,7 +131,7 @@ TLS: the templates are port 80 only. `certbot --nginx -d <four hosts>` rewrites 
 
 ### Cookies and CORS
 
-- **Auth cookie `token`**: written by the API (`AuthController::authCookie`, same shape in `GoogleAuthController`) with lifetime `sanctum.expiration` minutes (default 43200 = 30 days), path `/`, **domain `config('session.domain')`**, secure when the request is HTTPS, `httpOnly=true`, `sameSite=lax`. Production sets `SESSION_DOMAIN=.gocast.fm` so the cookie is shared by `gocast.fm` (Next's `proxy.ts` reads it, together with a separate `user` cookie whose JSON must carry `email_verified_at`, to guard `/dashboard`; with both present it also redirects `/auth/login` and `/auth/register` to `/dashboard/stations`. Its matcher skips `api`, `embed`, `_next/static`, `_next/image`, `.png` and `.svg`.) and `api.gocast.fm`.
+- **Auth cookie `token`**: written by the API (`AuthController::authCookie`, same shape in `GoogleAuthController`) with lifetime `sanctum.expiration` minutes (default 43200 = 30 days), path `/`, **domain `config('session.domain')`**, secure when the request is HTTPS, `httpOnly=true`, `sameSite=lax`. Production sets `SESSION_DOMAIN=.gocast.fm` so the cookie is shared by `gocast.fm` (Next's `proxy.ts` reads it, together with a separate `user` cookie whose JSON must carry `email_verified_at`, to guard `/dashboard`; with both present it also redirects `/auth/login` and `/auth/register` to `/dashboard/stations`, unless the URL carries `?expired=1`, which a dashboard page whose API call came back 401 sends so the stale cookies don't loop back to the same 401. Its matcher skips `api`, `embed`, `_next/static`, `_next/image`, `.png` and `.svg`.) and `api.gocast.fm`.
 - `UseAuthTokenCookie` (prepended to the `api` middleware group) turns the `token` cookie into an `Authorization: Bearer` header if none was sent, using the **last** `token` cookie when several arrive, and, only when more than one `token` cookie arrived, adds a `Set-Cookie` that expires the host-only (no domain) duplicate.
 - `session.driver` is `redis` in the example (`SESSION_DRIVER=redis`); the config default is `database`.
 - **CORS** (`config/cors.php`): paths `api/*`, `sanctum/csrf-cookie`, `broadcasting/auth`; all methods and headers; `supports_credentials true`; `max_age 0`; origins from `CORS_ALLOWED_ORIGINS` (comma list). Example sets it to `"${FRONTEND_URL}"` (`https://gocast.fm`). Code default, when unset, is `http://localhost:5173,http://localhost:3000`.
@@ -204,7 +206,7 @@ Pool `[gocast]`: user/group `RUN_USER`; `pm = dynamic`, `max_children 12`, `star
 | `gocast-scheduler` | `php artisan schedule:work` | `Requires=redis-server`, `After=docker.service`; `RestartSec=10`, `TimeoutStopSec=70`. |
 | `gocast-client` | `/usr/bin/node server.js` in `client/.next/standalone` | `PORT`, `HOSTNAME=127.0.0.1`, `NODE_ENV=production`; `ProtectSystem=strict`, `ProtectHome=true`, writable only `.next/cache` under standalone. Node must be at `/usr/bin/node`. |
 
-The `realtime` queue exists only for `StationStateChanged` broadcasts (`broadcastQueue()`); a worker started without `--queue=realtime,default` never delivers them. `queue.redis.retry_after` is 90 (`REDIS_QUEUE_BLOCK_FOR` 5).
+The `realtime` queue exists only for `StationStateChanged` broadcasts (`broadcastQueue()`); a worker started without `--queue=realtime,default` never delivers them. `queue.redis.retry_after` is 1800 (`REDIS_QUEUE_RETRY_AFTER`; `REDIS_QUEUE_BLOCK_FOR` 5). It must stay above the longest job timeout: `AnalyzeTrack` (and `MeasureTrackDuration`, sized the same way) sets its own `$timeout` to `TrackAnalyzer::timeoutFor(duration) + 30`, where `timeoutFor` is `max(LIQUIDSOAP_ANALYSIS_TIMEOUT floor (120), ceil(duration/8))` capped at `MAX_TIMEOUT_SECONDS` 1500. A job's own `$timeout` overrides the worker's `--timeout=60`. At the old 90 s a second worker could take a long mix mid-analysis and run ffmpeg twice.
 
 ## Deploy: `deploy-native.sh`
 
@@ -245,7 +247,7 @@ Owed-manual-steps warnings it prints but does not perform: `infra/native` or `do
 | `app:nudge-inactive-broadcasters` | daily 16:00 UTC | **foreground** | Day-7 nudge email. |
 | `plans:expire` | hourly | **foreground** | Downgrades accounts whose `plan_expires_at` has passed. |
 
-Commands that exist but are **not scheduled** (run by hand or by a caller): `stations:relaunch`, `tracks:analyze` (backfill), `notifications:announce` (`SendAnnouncement`), `admin:create`, `admin:reset-password`, `e2e:auth` (`E2EAuthCommand`, refuses outside local/testing). `--dry-run` exists on `stations:reconcile`, `stations:sweep`, `stations:prune-deleted`, `notifications:announce` and `app:nudge-inactive-broadcasters`.
+Commands that exist but are **not scheduled** (run by hand or by a caller): `stations:relaunch`, `tracks:analyze` (backfill), `tracks:measure-durations` (`{--station=} {--limit=0}`; queues a `MeasureTrackDuration` decode for every track with `duration_measured_at` null, a one-off after the column shipped), `notifications:announce` (`SendAnnouncement`), `admin:create`, `admin:reset-password`, `e2e:auth` (`E2EAuthCommand`, refuses outside local/testing). `--dry-run` exists on `stations:reconcile`, `stations:sweep`, `stations:prune-deleted`, `notifications:announce` and `app:nudge-inactive-broadcasters`.
 
 The scheduler is one process by design. `stations:reconcile` running twice at once would race itself tearing containers down; the Redis-backed overlap lock covers a normal single scheduler.
 
@@ -271,7 +273,7 @@ Retention is left to a bucket lifecycle rule (30 days suggested). Not backed up:
 1. **`setup-native.sh` wipes certbot's TLS blocks.** It re-renders port-80-only templates over the certbot-edited vhosts. `deploy-native.sh` does **not** call it (its header says so and the code confirms), but it prints an owed manual step whenever `infra/native` or `domains.env` changes. After any run of the setup script, run `certbot --nginx --cert-name <name>` or Cloudflare Full mode returns 521. `infra/native/README.md` claims the deploy re-runs the provisioner unconditionally; that is stale, the code wins.
 2. **README says the deploy "relaunches" stations.** `deploy-native.sh` only runs `stations:reconcile` (starts missing, removes unwanted, leaves healthy ones alone). Image or `.liq` changes need `stations:relaunch` by hand.
 3. **`request_terminate_timeout = 330s` is shorter than the rest of the upload path.** nginx `fastcgi_read_timeout 900s`, `client_body_timeout 900s`, PHP `max_execution_time 900`, but php-fpm kills a worker at 330s. The pool comment still says `memory_limit` 256M and `max_execution_time` 300s; the ini says 512M and 900s. A slow multi-hundred-MB upload can be cut at 330s with a 502 and nothing in the Laravel log.
-4. **Worker `--timeout=60` versus track analysis.** `TrackAnalyzer` allows 120s (`LIQUIDSOAP_ANALYSIS_TIMEOUT`) and `AnalyzeTrack` sets no `$timeout`, so the worker's 60s applies. A long file's job is killed at 60s (worker restarts, job retried once as `$tries = 2`), and the `docker run --rm` ffmpeg container it started is not stopped by that. How often real tracks exceed 60s, and whether the worker's timeout kill (which relies on PHP `pcntl`) fires on the host, cannot be read from code; it needs a real long file.
+4. **Track analysis timeouts are coupled across three files.** `TrackAnalyzer::timeoutFor()` scales the ffmpeg process timeout with track length (floor 120 s, `duration/8`, ceiling 1500 s); `AnalyzeTrack::$timeout` and `MeasureTrackDuration::$timeout` add 30 s as the worker backstop; `config/queue.php` `retry_after` (1800) must clear that. Raising `MAX_TIMEOUT_SECONDS` without raising `REDIS_QUEUE_RETRY_AFTER` brings back double analysis. If the backstop SIGKILL does fire, the `docker run --rm` ffmpeg container is not stopped by it. Also, one worker means a long mix's analysis (minutes) holds up every other job while it runs, `realtime` broadcasts included (the dashboard poll covers that gap).
 5. **`ROUTER_PORT` is only half configurable.** The vhost is rendered with `ROUTER_PORT`, but compose hardcodes the publish as `127.0.0.1:8091:8091` and the router's `nginx.conf` listens on 8091. Changing `ROUTER_PORT` breaks `/broadcast/{slug}` without any error at setup time.
 6. **Icecast capacity ceiling of 50 sources** (`icecast.xml.tpl`), one per running station. Station 51 fails to connect its SOURCE. Icecast also caps 500 clients.
 7. **Icecast, the internal vhost (8081) and station telnet (1234) are exposed to all interfaces / the whole Docker network.** Only ufw protects 8000 and 8081, and only if ufw is enabled. Station telnet listens on `0.0.0.0:1234` inside `gocast-network` with no authentication, reachable from every container on the network (station containers, router, proxy).

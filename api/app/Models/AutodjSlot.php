@@ -23,13 +23,36 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array<int, int> $days weekdays the slot STARTS, 0 = Sunday
  * @property string $start_time wall clock "HH:MM:SS" in the station's timezone
  * @property string $end_time wall clock "HH:MM:SS"; at or before start means next day
+ * @property string $start_mode START_SOFT | START_HARD
  * @property int $position display order, owner-controlled
  */
-#[Fillable(['station_id', 'playlist_id', 'label', 'days', 'start_time', 'end_time', 'position'])]
+#[Fillable(['station_id', 'playlist_id', 'label', 'days', 'start_time', 'end_time', 'start_mode', 'position'])]
 class AutodjSlot extends Model
 {
     /** @use HasFactory<AutodjSlotFactory> */
     use HasFactory, HasUlids;
+
+    /** Starts after the song playing at the start time finishes. */
+    public const START_SOFT = 'soft';
+
+    /**
+     * Starts exactly on time: the song before it is picked to fit, or faded
+     * out on the start time. See AutoDjScheduler.
+     */
+    public const START_HARD = 'hard';
+
+    /** @var list<string> */
+    public const START_MODES = [self::START_SOFT, self::START_HARD];
+
+    /** @var array<string, mixed> */
+    protected $attributes = [
+        'start_mode' => self::START_SOFT,
+    ];
+
+    public function startsHard(): bool
+    {
+        return $this->start_mode === self::START_HARD;
+    }
 
     protected function casts(): array
     {

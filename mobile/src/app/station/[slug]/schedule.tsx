@@ -73,6 +73,9 @@ export default function ScheduleTab() {
       days: s.days,
       start_time: s.start_time,
       end_time: s.end_time,
+      // Sent back as it was: the API takes a missing mode as 'soft', so
+      // leaving it out would quietly turn every on-time slot soft.
+      start_mode: s.start_mode ?? 'soft',
     }));
     const row = {
       label: next.label.trim() || null,
@@ -80,6 +83,7 @@ export default function ScheduleTab() {
       days: next.days,
       start_time: next.start,
       end_time: next.end,
+      start_mode: next.startMode,
     };
     if (next.index === null) all.push(row);
     else if (remove) all.splice(next.index, 1);
@@ -100,6 +104,7 @@ export default function ScheduleTab() {
       start: '06:00',
       end: '12:00',
       playlistId: (lists.find((p) => !p.is_default) ?? lists[0])?.id ?? '',
+      startMode: 'soft',
     });
 
   return (

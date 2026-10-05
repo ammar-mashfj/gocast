@@ -82,6 +82,7 @@ export const ARTICLES: Article[] = [
     metaDescription:
       "Music blocks, a bulletin at six, a podcast repeat on Wednesday: how to schedule playlists by time on your radio station, and how the switch behaves.",
     date: "2026-09-21",
+    updated: "2026-10-05",
     readingTime: "~7 minutes",
     image: "/blog/schedule/hero.webp",
     Body: SchedulingBody,
@@ -99,7 +100,7 @@ export const ARTICLES: Article[] = [
       {
         question: "Does a scheduled playlist start exactly on time?",
         answer:
-          "Close to it. A slot takes over at the next track boundary rather than cutting a song in half, so it can start a couple of minutes after the time you wrote. For something that has to begin on the minute, go live — that takes over instantly.",
+          "Your choice, slot by slot. Normally a slot takes over at the next track boundary rather than cutting a song in half, so it can start a couple of minutes after the time you wrote. Switch on “Start exactly on time” and it starts on the dot: AutoDJ picks a song that ends in time, or fades out the one playing.",
       },
       {
         question: "What happens if I go live during a scheduled slot?",
@@ -203,6 +204,7 @@ export const ARTICLES: Article[] = [
     description:
       "Your station can now keep playing when you are not there. What is new in GoCast, everything the free plan already does, and how to get Pro free while it is in beta.",
     date: "2026-09-01",
+    updated: "2026-10-05",
     readingTime: "~7 minutes",
     Body: OnAir247Body,
     faqs: [

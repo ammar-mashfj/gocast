@@ -29,6 +29,8 @@ export interface AutodjSlot {
   start_time: string;
   /** At or before start_time means the slot runs past midnight. */
   end_time: string;
+  /** 'hard': starts exactly on time, fading the song before it. 'soft': after that song ends. */
+  start_mode: 'soft' | 'hard';
   position: number;
 }
 

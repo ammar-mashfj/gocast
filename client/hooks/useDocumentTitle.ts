@@ -20,11 +20,12 @@ export function useDocumentTitle(title: string | null) {
     }
     if (title) {
       document.title = title
-    } else if (previousRef.current) {
-      document.title = previousRef.current
     }
+    // Restore only a title that is still ours. Leaving the page, Next sets
+    // the next page's title before this cleanup runs, and putting the old one
+    // back over it left the overview reading "Studio — GoCast".
     return () => {
-      if (previousRef.current) {
+      if (title && document.title === title && previousRef.current) {
         document.title = previousRef.current
       }
     }

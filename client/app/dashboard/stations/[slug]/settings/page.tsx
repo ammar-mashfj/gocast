@@ -1,160 +1,52 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { apiFetch, ApiFetchError, redirectIfSessionExpired } from "@/lib/api-server"
-import { env } from "@/lib/env"
-import { Station } from "@/interfaces/Station"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { StationArtwork } from "@/components/StationArtwork"
-import { StationActions } from "../StationActions"
-import { DeleteStation } from "../DeleteStation"
-import { LinksEditor } from "../LinksEditor"
+import type { Station } from "@/interfaces/Station"
+import { PageHeader } from "@/components/ds/PageHeader"
+import { DeleteStation } from "./DeleteStation"
 import { EncoderSection } from "./EncoderSection"
+import { LinksCard } from "./LinksCard"
+import { ProfileCard } from "./ProfileCard"
 import { ShowTimesSection } from "./ShowTimesSection"
+import { StreamCard } from "./StreamCard"
 
-/**
- * Hardcoded in the Liquidsoap template (`%mp3(bitrate=128, samplerate=44100)`)
- * rather than stored per station, so there is nothing to read off the API.
- * Kept in sync by hand with api/resources/views/liquidsoap/station.blade.php.
- */
-const STREAM_FORMAT = "MP3 128 kbps, 44.1 kHz"
-
-/**
- * Everything about a station you configure once and then stop thinking about.
- *
- * It exists mostly to be somewhere the danger zone can live. A delete button
- * has no business on the page you open every day to check what's playing, but
- * it cannot simply be removed either — so it needed a destination, and the
- * read-only stream facts below (stream path, format) had nowhere to live
- * at all and are genuinely asked about.
- */
-// Its own tab title: every dashboard tab used to read the marketing title,
-// so history and open tabs were indistinguishable.
 export const metadata: Metadata = { title: "Station settings" }
 
-export default async function StationSettingsPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
+/**
+ * Everything about a station you set once and then stop thinking about.
+ *
+ * Left: what listeners see (profile, links, show times). Right: how audio
+ * gets out and in (stream addresses, your own DJ software), and delete,
+ * last and quiet. One column below xl.
+ */
+export default async function StationSettingsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
 
   let station: Station
   try {
-    const res = await apiFetch<{ data: Station }>(`/stations/${slug}`)
-    station = res.data
+    station = (await apiFetch<{ data: Station }>(`/stations/${slug}`)).data
   } catch (err) {
     redirectIfSessionExpired(err)
-    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) {
-      notFound()
-    }
+    if (err instanceof ApiFetchError && (err.status === 404 || err.status === 403)) notFound()
     console.error(`[station/${slug}/settings] fetch failed:`, err)
     throw err
   }
 
-  const playerUrl = `${env.appUrl}/station/${station.slug}`
-
-  const streamFacts: Array<{ label: string; value: string; hint?: string }> = [
-    { label: "Player URL", value: playerUrl, hint: "The link to share. Listeners press play here." },
-    {
-      label: "Stream path",
-      value: station.icecast_mount,
-      hint: "The raw audio feed, for radio apps and smart speakers. Only exists while the station is on air.",
-    },
-    {
-      label: "Format",
-      value: STREAM_FORMAT,
-      hint: "The audio quality listeners get. The same for every station.",
-    },
-  ]
-
   return (
-    // Left-aligned with a reading-width cap, like every other dashboard page.
-    // It used to be a centred max-w-2xl column, the only page in the shell
-    // that moved its left edge away from the sidebar. No back link either:
-    // the sidebar and breadcrumb already name the station.
-    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-semibold tracking-tight">Station settings</h1>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">Details</CardTitle>
-          <StationActions station={station} mode="edit" />
-        </CardHeader>
-        {/* On a phone the description runs the full width under the name
-            instead of as a 250px column beside the artwork. */}
-        <CardContent className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 sm:gap-y-1.5">
-          <StationArtwork
-            src={station.artwork_url}
-            alt={station.name}
-            className="size-16 rounded-xl shrink-0 sm:row-span-2"
-            iconSize={22}
-            sizes="64px"
-          />
-          <div className="flex items-center gap-2 min-w-0 self-center sm:self-auto">
-            <span className="font-medium truncate">{station.name}</span>
-            {station.genre && (
-              <Badge variant="secondary" className="shrink-0 text-[11px]">{station.genre}</Badge>
-            )}
-          </div>
-          <p className="col-span-2 text-sm text-muted-foreground leading-relaxed sm:col-span-1 sm:col-start-2">
-            {station.description || (
-              <span className="italic">
-                No description yet — two lines telling listeners what you play.
-              </span>
-            )}
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Links — a claim rather than a control. Nothing
-          here touches the audio path; it is the only way a listener gets from
-          the player to anywhere else the station exists. */}
-      <Card id="links" className="scroll-mt-6">
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Links</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <LinksEditor station={station} />
-        </CardContent>
-      </Card>
-
-      {/* Show times are station info listeners read, like Details and Links,
-          so they live here on every plan. They do not program anything —
-          that is the Schedule page (AutoDJ slots). */}
-      <Card id="show-times" className="scroll-mt-6">
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Show times</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Station settings" />
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-5">
+          <ProfileCard station={station} />
+          <LinksCard station={station} />
           <ShowTimesSection station={station} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Stream</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {streamFacts.map((fact) => (
-            <div key={fact.label} className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4">
-              <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">{fact.label}</div>
-              <div className="min-w-0">
-                <code className="text-xs break-all">{fact.value}</code>
-                {fact.hint && (
-                  <div className="text-xs text-muted-foreground mt-0.5">{fact.hint}</div>
-                )}
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Sits after Stream, because it is the other half of the same subject:
-          Stream is where listeners come OUT, this is how audio gets IN. */}
-      <EncoderSection station={station} />
-
-      <DeleteStation slug={station.slug} name={station.name} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-5">
+          <StreamCard station={station} />
+          <EncoderSection station={station} />
+          <DeleteStation slug={station.slug} name={station.name} />
+        </div>
+      </div>
     </div>
   )
 }

@@ -23,7 +23,7 @@ export default function Body() {
         </li>
         <li>
           <strong>Your show times</strong>, if you have set any under{" "}
-          <strong>Show times</strong>{" "}in Station settings &mdash; &ldquo;Mon&ndash;Fri at 7pm&rdquo; and the like.
+          <strong>When you’re usually live</strong>{" "}in Station settings &mdash; &ldquo;Mon&ndash;Fri at 7pm&rdquo; and the like.
           These are advertising, not automation: they tell listeners when to
           come back and change nothing about what your station plays.
         </li>

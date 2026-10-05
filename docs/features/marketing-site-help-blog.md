@@ -1,6 +1,6 @@
 ---
 feature: Marketing site, help centre and blog
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system)
 sources:
   - client/app/layout.tsx
   - client/app/sitemap.ts
@@ -98,8 +98,6 @@ sources:
   - api/app/Http/Controllers/AudienceController.php
   - api/app/Services/StationLifecycleService.php
   - client/contexts/ProRequestContext.tsx
-  - client/components/dashboard/StationPower.tsx
-  - client/components/dashboard/GoLiveTrigger.tsx
   - client/components/dashboard/EncoderConnection.tsx
   - client/instrumentation-client.ts
   - client/lib/broadcast.ts
@@ -113,8 +111,7 @@ sources:
   - api/app/Models/Station.php
   - client/lib/station-server.ts
   - client/components/dashboard/AppSidebar.tsx
-  - client/components/dashboard/StationChecklist.tsx
-  - client/components/dashboard/CreateStationButton.tsx
+  - client/lib/dashboardNav.ts
   - client/lib/micPrefs.ts
   - api/database/migrations/2026_04_16_131050_create_plans_table.php
   - api/database/migrations/2026_09_02_100000_raise_plan_listener_caps.php
@@ -123,7 +120,13 @@ sources:
   - api/database/migrations/2026_09_08_100000_add_embed_enabled_to_plans_table.php
   - api/database/migrations/2026_09_15_140000_add_encoder_enabled_to_plans_table.php
   - api/resources/views/liquidsoap/station.blade.php
-fingerprint: 96731db5e86ec961
+  - client/components/dashboard/overview/SetupChecklist.tsx
+  - client/components/dashboard/overview/OverviewHero.tsx
+  - client/components/dashboard/ProRequestDialog.tsx
+  - client/hooks/useAccessRequest.ts
+  - client/components/dashboard/station-form/StationForm.tsx
+  - client/app/dashboard/stations/[slug]/live/page.tsx
+fingerprint: 5248e63184f51da1
 ---
 
 # Marketing site, help centre and blog
@@ -170,9 +173,9 @@ The public, signed-out face of GoCast: the homepage, `/help` (17 task articles),
 ## The request form (waitlist)
 
 - `WaitlistButton` opens `ProAccessDialog` (`client/components/ProAccessDialog.tsx`), passing `plan`. Only the Custom card on the homepage uses it now.
-- The dialog has two modes keyed on `plan === "pro"`. **Custom** (public): fields email, link, message; `POST /waitlist` with `{email, plan, social, message}`. **Pro** (signed in, mounted once for the whole dashboard by `client/contexts/ProRequestContext.tsx`; opened from the sidebar "Request" button and `GoLiveTrigger`, never from the homepage): `POST /waitlist/pro` with `{social, message}`; the server reads email and plan from the session.
+- The dialog has two modes keyed on `plan === "pro"`. **Custom** (public): fields email, link, message; `POST /waitlist` with `{email, plan, social, message}`. **Pro**: the dashboard no longer uses this component; it draws its own `components/dashboard/ProRequestDialog.tsx` (ds kit, mounted once by `client/contexts/ProRequestContext.tsx`, opened by every "Request Pro" button: sidebar plan card, Account plan card, AutoDJ/Schedule/Audience upsells, the DJ-software fold, the Embed button). Both draw the form from `hooks/useAccessRequest.ts`, so the rules match: `POST /waitlist/pro` with `{social, message}`; the server reads email and plan from the session.
 - Client validation: email regex (custom only); `social` must contain a `.` ("full link"); `message` max 2000, `social` max 255. Errors: 401 session expired, 429 "Too many attempts", 422 "check the details", else generic.
-- API (`api/routes/api.php`): `POST /waitlist` sits under `throttle:3,60` (3 per IP per hour), unauthenticated. `POST /waitlist/pro` is `auth:sanctum` only, deliberately outside `verified`.
+- API (`api/routes/api.php`): `POST /waitlist` sits under `throttle:3,60,waitlist` (3 per IP per hour, its own limiter), unauthenticated. `POST /waitlist/pro` is `auth:sanctum` only, deliberately outside `verified`.
 - `StoreWaitlistRequest`: `plan` must be `custom` (`PUBLIC_PLANS`), so posting `pro` publicly is a 422. `social` required, max 255; `message` nullable max 2000; `email` required, max 255.
 - `WaitlistController::record` does `updateOrCreate(['email','plan'], ...)`: resubmitting overwrites social/message. A `rejected` row is reopened to pending; an `approved` row is left alone. Responds 201 `{message: "Request received."}`.
 - `WaitlistEntry` has statuses pending/approved/rejected, `$fillable` excludes review columns. `isGrantable()` is true only for a pending row with a `user_id`, so Custom rows (no `user_id`) are never grantable. Model events call `AdminTelegram::accessRequested` (registered in `AppServiceProvider`), which is inert without `TELEGRAM_BOT_TOKEN`. Review UI is in [admin-panel](admin-panel.md); granting is in [accounts-plans-invites](accounts-plans-invites.md).
@@ -200,9 +203,9 @@ Slug, title, category, Pro flag, `updated`, and what it claims.
 | go-live-from-your-browser | Go live from your browser | going-live | no | 09-21 | Steps; "about fourteen seconds" delay; what ends a broadcast (tab close, reload, links out); reconnect survives wifi hiccups; phone rule; ~10s tail after stop. |
 | using-the-studio | Using the studio | going-live | no | 09-21 | Mic meter, file queue (Repeat list/track, local only), push-to-talk ducks music to "a fifth", Keep mic on / L, monitor excludes mic, encoder health "N s lost". |
 | broadcast-from-butt-or-mixxx | Broadcast from BUTT, Mixxx or RadioDJ | going-live | yes | 09-21 | Icecast 2 protocol; five values, username always `source`; not Shoutcast, not OBS; encoder does not switch the station on; one broadcaster at a time. |
-| upload-your-music | Upload your music | autodj | yes | 09-21 | MP3/M4A/AAC/FLAC/OGG/WAV (API also accepts `mpga`); 300 MB per file (`max:307200` KB); 30 files per request (`files` max 30, also `MAX_BATCH_FILES` client-side, which additionally splits batches at 500 MB); 3 GB per station shared with jingles; lands in default playlist; jingles are random, on a timer. |
+| upload-your-music | Upload your music | autodj | yes | 10-05 | Description ends "where an upload lands, and jingles." Happens under AutoDJ › Library; MP3/M4A/AAC/FLAC/OGG/WAV (API also accepts `mpga`); 300 MB per file (`max:307200` KB); 30 files per request (`files` max 30, also `MAX_BATCH_FILES` client-side, which additionally splits batches at 500 MB); 3 GB per station shared with jingles; lands in default playlist. Jingles: on the Jingles page, in jingle lists, each with one rule (which clip: random / next in order / always one; how often: every few songs / every N minutes / set times; when: all day or some days and hours); one per break; a set time can be exactly on time (the song fades); the first jingle upload makes a list playing a random one every 4 songs. Its `music-library.webp` alt text still describes the old combined "AutoDJ page" with All tracks. |
 | playlists-and-the-rotation | Playlists and the rotation | autodj | yes | 09-21 | Track in many playlists, counted once; per-playlist position memory; per-playlist shuffle without repeats; one undeletable default playlist. |
-| schedule-playlists-by-time | Schedule playlists by day and time | autodj | yes | 09-21 (body edited after) | Week grid, one row per day (drag to draw, drag edge changes one day, Save button); slots crossing midnight; slot starts at next track boundary; timezone set under Show times in Station settings and only shown on Schedule; not the same as show times, which "appear on the week view as green marks" (`WeekGrid` draws them as dashed `SHOW` marks in the `live` colour, linking to settings). It says the slot is edited "in the panel beside it"; `SlotPanel` is the body of a Dialog. Detail in [schedule](schedule.md). |
+| schedule-playlists-by-time | Schedule playlists by day and time | autodj | yes | 10-05 | Week grid, one row per day (drag to draw, drag edge changes one day, Save button); slots crossing midnight; lives under AutoDJ › Schedule; a slot starts at the next track boundary unless "Start exactly on time" is on (then: a song from a shuffled playlist that ends in time, else the playing song fades on the start, or the slot starts up to 20 s early; an in-order playlist is never reshuffled; only measured song lengths are planned around); going live still takes over a hard slot, and on handback the lined-up song plays first; timezone set under Show times in Station settings and only shown on Schedule; not the same as show times, which "appear on the week view as green marks" (`WeekGrid` draws them as dashed `SHOW` marks in the `live` colour, linking to settings). It says the slot is edited "in the panel beside it"; `SlotPanel` is the body of a Dialog. Detail in [schedule](schedule.md). |
 | share-your-station | Share your station | listeners | no | 09-21 (body edited after) | Link, QR ("Tune-in code"), link previews, notify-me email, show times in settings. |
 | embed-the-player | Embed the player on your site | listeners | yes | 09-21 | Embed via share card or studio stream panel; needs Pro; lapse stops rendering. |
 | read-your-audience-page | Read your audience page | listeners | yes | 09-21 | 7/30/90 day windows; chart is listening time; breakdowns; not live/AutoDJ split; today underestimated; Free sees live count only. See [listener-analytics](listener-analytics.md). |
@@ -210,9 +213,9 @@ Slug, title, category, Pro flag, `updated`, and what it claims.
 | my-encoder-wont-connect | My encoder will not connect | troubleshooting | yes | 09-21 | Five causes: Shoutcast type, `http://` in server field, station off, mount slashes, another source connected; plus username, plan, rotated key, network. |
 | my-station-went-off-air | My station went off air on its own | troubleshooting | no | 09-21 | Stops after ten minutes of silence with nothing attached; listener count is irrelevant; muted mic does not count. |
 
-"(body edited after)": commit 360c382 rewrote these three bodies (`schedule-playlists-by-time`, `share-your-station`, `your-player-page`) for the week grid and for show times moving to Station settings, but left `articles.ts` alone, so their `updated` dates (09-21, 09-21, 09-23) are stale.
+"(body edited after)": commit 360c382 rewrote three bodies (`schedule-playlists-by-time`, `share-your-station`, `your-player-page`) for the week grid and for show times moving to Station settings without touching the help `articles.ts`, so the `updated` dates of `share-your-station` (09-21) and `your-player-page` (09-23) are stale. `schedule-playlists-by-time` and `upload-your-music` were bumped to 2026-10-05 with the jingle-lists / hard-start rewrite.
 
-**Dashboard links into help** (`components/dashboard/HelpLink.tsx`, always `target="_blank"` so a click cannot end a live broadcast): `playlists-and-the-rotation` (2), `read-your-audience-page` (2), `schedule-playlists-by-time`, `turning-your-station-on-and-off`, `upload-your-music`. Plain links to `go-live-from-your-browser` (live page), `using-the-studio` (StreamPanel), `my-encoder-wont-connect` (EncoderConnection). The sidebar links to `/help`.
+**Dashboard links into help** (`components/dashboard/HelpLink.tsx`, always `target="_blank"` so a click cannot end a live broadcast): `playlists-and-the-rotation` (Playlists page), `upload-your-music` (Library page; both from `LibraryView.tsx`), `read-your-audience-page` (Audience), `schedule-playlists-by-time` (Schedule, unless locked), `turning-your-station-on-and-off` (overview hero). Plain links to `go-live-from-your-browser` (go-live page) and `my-encoder-wont-connect` (the DJ-software fold in Station settings). The account menu links to `/help`. Nothing links to `using-the-studio` from the dashboard.
 
 ## Blog
 
@@ -223,26 +226,22 @@ Slug, title, category, Pro flag, `updated`, and what it claims.
 | Slug | Title | Date | Claims |
 |---|---|---|---|
 | broadcasting-from-your-phone | Broadcasting Radio From Your Phone | 2026-09-27 | Studio keeps screen awake (wake lock), reconnects for up to two minutes (`RECONNECT_BUDGET_MS = 120000` in `client/lib/broadcast.ts`), push-to-talk releases on focus loss; locking/app switch/call stops the broadcast; free station off after ~2.5 min; "an app is being built". |
-| how-to-schedule-playlists-on-your-radio-station | How to Schedule Playlists... | 2026-09-21, hero `/blog/schedule/hero.webp` | Launch post for playlists and weekly slots; 50 slots max; slot changes at track boundary; overlaps refused; Pro. Setup steps were updated in 360c382 for the week grid (Schedule from the sidebar, timezone under the week view, set in Station settings); the screenshots are still of the old list editor and the save step still says "Save AutoDJ slots" (the button in `SchedulePlanner.tsx` reads "Save"). |
+| how-to-schedule-playlists-on-your-radio-station | How to Schedule Playlists... | 2026-09-21, updated 2026-10-05, hero `/blog/schedule/hero.webp` | Launch post for playlists and weekly slots; 50 slots max; overlaps refused; Pro. A slot changes at the next track boundary by default, or on the dot with "Start exactly on time" (fit pick, else fade, up to 20 s early); the body and the matching FAQ answer say so. Its "edges" paragraph now says jingles have their own lists and rules and only one-off dated shows are missing. Setup steps were updated in 360c382 for the week grid (Schedule from the sidebar, timezone under the week view, set in Station settings); the screenshots are still of the old list editor and the save step still says "Save AutoDJ slots" (the button in `SchedulePlanner.tsx` reads "Save"). |
 | how-does-an-internet-radio-station-work | How an Internet Radio Station Actually Works | 2026-09-01 | Four jobs; 100 vs 1,000 listeners; self-hosting comparison; silent station "switches itself off within a couple of minutes". |
 | how-much-does-it-cost-to-run-an-internet-radio-station | What It Actually Costs... | 2026-09-01 | Licensing, bandwidth (58 MB per listener-hour at 128 kbps), competitor prices; Pro $15, free in beta. |
-| keep-your-radio-station-on-air-24-7 | How to Keep Your... On Air 24/7 | 2026-09-01 | AutoDJ launch post, Free vs Pro table, how to request Pro. |
+| keep-your-radio-station-on-air-24-7 | How to Keep Your... On Air 24/7 | 2026-09-01, updated 2026-10-05 | AutoDJ launch post, Free vs Pro table, how to request Pro. Its "Station IDs and Jingles" section describes jingle lists (by song count, by the clock, at set times that can be exactly on time; days and hours; random / in order / always one). |
 | how-to-start-an-internet-radio-station-2026 | How to Start an Internet Radio Station in 2026 | 2026-05-01, updated 2026-08-31, hero `/blog/how-to-start-...webp` | Long guide, platform comparison. GoCast passages checked against code: Free = one station, 100 listeners, no card; Pro $15, 3 GB, encoder ingest, 1,000 listeners, analytics all match the plan rows, but the same passage promises "a custom domain" and a TuneIn/Sonos stream URL (contradictions 1-2) and says Free "deliberately needs you at the browser". Generic industry text (licensing, competitor prices, listener-count benchmarks) is not GoCast-verifiable and was not checked. |
 
 Images: `client/public/blog/schedule/{hero,library,on-now,rotation,slots,week}.webp` (all dated 2026-09-21), `client/public/blog/how-to-start-an-internet-radio-station-2026.webp`.
 
 ## Screenshots
 
-**Where used:** help articles reference `/help/*.webp` through `ZoomableImage` with explicit `width`/`height`, and a long `alt` that describes the image. Files in `client/public/help/`: audience-breakdowns, audience-chart, autodj-rotation, encoder-connection, music-library, player-now-playing, player-page, schedule-on-now, schedule-slots, schedule-week, share-qr, station-header, station-power. All were written 2026-09-21 22:03. `ZoomableImage` (`components/content/ZoomableImage.tsx`) is a button with a Radix `Dialog` lightbox; second click toggles fit vs 1:1.
+**Where used:** help articles reference `/help/*.webp` through `ZoomableImage` with explicit `width`/`height`, and a long `alt` that describes the image. Files in `client/public/help/`: audience-breakdowns, audience-chart, autodj-rotation (now the Overview's Coming up card), encoder-connection, music-library (the spec now shoots it on the Playlists page, framed on "New playlist"), player-now-playing, player-page, schedule-slots (the Edit slot dialog), schedule-week, share-qr, station-header, station-power (the Overview hero). `schedule-on-now` (the Schedule page's old Right now card) was deleted along with that card and its use in `schedule-playlists-by-time`. The ten dashboard shots were retaken on 2026-10-01 for the redesigned dashboard; the two player shots are from 2026-09-21 (the public player was not redesigned). `ZoomableImage` (`components/content/ZoomableImage.tsx`) is a button with a Radix `Dialog` lightbox; second click toggles fit vs 1:1.
 
-**How they are produced:** `client/tests/e2e/help-screenshots.spec.ts` (Playwright, 2x device scale, 1680x1050 viewport). It signs in as a hard-coded dev account, expects a "dressed" dev database whose station slug is `test`, visits dashboard pages, and writes **PNG** to `client/tests/e2e/.screenshots/`. Converting to `.webp` and copying into `public/help/` is manual; no script does it. It also captures `go-live-preflight` and `player-page` outputs; `go-live-preflight` is not referenced by any article.
+**How they are produced:** `npm run test:help-shots` runs `client/tests/e2e/help-screenshots.spec.ts` (Playwright, 2x device scale, 1680x1050). It signs in as the keeper account `shell@gocast.test` (`E2E_PASSWORD`), shoots station `night-shift-shell`, stages only in the page (`dress()` swaps the factory placeholder text, the dev ingest host, and drops `support/help-artwork.webp` into the artwork tile; the schedule shots draw slots and never press Save), and writes **PNG** to `client/tests/e2e/.screenshots/`. Converting to `.webp` (quality 85) and copying into `public/help/` is manual; the spec's header has the loop. It does not shoot the player page.
 
-**Stale screenshots and a stale spec (2026-09-29):**
-- `station-power.webp` shows "Take over live" and "Take off air"; the UI now says "Go live" and "Turn station off" (`StationPower.tsx`). The article's alt text repeats the old names.
-- `schedule-slots.webp` shows the old one-row-per-slot list editor with day chips; the Schedule page is now a week grid with a slot dialog. The spec's selectors for it (`placeholder "Label (optional)"`) no longer exist (`SlotPanel` uses "e.g. Breakfast"). `schedule-on-now.webp` targets text "ON NOW", which no longer exists (`ScheduleStatus.tsx` says "<name> is playing."). Only the `THIS WEEK` selector still matches (the `<h2>` "This week").
-- The go-live step waits for "You're about to go live on", which the live page no longer renders, so it would time out.
-- Blog `/blog/schedule/*` shots are the same old editor.
-- The spec's header comment says it is "kept out of the normal run by its `@screenshots` tag". It is not: `playwright.config.ts` has no `grep`/`grepInvert`, and `npm run test:e2e` is plain `playwright test`, so it runs with the suite (and fails without the dressed DB).
+**Outside the help set:** the `/blog/schedule/*` shots still show the deleted `AutodjSlotsEditor`.
+- The capture specs are kept out of `npm run test:e2e` by `grepInvert: /@(screenshots|visual)/` in `playwright.config.ts`; their npm scripts set `E2E_CAPTURE=1` to lift it.
 
 ## Metadata, SEO and analytics
 
@@ -273,13 +272,13 @@ Checked against code on 2026-09-29.
 1. **Custom domain.** `CapabilityStrip`, `FeaturesSection`, the Pro pricing bullet ("Embed your player, on your own domain"), the 24/7 post table ("Your own domain and listener stats") and the how-to-start post ("a custom domain") promise "point a DNS record at your station". There is no custom-domain code in the API or client (grep for domain/CNAME finds only these marketing files).
 2. **TuneIn/Sonos stream URL as a Pro feature.** Same files plus the 24/7 post's table. No dashboard surface shows a public listen URL to owners; the settings page shows only the encoder mount. Nothing gates a public stream by plan: `StationResource` exposes `icecast_mount` and `hls_url` to anyone, and the native kit fronts Icecast with TLS (`infra/native/nginx/gocast-icecast.conf`). Whether that mount is reachable on the live host is a deployment fact that cannot be read from code.
 3. **"Priority support"** (Pro bullet): no code or process behind it.
-4. **Stations per plan.** `create-your-station` says Pro can run "up to five"; `plans.max_stations` is 5 and `StoreStationRequest::authorize` enforces it, but the dashboard is single-station (`getMyStation()` picks the oldest; `/dashboard` shows only "Create station" with none). A second station is not reachable from the UI. Terms section 6 also mentions station-count limits. `ProAccessGranted` documents the column as stale.
-5. **Station address.** `create-your-station` lists "An address" under "What you are asked for" (while saying it is built from the name) and warns that "changing it later breaks every link". The create form has no address field (it is generated from the name by `Station::generateUniqueSlug`), the slug is immutable (`UpdateStationRequest` comment), and the edit form only displays it.
-6. **Onboarding checklist.** Help says artwork, description, "your first broadcast". Real items (`StationChecklist.tsx`): artwork, description, fill default playlist (Pro only), set show times, social links, "Get your first listener".
+4. **Stations per plan.** Resolved 2026-10-01: `create-your-station` now says every account has one station. `plans.max_stations` (5) and `StoreStationRequest::authorize` still exist, and Terms section 6 still mentions station-count limits.
+5. **Station address.** Resolved 2026-10-01: the article says the address is built from the name and never changes, even on rename (the slug is immutable; `UpdateStationRequest` ignores it).
+6. **Onboarding checklist.** Resolved 2026-10-01: the article lists the real tiles (`components/dashboard/overview/SetupChecklist.tsx`) and Hide for now.
 7. **Studio delay "about fourteen seconds"** (`go-live-from-your-browser`, `nobody-can-hear-my-station`). The harbor buffer was cut to `buffer=5.` (`station.blade.php`), with a 2 s `live_raw` buffer and 4 s HLS segments. The 14 s figure predates the cut; the true number was not measured here.
 8. **Ducking "to a fifth".** Only the default. `micPrefs.ts` has three duck levels (`under` 0.2, `low` 0.08, `silence` 0), fade speeds and a "broadcast voice" option; no help article describes the mic settings popover.
-9. **Pro gating of playlists/scheduling.** `free-and-pro` says these need Pro. Server enforcement is at upload (`TrackController::store` via `assertAutoDjEnabled`), jingle enabling, and playback (`AutoDjScheduler`). `PlaylistController` and `AutodjSlotController` are explicitly not plan-gated. The clients do gate the door: `AppSidebar.tsx` gives both the AutoDJ and the Schedule items `lock: "autodj"` (a Pro badge for locked accounts), and the mobile schedule screen skips its playlist fetch when locked.
-10. **"Request access in the sidebar"** (24/7 post): the sidebar button reads "Request" + Pro badge; "Request access" is the label in `GoLiveTrigger` and the dialog submit.
+9. **Pro gating of playlists/scheduling.** `free-and-pro` says these need Pro. Server enforcement is at upload (`TrackController::store` via `assertAutoDjEnabled`) and playback (`AutoDjScheduler::next`, which serves no music and no jingles to an owner without AutoDJ). `PlaylistController`, `AutodjSlotController` and `JingleListController` are explicitly not plan-gated. The clients do gate the door: the sidebar's AutoDJ heading (`AUTODJ_GROUP` in `lib/dashboardNav.ts`, over Library, Playlists, Jingles and Schedule) carries `lock: "autodj"` (a Pro badge for locked accounts), and the mobile schedule screen skips its playlist fetch when locked.
+10. **"Request access in the sidebar"** (24/7 post): the sidebar button reads "Request Pro"; "Request access" is only the dialog's submit.
 11. **Scheduling "What's Coming Next"** (24/7 post) says scheduled shows are being built; slots shipped (the 09-21 post). The same post's "workaround" text is obsolete.
 12. **Schedule blog post.** Its steps were edited in 360c382 for the week grid, but still tell people to press "Save AutoDJ slots" (the button in `SchedulePlanner.tsx` is "Save"), and the `/blog/schedule/*` screenshots show the deleted `AutodjSlotsEditor`. "Add slot" and overlap warnings do still exist.
 13. **Auto-stop timing.** Help says ten minutes: correct for the default (`LIQUIDSOAP_SILENT_STOP_SECONDS` 600). But a studio that leaves stops the station after `LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS` (150), so the how-it-works post's "within a couple of minutes" is right only for that case, and `go-live-from-your-browser` says "shortly afterwards" without a number. The `my-station-went-off-air` article does not mention the 150 s path.
@@ -287,14 +286,15 @@ Checked against code on 2026-09-29.
 15. **Terms 6 vs 4.** Section 6 says Free plans "carry an audible GoCast identifier in the stream"; section 4 says it is not done today. `plans.watermark_enabled` is true for Free but the clip directory is empty, so it is inert (see [watermark-clips](watermark-clips.md)). `interfaces/Plan.ts` says never to surface it.
 16. **Sitemap vs page dates.** `sitemap.ts` stamps privacy and terms `2026-09-08`; the privacy page says September 26. The comment says to bump both together.
 17. **Contact address split.** Help index uses `support@gocast.fm`; footer, article footers and JSON-LD use `hello@gocast.fm`.
-18. **`updated` not bumped** on the three help bodies rewritten in 360c382 (see article table).
+18. **`updated` not bumped** on two help bodies rewritten in 360c382 (`share-your-station`, `your-player-page`; see article table).
 19. **Homepage CTA target** differs by section (`/dashboard` in hero, `/dashboard/stations` in CTA); both redirect to the one station.
 20. **Listener caps are display-only.** Every surface says 100 (Free) / 1,000 (Pro) concurrent listeners, but `plans.max_listeners` is read only to print it (`UserResource`, notifications, admin views, settings page); nothing in `api/app` or the station script refuses a listener over it. The only cap in the infra is the Icecast global `<clients>500</clients>` in `infra/native/icecast/icecast.xml.tpl`.
 21. **Blog phone post** says a GoCast app is "being built for iPhone and Android"; an Android app exists in the working tree ([mobile-app-shell-and-auth](mobile-app-shell-and-auth.md)); copy not updated.
+22. **Go-live steps.** Resolved 2026-10-01: `go-live-from-your-browser` now describes pre-flight (Studio or Go live now, Mic + music / Music only, Check your mic, the running order) and the one press, "Go live on" your station, which runs the checks and goes on air when they pass.
 
 ## Gaps and traps
 
-- No client test covers any marketing page, article registry, JSON-LD or sitemap. The only client specs are `auth.spec.ts` and the screenshot spec. On the API side, `PublicStationSeoTest.php` and `PublicFeaturedTest.php` cover the station sitemap and featured endpoints.
+- No client test covers any marketing page, article registry, JSON-LD or sitemap (client tests are dashboard unit tests, `auth.spec.ts`, and the dashboard visual and help screenshot capture specs). On the API side, `PublicStationSeoTest.php` and `PublicFeaturedTest.php` cover the station sitemap and featured endpoints.
 - A new article needs: the `.tsx` body, an import and entry in the right `articles.ts`, and (help only) `related` slugs. The sitemap and static params derive from the registry; nothing else needs touching. Nothing validates slugs or `related`; unknown `related` slugs vanish silently.
 - Help bodies must not contain a bare `</strong> word` across a wrapped line: use `{" "}` (see the existing `<strong>...</strong>{" "}` pattern).
 - Pricing numbers are duplicated: `PricingSection` (`FREE_FEATURES`, `PRO_FEATURES`, `LAST_UPDATED`), `free-and-pro` table, four blog posts, FAQ arrays in `articles.ts` (which are emitted as `FAQPage` JSON-LD, so they must match the visible body), and the DB `plans` rows (100/1,000 listeners, 90 days, 3 GB is `LIQUIDSOAP_STATION_STORAGE_BYTES`). Only `PRO_PRICE_USD` is shared in code.
@@ -302,12 +302,14 @@ Checked against code on 2026-09-29.
 - The hero depends on a real station `gocast-official-station` existing and streaming from `stream.gocast.fm`; if the API is down the card falls back to a plausible "On air" state until play fails (documented optimistic default).
 - `/discover` redirect exists in two places (config and page); removing only one leaves it redirected.
 - Dead code listed above (`FeaturesSection`, `HeroPlayerMock`, `Equalizer`, `uptime.ts`, `discover/*`).
-- `help-screenshots.spec.ts` contains a hard-coded dev sign-in; do not point it at a shared environment.
+- `help-screenshots.spec.ts` signs in as the local keeper account `shell@gocast.test`; it needs that account and its station, so it only runs against a dev database that has them.
 
 ## Tests
 
-Client: none. API: `PublicStationSeoTest.php`, `PublicFeaturedTest.php` (the endpoints the sitemap and rail read) and `api/tests/Feature/WaitlistControllerTest.php` (public/Pro request, upsert, reopen after reject, approved untouched, Pro plan refused on the public endpoint) and Telegram/admin tests for the queue. `client/tests/e2e/help-screenshots.spec.ts` is a screenshot generator, not a test.
+Client: none. API: `PublicStationSeoTest.php`, `PublicFeaturedTest.php` (the endpoints the sitemap and rail read) and `api/tests/Feature/WaitlistControllerTest.php` (public/Pro request, upsert, reopen after reject, approved untouched, Pro plan refused on the public endpoint) and Telegram/admin tests for the queue. `client/tests/e2e/help-screenshots.spec.ts` is a screenshot generator, not a test (`npm run test:help-shots`).
 
 ## History
 
-Plans and handoffs (history only): `docs/AUTODJ-SCHEDULING-HANDOFF.md` (schedule blog and help), `docs/GROWTH-FEATURES-2026-09-23.md` (SEO ideas), `docs/CASTER-FM-GAP-ANALYSIS.md`. Related feature docs: [schedule](schedule.md), [public-player-and-embed](public-player-and-embed.md), [accounts-plans-invites](accounts-plans-invites.md), [listener-analytics](listener-analytics.md).
+- 2026-10-05: help (`upload-your-music`, `schedule-playlists-by-time`) and blog (schedule post, 24/7 post, their `articles.ts` FAQ and `updated`) copy rewritten for jingle lists and "Start exactly on time" slots; `schedule-on-now.webp` removed.
+
+Plans and handoffs (history only): `docs/JINGLES-AND-HARD-SLOTS-PLAN.md` (jingles and hard starts), `docs/AUTODJ-SCHEDULING-HANDOFF.md` (schedule blog and help), `docs/GROWTH-FEATURES-2026-09-23.md` (SEO ideas), `docs/CASTER-FM-GAP-ANALYSIS.md`. Related feature docs: [schedule](schedule.md), [public-player-and-embed](public-player-and-embed.md), [accounts-plans-invites](accounts-plans-invites.md), [listener-analytics](listener-analytics.md).

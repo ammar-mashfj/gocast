@@ -1,0 +1,505 @@
+/* Google Fonts. Bricolage Grotesque = display/body, IBM Plex Mono = clocks & labels, IBM Plex Sans (+Arabic) = fallback for non-Latin track titles */
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+
+
+:root {
+  /* Base: warm neutrals */
+  --gc-black: #050505;
+  --gc-bg: #0E0D0C;
+  --gc-surface-1: #181614;
+  --gc-surface-2: #1D1A17;
+  --gc-surface-3: #221F1C;
+  --gc-surface-4: #2A2723;
+  --gc-sheet: #1B1916;
+  --gc-fg-1: #F4F1EC;
+  --gc-fg-2: #A39D94;
+  --gc-fg-3: #6F6A63;
+  --gc-line: rgba(244, 241, 236, 0.06);
+  --gc-line-strong: rgba(244, 241, 236, 0.14);
+  --gc-scrim: rgba(0, 0, 0, 0.6);
+  --gc-canvas: #E9E6E1;
+
+  /* Status: LIVE (red) — only ever means "you are live / mic open" */
+  --gc-live: #FF5A4E;
+  --gc-live-ink: #1A0806;
+  --gc-live-soft: #FFB3AC;
+  --gc-live-text: #FF8A80;
+  --gc-live-tint: #3A1714;
+  --gc-live-deep: #4A1510;
+
+  /* Status: ON AIR via AutoDJ (violet) — station plays on its own */
+  --gc-onair: #9B7BFF;
+  --gc-onair-soft: #C9B8FF;
+  --gc-onair-tint: #1E1A2B;
+
+  /* Status: SILENCE / Pro (amber) */
+  --gc-warn: #FFB547;
+  --gc-warn-soft: #FFD48A;
+  --gc-warn-tint: #33260F;
+  --gc-warn-ink: #1A1206;
+
+  /* Status: OK (green) */
+  --gc-ok: #5FD39A;
+
+  /* Semantic aliases */
+  --surface-app: var(--gc-bg);
+  --surface-card: var(--gc-surface-1);
+  --surface-raised: var(--gc-surface-2);
+  --surface-inset: var(--gc-bg);
+  --surface-control: var(--gc-surface-3);
+  --surface-sheet: var(--gc-sheet);
+  --text-body: var(--gc-fg-1);
+  --text-muted: var(--gc-fg-2);
+  --text-faint: var(--gc-fg-3);
+  --text-link: var(--gc-onair-soft);
+  --text-error: #FF8177;
+  --action-primary-bg: var(--gc-fg-1);
+  --action-primary-fg: var(--gc-bg);
+  --status-live: var(--gc-live);
+  --status-onair: var(--gc-onair);
+  --status-silence: var(--gc-warn);
+  --status-off: var(--gc-fg-3);
+  --status-ok: var(--gc-ok);
+  --badge-pro: var(--gc-warn);
+}
+
+:root {
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-body: var(--font-display);
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  /* Display — weight 800, tight tracking */
+  --type-display-xl: 800 50px/0.95 var(--font-display);   /* welcome hero, -0.045em */
+  --type-display-l: 800 38px/1 var(--font-display);       /* screen hero, -0.04em */
+  --type-display-m: 800 34px/1 var(--font-display);       /* studio pad / focus headline */
+  --type-title-l: 800 30px/1 var(--font-display);         /* tab titles, -0.035em */
+  --type-title-m: 800 24px/1.1 var(--font-display);       /* sheet titles, -0.03em */
+  --type-title-s: 700 19px/1.2 var(--font-display);       /* app bar, station name */
+  --type-body-l: 400 17px/1.45 var(--font-body);
+  --type-body: 500 15px/1.45 var(--font-body);
+  --type-body-s: 500 13px/1.35 var(--font-body);
+  --type-button: 700 16px/1 var(--font-body);
+  --type-label: 600 12px/1.2 var(--font-body);
+
+  /* Mono — clocks, counters, status labels (UPPERCASE, +0.08–0.1em) */
+  --type-clock-xl: 700 48px/1 var(--font-mono);           /* -0.03em */
+  --type-clock-m: 600 26px/1 var(--font-mono);
+  --type-clock-s: 600 16px/1 var(--font-mono);
+  --type-mono-label: 600 12px/1 var(--font-mono);         /* 0.1em */
+  --type-mono-meta: 500 12px/1.2 var(--font-mono);
+
+  --tracking-display: -0.04em;
+  --tracking-title: -0.03em;
+  --tracking-label: 0.1em;
+}
+
+:root {
+  --space-1: 4px; --space-2: 6px; --space-3: 8px; --space-4: 10px; --space-5: 12px;
+  --space-6: 14px; --space-7: 16px; --space-8: 18px; --space-9: 20px; --space-10: 22px; --space-11: 26px;
+  --gutter-screen: 18px;
+
+  --radius-xs: 6px; --radius-sm: 10px; --radius-md: 12px; --radius-control: 14px;
+  --radius-button: 16px; --radius-button-l: 18px; --radius-card-s: 18px; --radius-card: 22px;
+  --radius-card-l: 26px; --radius-hero: 28px; --radius-pad: 30px; --radius-pill: 999px;
+  --radius-sheet: 30px 30px 0 0; --radius-screen: 42px; --radius-device: 52px;
+
+  --control-hit: 44px; --control-s: 48px; --control-m: 52px; --control-l: 58px; --control-xl: 64px;
+
+  --shadow-sheet: 0 20px 40px -10px rgba(0,0,0,.6);
+  --shadow-button-idle: inset 0 2px 0 rgba(244,241,236,.06), 0 20px 50px -20px rgba(0,0,0,.8);
+  --shadow-button-live: inset 0 -12px 30px rgba(0,0,0,.2);
+  --glow-live: 0 0 80px 10px rgba(255,90,78,.25);
+
+  --ease-standard: cubic-bezier(.2,.7,.2,1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */
+  --dur-base: 200ms; /* @kind other */
+  --press-scale: 0.98; /* @kind other */
+}
+
+/* Google Fonts. Bricolage Grotesque = display/body, IBM Plex Mono = clocks & labels, IBM Plex Sans (+Arabic) = fallback for non-Latin track titles */
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* cyrillic-ext */
+
+/* cyrillic */
+
+/* greek */
+
+/* vietnamese */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+/* arabic */
+
+/* cyrillic-ext */
+
+/* latin-ext */
+
+/* latin */
+
+
+
+:root {
+  /* Base: warm neutrals */
+  --gc-black: #050505;
+  --gc-bg: #0E0D0C;
+  --gc-surface-1: #181614;
+  --gc-surface-2: #1D1A17;
+  --gc-surface-3: #221F1C;
+  --gc-surface-4: #2A2723;
+  --gc-sheet: #1B1916;
+  --gc-fg-1: #F4F1EC;
+  --gc-fg-2: #A39D94;
+  --gc-fg-3: #6F6A63;
+  --gc-line: rgba(244, 241, 236, 0.06);
+  --gc-line-strong: rgba(244, 241, 236, 0.14);
+  --gc-scrim: rgba(0, 0, 0, 0.6);
+  --gc-canvas: #E9E6E1;
+
+  /* Status: LIVE (red) — only ever means "you are live / mic open" */
+  --gc-live: #FF5A4E;
+  --gc-live-ink: #1A0806;
+  --gc-live-soft: #FFB3AC;
+  --gc-live-text: #FF8A80;
+  --gc-live-tint: #3A1714;
+  --gc-live-deep: #4A1510;
+
+  /* Status: ON AIR via AutoDJ (violet) — station plays on its own */
+  --gc-onair: #9B7BFF;
+  --gc-onair-soft: #C9B8FF;
+  --gc-onair-tint: #1E1A2B;
+
+  /* Status: SILENCE / Pro (amber) */
+  --gc-warn: #FFB547;
+  --gc-warn-soft: #FFD48A;
+  --gc-warn-tint: #33260F;
+  --gc-warn-ink: #1A1206;
+
+  /* Status: OK (green) */
+  --gc-ok: #5FD39A;
+
+  /* Semantic aliases */
+  --surface-app: var(--gc-bg);
+  --surface-card: var(--gc-surface-1);
+  --surface-raised: var(--gc-surface-2);
+  --surface-inset: var(--gc-bg);
+  --surface-control: var(--gc-surface-3);
+  --surface-sheet: var(--gc-sheet);
+  --text-body: var(--gc-fg-1);
+  --text-muted: var(--gc-fg-2);
+  --text-faint: var(--gc-fg-3);
+  --text-link: var(--gc-onair-soft);
+  --text-error: #FF8177;
+  --action-primary-bg: var(--gc-fg-1);
+  --action-primary-fg: var(--gc-bg);
+  --status-live: var(--gc-live);
+  --status-onair: var(--gc-onair);
+  --status-silence: var(--gc-warn);
+  --status-off: var(--gc-fg-3);
+  --status-ok: var(--gc-ok);
+  --badge-pro: var(--gc-warn);
+}
+
+:root {
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-body: var(--font-display);
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  /* Display — weight 800, tight tracking */
+  --type-display-xl: 800 50px/0.95 var(--font-display);   /* welcome hero, -0.045em */
+  --type-display-l: 800 38px/1 var(--font-display);       /* screen hero, -0.04em */
+  --type-display-m: 800 34px/1 var(--font-display);       /* studio pad / focus headline */
+  --type-title-l: 800 30px/1 var(--font-display);         /* tab titles, -0.035em */
+  --type-title-m: 800 24px/1.1 var(--font-display);       /* sheet titles, -0.03em */
+  --type-title-s: 700 19px/1.2 var(--font-display);       /* app bar, station name */
+  --type-body-l: 400 17px/1.45 var(--font-body);
+  --type-body: 500 15px/1.45 var(--font-body);
+  --type-body-s: 500 13px/1.35 var(--font-body);
+  --type-button: 700 16px/1 var(--font-body);
+  --type-label: 600 12px/1.2 var(--font-body);
+
+  /* Mono — clocks, counters, status labels (UPPERCASE, +0.08–0.1em) */
+  --type-clock-xl: 700 48px/1 var(--font-mono);           /* -0.03em */
+  --type-clock-m: 600 26px/1 var(--font-mono);
+  --type-clock-s: 600 16px/1 var(--font-mono);
+  --type-mono-label: 600 12px/1 var(--font-mono);         /* 0.1em */
+  --type-mono-meta: 500 12px/1.2 var(--font-mono);
+
+  --tracking-display: -0.04em;
+  --tracking-title: -0.03em;
+  --tracking-label: 0.1em;
+}
+
+:root {
+  --space-1: 4px; --space-2: 6px; --space-3: 8px; --space-4: 10px; --space-5: 12px;
+  --space-6: 14px; --space-7: 16px; --space-8: 18px; --space-9: 20px; --space-10: 22px; --space-11: 26px;
+  --gutter-screen: 18px;
+
+  --radius-xs: 6px; --radius-sm: 10px; --radius-md: 12px; --radius-control: 14px;
+  --radius-button: 16px; --radius-button-l: 18px; --radius-card-s: 18px; --radius-card: 22px;
+  --radius-card-l: 26px; --radius-hero: 28px; --radius-pad: 30px; --radius-pill: 999px;
+  --radius-sheet: 30px 30px 0 0; --radius-screen: 42px; --radius-device: 52px;
+
+  --control-hit: 44px; --control-s: 48px; --control-m: 52px; --control-l: 58px; --control-xl: 64px;
+
+  --shadow-sheet: 0 20px 40px -10px rgba(0,0,0,.6);
+  --shadow-button-idle: inset 0 2px 0 rgba(244,241,236,.06), 0 20px 50px -20px rgba(0,0,0,.8);
+  --shadow-button-live: inset 0 -12px 30px rgba(0,0,0,.2);
+  --glow-live: 0 0 80px 10px rgba(255,90,78,.25);
+
+  --ease-standard: cubic-bezier(.2,.7,.2,1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */
+  --dur-base: 200ms; /* @kind other */
+  --press-scale: 0.98; /* @kind other */
+}
+
+
+
+html,body{margin:0;background:#0E0D0C;color:#F4F1EC;font-family:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#C9B8FF;text-decoration:none}
+a:hover{color:#F4F1EC}
+input,textarea,button{font-family:inherit}
+input::placeholder,textarea::placeholder{color:#6F6A63}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2A2723;border-radius:10px}::-webkit-scrollbar-track{background:transparent}
+
+#__claude_design_branding{position:fixed;right:16px;bottom:16px;z-index:2147483646;display:flex;align-items:center;gap:7px;height:30px;padding:0 5px 0 10px;border-radius:999px;font-family:"Anthropic Sans",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:12.5px;font-weight:400;line-height:1;letter-spacing:normal;text-transform:none;color:#141413;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:0 0 0 .5px rgba(31,30,29,.14),0 2px 10px rgba(0,0,0,.09)}
+#__claude_design_branding *{box-sizing:border-box;margin:0}
+#__claude_design_branding a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+#__claude_design_branding a:hover span{text-decoration:underline}
+#__claude_design_branding svg{flex:none}
+#__claude_design_branding a svg{color:#D97757}
+#__claude_design_branding button{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:currentColor;opacity:.55;border:0;background:none;cursor:pointer;flex:none;font:inherit;transition:opacity .14s}
+#__claude_design_branding button:hover{opacity:1;background:rgba(127,127,127,.22)}
+@media print{#__claude_design_branding{display:none}}

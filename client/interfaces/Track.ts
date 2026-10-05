@@ -1,8 +1,8 @@
 /**
  * Which list a file belongs to. "music" is a library track, playable by
  * AutoDJ through whichever playlists it is in. "jingle" is a station ID /
- * liner, held back by Liquidsoap and slipped in at a track boundary once the
- * station's interval has elapsed — never mid-song, never in a playlist.
+ * liner in one of the station's jingle lists, played between songs when
+ * that list's rule says so — never mid-song, never in a playlist.
  */
 export type TrackKind = "music" | "jingle"
 
@@ -13,6 +13,10 @@ export interface Track {
   title: string
   artist: string | null
   duration_seconds: number
+  /** On-air length, cue-in to cue-out, once analysis has measured the file; null until then. */
+  airtime_seconds?: number | null
+  /** The jingle list a jingle belongs to; null for music. */
+  jingle_list_id?: string | null
   file_size_bytes: number
   /**
    * Context-dependent, by design. From a playlist endpoint it is the track's

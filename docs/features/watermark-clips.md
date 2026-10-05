@@ -1,6 +1,6 @@
 ---
 feature: Free-tier watermark ("powered by GoCast" clips)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system)
 sources:
   - api/app/Services/WatermarkClipLibrary.php
   - api/app/Jobs/ReloadWatermarkClips.php
@@ -32,7 +32,7 @@ sources:
   - api/app/Console/Commands/ExpirePlans.php
   - api/app/Http/Controllers/PublicEmbedController.php
   - api/app/Http/Controllers/StreamKeyController.php
-fingerprint: 157d7544d39086c6
+fingerprint: 10c8682f3f7019a1
 ---
 
 # Free-tier watermark (voice ID clips)
@@ -56,7 +56,7 @@ There is **no station column** for it and it is absent from `UpdateStationReques
 
 ### Where it sits in the audio graph
 
-`api/resources/views/liquidsoap/station.blade.php`, section "Free-tier watermark" (about lines 974 to 1073). It is built only when the rendered var `$watermarkSupported` is true (`config('liquidsoap.watermark_enabled')`, passed by `LiquidsoapSupervisor` at about line 1195). Otherwise the script has `broadcast_source = listener_source`.
+`api/resources/views/liquidsoap/station.blade.php`, section "Free-tier watermark" (about lines 856 to 959). It is built only when the rendered var `$watermarkSupported` is true (`config('liquidsoap.watermark_enabled')`, passed by `LiquidsoapSupervisor` at about line 1097). Otherwise the script has `broadcast_source = listener_source`.
 
 When supported:
 
@@ -96,7 +96,7 @@ The same directory is mounted read-only into every station container at `/data/s
 
 ### Reaching running stations
 
-- **Plan change (live, no restart):** `UserObserver::updated` fires when `plan_id` changed. For each of the user's `running()` stations (`desired_state = running`) it calls `LiquidsoapSupervisor::applyWatermarkSettings()`, which sends three telnet commands `var.set watermark_enabled = true|false`, `watermark_interval = <n.0>`, `watermark_duck = <n.nnn>`. It unsets the stale `plan` relation first and sets `station.user` to the updated user. Failures are logged (`Log::info` "Watermark settings not applied live", first failure aborts the rest, returns false; the observer wraps the call in try/catch with `Log::error`). A stopped station picks up the right values when its script is next rendered. The same observer hook (registered in `AppServiceProvider`) also calls `applyJingleSettings()` in its own try/catch; that is a different feature. Paths that change `plan_id` on an existing user and so fire it: `AccessRequestController` (approve at line 222, revoke at 287), `Admin\StationController` upgrade (line 297), `InviteRedemption` (invite redeemed by an existing account) and `plans:expire`. Admin account creation (`AccountController`) sets `plan_id` on a brand-new `User`, which fires `created`, not `updated`, and it has no stations yet.
+- **Plan change (live, no restart):** `UserObserver::updated` fires when `plan_id` changed. For each of the user's `running()` stations (`desired_state = running`) it calls `LiquidsoapSupervisor::applyWatermarkSettings()`, which sends three telnet commands `var.set watermark_enabled = true|false`, `watermark_interval = <n.0>`, `watermark_duck = <n.nnn>`. It unsets the stale `plan` relation first and sets `station.user` to the updated user. Failures are logged (`Log::info` "Watermark settings not applied live", first failure aborts the rest, returns false; the observer wraps the call in try/catch with `Log::error`). A stopped station picks up the right values when its script is next rendered. The watermark is the only thing this hook pushes (registered in `AppServiceProvider`); the jingle push it used to make went when jingles moved into Laravel's `next-track` on 2026-10-05. Paths that change `plan_id` on an existing user and so fire it: `AccessRequestController` (approve at line 222, revoke at 287), `Admin\StationController` upgrade (line 312), `InviteRedemption` (invite redeemed by an existing account) and `plans:expire`. Admin account creation (`AccountController`) sets `plan_id` on a brand-new `User`, which fires `created`, not `updated`, and it has no stations yet.
 - **Clip added or deleted:** `ReloadWatermarkClips` job (queued, `ShouldQueue`), dispatched by the admin `store` and `destroy` actions. For each `Station::running()` it sends telnet `watermark.reload` (`LIQ_SOURCE = 'watermark'`), catching per-station failures with `Log::info`. It is needed because the playlist is rendered with `reload_mode="never"`. It does nothing when the kill switch is off. Note that `telnet()` returns `''` in test mode and the job ignores the reply, so an "unknown command" answer would go unnoticed.
 - A container that is down reads the directory fresh at next boot.
 
@@ -140,7 +140,7 @@ All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 9
 
 ## Tests
 
-- `api/tests/Feature/WatermarkTest.php`: plan gating, kill switch, unresolvable owner, owner cannot switch it off, owner-only visibility, live push on plan change (running only), var.set syntax, interval floor, duck clamp.
+- `api/tests/Feature/WatermarkTest.php`: plan gating, kill switch, unresolvable owner, owner cannot switch it off, owner-only visibility, live push on plan change (running only), var.set syntax, interval floor, duck clamp, and that `plans:expire` pushes the new plan's state rather than the ended one.
 - `api/tests/Feature/Admin/WatermarkClipTest.php`: listing, ignored extensions, empty-directory warning, upload plus reload dispatch, no overwrite, non-audio rejection, delete plus reload, path-traversal refusal, admin guard.
 - `api/tests/Feature/ReloadWatermarkClipsTest.php`: reloads every running station, no-op when off, continues past an unreachable station.
 - `api/tests/Feature/LiquidsoapTemplateTest.php`: renders the graph ("mixes the watermark over the station", position below the fallback, `output_source` left un-watermarked, silent when the station is silent).
@@ -148,5 +148,5 @@ All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 9
 
 ## History
 
-- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off and should never appear in user-facing copy. The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
+- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off, should never appear in user-facing copy, and was decided on 2026-10-01 to be removed system-wide (not done yet; everything above is still in the code). The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
 - Related features: [Liquidsoap station script](liquidsoap-station-script.md), [Liquidsoap supervisor](liquidsoap-supervisor.md), [Accounts, plans and invites](accounts-plans-invites.md), [Admin panel](admin-panel.md), [AutoDJ](autodj.md).

@@ -1,435 +1,50 @@
 "use client"
 
-import { useEffect, useState, type FormEvent } from "react"
-import { useRouter } from "next/navigation"
-import { AxiosError } from "axios"
-import { toast } from "sonner"
-import { IconAlertTriangle } from "@tabler/icons-react"
-import api from "@/lib/axios"
-import { saveAuth, clearAuth, getUser } from "@/actions/auth"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { PasswordInput } from "@/components/common/PasswordInput"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
+import { useState } from "react"
+import { useMounted } from "@/hooks/useMounted"
+import { getUser } from "@/actions/auth"
 import type { User } from "@/interfaces/User"
-import { usePlan, useAutoDjLocked } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
-
-export default function SettingsPage() {
-  const router = useRouter()
-  const [user, setUser] = useState<User | null>(null)
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [profileLoading, setProfileLoading] = useState(false)
-
-  const [profileCurrentPassword, setProfileCurrentPassword] = useState("")
-  const [profileError, setProfileError] = useState<string | null>(null)
-
-  const [currentPassword, setCurrentPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("")
-  // One switch for the new password and its confirmation.
-  const [showNewPassword, setShowNewPassword] = useState(false)
-  const [passwordLoading, setPasswordLoading] = useState(false)
-
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState("")
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
-  const [verifyOpen, setVerifyOpen] = useState(false)
-
-  useEffect(() => {
-    const u = getUser()
-    if (u) {
-      setUser(u)
-      setName(u.name)
-      setEmail(u.email)
-    }
-  }, [])
-
-  async function handleProfileSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (!user) return
-    setProfileError(null)
-    setProfileLoading(true)
-    try {
-      const payload: Record<string, string> = {}
-      const emailChanging = email !== user.email
-      if (name !== user.name) payload.name = name
-      if (emailChanging) payload.email = email
-      if (Object.keys(payload).length === 0) {
-        toast.info("Nothing changed")
-        setProfileLoading(false)
-        return
-      }
-
-      // Email change requires current password — the server also enforces
-      // this, but surfacing it client-side avoids a round-trip.
-      if (emailChanging) {
-        if (!profileCurrentPassword) {
-          setProfileError("Current password is required to change your email.")
-          setProfileLoading(false)
-          return
-        }
-        payload.current_password = profileCurrentPassword
-      }
-
-      const res = await api.patch("/account/profile", payload)
-      const updated: User = res.data.data
-      // Refresh the cookie-stored user so the navbar/dashboard see the new name/email immediately.
-      saveAuth(null, updated)
-      setUser(updated)
-      setProfileCurrentPassword("")
-      toast.success(res.data.message ?? "Profile saved")
-
-      // Email changes null out verified on the server; open the verify modal
-      // immediately so the user isn't stranded in a half-verified state where
-      // gated actions start 403'ing without a clear recovery path.
-      if (!updated.email_verified_at) {
-        setVerifyOpen(true)
-        return
-      }
-
-      router.refresh()
-    } catch (err) {
-      if (err instanceof AxiosError) {
-        const fieldError = err.response?.data?.errors?.current_password?.[0]
-        if (fieldError) {
-          setProfileError(fieldError)
-        } else {
-          toast.error(err.response?.data?.message ?? "Update failed")
-        }
-      } else {
-        toast.error("Update failed")
-      }
-    } finally {
-      setProfileLoading(false)
-    }
-  }
-
-  async function handlePasswordSubmit(e: FormEvent) {
-    e.preventDefault()
-    setPasswordLoading(true)
-    try {
-      const payload: Record<string, string> = {
-        password: newPassword,
-        password_confirmation: newPasswordConfirmation,
-      }
-      if (user?.has_password !== false) {
-        payload.current_password = currentPassword
-      }
-
-      await api.patch("/account/password", payload)
-      toast.success(user?.has_password === false ? "Password set" : "Password changed")
-      setCurrentPassword("")
-      setNewPassword("")
-      setNewPasswordConfirmation("")
-      if (user?.has_password === false) {
-        const updated = { ...user, has_password: true }
-        saveAuth(null, updated)
-        setUser(updated)
-      }
-    } catch (err) {
-      const errors = err instanceof AxiosError ? err.response?.data?.errors : null
-      const first = errors ? (Object.values(errors as Record<string, string[]>).flat()[0] as string) : null
-      toast.error(first ?? (err instanceof AxiosError ? err.response?.data?.message : null) ?? "Password change failed")
-    } finally {
-      setPasswordLoading(false)
-    }
-  }
-
-  async function handleDelete(e: FormEvent) {
-    e.preventDefault()
-    setDeleteLoading(true)
-    try {
-      await api.delete("/account", { data: { confirmation: deleteConfirm } })
-      clearAuth()
-      toast.success("Account deleted — sorry to see you go.")
-      router.push("/")
-    } catch (err) {
-      const msg = err instanceof AxiosError
-        ? err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message ?? "Delete failed"
-        : "Delete failed"
-      toast.error(msg)
-    } finally {
-      setDeleteLoading(false)
-    }
-  }
-
-  if (!user) {
-    return (
-      <div className="max-w-3xl flex flex-col gap-6">
-        <div className="flex flex-col gap-1">
-          <Skeleton className="h-8 w-28" />
-          <Skeleton className="h-4 w-40" />
-        </div>
-        {[0, 1].map((i) => (
-          <Card key={i}>
-            <CardHeader className="flex flex-col gap-1.5">
-              <Skeleton className="h-5 w-28" />
-              <Skeleton className="h-4 w-64 max-w-full" />
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <Skeleton className="h-9 w-32" />
-            </CardContent>
-          </Card>
-        ))}
-        <Separator />
-        <Card className="border-fault/30 bg-fault/[0.03]">
-          <CardHeader className="flex flex-col gap-1.5">
-            <Skeleton className="h-5 w-28" />
-            <Skeleton className="h-4 w-72 max-w-full" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-9 w-32" />
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  const hasPassword = user.has_password !== false
-  // Same comparison the server does, so the button never enables on a value
-  // the API would reject.
-  const confirmMatches = deleteConfirm.trim().toLowerCase() === user.email.toLowerCase()
-
-  return (
-    <div className="sheet sheet-rules max-w-3xl flex flex-col gap-6">
-      <div>
-        {/* "Account", not "Settings": the station has its own "Station
-            settings" page one click away in the same sidebar, and two pages
-            titled Settings left nobody sure which one they were on. */}
-        <h1 className="font-display text-2xl font-semibold tracking-tight">Account</h1>
-      </div>
-
-      <PlanCard />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Profile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleProfileSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-
-            {/* Current-password field only surfaces when the user is actually
-                changing their email — avoids scaring a user into typing their
-                password for a name edit. The server enforces the requirement
-                regardless. */}
-            {email !== user.email && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="profile-current-password">Current password</Label>
-                <PasswordInput
-                  id="profile-current-password"
-                  value={profileCurrentPassword}
-                  onChange={(e) => setProfileCurrentPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  aria-invalid={!!profileError}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Confirm your password to change the email on your account.
-                </p>
-                {profileError && <p className="text-xs text-fault-text">{profileError}</p>}
-              </div>
-            )}
-
-            <Button type="submit" disabled={profileLoading} className="self-start">
-              {profileLoading ? "Saving…" : "Save changes"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{hasPassword ? "Change password" : "Set password"}</CardTitle>
-          <CardDescription>
-            {hasPassword
-              ? "Other active sessions will be signed out after a successful change."
-              : "Add a password so you can confirm future account changes without using Google."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4">
-            {hasPassword && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="current-password">Current password</Label>
-                <PasswordInput id="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-password">New password</Label>
-              <PasswordInput id="new-password" shown={showNewPassword} onShownChange={setShowNewPassword} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-password-confirmation">Confirm new password</Label>
-              <PasswordInput id="new-password-confirmation" shown={showNewPassword} onShownChange={setShowNewPassword} value={newPasswordConfirmation} onChange={(e) => setNewPasswordConfirmation(e.target.value)} required minLength={8} autoComplete="new-password" />
-            </div>
-            {/* Outline: Profile's "Save changes" is this view's one filled
-                button (DESIGN.md). */}
-            <Button type="submit" variant="outline" disabled={passwordLoading} className="self-start">
-              {passwordLoading ? "Updating…" : hasPassword ? "Update password" : "Set password"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-fault-text flex items-center gap-2">
-            <IconAlertTriangle size={16} />
-            Danger zone
-          </CardTitle>
-          <CardDescription>
-            Deleting your account permanently removes your stations and broadcast history. This cannot be undone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* Outline, not red: this opens the confirm. The only red button in
-              the flow is the one that actually deletes. */}
-          <Button variant="outline" onClick={() => setDeleteOpen(true)}>
-            Delete account
-          </Button>
-        </CardContent>
-      </Card>
-
-      <VerifyEmailDialog
-        open={verifyOpen}
-        email={user.email}
-        onCancel={() => setVerifyOpen(false)}
-      />
-
-      {/* Not dismissable mid-delete: the request is in flight and success
-          signs the account out underneath the dialog. */}
-      <Dialog
-        open={deleteOpen}
-        onOpenChange={(o) => {
-          if (deleteLoading) return
-          setDeleteOpen(o)
-          if (!o) setDeleteConfirm("")
-        }}
-      >
-        <DialogContent showCloseButton={!deleteLoading}>
-          <DialogHeader>
-            <DialogTitle>Delete your account?</DialogTitle>
-            <DialogDescription>
-              This is permanent and can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleDelete} className="flex flex-col gap-4">
-            {/* Spell out the consequences rather than saying "your data" — the
-                dead embed links and the unrecoverable stations are the parts
-                people don't think of until after. Deliberately says "lose
-                access to" rather than "erase": deletion soft-deletes these
-                rows, so claiming erasure here would be a promise the API
-                doesn't keep. */}
-            {/* Plain text, not a red box: the consequences are information,
-                and the red belongs to the confirm alone. */}
-            <div className="text-sm">
-              <p className="font-medium">This will immediately:</p>
-              <ul className="mt-1.5 list-disc pl-4 text-muted-foreground space-y-0.5">
-                <li>Take every station you own off air, for good — you won&apos;t be able to bring them back</li>
-                <li>Break every stream URL and embed you&apos;ve shared</li>
-                <li>End your access to your broadcast history and listener stats</li>
-              </ul>
-            </div>
-            {/* Typed confirmation instead of a password: Google accounts have
-                no password to type, and the server accepts this same value for
-                every account. */}
-            <div className="flex flex-col gap-1.5 border-t border-border pt-4">
-              <Label htmlFor="delete-confirm" className="block leading-relaxed">
-                Type <span className="font-mono font-semibold text-foreground break-all">{user.email}</span> to confirm
-              </Label>
-              <Input
-                id="delete-confirm"
-                type="text"
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" disabled={deleteLoading} onClick={() => setDeleteOpen(false)}>Cancel</Button>
-              <Button type="submit" variant="destructive" disabled={deleteLoading || !confirmMatches}>
-                {deleteLoading ? "Deleting…" : "Delete forever"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
+import { Skeleton } from "@/components/ui/skeleton"
+import { PageHeader } from "@/components/ds/PageHeader"
+import { DeleteAccount } from "@/components/dashboard/account/DeleteAccount"
+import { PasswordForm } from "@/components/dashboard/account/PasswordForm"
+import { PlanCard } from "@/components/dashboard/account/PlanCard"
+import { ProfileForm } from "@/components/dashboard/account/ProfileForm"
 
 /**
- * Which plan this account is on, and the one thing it gates that people ask
- * about. Nothing on the Account page used to say, so a Pro owner had no way
- * to confirm they were on Pro. Renders nothing until the plan is known,
- * rather than guessing Free at a paying customer.
+ * Account: the plan, who you are, your password, and leaving. One column,
+ * like the prototype — four short forms read top to bottom.
+ *
+ * "Account", not "Settings": the station has its own Station settings one
+ * click away, and two pages titled Settings left nobody sure which was which.
+ *
+ * The user comes from the auth cookie, read after mount (the server render
+ * can't see it).
  */
-function PlanCard() {
-  const plan = usePlan()
-  const locked = useAutoDjLocked()
-  const proRequest = useProRequest()
-  if (!plan) return null
+export default function AccountPage() {
+  const mounted = useMounted()
+  // The cookie's copy until a form saves a newer one.
+  const [updated, setUser] = useState<User | null>(null)
+  const user = updated ?? (mounted ? getUser() : null)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Plan</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">{plan.name}</span>
-          <p className="text-sm text-muted-foreground">
-            {locked
-              ? `Up to ${plan.max_listeners.toLocaleString()} listeners at once. Your station plays only while you're broadcasting.`
-              : `Up to ${plan.max_listeners.toLocaleString()} listeners at once, with AutoDJ keeping your station on air when you're not live.`}
-          </p>
+    <div className="flex max-w-3xl flex-col gap-5">
+      <PageHeader title="Account" />
+      {user ? (
+        <>
+          <PlanCard />
+          {/* Keyed by id so a different sign-in starts the form fresh. */}
+          <ProfileForm key={user.id} user={user} onUpdated={setUser} />
+          <PasswordForm user={user} onUpdated={setUser} />
+          <DeleteAccount email={user.email} />
+        </>
+      ) : (
+        <div className="flex flex-col gap-5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+          <Skeleton className="h-24 rounded-card" />
+          <Skeleton className="h-72 rounded-card" />
+          <Skeleton className="h-60 rounded-card" />
         </div>
-        {locked && (
-          <Button
-            variant="outline"
-            className="self-start sm:self-auto"
-            onClick={proRequest.open}
-            disabled={proRequest.requested}
-          >
-            {proRequest.requested ? "Request sent" : "Request Pro"}
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </div>
   )
 }

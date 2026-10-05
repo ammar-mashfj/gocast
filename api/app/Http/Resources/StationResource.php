@@ -200,9 +200,6 @@ class StationResource extends JsonResource
             // Null when no stream host is configured, which is a supported
             // state: the player falls back to the Icecast mount above.
             'hls_url' => $this->hlsUrl(),
-            // Owner-facing AutoDJ config. Cheap (plain columns) and the
-            // library screen needs them to render its jingle dialog without
-            // a second round trip.
             // READ-ONLY, and the only place the watermark appears in the API.
             // It is derived from the owner's plan, has no station column, and
             // is absent from UpdateStationRequest — a free user must not be
@@ -271,10 +268,6 @@ class StationResource extends JsonResource
                     'rotated_at' => $this->stream_key_rotated_at,
                 ],
             ),
-            'jingles_enabled' => (bool) $this->jingles_enabled,
-            'jingle_mode' => $this->jingle_mode,
-            'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
-            'jingle_every_tracks' => (int) $this->jingle_every_tracks,
             'social_links' => $this->social_links,
             'theme_config' => $this->theme_config,
             'created_at' => $this->created_at,

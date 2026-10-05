@@ -1,6 +1,6 @@
 ---
 feature: Observability and events (station timeline, audit logs, Sentry, metrics, alerts)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work
 sources:
   - api/app/Models/StationEvent.php
   - api/config/station_events.php
@@ -60,7 +60,13 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/app/Webhooks/Resend/EmailReceived.php
   - api/resources/views/liquidsoap/station.blade.php
-fingerprint: d3de59c91f088d7c
+  - api/app/Http/Controllers/StudioDropController.php
+  - api/app/Http/Controllers/UplinkCheckController.php
+  - client/lib/studioDropLog.ts
+  - client/lib/broadcast.ts
+  - api/phpunit.xml
+  - api/tests/TestCase.php
+fingerprint: 80ad5c15e310ffc5
 ---
 
 # Observability and events
@@ -98,7 +104,7 @@ Indexes: `(station_id, created_at)` for the timeline, `created_at` for the prune
 
 ### Types and who writes them
 
-`StationEvent::TYPES` is the full list (also the admin filter order). 13 types:
+`StationEvent::TYPES` is the full list (also the admin filter order). 15 types:
 
 | Type | Source | Written by | `properties` |
 |---|---|---|---|
@@ -109,6 +115,8 @@ Indexes: `(station_id, created_at)` for the timeline, `created_at` for the prune
 | `track_deleted` | resolved from the request | `TrackImporter::destroy()` and the bulk delete (one event per file) | same five fields, copied so the row still reads after the track is gone |
 | `playlist_changed` | `system` (explicit) | `AutoDjScheduler`, at the track boundary where the rotation switched playlist | `from_playlist_id`, `to_playlist_id`, `playlist`, `slot_id`, `slot` |
 | `stream_key_rotated` | `owner` (explicit) | `StreamKeyController::rotate()` | none. The key is deliberately never recorded. |
+| `studio_drop` | `owner` (explicit) | `StudioDropController` (`POST /api/stations/{slug}/studio-drops`), reported by the web studio after its socket dropped mid-show (`client/lib/studioDropLog.ts`); each report `id` recorded once | `outcome` (`reconnected`, `gave_up`, `stopped`, `page_closed`, `unknown`), `dropped_at` (the device's clock), and what the page knew: visibility and hidden time, frozen, online, network info, socket close code/reason, buffered bytes, wake lock, bitrate, uplink kbps, and the audio engine at the close: `audio_state` (the AudioContext state, max 16 chars), `frame_age_ms` (time since the engine last emitted a frame; seconds means the audio died before the socket did) and `engine_rebuilds` (frame-watchdog rebuilds in the last ten minutes, see [broadcasting-web-studio.md](broadcasting-web-studio.md)). A normal End show is never reported: harbor answers the studio's close frame by dropping TCP without one, so the browser sees 1006 every time, but `stop()` has already set `stopping` and released the socket, so `watchForDrop` ignores it (`client/lib/broadcast.ts`). |
+| `uplink_check` | `owner` (explicit) | `UplinkCheckController` (`POST /api/stations/{slug}/uplink-checks`), one per browser go-live attempt | `outcome` (`ok`, `lowered`, `blocked`, `failed`), `kbps`, `bitrate`, `net_type`, `net_effective`, `net_downlink`, `net_rtt` |
 
 `StationEvent::record($station, $type, $source = null, $properties = [], $causer = null)`:
 
@@ -207,7 +215,9 @@ Fires only when Laravel's `Login`/`Failed`/`Logout` events fire. Only two code p
 | `release`, `environment` | `SENTRY_RELEASE`, `SENTRY_ENVIRONMENT`; unset by default and not set in `.env.example` |
 | Breadcrumbs and tracing toggles | all default on except sql/redis bindings and Redis commands; `missing_routes` tracing off |
 
-Exception filtering (`bootstrap/app.php`): `StationLifecycleException` and `InviteException` are `reportable` only when `status >= 500`. Plan-limit refusals and used-invite errors never reach Sentry. Both are also rendered as JSON with a stable `code`.
+Exception filtering (`bootstrap/app.php`): `dontReportWhen` drops `StationLifecycleException` and `InviteException` whose `status < 500`, so plan-limit refusals and used-invite errors never reach Sentry. It has to be `dontReportWhen`: a `reportable()` callback returning false (the earlier approach) runs after Sentry's own callback has already sent the event. Both are also rendered as JSON with a stable `code`.
+
+Tests never report: `phpunit.xml` forces `SENTRY_LARAVEL_DSN` empty and `tests/TestCase.php::createApplication()` blanks it again in `putenv`/`$_ENV`/`$_SERVER`, because `api/.env`'s live DSN turned every test asserting a failure into a Sentry issue.
 
 Prod wiring: `deploy-native.sh` passes only the client's build-time variables (`NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`). The API DSN is read from the API's own `.env`; the script does not set it.
 
@@ -217,7 +227,7 @@ Prod wiring: `deploy-native.sh` passes only the client's build-time variables (`
 - All three inits are gated: `NODE_ENV === "production"` AND `NEXT_PUBLIC_SENTRY_DSN` set. Dev is never reported.
 - Server and edge: `tracesSampleRate: 0.2`, `enableLogs: true`, `sendDefaultPii: false`.
 - Browser (`instrumentation-client.ts`): `tracesSampleRate: 0.2`, `enableLogs: true`, `sendDefaultPii: false`, `replayIntegration()` with `replaysSessionSampleRate: 0.02`, `replaysOnErrorSampleRate: 0.5` (default replay masking; the privacy page says all text and inputs are masked and media blocked). Replay applies to every page including player pages. Also exports `onRouterTransitionStart`.
-- Ignore filters (browser only): `denyUrls: [/^app:\/\//]`; `ignoreErrors`: `/Java object is gone/` (Facebook/Instagram Android in-app browser), `/Object Not Found Matching Id:\d+/` (Microsoft Outlook / Defender Safe Links scanner, a bot opening emailed links in headless CefSharp), `/xbrowser is not defined/` (XBrowser-style Android browsers). None of these are filtered on the server or edge.
+- Ignore filters (browser only): `denyUrls: [/^app:\/\//]`; `ignoreErrors`: `/Java object is gone/` (Facebook/Instagram Android in-app browser), `/Object Not Found Matching Id:\d+/` (Microsoft Outlook / Defender Safe Links scanner, a bot opening emailed links in headless CefSharp), `/\b\w*browser is not defined/` (XBrowser, SWBrowser and similar Android browsers' autofill bridge). `allowUrls: [/\/_next\//]` keeps only errors thrown from the Next bundle: Chrome on iOS injects translate/autofill scripts that run at the page URL ("Error: La", stack overflows). Events with no stack (rejected promises) are still kept; errors from Next's inline HTML scripts are dropped too. None of these are filtered on the server or edge.
 - `next.config.ts` wraps with `withSentryConfig`: org `gocast`, project `javascript-nextjs`, `widenClientFileUpload`, `tunnelRoute: "/monitoring"` (browser events go through a same-origin rewrite; `robots.ts` disallows `/monitoring`), tree-shaking debug logging, `automaticVercelMonitors: true` (Vercel-only, meaningless on this host). Source-map upload needs `SENTRY_AUTH_TOKEN` at build.
 - Error boundaries: only `app/global-error.tsx` calls `Sentry.captureException`. `app/error.tsx` and `app/dashboard/error.tsx` do not; `dashboard/error.tsx` only `console.error`s. Server-side render errors reach Sentry through `onRequestError`; client-side render errors caught by `app/error.tsx` or `dashboard/error.tsx` are not passed to Sentry by any code in the repo. Whether the SDK also hooks React boundaries on its own cannot be determined from the repo.
 
@@ -305,7 +315,7 @@ Not alerted: errors, container failures, queue failures, station stops, failed d
 10. No timeline is exposed to station owners; support must use the admin page.
 11. `/api/internal/metrics` is not scraped by anything in the repo (Alloy scrapes host metrics only); the alert hints in comments ("alert on this") have no alert rules behind them. Queue metrics assume the `database` queue driver.
 12. Mobile has no crash reporting.
-13. Sentry filters (Outlook Safe Links, Java-object, xbrowser) apply to the browser SDK only. `app/error.tsx` and `dashboard/error.tsx` do not call Sentry directly; only `global-error.tsx` does.
+13. Sentry filters (Outlook Safe Links, Java-object, `*browser`, the `/_next/` allowlist) apply to the browser SDK only; the allowlist also hides real errors from inline scripts. `app/error.tsx` and `dashboard/error.tsx` do not call Sentry directly; only `global-error.tsx` does.
 14. Sentry prod is gated on `NEXT_PUBLIC_SENTRY_DSN` being present at build time (it is inlined). Setting it only at runtime does nothing for the browser bundle.
 15. `LOG_LEVEL=warning` in `.env.example` hides all `Log::info` lifecycle lines; `LOG_STACK=single` never rotates.
 16. Clarity, GA and Umami load on every route including the dashboard and studio, with no consent gate; masking rules live outside the repo.
@@ -321,6 +331,7 @@ Not alerted: errors, container failures, queue failures, station stops, failed d
 - `api/tests/Feature/Admin/StationTimelineTest.php`: admin only, ordering, isolation, folding, filters, trashed stations.
 - `api/tests/Feature/Observability/ActivityLogTest.php`, `AuthenticationLogTest.php`.
 - `api/tests/Feature/MetricsControllerTest.php`, `AdminTelegramAlertTest.php`.
+- `api/tests/Feature/StudioDropTest.php`, `UplinkCheckTest.php`: the two studio-reported event endpoints.
 - No tests for the client Sentry config or the Translate patch.
 
 ## History
