@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
+import Link from "next/link"
 import { IconLoader2, IconPlus } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { formatAirtime, formatBytes } from "@/lib/format"
@@ -14,23 +15,22 @@ import { ProgressBar } from "@/components/ds/Progress"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog"
+import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { AllTracksView } from "./AllTracksView"
-import { AutoDjStrip } from "./AutoDjStrip"
 import { AutoDjUpsell } from "./AutoDjUpsell"
 import { FixTagsDialog } from "./FixTagsDialog"
-import { JinglesDialog } from "./JinglesDialog"
 import { PlaylistNameDialog, type NameDialog } from "./PlaylistNameDialog"
 import { PlaylistRail } from "./PlaylistRail"
 import { PlaylistView } from "./PlaylistView"
 import { TrackPicker } from "./TrackPicker"
 import { AUDIO_ACCEPT } from "./upload"
 import { UploadProgressBar } from "./UploadProgressBar"
-import { useLibrary } from "./useLibrary"
+import { useLibrary, type LibraryPage } from "./useLibrary"
 
 /**
- * The AutoDJ page: what AutoDJ is doing (with its switch), the library and
- * the playlists built from it, side by side. All state and every edit is in
- * `useLibrary`; this lays it out and owns which dialog is open.
+ * Two of the AutoDJ pages, sharing one state: Library (every file, full
+ * width) and Playlists (the playlist list beside the open playlist). All state and every edit is in `useLibrary`;
+ * this lays it out and owns which dialog is open.
  *
  * On a plan without AutoDJ the editor still renders, read-only for uploads
  * and new playlists, under the upsell — the tracks are the clearest
@@ -38,21 +38,21 @@ import { useLibrary } from "./useLibrary"
  * anyone's files.
  */
 export function LibraryView({
+  page,
   station,
   initialTracks,
   initialMeta,
   initialPlaylists,
 }: {
+  page: LibraryPage
   station: Station
   initialTracks: Track[]
   initialMeta: LibraryMeta
   initialPlaylists: Playlist[]
 }) {
-  const lib = useLibrary(station, initialTracks, initialMeta, initialPlaylists)
+  const lib = useLibrary(page, station, initialTracks, initialMeta, initialPlaylists)
   const { locked, currentPlaylist, defaultPlaylist } = lib
 
-  const [dragOver, setDragOver] = useState(false)
-  const [jinglesOpen, setJinglesOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [nameDialog, setNameDialog] = useState<NameDialog>(null)
   /** The library selection waiting for a playlist to be chosen; null = closed. */
@@ -61,14 +61,22 @@ export function LibraryView({
   const [tagNoteDismissed, setTagNoteDismissed] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const stats = [
-    `${lib.tracks.length} ${lib.tracks.length === 1 ? "track" : "tracks"}`,
-    lib.totalSeconds > 0 ? formatAirtime(Math.round(lib.totalSeconds)) : null,
-    `${lib.playlists.length} ${lib.playlists.length === 1 ? "playlist" : "playlists"}`,
-    // Free can hold a library but AutoDJ won't play it: said where the counts are.
-    locked ? "plays only on Pro" : null,
-    `${formatBytes(lib.meta.storage_used_bytes)} of ${formatBytes(lib.meta.storage_cap_bytes)}`,
-  ].filter(Boolean)
+  const trackCount = `${lib.tracks.length} ${lib.tracks.length === 1 ? "track" : "tracks"}`
+  const stats = (
+    page === "library"
+      ? [
+          trackCount,
+          lib.totalSeconds > 0 ? formatAirtime(Math.round(lib.totalSeconds)) : null,
+          // Free can hold a library but AutoDJ won't play it: said where the counts are.
+          locked ? "plays only on Pro" : null,
+          `${formatBytes(lib.meta.storage_used_bytes)} of ${formatBytes(lib.meta.storage_cap_bytes)}`,
+        ]
+      : [
+          `${lib.playlists.length} ${lib.playlists.length === 1 ? "playlist" : "playlists"}`,
+          `from ${trackCount}`,
+          locked ? "plays only on Pro" : null,
+        ]
+  ).filter(Boolean)
 
   const untagged = lib.untaggedInView.length
 
@@ -99,9 +107,11 @@ export function LibraryView({
   // Library-wide actions, in each view's ⋯ menu.
   const menuItems = (
     <>
-      <DropdownMenuItem onClick={() => setJinglesOpen(true)} disabled={locked}>
-        Jingles
-        <span className="ml-auto">{locked ? <ProTag /> : station.jingles_enabled && <span className="text-caption text-text-faint">On</span>}</span>
+      <DropdownMenuItem asChild>
+        <Link href={`/dashboard/stations/${station.slug}/jingles`}>
+          Jingles
+          {locked && <span className="ml-auto"><ProTag /></span>}
+        </Link>
       </DropdownMenuItem>
       {untagged > 0 && (
         <DropdownMenuItem onClick={() => setFixTagsOpen(true)}>
@@ -114,19 +124,27 @@ export function LibraryView({
 
   return (
     <div className="flex flex-col gap-5.5">
+      <AutoDjSections slug={station.slug} />
       <PageHeader
-        title="AutoDJ"
+        title={page === "library" ? "Library" : "Playlists"}
         aside={
           <>
             {locked && <ProTag />}
-            <HelpLink article="playlists-and-the-rotation" label="how AutoDJ and playlists work" />
+            {page === "library" ? (
+              <HelpLink article="upload-your-music" label="uploading music to your library" />
+            ) : (
+              <HelpLink article="playlists-and-the-rotation" label="how AutoDJ and playlists work" />
+            )}
           </>
         }
-        description="Plays your music whenever you’re not live, so the station keeps going when you step away."
+        description={
+          page === "library"
+            ? "Every track you’ve uploaded. AutoDJ plays them from your playlists whenever you’re not live."
+            : "What AutoDJ plays, in order or shuffled. The default playlist plays whenever nothing else is scheduled."
+        }
         actions={
           !locked && (
             <>
-              <Button variant="ghost" onClick={() => setJinglesOpen(true)}>Jingles</Button>
               <Button
                 onClick={() => fileInput.current?.click()}
                 disabled={lib.uploading}
@@ -153,90 +171,78 @@ export function LibraryView({
         }}
       />
 
-      {locked ? (
+      {locked && (
         <>
           <AutoDjUpsell stationName={station.name} />
           {/* Names the editor below for what it is, so it doesn't read as the feature working. */}
           <div className="flex items-center gap-3">
-            <span className="shrink-0 eyebrow text-text-faint">Preview of the playlist editor</span>
+            <span className="shrink-0 eyebrow text-text-faint">{page === "library" ? "Preview of your library" : "Preview of the playlist editor"}</span>
             <span className="h-px flex-1 bg-line" />
           </div>
         </>
-      ) : (
-        <AutoDjStrip station={station} status={lib.status} loading={lib.statusLoading} />
       )}
 
-      <div className="flex min-w-0 flex-col items-stretch gap-5 md:flex-row md:items-start">
-        <PlaylistRail
-          playlists={lib.playlists}
-          libraryCount={lib.tracks.length}
-          selected={lib.selected}
-          onSelect={lib.setSelected}
-          onCreate={() => setNameDialog({ mode: "create" })}
-          locked={locked}
-        />
-
-        {/* The whole card is the drop target: files dropped anywhere on it
-            upload into whatever is open. */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            if (!dragOver && !locked) setDragOver(true)
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragOver(false)
-            if (e.dataTransfer.files.length > 0) void lib.upload(e.dataTransfer.files)
-          }}
-          className={cn(
-            "w-full min-w-0 flex-1 rounded-card bg-card outline-offset-4 transition-[outline-color]",
-            dragOver ? "outline-2 outline-dashed outline-line-strong" : "outline-transparent",
-          )}
-        >
-          {currentPlaylist ? (
-            <PlaylistView
-              key={currentPlaylist.id}
-              playlist={currentPlaylist}
-              tracks={lib.members[currentPlaylist.id] ?? null}
-              locked={locked}
-              savingOrder={lib.savingOrder}
-              nowPlayingId={lib.nowPlayingId}
-              onAddFromLibrary={() => setPickerOpen(true)}
-              onReorder={lib.handleReorder}
-              onRemove={lib.handleRemove}
-              onEdit={lib.handleEdit}
-              onToggleOrder={lib.toggleOrder}
-              onRename={() => setNameDialog({ mode: "rename", playlist: currentPlaylist })}
-              onSetDefault={lib.setDefault}
-              onDelete={lib.deletePlaylist}
-              belowToolbar={belowToolbar}
-              menuItems={menuItems}
-            />
-          ) : (
-            <AllTracksView
-              tracks={lib.tracks}
-              playlistNames={lib.playlistNames}
-              locked={locked}
-              nowPlayingId={lib.nowPlayingId}
-              onEdit={lib.handleEdit}
-              onDelete={lib.handleDelete}
-              onBulkDelete={lib.handleBulkDelete}
-              onBulkAdd={setBulkAddIds}
-              belowToolbar={belowToolbar}
-              menuItems={menuItems}
-            />
-          )}
+      {page === "library" ? (
+        <DropZone locked={locked} onFiles={lib.upload}>
+          <AllTracksView
+            tracks={lib.tracks}
+            playlistNames={lib.playlistNames}
+            locked={locked}
+            nowPlayingId={lib.nowPlayingId}
+            onEdit={lib.handleEdit}
+            onDelete={lib.handleDelete}
+            onBulkDelete={lib.handleBulkDelete}
+            onBulkAdd={setBulkAddIds}
+            belowToolbar={belowToolbar}
+            menuItems={menuItems}
+          />
+        </DropZone>
+      ) : (
+        <div className="flex min-w-0 flex-col items-stretch gap-5 md:flex-row md:items-start">
+          <PlaylistRail
+            playlists={lib.playlists}
+            selected={lib.selected}
+            onSelect={lib.setSelected}
+            onCreate={() => setNameDialog({ mode: "create" })}
+            locked={locked}
+          />
+          <DropZone locked={locked} onFiles={lib.upload}>
+            {currentPlaylist ? (
+              <PlaylistView
+                key={currentPlaylist.id}
+                playlist={currentPlaylist}
+                tracks={lib.members[currentPlaylist.id] ?? null}
+                locked={locked}
+                savingOrder={lib.savingOrder}
+                nowPlayingId={lib.nowPlayingId}
+                onAddFromLibrary={() => setPickerOpen(true)}
+                onReorder={lib.handleReorder}
+                onRemove={lib.handleRemove}
+                onEdit={lib.handleEdit}
+                onToggleOrder={lib.toggleOrder}
+                onRename={() => setNameDialog({ mode: "rename", playlist: currentPlaylist })}
+                onSetDefault={lib.setDefault}
+                onDelete={lib.deletePlaylist}
+                belowToolbar={belowToolbar}
+                menuItems={menuItems}
+              />
+            ) : (
+              <p className="px-5.5 py-10 text-center text-body text-muted-foreground">
+                No playlists yet. Make one to choose what AutoDJ plays.
+              </p>
+            )}
+          </DropZone>
         </div>
-      </div>
+      )}
 
       <p className="max-w-[34rem] text-body-sm text-pretty text-text-faint">
-        {locked ? "On Pro, drop" : "Drop"} MP3, M4A, AAC, FLAC, OGG or WAV files anywhere on the list, up to 300 MB each. A track can be in any
-        number of playlists; the default one plays when nothing else is scheduled.{" "}
+        {locked ? "On Pro, drop" : "Drop"} MP3, M4A, AAC, FLAC, OGG or WAV files anywhere on the list, up to 300 MB each.{" "}
+        {page === "library"
+          ? "They join the default playlist; add them to others from here or from Playlists."
+          : "They join the open playlist. A track can be in any number of playlists."}{" "}
         <HelpLink article="upload-your-music" label="file formats and size limits for uploads" className="align-middle" />
       </p>
 
-      <JinglesDialog open={jinglesOpen} onClose={() => setJinglesOpen(false)} station={station} onStorageChange={lib.applyStorageDelta} />
       <FixTagsDialog open={fixTagsOpen} onClose={() => setFixTagsOpen(false)} tracks={lib.untaggedInView} onSaved={lib.applyTagFixes} />
       {currentPlaylist && (
         <TrackPicker
@@ -263,6 +269,31 @@ export function LibraryView({
         }
       />
       {lib.confirmDialog}
+    </div>
+  )
+}
+
+/** The list's card, and the drop target: files dropped anywhere on it upload. */
+function DropZone({ locked, onFiles, children }: { locked: boolean; onFiles: (files: FileList) => unknown; children: React.ReactNode }) {
+  const [dragOver, setDragOver] = useState(false)
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault()
+        if (!dragOver && !locked) setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        if (e.dataTransfer.files.length > 0) void onFiles(e.dataTransfer.files)
+      }}
+      className={cn(
+        "w-full min-w-0 flex-1 rounded-card bg-card outline-offset-4 transition-[outline-color]",
+        dragOver ? "outline-2 outline-dashed outline-line-strong" : "outline-transparent",
+      )}
+    >
+      {children}
     </div>
   )
 }

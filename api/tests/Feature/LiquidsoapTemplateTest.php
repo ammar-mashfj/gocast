@@ -2,6 +2,7 @@
 
 use App\Models\Station;
 use App\Models\User;
+use App\Services\AutoDjScheduler;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\View;
@@ -37,19 +38,10 @@ function renderStationScript(Station $station, array $overrides = []): string
         'crossfadeHigh' => -15.0,
         'crossfadeMedium' => -32.0,
         'crossfadeMargin' => 4.0,
-        'jinglesEnabled' => false,
+        'scriptVersion' => AutoDjScheduler::PLANNING_SCRIPT,
         'autodjRetryDelay' => 10.0,
         'nextTrackUrl' => 'http://api/api/internal/next-track?slug=night-shift',
         'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
-        'jinglesLiqSource' => PlaylistFileWriter::JINGLES_LIQ_SOURCE,
-        'jinglesFilename' => PlaylistFileWriter::JINGLES_FILENAME,
-        'jinglesEnabledVar' => LiquidsoapSupervisor::VAR_JINGLES_ENABLED,
-        'jingleByTracksVar' => LiquidsoapSupervisor::VAR_JINGLE_BY_TRACKS,
-        'jingleIntervalVar' => LiquidsoapSupervisor::VAR_JINGLE_INTERVAL,
-        'jingleEveryTracksVar' => LiquidsoapSupervisor::VAR_JINGLE_EVERY_TRACKS,
-        'jingleInterval' => 1800.0,
-        'jingleByTracks' => false,
-        'jingleEveryTracks' => 5,
         // Watermark defaults here mirror a FREE station on a normal install:
         // the machinery is compiled in and the switch is on. Tests that care
         // about the paid case override `watermarkEnabled`.
@@ -351,10 +343,10 @@ it('never puts a cross-family operator on the live path', function () {
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('cross(duration=autodj_cross_duration, autodj_cross, autodj_leveled)')
-        // `autodj_rotation` IS the AutoDJ arm — the rotation playlist and the
-        // jingle arm, and nothing else. It is strictly upstream of the
-        // live/AutoDJ fallback, which is the property this test protects.
-        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])')
+        // `autodj_rotation` IS the AutoDJ arm — the next-track source and its
+        // fade, nothing else. It is strictly upstream of the live/AutoDJ
+        // fallback, which is the property this test protects.
+        ->and($script)->toContain('autodj_rotation = fade.out(track_sensitive=true, duration=0.1, autodj)')
         // Never the mix, and never the live source.
         ->and($script)->not->toContain('cross(duration=2., mixed)')
         ->and($script)->not->toMatch('/^[^#\n]*\bcross(fade)?\([^)]*\b(mixed|live|output_source)\b/m')
@@ -506,152 +498,52 @@ it('never reads playlist methods from the status endpoint', function () {
         ->and($script)->toContain('remaining = finite(output_source.remaining())');
 });
 
-it('holds jingles behind a delay so they cannot cut into a track', function () {
-    // The three flags here ARE the feature:
-    //
-    //   delay(initial=true, N)     — a jingle is unavailable for N seconds
-    //                                after the last one ended, and at boot.
-    //   source.available(...)      — gated on the owner's switch, at a track
-    //                                boundary so turning it off never cuts a
-    //                                jingle that is already on air.
-    //   fallback(track_sensitive)  — the switch is only reconsidered at a
-    //                                track boundary, so a jingle becoming
-    //                                ready mid-song waits for the song.
-    //
-    // Drop track_sensitive and the station starts chopping songs in half on a
-    // half-hour timer, which is the exact failure this feature must not have.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+it('has no jingle logic of its own: Laravel serves jingles as tracks', function () {
+    // Jingles and their rules moved to Laravel's next-track, so a container
+    // can never play one the rules did not ask for (the double-jingle trap
+    // of a script that still had its own arm).
+    $script = renderStationScript($this->station);
 
-    expect($script)->toContain('jingles = playlist(')
-        ->and($script)->toContain('id = "jingles_m3u"')
-        // Slash-escaped because every string here goes through json_encode —
-        // same as the api URLs above. Verified against 2.4.5: the lexer
-        // unescapes `\/` back to `/`.
-        ->and($script)->toContain('"\/data\/playlists\/jingles.m3u"')
-        // randomize: three station IDs must not play in a fixed cycle.
-        ->and($script)->toContain('mode = "randomize"')
-        ->and($script)->toContain('delay(initial=true, jingle_delay, jingles)')
-        ->and($script)->toContain('track_sensitive = true,')
-        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])');
+    expect($script)->not->toContain('jingles = playlist(')
+        ->and($script)->not->toContain('jingle_arm')
+        ->and($script)->not->toContain('jingles.m3u')
+        ->and($script)->not->toContain('interactive.bool("jingles_enabled"');
 });
 
-it('re-reads the jingle count continuously, not only when a jingle ends', function () {
-    // REGRESSION. source.available(track_sensitive=true, ...) defers evaluation
-    // of the PREDICATE to an end-of-track of the source it wraps — the jingle,
-    // which is not playing while music runs. The count was therefore only
-    // re-read when a jingle ended, latching a stale "true": observed on a real
-    // station firing a jingle at counter=1 against a threshold of 3, and
-    // sometimes two jingles back to back.
-    //
-    // track_sensitive belongs on the fallback, which defers the SWITCH. Putting
-    // it here deferred the QUESTION.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+it('fades a track cut short for a hard start', function () {
+    // liq_fade_out arrives on the annotate URI of a song trimmed to end on a
+    // hard slot start or exact-time jingle. 0.1s, never 0.: measured on
+    // 2.4.5, a zero default mutes the tracks that follow.
+    $script = renderStationScript($this->station);
 
-    // Just the source.available call — bounded at the fallback that follows,
-    // which legitimately does carry track_sensitive.
-    $start = strpos($script, 'jingle_arm = source.available(');
-    $arm = substr($script, $start, strpos($script, 'autodj_rotation =', $start) - $start);
-
-    expect($arm)->not->toContain('track_sensitive')
-        // ...while the fallback that consumes it must still have it, or a
-        // jingle becoming due would chop the current song in half.
-        ->and($script)->toContain('autodj_rotation = fallback(track_sensitive = true,');
+    expect($script)->toContain('autodj_rotation = fade.out(track_sensitive=true, duration=0.1, autodj)')
+        ->and($script)->not->toContain('duration=0.,');
 });
 
-it('neutralises the gate belonging to the mode that is not in use', function () {
-    // One graph, two gates. In track mode the time gate must go to zero, and
-    // in interval mode the count gate must be vacuously true — otherwise the
-    // two modes AND together and a station waits for both, which reads as
-    // "jingles are broken" rather than as a config mistake.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+it('tells next-track its script version and when it has just booted', function () {
+    // Laravel only plans jingles and hard starts for a script at the planning
+    // version, and starts its clock afresh on the first ask after a boot.
+    $script = renderStationScript($this->station);
 
-    expect($script)->toContain('if jingle_by_tracks() then 0.0 else jingle_interval() end')
-        ->and($script)->toContain('and (not jingle_by_tracks() or tracks_since_jingle() >= jingle_every_tracks())');
+    expect($script)->toContain('("X-Gocast-Script", "'.AutoDjScheduler::PLANNING_SCRIPT.'")')
+        ->and($script)->toContain('("X-Gocast-Fresh", fresh)')
+        ->and($script)->toContain('autodj_fresh = ref(true)')
+        ->and($script)->toContain('autodj_fresh := false');
 });
 
-it('counts rotation tracks on the leaf sources, synchronously', function () {
-    // Counted on the playlists themselves, not on the fallback: a track mark
-    // downstream has already been through cross(), so it would count
-    // transitions rather than tracks.
-    //
-    // synchronous=true is load-bearing and deliberately against the
-    // convention in the rest of this script. The fallback re-evaluates
-    // availability at the same boundary that fires this handler, so a counter
-    // updated on a separate task can land after the decision it informs. It is
-    // safe here only because the handler does no I/O.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+it('stays fresh until a next-track ask is answered', function () {
+    // Laravel records what it hands out even when the container never gets
+    // it (timeout, 5xx). Clearing the flag before the call would make the
+    // retry plan its first track behind one that is not playing.
+    $script = renderStationScript($this->station);
+    $fn = substr($script, strpos($script, 'def autodj_next()'));
+    $fn = substr($fn, 0, strpos($fn, "\nautodj = request.dynamic("));
 
-    expect($script)->toContain('tracks_since_jingle = ref(0)')
-        ->and($script)->toContain('autodj.on_track(synchronous=true,')
-        ->and($script)->toContain('jingles.on_track(synchronous=true,')
-        // The jingle resets the counter; without this it only ever fires once.
-        ->and($script)->toContain('tracks_since_jingle := 0');
-});
+    expect(substr_count($fn, 'autodj_fresh := false'))->toBe(2)
+        ->and(strpos($fn, 'autodj_fresh := false'))->toBeGreaterThan(strpos($fn, 'if r.status_code == 200 then'));
 
-it('renders the track count as an int and the interval as a float', function () {
-    // Liquidsoap's var.set is typed both ways: interactive.float refuses "5"
-    // and interactive.int refuses "5.0". Getting either wrong means the
-    // setting silently never applies.
-    $script = renderStationScript($this->station, [
-        'jingleByTracks' => true,
-        'jingleEveryTracks' => 8,
-        'jingleInterval' => 600.0,
-    ]);
-
-    expect($script)->toContain('interactive.int("jingle_every_tracks", 8)')
-        ->and($script)->not->toContain('interactive.int("jingle_every_tracks", 8.0)')
-        ->and($script)->toContain('interactive.float("jingle_interval", 600.0)')
-        ->and($script)->toContain('interactive.bool("jingle_by_tracks", true)');
-});
-
-it('builds the jingle source for every station, on or off', function () {
-    // The graph must not depend on the switch, because the switch is settable
-    // at runtime — a station that rendered without the jingle source could
-    // never be turned on without a restart, which is the whole thing this
-    // design exists to avoid.
-    $off = renderStationScript($this->station, ['jinglesEnabled' => false]);
-    $on = renderStationScript($this->station, ['jinglesEnabled' => true]);
-
-    foreach ([$off, $on] as $script) {
-        expect($script)->toContain('jingles = playlist(')
-            ->and($script)->toContain('jingle_arm = source.available(');
-    }
-
-    // Only the initial value of the switch differs between the two.
-    expect($off)->toContain('interactive.bool("jingles_enabled", false)')
-        ->and($on)->toContain('interactive.bool("jingles_enabled", true)');
-});
-
-it('declares jingle settings as interactive variables so they need no restart', function () {
-    // Literals here would mean re-rendering and restarting the container to
-    // change how often a station ID plays — dropping every listener mid-track
-    // for a scheduling tweak. The names must match the constants Laravel sends
-    // over telnet; a typo on either side fails silently.
-    $script = renderStationScript($this->station, [
-        'jinglesEnabled' => true,
-        'jingleInterval' => 900.0,
-    ]);
-
-    expect($script)->toContain(
-        'jingles_enabled = interactive.bool("'.LiquidsoapSupervisor::VAR_JINGLES_ENABLED.'", true)'
-    )
-        ->and($script)->toContain(
-            'jingle_interval = interactive.float("'.LiquidsoapSupervisor::VAR_JINGLE_INTERVAL.'", 900.0)'
-        )
-        // The interval reaches delay() through the variable, never inlined —
-        // inlining would silently re-freeze it at render time.
-        ->and($script)->not->toMatch('/delay\(initial=true, [0-9]/');
-});
-
-it('emits a liquidsoap-valid float for the jingle interval', function () {
-    // Same lexer trap as every other numeric setting here: a bare
-    // interpolation of 1800 renders "1800" where interactive.float wants a
-    // float, and "1800." for a fractional value renders "1800.5." — a syntax
-    // error either way.
-    $script = renderStationScript($this->station, ['jingleInterval' => 1800.0]);
-
-    expect($script)->toContain('interactive.float("jingle_interval", 1800.0)')
-        ->and($script)->not->toContain('1800.0.');
+    $catch = substr($fn, strpos($fn, 'catch _ do'));
+    expect($catch)->not->toContain('autodj_fresh := false');
 });
 
 it('never crossfades a jingle', function () {
@@ -659,7 +551,7 @@ it('never crossfades a jingle', function () {
     // point of playing it. The flag rides in on the annotate URI
     // PlaylistFileWriter emits, because by the time the cross transition runs
     // there is nothing left to say which source a request came from.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+    $script = renderStationScript($this->station);
 
     expect($script)->toContain('a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"')
         ->and($script)->toContain('sequence([a.source, b.source])');
@@ -669,7 +561,7 @@ it('keeps jingles out of the now-playing push', function () {
     // No push means Laravel's cached payload stays on the last real track,
     // so the player keeps showing the song rather than flashing "Station ID"
     // for eight seconds.
-    $script = renderStationScript($this->station, ['jinglesEnabled' => true]);
+    $script = renderStationScript($this->station);
 
     expect($script)->toMatch('/def push_now_playing\(m\) =\s*\n\s*if m\["jingle"\] == "true" then/');
 });
@@ -802,17 +694,26 @@ it('builds the rotation as request.dynamic, not a playlist file', function () {
         ->not->toContain('"/data/playlists/playlist.m3u"');
 });
 
-/**
- * `request.dynamic` registers `.flush_and_skip`, never `.skip` — and
- * StationPowerController sends "{source}.skip". Without this registration the
- * skip-track button answers "unknown command" and silently does nothing.
- */
-it('registers the skip command the power controller sends', function () {
+it('no longer registers the skip-track telnet command', function () {
+    // Disabled 2026-10-05 with StationPowerController::skip; the block stays
+    // in the template as a comment only.
     $script = renderStationScript($this->station);
 
-    expect($script)->toContain('autodj.register_command(')
-        ->toContain('"skip"');
+    expect($script)->not->toMatch('/^autodj\.register_command\(/m');
 });
+
+// DISABLED 2026-10-05 with the skip endpoint itself (see StationPowerController).
+// /**
+//  * `request.dynamic` registers `.flush_and_skip`, never `.skip` — and
+//  * StationPowerController sends "{source}.skip". Without this registration the
+//  * skip-track button answers "unknown command" and silently does nothing.
+//  */
+// it('registers the skip command the power controller sends', function () {
+//     $script = renderStationScript($this->station);
+//
+//     expect($script)->toContain('autodj.register_command(')
+//         ->toContain('"skip"');
+// });
 
 it('never asks the API on a tight loop when a station has no rotation', function () {
     $script = renderStationScript($this->station, ['autodjRetryDelay' => 10.0]);
@@ -915,11 +816,11 @@ it('levels tracks before the crossfade decides how to transition', function () {
 
 it('levels jingles too, not just the rotation', function () {
     // A station ID recorded on a phone should not be the loudest thing on the
-    // station. Wrapping the fallback rather than the rotation source is what
-    // puts both arms through it.
+    // station. Jingles come through the same next-track source as songs, so
+    // the one amplify on the rotation covers both.
     $script = renderStationScript($this->station);
 
-    $fallback = strpos($script, 'autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])');
+    $fallback = strpos($script, 'autodj_rotation = fade.out(');
     $amplify = strpos($script, 'autodj_leveled = amplify(');
     expect($fallback)->toBeLessThan($amplify);
 });

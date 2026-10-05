@@ -78,7 +78,7 @@ sources:
   - client/components/dashboard/shell/StationBand.tsx
   - client/lib/airState.ts
   - client/components/dashboard/overview/YourLinkCard.tsx
-fingerprint: c3480a5659655998
+fingerprint: 6b2cfc51889bb884
 ---
 
 # Broadcasting from the web studio

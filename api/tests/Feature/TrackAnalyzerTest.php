@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\AnalyzeTrack;
 use App\Services\TrackAnalyzer;
 use Illuminate\Support\Facades\Process;
 
@@ -247,7 +248,35 @@ it('gives the queue job a timeout the process timeout fits inside', function () 
     // the only one in force, and it SIGKILLed the worker under any long mix.
     config()->set('liquidsoap.analysis_timeout_seconds', 120);
 
-    expect((new App\Jobs\AnalyzeTrack('track', 4620.4))->timeout)->toBe(608)
-        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBe(150)
-        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
+    expect((new AnalyzeTrack('track', 4620.4))->timeout)->toBe(608)
+        ->and((new AnalyzeTrack('track'))->timeout)->toBe(150)
+        ->and((new AnalyzeTrack('track'))->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
+});
+
+it('keeps the length the decode measured', function () {
+    // The header's figure is often wrong for VBR MP3s; time= is what the
+    // decoder actually got through.
+    ffmpegOutput(paddedCapture());
+
+    expect(app(TrackAnalyzer::class)->analyze($this->path)->decodedSeconds)->toBe(9.5);
+});
+
+it('measures the length alone with a plain decode', function () {
+    // No loudness meter (the slow part) and no cover art decode.
+    config()->set('liquidsoap.analysis_ffmpeg', 'ffmpeg');
+    ffmpegOutput("Stream mapping:\n  Stream #0:0 -> #0:0 (mp3 (mp3float) -> pcm_s16le (native))\nsize=N/A time=00:03:52.14 bitrate=N/A speed= 412x\n");
+
+    expect(app(TrackAnalyzer::class)->measureDuration($this->path))->toBe(232.14);
+
+    Process::assertRan(function ($process) {
+        $command = implode(' ', $process->command);
+
+        return str_contains($command, '-vn') && ! str_contains($command, '-af');
+    });
+});
+
+it('has no length for a file it cannot decode', function () {
+    ffmpegOutput("/analysis-input: Invalid data found when processing input\n");
+
+    expect(app(TrackAnalyzer::class)->measureDuration($this->path))->toBeNull();
 });

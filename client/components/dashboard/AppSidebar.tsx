@@ -11,7 +11,7 @@ import { useProRequest } from "@/contexts/ProRequestContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useSignOut } from "@/hooks/useSignOut"
 import { airState } from "@/lib/airState"
-import { NAV_ITEMS, activeNav, type NavItem } from "@/lib/dashboardNav"
+import { AUTODJ_GROUP, AUTODJ_ITEMS, NAV_ITEMS, activeNav, inAutoDj, type NavItem } from "@/lib/dashboardNav"
 import { cn } from "@/lib/utils"
 import { User } from "@/interfaces/User"
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, useSidebar } from "@/components/ui/sidebar"
@@ -105,33 +105,67 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
     return station && item.stationHref ? item.stationHref(station.slug) : item.href
   }
 
+  const lockFor = (lock: NavItem["lock"]) => (lock === "autodj" ? autoDjLocked : lock === "audience" ? audienceLocked : false)
+
   return (
     <nav aria-label="Station" className="flex flex-col gap-0.5">
       {NAV_ITEMS.map((item) => {
-        const isActive = item.key === active
-        const locked = item.lock === "autodj" ? autoDjLocked : item.lock === "audience" ? audienceLocked : false
+        if (item.group === "autodj") {
+          // The group is drawn once, at its first section.
+          if (item !== AUTODJ_ITEMS[0]) return null
+          return (
+            <div key="autodj" role="group" aria-labelledby="nav-autodj" className="flex flex-col gap-0.5">
+              <Link
+                id="nav-autodj"
+                href={hrefFor(item)}
+                className={cn(
+                  "flex h-10.5 items-center justify-between gap-2 rounded-item px-3 text-body transition-colors hover:bg-surface-raised hover:text-foreground",
+                  inAutoDj(active) ? "font-bold text-foreground" : "text-muted-foreground",
+                )}
+              >
+                <span>{AUTODJ_GROUP.label}</span>
+                {air.tone === "onair" && <StatusLamp tone="onair" size="sm">On</StatusLamp>}
+                {lockFor(AUTODJ_GROUP.lock) && <ProTag />}
+              </Link>
+              {AUTODJ_ITEMS.map((child) => (
+                <NavLink key={child.key} href={hrefFor(child)} active={child.key === active} nested>
+                  {child.label}
+                </NavLink>
+              ))}
+            </div>
+          )
+        }
         const live = item.key === "studio" && (broadcastingHere || air.tone === "live" || air.tone === "mic")
-        const autoDjOn = item.key === "autodj" && air.tone === "onair"
         return (
-          <Link
-            key={item.key}
-            href={hrefFor(item)}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "flex h-10.5 items-center justify-between gap-2 rounded-item px-3 text-body transition-colors",
-              isActive
-                ? "bg-surface-raised font-bold text-foreground"
-                : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
-            )}
-          >
+          <NavLink key={item.key} href={hrefFor(item)} active={item.key === active}>
             <span>{item.label}</span>
             {live && <StatusLamp tone="live" size="sm" pulse>Live</StatusLamp>}
-            {autoDjOn && <StatusLamp tone="onair" size="sm">On</StatusLamp>}
-            {locked && <ProTag />}
-          </Link>
+            {lockFor(item.lock) && <ProTag />}
+          </NavLink>
         )
       })}
     </nav>
+  )
+}
+
+function NavLink({ href, active, nested, children }: { href: string; active: boolean; nested?: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center justify-between gap-2 rounded-item px-3 transition-colors",
+        // Sections hang off the heading's text: a rule down their left
+        // edge, a step smaller, so the group reads as one block.
+        nested ? "ml-3 h-9 border-l border-line pl-3.5 text-body-sm" : "h-10.5 text-body",
+        nested && "rounded-l-none",
+        active
+          ? "bg-surface-raised font-bold text-foreground"
+          : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
+      )}
+    >
+      {children}
+    </Link>
   )
 }
 

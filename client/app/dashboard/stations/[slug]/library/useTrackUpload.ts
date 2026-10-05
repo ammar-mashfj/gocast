@@ -39,6 +39,8 @@ interface Options {
    * Ignored for jingles, which are never playlist members.
    */
   playlistId?: string | null
+  /** Which jingle list a jingle upload joins. Omitted: the station's first (made if there is none). */
+  jingleListId?: string | null
   /** Word for the toast — "track" or "jingle". */
   noun: string
   /** Called once per committed batch, so a long drop fills the list as it goes. */
@@ -51,7 +53,7 @@ interface Options {
  * same whether it is a jingle or a rotation track, and the two copies of this
  * loop had already started to drift — only the rotation batched.
  */
-export function useTrackUpload({ slug, kind, playlistId, noun, onUploaded }: Options) {
+export function useTrackUpload({ slug, kind, playlistId, jingleListId, noun, onUploaded }: Options) {
   const locked = useAutoDjLocked()
   const [progress, setProgress] = useState<UploadProgress | null>(null)
   // A second drop while the first is in flight would interleave two progress
@@ -135,6 +137,7 @@ export function useTrackUpload({ slug, kind, playlistId, noun, onUploaded }: Opt
           // what keeps quota, tag reading and storage identical across both.
           if (kind) form.append("kind", kind)
           if (!kind && playlistId) form.append("playlist_id", playlistId)
+          if (kind === "jingle" && jingleListId) form.append("jingle_list_id", jingleListId)
           for (const file of batch) form.append("files[]", file)
 
           const { data } = await api.post<{
@@ -185,7 +188,7 @@ export function useTrackUpload({ slug, kind, playlistId, noun, onUploaded }: Opt
         setProgress(null)
       }
     },
-    [slug, kind, playlistId, noun, onUploaded, locked],
+    [slug, kind, playlistId, jingleListId, noun, onUploaded, locked],
   )
 
   return { progress, uploading: progress !== null, upload }

@@ -11,17 +11,9 @@ export default function Body() {
         because &ldquo;Drive time&rdquo; is easier to scan than 16:00.
       </p>
       <p>
-        It lives on your station&rsquo;s <strong>Schedule</strong>{" "}page, drawn
+        It lives under <strong>AutoDJ</strong>{" "}›{" "}<strong>Schedule</strong>{" "}in your dashboard, drawn
         as a week you edit directly: one row per day, midnight to midnight.
       </p>
-
-      <ZoomableImage
-        src="/help/schedule-on-now.webp"
-        alt="The Right now and Your next show cards at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15 — and the next of your own show times."
-        width={2480}
-        height={214}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
-      />
 
       <h2>Building One</h2>
       <ol>
@@ -70,19 +62,34 @@ export default function Body() {
 
       <h2>How Precisely a Slot Starts</h2>
       <p>
-        Close, but not to the second. A slot takes over at the next track
-        boundary rather than cutting a song in half, so a slot written for 18:00
-        may actually begin a couple of minutes after. For most stations that is
-        invisible. For something that genuinely has to start on the minute, go
-        live &mdash; a live broadcast takes over instantly.
+        That is up to you, slot by slot. Normally a slot takes over at the next
+        track boundary rather than cutting a song in half, so a slot written
+        for 18:00 may actually begin a couple of minutes after. For most
+        stations that is invisible.
+      </p>
+      <p>
+        For a slot that has to start on the minute, switch on{" "}
+        <strong>Start exactly on time</strong>{" "}in its dialog. As the start
+        time gets close, AutoDJ picks a song from a shuffled playlist that ends
+        in time. If none does, it fades out the song that is playing, right on
+        the start time. With only a few seconds to go it starts the slot up to
+        20 seconds early instead, rather than play a fragment of a song. A
+        playlist set to play in order is never reshuffled to fit: its song
+        fades out instead.
+      </p>
+      <p>
+        AutoDJ can only plan around songs whose length it has measured, which
+        it does a moment after each upload.
       </p>
 
       <h2>Going Live Over a Slot</h2>
       <p>
-        You take over immediately, as always. When you finish, AutoDJ resumes
-        with whichever playlist should be on air <em>at that moment</em>{" "}&mdash;
-        not necessarily the one that was playing when you started. Come off air
-        at 18:05 and you hand back to the news, not to drive time.
+        You take over immediately, as always, even over a slot set to start
+        exactly on time. When you finish, AutoDJ plays the song it had lined
+        up, then carries on with whichever playlist should be on air{" "}
+        <em>at that moment</em>{" "}&mdash; not necessarily the one that was
+        playing when you started. Come off air at 18:05 and you hand back to
+        the news, not to drive time.
       </p>
 
       <h2>Timezone</h2>

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\AnalyzeTrack;
+use App\Models\JingleList;
 use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\StationEvent;
@@ -21,12 +22,12 @@ use RuntimeException;
  *   - writes the file to disk under {playlist_dir}/{slug}/{id}.{ext}
  *   - reads ID3/M4A/Vorbis tags via getID3 (filename fallback)
  *   - creates the Track row at position max+1 *within its kind*
- *   - regenerates the station's jingle m3u
+ *     (a jingle also joins a jingle list)
  *
  * Music and jingles share this path entirely — same storage cap, same
  * directory, same tag read, same quota lock. `kind` only decides which
- * position sequence the file joins and how it reaches Liquidsoap (the
- * rotation query, or `jingles.m3u`), which is what makes jingles nearly free
+ * position sequence the file joins and, for a jingle, which jingle list;
+ * both reach Liquidsoap through next-track. That is what makes jingles nearly free
  * to support: there is no second upload pipeline to keep in step with this
  * one.
  *
@@ -80,8 +81,18 @@ class TrackImporter
      * StoreTrackRequest). It only feeds the stored name and the title
      * fallback; the extension still comes from the file itself.
      */
-    public function import(Station $station, UploadedFile $file, string $kind = Track::KIND_MUSIC, ?Playlist $playlist = null, ?string $originalName = null): Track
-    {
+    public function import(
+        Station $station,
+        UploadedFile $file,
+        string $kind = Track::KIND_MUSIC,
+        ?Playlist $playlist = null,
+        ?string $originalName = null,
+        ?JingleList $jingleList = null,
+    ): Track {
+        if ($kind === Track::KIND_JINGLE) {
+            $jingleList ??= $this->jingleListFor($station);
+        }
+
         $size = $file->getSize();
         if ($size === false) {
             throw new RuntimeException('Could not determine uploaded file size.');
@@ -104,6 +115,7 @@ class TrackImporter
         $track = (new Track)->forceFill([
             'station_id' => $station->id,
             'kind' => $kind,
+            'jingle_list_id' => $jingleList?->getKey(),
             'original_filename' => $originalName,
             'file_size_bytes' => $size,
         ]);
@@ -150,11 +162,6 @@ class TrackImporter
             }
         });
 
-        // Playlist regeneration runs outside the transaction so a slow disk
-        // doesn't extend the lock window.
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
-
         // Loudness and cue points, measured on the queue. Deliberately after
         // the commit and outside the transaction: the job looks the track up
         // by id, and a worker fast enough to beat the commit would find
@@ -178,6 +185,30 @@ class TrackImporter
         ]);
 
         return $track;
+    }
+
+    /**
+     * The jingle list an upload joins: the one named, else the station's
+     * first, else a new "Jingles" list — so a first jingle upload plays
+     * without anyone having to make a list first.
+     */
+    public function jingleListFor(Station $station, ?string $id = null): JingleList
+    {
+        if ($id !== null) {
+            return $station->jingleLists()->whereKey($id)->firstOrFail();
+        }
+
+        $list = $station->jingleLists()->first();
+
+        if ($list !== null) {
+            return $list;
+        }
+
+        $list = new JingleList(['name' => 'Jingles']);
+        $list->station()->associate($station);
+        $list->save();
+
+        return $list;
     }
 
     /**
@@ -224,9 +255,6 @@ class TrackImporter
             ->where('position', '>', $deletedPosition)
             ->decrement('position');
 
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
-
         StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $deletedDetails);
     }
 
@@ -235,10 +263,8 @@ class TrackImporter
      * were actually removed; IDs that are not this station's are ignored
      * rather than failing the batch.
      *
-     * NOT a loop over destroy(), and the difference is the point. destroy()
-     * rewrites the playlist file and reloads Liquidsoap every time, so twenty
-     * single deletes are twenty reloads of a station that may be on air. Here
-     * the whole batch shares one write and one reload.
+     * NOT a loop over destroy(): one transaction and one resequence for the
+     * whole batch, rather than one per file.
      *
      * Order matters. The database work runs inside a transaction and the files
      * are unlinked only once it has committed — a rolled-back batch that had
@@ -294,9 +320,6 @@ class TrackImporter
                 @unlink($absolute);
             }
         }
-
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
 
         // One event per file, the same as deleting them one at a time would
         // have produced — the admin timeline should not lose detail just
@@ -373,8 +396,6 @@ class TrackImporter
             }
         });
 
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
     }
 
     /**

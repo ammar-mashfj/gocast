@@ -91,7 +91,7 @@ sources:
   - api/tests/Feature/SendAnnouncementTest.php
   - api/tests/Feature/Admin/RawEmailTest.php
   - client/components/dashboard/shell/UpdatesMenu.tsx
-fingerprint: 7aed5bb535bf8f83
+fingerprint: 6b74c9f57d98536f
 ---
 
 # Notifications and email

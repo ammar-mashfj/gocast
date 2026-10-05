@@ -68,7 +68,7 @@ sources:
   - client/app/dashboard/stations/[slug]/settings/StreamCard.tsx
   - client/components/ds/CopyField.tsx
   - client/lib/clipboard.ts
-fingerprint: c4e4c7f116f07330
+fingerprint: 94111f139901f929
 ---
 
 # Public player page, Pro embed and listener-facing SEO

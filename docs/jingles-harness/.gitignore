@@ -1,0 +1,8 @@
+base.liq
+*.liq
+!tail2.liq
+!cross.liq
+d_*/
+o_*.txt
+!tail3.liq
+d3/

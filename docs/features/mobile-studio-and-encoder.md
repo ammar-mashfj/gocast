@@ -54,7 +54,7 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/resources/views/liquidsoap/station.blade.php
   - infra/native/station-router/nginx.conf
-fingerprint: 03038713232ed6ae
+fingerprint: e31dbb9c86cfff15
 ---
 
 # Mobile studio and native encoder

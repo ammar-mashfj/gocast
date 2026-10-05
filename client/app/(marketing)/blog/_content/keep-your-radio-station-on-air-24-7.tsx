@@ -75,22 +75,29 @@ export default function Body() {
 
       <h3>Station IDs and Jingles</h3>
       <p>
-        Jingles are uploaded separately from your music and slot in
-        automatically. You choose how often, two ways:
+        Jingles are uploaded separately from your music, into lists &mdash;
+        Station IDs, Sweepers, Promos &mdash; and slot in automatically. Each
+        list has its own rule for how often:
       </p>
       <ul>
         <li>
-          <strong>By the clock</strong>{" "} &mdash; one every few minutes. Good for
-          legal IDs and sponsor reads, because you know exactly when they land.
+          <strong>By song count</strong>{" "}&mdash; one every few tracks. Good for
+          station imaging, because it never lands in the middle of a song.
         </li>
         <li>
-          <strong>By song count</strong>{" "} &mdash; one every few tracks. Good for
-          station imaging, because it never lands in the middle of a song.
+          <strong>By the clock</strong>{" "}&mdash; one every so many minutes, at
+          the first break once the time is up.
+        </li>
+        <li>
+          <strong>At set times</strong>{" "}&mdash; 08:00, the top of every hour.
+          Good for legal IDs and sponsor reads, and they can be exactly on
+          time: the song playing fades out so the ID lands on the dot.
         </li>
       </ul>
       <p>
-        They&#39;re played in random order from whatever you upload, so a
-        handful of them doesn&#39;t start sounding like a loop.
+        A list can also be limited to some days and hours, and play its clips
+        at random (none twice until all have played), in order, or always the
+        same one.
       </p>
 
       <h3>Everything Sounds the Same Volume</h3>

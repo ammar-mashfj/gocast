@@ -1,6 +1,6 @@
 ---
 feature: Station lifecycle (power, state model, auto-stop)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system)
 sources:
   - api/app/Services/StationLifecycleService.php
   - api/app/Services/StationLifecycleException.php
@@ -14,6 +14,7 @@ sources:
   - api/app/Policies/StationPolicy.php
   - api/app/Models/StationEvent.php
   - api/app/Services/AutoDjProgramme.php
+  - api/app/Services/AutoDjScheduler.php
   - api/app/Observers/UserObserver.php
   - api/routes/admin.php
   - api/app/Jobs/StopStation.php
@@ -52,7 +53,7 @@ sources:
   - client/hooks/useStationPower.ts
   - client/components/dashboard/overview/OverviewHero.tsx
   - client/components/dashboard/shell/StationBand.tsx
-fingerprint: 13244dd259bdbcb6
+fingerprint: 6bafb464f82ecdbc
 ---
 
 # Station lifecycle
@@ -109,10 +110,9 @@ All under the `verified` middleware group in `api/routes/api.php`; all authorize
 |---|---|---|---|
 | `POST /stations/{slug}/start` | 20/min | `StationPowerController::start` | 202 + `StationResource` |
 | `POST /stations/{slug}/stop` (body `force` boolean) | 20/min | `StationPowerController::stop` | 200 + `StationResource` |
-| `POST /stations/{slug}/skip` | 30/min | `StationPowerController::skip` | Sends telnet `<LIQ_SOURCE>.skip`; 409 `station_not_running` if stopped; 503 `station_unreachable` if telnet fails |
 | `GET /stations/{slug}/status` | 120/min | `StationStatusController` | Live status (below) |
 
-Neither start nor stop waits for audio. Both call `StationStatusService::forget()` (drops the cached status) before responding. The client then polls status for readiness. Refusals are JSON `{message, code}`: 422 `station_limit_reached`, 503 `station_start_failed`, 409 `station_is_live` / `station_is_live_external`. `skip` has no lock and does not touch `desired_state`.
+Neither start nor stop waits for audio. Both call `StationStatusService::forget()` (drops the cached status) before responding. The client then polls status for readiness. Refusals are JSON `{message, code}`: 422 `station_limit_reached`, 503 `station_start_failed`, 409 `station_is_live` / `station_is_live_external`. The skip-track endpoint (`POST /stations/{slug}/skip`) is disabled as of 2026-10-05: its route and `StationPowerController::skip` are commented out, and no client calls it.
 
 ### `StationLifecycleService::start($station, $reason = 'owner')`
 
@@ -120,7 +120,7 @@ Under a per-station cache lock (`station-lifecycle:{id}`, TTL 30 s, waits up to 
 
 1. Refresh the row. If desired state is running **and** `supervisor->isRunning()`, return untouched (no restart, no event, no log). This is what makes a double click, and the studio's start-before-broadcast, safe: `LiquidsoapSupervisor::up()` restarts a running container, which drops every listener.
 2. If desired state is not running: `assertCanRunAnother()` then write `desired_state = running` and `started_at = now()`.
-3. `PlaylistFileWriter::write()` (jingle m3u), then `supervisor->up()`. Intent is saved **before** the container is touched so a failed `docker run` leaves the station `running` and the reconciler retries.
+3. `PlaylistFileWriter::prepare()` (only makes sure the station's audio directory exists), then `supervisor->up()`. Intent is saved **before** the container is touched so a failed `docker run` leaves the station `running` and the reconciler retries.
 4. `Log::info`, `StationEvent::TYPE_STARTED` with `reason`, then `event(StationStateChanged::for(..., 'started'))`. A start of a station that is `running` with its container down therefore records a second `started` event.
 
 Plan gate: `assertCanRunAnother()` counts the user's **other** stations with `desired_state = running` against `plan->max_running_stations` (`?? 1` when no plan). Over the limit throws `station_limit_reached` (422). Migration `2026_08_15_115900_add_feature_columns_to_plans_table.php` seeds free = 1, pro = 5 (plans can be edited later in the admin panel; read the plans table for today's values). Intent is counted, not containers: a crashed station still holds its slot. A start of a station that is already `running` but whose container is down skips the check and just re-runs `up()`.
@@ -220,7 +220,7 @@ The mobile studio's budget is `30 * 60_000` (`mobile/src/broadcast/broadcastMana
 
 ### AutoDJ audibility and "fault"
 
-`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()` (returns null for a non-AutoDJ plan), and in `Station::jinglesAudible()` (jingle arm requires the owner's switch and the plan, so a downgraded station does not keep meter signal from jingles). So:
+`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()`, which returns null for a non-AutoDJ plan and is now also where jingles come from: it serves a jingle only after it has found a music track to play, so a downgraded station or a jingle-only library puts nothing on the meter and stays eligible to stop. (A container rendered before 2026-10-05 still has its own jingle block and plays its frozen `jingles.m3u` until it is relaunched.) So:
 
 - Pro station, playlist has tracks, silent output: `Fault` (alert only, never stopped, stays on air).
 - Pro station, resolved playlist empty (even with a full library elsewhere): not a fault; eligible to stop.
@@ -244,7 +244,7 @@ Every minute (`console.php`). It compares `docker ps -a` to intent (`ReconcileSt
 
 Counters live in cache keys `station-unhealthy-passes:` (6 h), `station-recreates:` (1 h), `station-live-strikes:` (1 h). `--dry-run` supported. The command also exits FAILURE when any action throws.
 
-A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it rewrites the m3u and calls `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop).
+A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it calls `PlaylistFileWriter::prepare()` and `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop).
 
 ### What clients see in each failure
 
@@ -291,7 +291,7 @@ The container's `live_disconnected` never says why a broadcaster left. The web s
 | Cache `station-status:{id}` | status cache | `StationStatusService` |
 | Cache `station-lifecycle:{id}` | lifecycle lock | `StationLifecycleService` |
 
-`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changes (jingle columns are instead pushed live over telnet, only when running); a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes watermark and jingle settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
+`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changes; a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes the watermark settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
 
 ## Surfaces
 
@@ -333,4 +333,4 @@ Three places read it. The **status band** under the top bar and the sidebar's **
 
 ## History
 
-Plans and handoffs (history, not spec): `docs/` audio-based auto-stop notes, `station-hardening-plan.md`, the station lifecycle artifact; superseded commands `stations:reap-idle` and `stations:reap-silent`.
+Plans and handoffs (history, not spec): `docs/` audio-based auto-stop notes, `station-hardening-plan.md`, the station lifecycle artifact; superseded commands `stations:reap-idle` and `stations:reap-silent`. 2026-10-05: jingles moved from the container into `AutoDjScheduler` (so the jingle telnet push and `jinglesAudible()` are gone) and skip-track was disabled; see `docs/JINGLES-AND-HARD-SLOTS-PLAN.md`.

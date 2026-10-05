@@ -5,8 +5,8 @@ export default function Body() {
   return (
     <>
       <p>
-        AutoDJ plays from a library you upload once. Everything here happens on
-        the <strong>AutoDJ</strong>{" "}page in your dashboard.
+        AutoDJ plays from a library you upload once. Everything here happens
+        under <strong>AutoDJ</strong>{" "}›{" "}<strong>Library</strong>{" "}in your dashboard.
       </p>
 
       <h2>What You Can Upload</h2>
@@ -48,7 +48,7 @@ export default function Body() {
         listeners see as the now-playing text on your player page. A library
         full of <code>track04.mp3</code>{" "}becomes a station that cannot say what
         it is playing. Fixing tags before you upload is easiest; for anything
-        that slips through, the AutoDJ page flags tracks with no artist and
+        that slips through, the Library page flags tracks with no artist and
         offers <strong>Fix tags</strong>.
       </p>
 
@@ -66,11 +66,21 @@ export default function Body() {
       <h2>Jingles</h2>
       <p>
         Station idents, liners and stings are uploaded as jingles rather than
-        as music. They behave differently: they are not playlist members and
-        they have no running order, because they drop in between rotation
-        tracks on a timer and are picked at random. Upload half a dozen and
-        your station identifies itself all day without you arranging anything.
-        They come out of the same 3 GB.
+        as music, on the <strong>Jingles</strong>{" "}page under AutoDJ. They
+        are not playlist members. Instead they live in jingle lists &mdash;
+        Station IDs, Sweepers, Promos, whatever you need &mdash; and each list
+        has one rule: which jingle plays (a random one, the next in order, or
+        always the same one), how often (every few songs, every so many
+        minutes, or at set times of day), and when (all day, or only on some
+        days and hours).
+      </p>
+      <p>
+        Jingles play between songs, one per break. A set time can be marked
+        exactly on time, and then the song playing at that moment fades out so
+        the jingle starts on the dot. Your first jingle upload makes a list
+        that plays a random one every 4 songs, so half a dozen idents keep
+        your station identifying itself all day without you arranging
+        anything. They come out of the same 3 GB.
       </p>
 
       <h2>A Word on Licensing</h2>

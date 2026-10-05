@@ -58,7 +58,7 @@ sources:
   - client/components/dashboard/shell/StationBand.tsx
   - client/components/dashboard/shows/ShowsList.tsx
   - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
-fingerprint: 3c8985d655b7d19c
+fingerprint: 740bb779dc37146b
 ---
 
 # Listener analytics

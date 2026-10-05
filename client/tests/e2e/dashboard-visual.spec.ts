@@ -63,6 +63,8 @@ const SHOTS: Record<Account, Shot[]> = {
     { name: "overview-edit-station", path: "", station: true, open: click("Edit profile"), expects: "dialog" },
     { name: "studio-preflight", path: "/live", station: true },
     { name: "autodj", path: "/library", station: true },
+    { name: "playlists", path: "/playlists", station: true },
+    { name: "jingles", path: "/jingles", station: true },
     { name: "schedule", path: "/schedule", station: true },
     { name: "schedule-new-slot", path: "/schedule", station: true, open: click("Add slot"), expects: "dialog" },
     { name: "audience-90d", path: "/audience", station: true },
@@ -83,6 +85,8 @@ const SHOTS: Record<Account, Shot[]> = {
   free: [
     { name: "free-overview", path: "", station: true },
     { name: "free-autodj", path: "/library", station: true },
+    { name: "free-playlists", path: "/playlists", station: true },
+    { name: "free-jingles", path: "/jingles", station: true },
     { name: "free-schedule", path: "/schedule", station: true },
     { name: "free-audience", path: "/audience", station: true },
     { name: "free-your-shows-empty", path: "/dashboard/broadcasts" },

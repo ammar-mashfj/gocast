@@ -189,7 +189,8 @@ export function DayList({
                     sub={
                       clash
                         ? "Overlaps another slot"
-                        : describe(playlist, s.block.label.trim() ? (playlist?.name ?? "AutoDJ") : "AutoDJ")
+                        : describe(playlist, s.block.label.trim() ? (playlist?.name ?? "AutoDJ") : "AutoDJ") +
+                          (s.head && s.block.startMode === "hard" ? " · starts on time" : "")
                     }
                     subTone={clash ? "fault" : undefined}
                     now={inNow(s.from, s.to)}

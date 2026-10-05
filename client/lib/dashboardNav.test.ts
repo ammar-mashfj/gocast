@@ -7,9 +7,10 @@ describe("activeNav", () => {
     ["/dashboard/stations/night", "overview"],
     ["/dashboard/stations/night/live", "studio"],
     ["/dashboard/stations/night/studio", "studio"],
-    ["/dashboard/stations/night/library", "autodj"],
-    ["/dashboard/stations/night/library/playlists/3", "autodj"],
-    ["/dashboard/library", "autodj"],
+    ["/dashboard/stations/night/library", "library"],
+    ["/dashboard/stations/night/playlists", "playlists"],
+    ["/dashboard/stations/night/jingles", "jingles"],
+    ["/dashboard/library", "library"],
     ["/dashboard/stations/night/schedule", "schedule"],
     ["/dashboard/stations/night/audience", "audience"],
     ["/dashboard/stations/night/settings", "settings"],
@@ -27,7 +28,8 @@ describe("pageLabel", () => {
 
   it("names station pages and the account page", () => {
     expect(pageLabel("/dashboard/stations/night/live")).toBe("Studio")
-    expect(pageLabel("/dashboard/stations/night/library")).toBe("AutoDJ")
+    expect(pageLabel("/dashboard/stations/night/library")).toBe("Library")
+    expect(pageLabel("/dashboard/stations/night/playlists")).toBe("Playlists")
     expect(pageLabel("/dashboard/broadcasts")).toBe("Your shows")
     expect(pageLabel("/dashboard/settings")).toBe("Account")
   })

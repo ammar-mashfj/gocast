@@ -183,3 +183,32 @@ it('never mutes the station outright in place of ducking it', function () {
 
     $supervisor->applyWatermarkSettings($station);
 });
+
+it('pushes the NEW plan when plans:expire performs the downgrade', function () {
+    // plans:expire eager-loads `plan` to name the ended one in its email, and
+    // Eloquent keeps a loaded belongsTo across a change of its key. The
+    // observer hands that same user to the push, which walks
+    // station -> user -> plan — so without unsetting it, a term running out
+    // pushed the watermark off: the entitlement of the plan that had just
+    // ended. Asserted on what was actually read, not on the call happening.
+    $owner = User::factory()->create(['plan_id' => $this->pro->id]);
+    $owner->forceFill(['plan_expires_at' => now()->subMinute()])->save();
+    Station::factory()->for($owner, 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $pushed = null;
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('restart');
+    $supervisor->shouldReceive('applyWatermarkSettings')->once()
+        ->andReturnUsing(function (Station $station) use (&$pushed) {
+            $pushed = $station->user->watermarked();
+
+            return true;
+        });
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $this->artisan('plans:expire')->assertSuccessful();
+
+    expect($pushed)->toBeTrue();
+});

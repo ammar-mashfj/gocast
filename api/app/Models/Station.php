@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Database\Factories\StationFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -29,6 +30,9 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string|null $genre
  * @property string|null $timezone IANA name the advertised show times and AutoDJ slots are written in
  * @property string|null $autodj_last_playlist_id which playlist the rotation last drew from; monitoring only
+ * @property CarbonImmutable|null $autodj_queued_starts_at when the last track handed to the container was planned to start
+ * @property float|null $autodj_queued_seconds that track's airtime; null when nothing is queued
+ * @property bool $autodj_queued_is_jingle whether that track was a jingle
  * @property string|null $artwork_url
  * @property bool $is_live
  * @property bool $featured
@@ -41,10 +45,6 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string $icecast_password
  * @property string|null $stream_key long-lived credential an external encoder authenticates with
  * @property Carbon|null $stream_key_rotated_at
- * @property bool $jingles_enabled
- * @property string $jingle_mode one of JINGLE_MODE_INTERVAL | JINGLE_MODE_TRACKS
- * @property int $jingle_interval_seconds
- * @property int $jingle_every_tracks
  * @property array|null $social_links
  * @property array|null $theme_config
  * @property Carbon $created_at
@@ -72,16 +72,6 @@ class Station extends Model
     public const STATE_RUNNING = 'running';
 
     /**
-     * Minimum gap between two jingles for a station that has never set one —
-     * the "station ID twice an hour" convention. Mirrors the column default;
-     * kept here too because the model is rendered into the .liq before it is
-     * ever read back from the database.
-     */
-    public const DEFAULT_JINGLE_INTERVAL_SECONDS = 1800;
-
-    public const DEFAULT_JINGLE_EVERY_TRACKS = 5;
-
-    /**
      * How many links a station may advertise on its player page.
      *
      * A layout bound rather than a plan one — links are free on every plan.
@@ -89,21 +79,6 @@ class Station extends Model
      * find the station and starts reading as a site footer.
      */
     public const MAX_SOCIAL_LINKS = 8;
-
-    /**
-     * Space jingles by wall-clock time. Predictable for legal IDs and sponsor
-     * reads, and unaffected by how long the station's tracks are.
-     */
-    public const JINGLE_MODE_INTERVAL = 'interval';
-
-    /**
-     * Space jingles by how many rotation tracks have played. Even musical
-     * density; real-world spacing swings with track length.
-     */
-    public const JINGLE_MODE_TRACKS = 'tracks';
-
-    /** @var list<string> */
-    public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
 
     /**
      * How many featured stations the public rail shows. Featuring more than
@@ -136,14 +111,6 @@ class Station extends Model
             // model is never a null state: isRunning() and the API resource
             // both read this immediately after create(), before any refresh.
             $station->desired_state ??= self::STATE_STOPPED;
-
-            // Same reasoning. LiquidsoapSupervisor renders the .liq straight
-            // off the in-memory model, so a null interval here would reach
-            // delay() as 0 — a jingle between every single track.
-            $station->jingles_enabled ??= false;
-            $station->jingle_mode ??= self::JINGLE_MODE_INTERVAL;
-            $station->jingle_interval_seconds ??= self::DEFAULT_JINGLE_INTERVAL_SECONDS;
-            $station->jingle_every_tracks ??= self::DEFAULT_JINGLE_EVERY_TRACKS;
         });
 
         // Every station owns a default playlist from its first moment: it is
@@ -239,14 +206,14 @@ class Station extends Model
             'stream_key' => 'encrypted',
             'stream_key_rotated_at' => 'datetime',
             'featured_at' => 'datetime',
-            'jingles_enabled' => 'boolean',
-            'jingle_interval_seconds' => 'integer',
-            'jingle_every_tracks' => 'integer',
             'social_links' => 'array',
             'theme_config' => 'array',
             'started_at' => 'datetime',
             'silent_since' => 'datetime',
             'last_ready_at' => 'datetime',
+            'autodj_queued_starts_at' => 'immutable_datetime',
+            'autodj_queued_seconds' => 'float',
+            'autodj_queued_is_jingle' => 'boolean',
         ];
     }
 
@@ -453,31 +420,6 @@ class Station extends Model
     }
 
     /**
-     * Should the jingle arm be allowed to play?
-     *
-     * The owner's switch AND their plan. The switch alone is not enough, and
-     * the reason is the same one that put the plan check inside
-     * AutoDjScheduler::next(): nothing in the rendered .liq knows about plans,
-     * and a plan change never restarts a container.
-     *
-     * Without this, a station downgraded off AutoDJ went silent on the
-     * rotation and kept playing station IDs forever — the jingle arm reads an
-     * m3u from disk, which no downgrade rewrites and no scheduler is asked
-     * about. Worse than cosmetic: a jingle puts real signal on the meter, so
-     * StationAudioPolicy scored the station `InUse` at every sweep and it
-     * never powered down. That contradicts hasPlayableRotation(), which
-     * already says jingles must not count — "a library of nothing but jingles
-     * has nothing to punctuate".
-     *
-     * Read at render time for the initial value and pushed over telnet by
-     * UserObserver on a plan change, so it lands without dropping listeners.
-     */
-    public function jinglesAudible(): bool
-    {
-        return (bool) $this->jingles_enabled && ($this->user?->canUseAutoDj() ?? false);
-    }
-
-    /**
      * Every music file in the library, in library order.
      *
      * NOT the rotation any more: what AutoDJ walks is a Playlist (see
@@ -523,9 +465,17 @@ class Station extends Model
     }
 
     /**
-     * Station IDs / liners. Written to `jingles.m3u`, which Liquidsoap reads
-     * in randomize mode — so the ordering carried here is cosmetic, it only
-     * gives the UI a stable list.
+     * Jingle lists, each with its own rule. Read by AutoDjScheduler at every
+     * track boundary; see JingleList.
+     */
+    public function jingleLists(): HasMany
+    {
+        return $this->hasMany(JingleList::class)->orderBy('position')->orderBy('created_at');
+    }
+
+    /**
+     * Station IDs / liners, across all of the station's jingle lists, in
+     * `position` order.
      */
     public function jingles(): HasMany
     {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ds/Button"
 import { DayToggle } from "@/components/ds/DayToggle"
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { TextField } from "@/components/ds/Field"
+import { SwitchRow } from "@/components/ds/Switch"
 import { DAY_NAMES } from "./days"
 import { WEEK_ORDER, type Swatch } from "./WeekGrid"
 import { DAY_MINUTES, SNAP, toClock, toMinutes, type Block } from "./weekModel"
@@ -23,7 +24,7 @@ interface Props {
   playlists: Playlist[]
   swatchFor: (playlistId: string) => Swatch
   /** Applied to the block and its siblings on every ticked day. */
-  onChange: (patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end">>) => void
+  onChange: (patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end" | "startMode">>) => void
   onToggleDay: (day: number) => void
   onDone: () => void
   onDelete: () => void
@@ -31,7 +32,8 @@ interface Props {
 
 /**
  * The selected slot, as the body of a dialog (the planner owns the Dialog):
- * a name, which playlist plays, from / to in 15-minute steps, and the days.
+ * a name, which playlist plays, from / to in 15-minute steps, whether it
+ * starts exactly on time, and the days.
  * Edits apply to every ticked day at once, while a drag on the grid changes
  * one day only. Ticking a day copies the slot onto it; unticking removes that
  * copy (the last day goes through Delete). Nothing is sent until the page's
@@ -90,6 +92,17 @@ export function SlotPanel({ block, days, isNew, overlapping, playlists, swatchFo
         <TimeStepper label="From" value={block.start} onChange={(start) => onChange({ start })} />
         <TimeStepper label={overnight ? "To (next day)" : "To"} value={block.end} onChange={(end) => onChange({ end })} />
       </div>
+
+      <SwitchRow
+        title="Start exactly on time"
+        description={
+          block.startMode === "hard"
+            ? `Starts at ${block.start} on the dot. AutoDJ picks a song that ends in time, or fades out the one playing.`
+            : `Starts after the song playing at ${block.start} ends.`
+        }
+        checked={block.startMode === "hard"}
+        onCheckedChange={(on) => onChange({ startMode: on ? "hard" : "soft" })}
+      />
 
       <div className="flex flex-col gap-2">
         <span className="text-body-sm font-semibold text-muted-foreground">Every</span>

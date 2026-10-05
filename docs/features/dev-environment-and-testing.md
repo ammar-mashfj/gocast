@@ -1,6 +1,6 @@
 ---
 feature: Dev environment and testing
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-05 against c970b2d plus uncommitted work
 sources:
   - api/tests/TestCase.php
   - api/tests/Pest.php
@@ -20,6 +20,7 @@ sources:
   - api/database/factories/AdminFactory.php
   - api/database/factories/AutodjSlotFactory.php
   - api/database/factories/InviteFactory.php
+  - api/database/factories/JingleListFactory.php
   - api/database/factories/ListenerSessionFactory.php
   - api/database/factories/PlanFactory.php
   - api/database/factories/PlaylistFactory.php
@@ -59,7 +60,7 @@ sources:
   - client/vitest.setup.ts
   - client/tests/e2e/dashboard-visual.spec.ts
   - client/app/dashboard.css
-fingerprint: c8f3804c59db982f
+fingerprint: 91a0627040a4f613
 ---
 
 # Dev environment and testing
@@ -121,7 +122,7 @@ Consequences for writing tests:
 
 - Code that asks the supervisor "is it running / healthy / what state" gets `false`/empty in tests, so behaviour that depends on the daemon has to be tested by mocking the supervisor (`Mockery::mock(LiquidsoapSupervisor::class)->makePartial()` bound with `app()->instance(...)`, used in `StationObserverTest`, `DerivedStationStateTest`, ; 13 test files mock or partial-mock it and 15 reference the class in all) or, for command construction, by calling the private builders through reflection (`LiquidsoapSupervisorTest` `invokePrivate()` on `baseRunCommand`, `sandboxFlags`, `healthFlags`, `resourceFlags`, `mountFlags`).
 - `StationObserverTest` first asserts `LiquidsoapSupervisor::inTestMode()` is true. If that test fails, stop and fix the env before running anything else.
-- `telnet()` returns immediately too, so jingle-settings pushes are asserted on the command strings, not on a socket.
+- `telnet()` returns immediately too, so the watermark pushes are asserted on the command strings (`WatermarkTest` expects e.g. `var.set watermark_interval = 60.0` on a mocked supervisor), not on a socket.
 
 ## Factories and seeders
 
@@ -130,8 +131,9 @@ Consequences for writing tests:
 | `UserFactory` | Verified by default. `password` is the hash of `password`. `onPlan($slug)` (real row, `firstOrFail`); `unverified()`. A default user is on the free plan (column default `plan_id` 1). |
 | `AdminFactory` | Guard `admin`; password `password`. Admin tests use `actingAs($admin, 'admin')` plus `withoutVite()`. |
 | `PlanFactory` | Random slug, 1-10 stations, 50-1000 listeners. Other plan flags come from column defaults. |
-| `StationFactory` | Fills a stream key and jingle defaults so `make()` matches `create()`. States: `withAutoDj()` (owner on Pro; **skipped when the caller used `for()`**, on purpose), `featured()`, `running()` (sets `desired_state`), `live()` (opens an open `StreamSession`, because `is_live` is derived, not a column). `Station::booted()` creates the default playlist on `created`; `StationObserver::creating` allocates `container_index` (max including soft-deleted, plus one). |
-| `TrackFactory` | `configure()` attaches music tracks to the station's default playlist via `PlaylistTracks::attach`. States `analyzed()` (loudness -9 LUFS, peak -0.5 dB, cue in 1.5 s), `jingle()`. Files are not created on disk: `path` is a ULID name. |
+| `StationFactory` | Fills a stream key so `make()` matches `create()` (no jingle fields any more: the old `stations.jingle_*` columns are unused). States: `withAutoDj()` (owner on Pro; **skipped when the caller used `for()`**, on purpose), `featured()`, `running()` (sets `desired_state`), `live()` (opens an open `StreamSession`, because `is_live` is derived, not a column). `Station::booted()` creates the default playlist on `created`; `StationObserver::creating` allocates `container_index` (max including soft-deleted, plus one). |
+| `TrackFactory` | `configure()` attaches music tracks to the station's default playlist via `PlaylistTracks::attach`. States `analyzed()` (loudness -9 LUFS, peak -0.5 dB, cue in 1.5 s, and `duration_measured_at` set, so the track has an `airtimeSeconds()` and the hard-start planner can fit it), `jingle()` (3-12 s, **no `jingle_list_id`**: pass one, or the jingle belongs to no list and never plays). Files are not created on disk: `path` is a ULID name. |
+| `JingleListFactory` | "Station IDs", enabled, random pick, every 4 songs, on a fresh station. States `everyMinutes($n)`, `atTimes([...], exact: false)`. |
 | `PlaylistFactory` | Non-default only (`is_default` false); `shuffled()`. |
 | `AutodjSlotFactory` | Default: Mon-Fri 06:00-12:00 on a fresh UTC station with its own playlist. Pass `station_id` and a playlist of that station. |
 | `StationScheduleFactory` | One random weekday, hour-aligned start. |
@@ -155,18 +157,19 @@ Counts are `it()`/`test()` blocks by grep, so datasets multiply them at run time
 | Account deletion / soft delete | `Account/AccountDeletionConfirmationTest` (6), `Account/AccountDeletionCascadeTest` (4), `Account/PasswordChangeNotificationTest` (3), `Models/UserSoftDeleteTest`, `Models/StationSoftDeleteTest`, `Models/StationSlugTest` (7) |
 | Invites, plans, access requests | `Auth/InviteRedemptionTest` (20), `Admin/InviteTest` (26), `Admin/AccessRequestReviewTest` (38), `Admin/AccessRequestIndexTest` (10), `WaitlistControllerTest` (12), `Console/ExpirePlansTest` (3), `Admin/StationUpgradeTest` (15), `Admin/AccountProvisionTest` (15) |
 | Admin panel | `Admin/AuthenticationTest` (13), `Admin/StationIndexTest` (13), `Admin/StationFeatureTest` (9), `Admin/StationTimelineTest` (11), `Admin/AnnouncementTest` (23), `Admin/RawEmailTest` (23), `Admin/WatermarkClipTest` (11), `Console/AdminResetPasswordCommandTest` (4), `AdminTelegramAlertTest` (5) |
-| Station power and lifecycle | `StationPowerControllerTest` (13), `StationLifecycleServiceTest` (5), `StationSweepTest` (40, the largest: auto-stop decision tree), `ReconcileStationsTest` (17), `StationObserverTest` (12), `StationStopClearsNowPlayingTest` (5), `PruneDeletedStationsTest` (7), `StationContainerIndexTest` (5), `StationContainerIpTest` (10) |
+| Station power and lifecycle | `StationPowerControllerTest` (11), `StationLifecycleServiceTest` (5), `StationSweepTest` (40, the largest: auto-stop decision tree), `ReconcileStationsTest` (17), `StationObserverTest` (10), `StationStopClearsNowPlayingTest` (5), `PruneDeletedStationsTest` (7), `StationContainerIndexTest` (5), `StationContainerIpTest` (10) |
 | Derived state / status / metrics | `DerivedStationStateTest` (19), `StationStatusTest` (22), `MetricsControllerTest` (4), `StationStatsTest` (9) |
-| Liquidsoap supervisor and script | `LiquidsoapSupervisorTest` (17: docker flags, telnet strings), `LiquidsoapTemplateTest` (64: string assertions on the rendered `.liq`), `PlaylistFileWriterTest` (13), `StationHlsUrlTest` (4) |
+| Liquidsoap supervisor and script | `LiquidsoapSupervisorTest` (10: docker flags), `LiquidsoapTemplateTest` (59: string assertions on the rendered `.liq`, including the `X-Gocast-Script`/`X-Gocast-Fresh` headers and the `fade.out` on the rotation), `PlaylistFileWriterTest` (11: annotate URIs, `prepare()`, the trimmed `liq_cue_out`/`liq_fade_out`), `StationHlsUrlTest` (4) |
 | Broadcasting: studio and encoder | `BroadcastTokenServiceTest` (5), `BroadcastTokenControllerTest` (5), `HarborAuthTest` (15), `EncoderSessionAttributionTest` (22), `StreamKeyRotationTest` (6), `StationEncoderResourceTest` (6) |
-| AutoDJ, playlists, schedule | `NextTrackControllerTest` (16), `AutoDjShuffleTest` (16), `AutoDjProgrammeTest` (9), `AutodjSlotTest` (14), `StationScheduleTest` (22), `PlaylistControllerTest` (26), `PlaylistBackfillMigrationTest` (1) |
-| Library and track processing | `TrackControllerTest` (30), `TrackImporterFilenameTest` (3), `TrackAnalyzerTest` (12, `Process::fake` around ffmpeg), `TrackAnalysisTest` (13, loudness plan), `TrackAnnotationTest` (10), `StationJingleSettingsTest` (20) |
+| AutoDJ, playlists, schedule | `NextTrackControllerTest` (16), `AutoDjShuffleTest` (16), `AutoDjProgrammeTest` (9), `AutodjSlotTest` (16, incl. `start_mode`), `AutoDjHardStartTest` (15: the AutoDJ clock, hard slot starts, fit picks, trims, jingle filler, older scripts get neither), `StationScheduleTest` (22), `PlaylistControllerTest` (26), `PlaylistBackfillMigrationTest` (1) |
+| Library and track processing | `TrackControllerTest` (32), `TrackImporterFilenameTest` (3), `TrackAnalyzerTest` (18, `Process::fake` around ffmpeg, incl. the decoded length and `measureDuration()`), `TrackAnalysisTest` (13, loudness plan), `TrackAnnotationTest` (10), `TrackDurationTest` (10: measured length, `tracks:measure-durations`, `airtimeSeconds()`) |
+| Jingles | `JingleListControllerTest` (14: CRUD, rule validation, upload into a list, move, the data migration from `stations.jingle_*`), `JingleRulesTest` (16: every/songs/minutes/set times, exact, pick modes, hours and days, never two in a row, plan gate) |
 | Now playing | `NowPlayingControllerTest` (9; real Redis) |
 | Listener analytics | `ListenerSessionTest` (14), `ListenerIdentityTest` (10), `SweepListenerSessionsTest` (16), `RollupListenerStatsTest` (7), `PruneListenerSessionsTest` (4), `SyncListenerCountsTest` (6), `AudienceControllerTest` (17) |
 | Public player, embed, SEO, featured | `PublicEmbedTest` (6), `PublicFeaturedTest` (10), `PublicStationSeoTest` (8), `StationSocialLinksTest` (9), `StationNotifySubscriptionTest` (6), `ExampleTest` (`GET /` returns 200, the Laravel welcome view) |
 | Notifications and email | `NotificationControllerTest` (18), `Notifications/BellContractTest` (12: reads source to enforce the bell base class), `PruneNotificationsTest` (4), `SendAnnouncementTest` (20), `UnsubscribeTest` (7), `ResendWebhookTest` (6), `NudgeInactiveBroadcastersTest` (7) |
 | Station event log / realtime | `StationEventLogTest` (10), `StationEventControllerTest` (8), `StationEventBroadcastTest` (8), `StationEventTrackLogTest` (3), `Console/PruneStationEventsTest` (3), `Observability/ActivityLogTest` (2), `BroadcastAuthTest` (5) |
-| Watermark | `WatermarkTest` (11), `ReloadWatermarkClipsTest` (3), `Admin/WatermarkClipTest` |
+| Watermark | `WatermarkTest` (12, incl. the `plans:expire` case that used to live in the deleted `StationJingleSettingsTest`), `ReloadWatermarkClipsTest` (3), `Admin/WatermarkClipTest` |
 | Architecture | `ArchitectureTest`: four `arch()` rules (commands extend `Command`; notifications extend `Notification` except `Bell\BellPayload`; `BellNotification` is abstract; policies are classes) |
 | Placeholders | `Unit/ExampleTest` (`true is true`), `Feature/ExampleTest` |
 
@@ -181,7 +184,7 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 - **`GET /api/auth/google`** (the redirect half of web Google sign-in): only its `invite` query handling (cookie set / rejected for `<script>`) is tested in `GoogleOAuthCallbackTest`; the redirect itself is not.
 - **`POST /api/auth/register` and `POST /api/logout` as features**: registration is only exercised through the invite tests and `PasswordChangeNotificationTest`, logout only in the verification-enforcement dataset. There is no test of a plain sign-up (welcome mail, first-station creation, throttle).
 - **Commands**: `admin:create`, `tracks:analyze` (the `AnalyzeTrack` job's service is tested, the command is not), `stations:relaunch` (named only in a comment in `EncoderSessionAttributionTest`), `e2e:auth`.
-- **Real Liquidsoap**: no test runs the `.liq` through Liquidsoap. `LiquidsoapTemplateTest`'s own comment says `liquidsoap --check` "runs against the image", but no script, Makefile or workflow in the repo runs it (grep over `infra/`, `scripts/`, `api/app`). The test also builds the Blade variable array by hand (`renderStationScript()`), separately from `LiquidsoapSupervisor`'s render call (`LiquidsoapSupervisor.php` `View::make('liquidsoap.station', ...)` at about line 1131), so a variable added to one and not the other is not caught by the test failing to render.
+- **Real Liquidsoap**: no test runs the `.liq` through Liquidsoap. `LiquidsoapTemplateTest`'s own comment says `liquidsoap --check` "runs against the image", but no script, Makefile or workflow in the repo runs it (grep over `infra/`, `scripts/`, `api/app`). The test also builds the Blade variable array by hand (`renderStationScript()`), separately from `LiquidsoapSupervisor`'s render call (`LiquidsoapSupervisor.php` `View::make('liquidsoap.station', ...)` at about line 1051), so a variable added to one and not the other is not caught by the test failing to render.
 - **Docker behaviour**: everything behind `inTestMode()` (real start, stop, health, reconcile against a daemon) has never been exercised by the suite.
 - **Infra scripts**: `infra/native/*.sh`, the station router (`infra/native/station-router/ingest.js`), nginx and systemd units: no tests.
 - **Client (Next.js)**: no unit or component tests. Everything except the auth flows in `auth.spec.ts` (and those are stale, below) is untested: dashboard, studio, player, embed, schedule grid, help, marketing.
@@ -213,7 +216,7 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 
 ## Web unit and component tests (Vitest)
 
-`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-04: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `liveShows`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `socialLinks`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`, `Dialog.test.tsx`), dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `library/jinglePresets.test.ts`), and two pure studio helpers (`components/studio/FileQueue.test.ts` `secondsUntilLoop`, `NowPlaying.test.ts` `upNext`); about 110 `it`/`test` cases by static count. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
+`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-05: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `liveShows`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `socialLinks`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`, `Dialog.test.tsx`), dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `jingles/jingleRule.test.ts` (the rule sentence; 7 cases)), and two pure studio helpers (`components/studio/FileQueue.test.ts` `secondsUntilLoop`, `NowPlaying.test.ts` `upNext`); about 110 `it`/`test` cases by static count. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
 
 ## Playwright (web e2e)
 
@@ -253,7 +256,7 @@ One test, `@screenshots`, writing lossless PNGs at `deviceScaleFactor: 2` to `te
 
 ### `tests/e2e/dashboard-visual.spec.ts` (`npm run test:visual`)
 
-Every dashboard page and main state at desktop 1440 and phone 390: 26 states × 2 = 52 tests, about 1.5 minutes. Each writes a full-page PNG to `tests/e2e/.visual/{desktop,phone}/` (gitignored) and fails on an uncaught page error, a missing `h1` (or open dialog, for dialog states) or a phone page that scrolls sideways. It fakes `document.visibilityState` (headless tabs are hidden, which pauses the status poll and the player) and waits for fonts, images and the end of "Checking…". Not a pixel diff: the pages show live data (clock, "today", counts). It signs in once per account (`storageState` in `.visual/.auth-*.json`) and never changes data. It uses the running dev servers; `webServer` only starts them when absent.
+Every dashboard page and main state at desktop 1440 and phone 390: 31 states × 2 = 62 tests (AutoDJ is three pages: `/library`, `/playlists`, `/jingles`, each shot on Pro and Free), about 1.5 minutes. Each writes a full-page PNG to `tests/e2e/.visual/{desktop,phone}/` (gitignored) and fails on an uncaught page error, a missing `h1` (or open dialog, for dialog states) or a phone page that scrolls sideways. It fakes `document.visibilityState` (headless tabs are hidden, which pauses the status poll and the player) and waits for fonts, images and the end of "Checking…". Not a pixel diff: the pages show live data (clock, "today", counts). It signs in once per account (`storageState` in `.visual/.auth-*.json`) and never changes data. It uses the running dev servers; `webServer` only starts them when absent.
 
 **Keeper accounts** (all `Password123!`; made once, read by both screenshot specs; never re-run `e2e:auth user` on them, it force-deletes the user and the station with it):
 
@@ -347,4 +350,5 @@ This doc is the meta-layer: see the coverage map above. The behaviour of `TestCa
 ## History
 
 - The env pinning, supervisor guard and tmp-directory redirects were each added after a test run leaked real containers or directories onto the host; the reasoning lives in the comments of `phpunit.xml` and `tests/TestCase.php`.
+- 2026-10-05 (jingle lists, hard slot starts, measured track lengths): `StationJingleSettingsTest` deleted, four new files (`AutoDjHardStartTest`, `JingleRulesTest`, `JingleListControllerTest`, `TrackDurationTest`), `JingleListFactory` added. The full suite then ran 1177 passed, 1 failed: the `ArchitectureTest` notifications rule on `app/Notifications/RawEmailDraft.php` (a plain class in that namespace, not a `Notification`), unrelated to that change.
 - Related docs: [Liquidsoap supervisor](liquidsoap-supervisor.md), [Configuration reference](configuration-reference.md), [Station lifecycle](station-lifecycle.md), [Auth](auth.md), [Observability and events](observability-and-events.md), [Deployment infra](deployment-infra.md), [Mobile studio and encoder](mobile-studio-and-encoder.md), [Schedule](schedule.md) (the pilot doc this format follows).

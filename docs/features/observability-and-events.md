@@ -66,7 +66,7 @@ sources:
   - client/lib/broadcast.ts
   - api/phpunit.xml
   - api/tests/TestCase.php
-fingerprint: 3793b82cf62c9bab
+fingerprint: 80ad5c15e310ffc5
 ---
 
 # Observability and events

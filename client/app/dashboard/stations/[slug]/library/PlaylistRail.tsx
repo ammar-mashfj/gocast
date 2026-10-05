@@ -6,13 +6,12 @@ import { formatAirtime } from "@/lib/format"
 import { playlistSwatch } from "@/lib/playlistSwatches"
 import type { Playlist } from "@/interfaces/Playlist"
 
-/** The pseudo-entry for the whole library, alongside the real playlists. */
+/** `selected` when the whole library is in view rather than a playlist (the Library page). */
 export const LIBRARY_KEY = "library"
 
 interface Props {
   playlists: Playlist[]
-  libraryCount: number
-  /** A playlist id, or LIBRARY_KEY. */
+  /** A playlist id. */
   selected: string
   onSelect: (key: string) => void
   onCreate: () => void
@@ -21,29 +20,17 @@ interface Props {
 }
 
 /**
- * Where the owner picks what they're looking at: every file they own
- * (LIBRARY), or one of the rotations built from it (PLAYLISTS, each with the
- * violet shade it wears on the schedule). A column beside the table from md
- * up; a scrolling row of chips above it on a phone, where a column would push
- * the table below the fold. The group labels are md-and-up only, so they
- * don't break the chip row.
+ * The Playlists page's list: every playlist, each with the violet shade it
+ * wears on the schedule. A column beside the open playlist from md up; a
+ * scrolling row of chips above it on a phone, where a column would push the
+ * table below the fold.
  */
-export function PlaylistRail({ playlists, libraryCount, selected, onSelect, onCreate, locked }: Props) {
+export function PlaylistRail({ playlists, selected, onSelect, onCreate, locked }: Props) {
   return (
     <nav
       aria-label="Music"
       className="flex max-w-full min-w-0 shrink-0 gap-1 overflow-x-auto pb-1 md:w-60 md:flex-col md:overflow-visible md:pb-0"
     >
-      <RailLabel>Library</RailLabel>
-      <RailItem
-        active={selected === LIBRARY_KEY}
-        onClick={() => onSelect(LIBRARY_KEY)}
-        label="All tracks"
-        detail={String(libraryCount)}
-        title="Every file you own. Upload, delete and fix tags here."
-      />
-
-      <RailLabel className="md:pt-4.5">Playlists</RailLabel>
       {playlists.map((playlist, i) => (
         <RailItem
           key={playlist.id}
@@ -68,10 +55,6 @@ export function PlaylistRail({ playlists, libraryCount, selected, onSelect, onCr
       </button>
     </nav>
   )
-}
-
-function RailLabel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <span className={cn("hidden px-3 pb-2 eyebrow text-text-faint select-none md:block", className)}>{children}</span>
 }
 
 function railDetail(playlist: Playlist): string {

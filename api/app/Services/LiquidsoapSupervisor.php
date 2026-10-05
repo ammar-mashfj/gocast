@@ -106,31 +106,9 @@ class LiquidsoapSupervisor
     private const TELNET_TIMEOUT_SECONDS = 3;
 
     /**
-     * Names of the `interactive.bool` / `interactive.float` variables the
-     * station script declares for jingle scheduling, addressed over telnet as
-     * `var.set <name> = <value>`.
-     *
-     * They exist so these two settings can change WITHOUT a container restart:
-     * baked in as literals, every tweak to how often a station ID plays would
-     * drop every listener mid-track. The rendered script carries the current
-     * values as its initial state, so telnet is a fast path and the row in the
-     * database remains the source of truth.
-     *
-     * Constants rather than strings at the call site because the same names
-     * appear in the Blade template — a typo on either side fails silently,
-     * with the setting simply never taking effect until the next restart.
-     */
-    public const VAR_JINGLES_ENABLED = 'jingles_enabled';
-
-    public const VAR_JINGLE_BY_TRACKS = 'jingle_by_tracks';
-
-    public const VAR_JINGLE_INTERVAL = 'jingle_interval';
-
-    public const VAR_JINGLE_EVERY_TRACKS = 'jingle_every_tracks';
-
-    /**
-     * Free-tier watermark, same interactive-variable mechanism as the jingle
-     * settings — and for a sharper reason. This one flips when somebody
+     * Free-tier watermark: `interactive.*` variables the station script
+     * declares, set over telnet as `var.set <name> = <value>` so they change
+     * without a container restart. This one flips when somebody
      * UPGRADES, and making a paying customer's listeners sit through a
      * reconnect to stop hearing "powered by GoCast" would be a poor way to
      * begin the relationship.
@@ -623,64 +601,6 @@ class LiquidsoapSupervisor
     }
 
     /**
-     * Push the station's current jingle settings into its running container,
-     * live. Returns true if both landed.
-     *
-     * This is the reason jingle settings are interactive variables rather than
-     * literals in the rendered script: a restart re-reads the .liq but also
-     * disconnects every listener mid-track, which is an absurd price for
-     * changing how often a station ID plays.
-     *
-     * Best-effort by design, exactly like PlaylistFileWriter::reload(). A
-     * stopped or restarting station simply has nothing to tell — it will read
-     * the same values out of the freshly rendered script when it next boots,
-     * because renderLiqFile() emits them as the initial state. Losing this
-     * call can therefore delay a setting, never lose it.
-     */
-    public function applyJingleSettings(Station $station): bool
-    {
-        // Floats must carry a decimal point: Liquidsoap's `var.set` is typed,
-        // and "1800" for a float variable is refused outright. The int
-        // variable is the mirror image — "5.0" is refused there.
-        $interval = number_format(
-            max(60.0, (float) $station->jingle_interval_seconds),
-            1,
-            '.',
-            '',
-        );
-
-        // Both mode settings are always sent, not just the active one. They
-        // are independent variables in the script, and pushing only the mode
-        // in use would leave the other stale — so switching modes back would
-        // briefly apply whatever value was last written, until the next save.
-        $commands = [
-            // jinglesAudible(), not the raw column: same gate as the render,
-            // so a downgrade takes the station IDs off air at the next
-            // telnet push rather than at the next container restart.
-            self::VAR_JINGLES_ENABLED.' = '.($station->jinglesAudible() ? 'true' : 'false'),
-            self::VAR_JINGLE_BY_TRACKS.' = '.($station->jingle_mode === Station::JINGLE_MODE_TRACKS ? 'true' : 'false'),
-            self::VAR_JINGLE_INTERVAL.' = '.$interval,
-            self::VAR_JINGLE_EVERY_TRACKS.' = '.max(1, (int) $station->jingle_every_tracks),
-        ];
-
-        foreach ($commands as $assignment) {
-            try {
-                $this->telnet($station, 'var.set '.$assignment);
-            } catch (\Throwable $e) {
-                Log::info('Jingle settings not applied live', [
-                    'station' => $station->slug,
-                    'command' => $assignment,
-                    'error' => $e->getMessage(),
-                ]);
-
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
      * Does this station's OWNER's plan carry the free-tier watermark?
      *
      * Note the direction of the question. It is never "has this station opted
@@ -1154,15 +1074,9 @@ class LiquidsoapSupervisor
             'harborInputTimeout' => (float) config('liquidsoap.harbor_input_timeout'),
             // Averaging window for the output-level meter /status reports.
             'rmsWindow' => (float) config('liquidsoap.rms_window_seconds'),
-            // Jingles. Per-station rather than per-install: which IDs a
-            // station plays and how often is editorial, not operational.
-            // The source name and filename are passed through from
-            // PlaylistFileWriter's constants so the telnet reload command and
-            // the path in the script can never drift from what Laravel writes.
-            // Gated on the plan, not just the owner's switch: the jingle
-            // arm reads an m3u off disk, so nothing else would ever take
-            // it off air for a downgraded station. See jinglesAudible().
-            'jinglesEnabled' => $station->jinglesAudible(),
+            // Sent back on every next-track ask. Jingles and hard starts are
+            // only planned for a script that no longer plays jingles itself.
+            'scriptVersion' => AutoDjScheduler::PLANNING_SCRIPT,
             // AutoDJ rotation. The script asks Laravel for one track at a
             // time; `autodjRetryDelay` is how long it waits before re-asking
             // after "nothing to play".
@@ -1175,18 +1089,6 @@ class LiquidsoapSupervisor
             // StationPowerController sends "{source}.skip" against the same
             // constant, so the command and the source can never drift.
             'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
-            'jinglesLiqSource' => PlaylistFileWriter::JINGLES_LIQ_SOURCE,
-            'jinglesFilename' => PlaylistFileWriter::JINGLES_FILENAME,
-            'jinglesEnabledVar' => self::VAR_JINGLES_ENABLED,
-            'jingleByTracksVar' => self::VAR_JINGLE_BY_TRACKS,
-            'jingleIntervalVar' => self::VAR_JINGLE_INTERVAL,
-            'jingleEveryTracksVar' => self::VAR_JINGLE_EVERY_TRACKS,
-            // The script takes a boolean rather than the mode string: it only
-            // ever asks "am I counting tracks?", and a string comparison in
-            // the audio graph would be a second place for the two spellings
-            // to drift apart.
-            'jingleByTracks' => $station->jingle_mode === Station::JINGLE_MODE_TRACKS,
-            'jingleEveryTracks' => max(1, (int) $station->jingle_every_tracks),
             // Free-tier watermark. `supported` is the install-wide switch that
             // decides whether the machinery exists at all; `enabled` is the
             // per-station initial state, read from the OWNER'S PLAN and never
@@ -1201,11 +1103,6 @@ class LiquidsoapSupervisor
             'watermarkInterval' => $this->watermarkInterval(),
             'watermarkDuck' => $this->watermarkDuck(),
             'watermarkFade' => (float) config('liquidsoap.watermark_fade_seconds'),
-            // Floored well above zero: delay(0.) makes the jingle source
-            // permanently ready, so every single track boundary would fire a
-            // jingle. The request layer already enforces a 60s minimum — this
-            // is the backstop for a row edited by hand or by a seeder.
-            'jingleInterval' => max(60.0, (float) $station->jingle_interval_seconds),
             // AutoDJ track transitions. Off => hard cuts, which is the safe
             // fallback if a transition ever wedges playback again.
             'crossfadeEnabled' => (bool) config('liquidsoap.crossfade_enabled'),

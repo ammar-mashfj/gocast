@@ -1,6 +1,6 @@
 ---
 feature: Web app shared frontend layer (Next.js shell, config, providers, hooks, UI kit)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system)
 sources:
   - client/package.json
   - client/next.config.ts
@@ -52,6 +52,7 @@ sources:
   - client/interfaces/StreamSession.ts
   - client/interfaces/Playlist.ts
   - client/interfaces/Track.ts
+  - client/interfaces/JingleList.ts
   - client/interfaces/Audience.ts
   - client/interfaces/Notification.ts
   - client/contexts/AccountContext.tsx
@@ -124,7 +125,7 @@ sources:
   - client/components/dashboard/shell/DashboardShell.tsx
   - client/components/dashboard/ProRequestDialog.tsx
   - client/lib/navigation.ts
-fingerprint: 997f1caafc01668a
+fingerprint: 38b0ab687b581e76
 ---
 
 # Web app shared frontend layer
@@ -343,9 +344,10 @@ Hand-written mirrors of API payloads; nothing generates or validates them, so dr
 |---|---|
 | `User.ts` | `User`: `id`, `name`, `email`, `avatar_url`, optional `google_id`, `has_password`, `stripe_customer_id`, `email_verified_at`, and optional `plan` (present on `GET /user`, stripped from the cookie). |
 | `Plan.ts` | `Plan {slug, name, autodj_enabled, analytics_days, max_listeners, embed_enabled, encoder_enabled, watermarked, expires_at}`; constants `PRO_PRICE_USD = 15` and `PRO_AVAILABLE = false` (Pro is by request only). |
-| `Station.ts` | `Station` (public and owner shapes in one type: `schedules?`, `autodj_slots?`, `programme?`, `encoder?`, `stats?`, `indexable?` are optional depending on endpoint), `StationSchedule`, `SocialLink`, `StationEncoder`, `AutodjSlot`, `Programme`. Coarse `state` is `offline | on_air | live` (no `starting`). |
+| `Station.ts` | `Station` (public and owner shapes in one type: `schedules?`, `autodj_slots?`, `programme?`, `encoder?`, `stats?`, `indexable?` are optional depending on endpoint), `StationSchedule`, `SocialLink`, `StationEncoder`, `AutodjSlot` (with `start_mode` `soft | hard`), `Programme`. Coarse `state` is `offline | on_air | live` (no `starting`). No jingle fields: those moved to `JingleList`. |
 | `StationStatus.ts` | `StationStatus`: `state` `offline/starting/on_air/live/degraded`, `desired_state`, `reachable`, `ready`, `icecast_connected`, `source`, `broadcaster`, `live_source`, `now_playing`, `elapsed`, `remaining`, `playlist_length`, `up_next`. |
-| `StreamSession.ts`, `Playlist.ts`, `Track.ts` | session rows (`source_type` browser/electron/external; only live sessions exist), playlists (`sequential`/`shuffle`), tracks (`kind` music/jingle) and `LibraryMeta`. |
+| `StreamSession.ts`, `Playlist.ts`, `Track.ts` | session rows (`source_type` browser/electron/external; only live sessions exist), playlists (`sequential`/`shuffle`), tracks (`kind` music/jingle, optional `airtime_seconds` and `jingle_list_id`) and `LibraryMeta`. |
+| `JingleList.ts` | `JingleList` (one jingle list and its rule: `pick` random/in_order/single + `pinned_track_id`, `frequency` minutes/songs/times with `every_minutes`/`every_songs`/`times`/`exact`, `days`, `from_time`/`to_time`, `position`, `last_played_at`), `JinglePick`, `JingleFrequency`, and `JingleRule` (the fields `PATCH /jingle-lists/{id}` takes). See [library and playlists](library-and-playlists.md). |
 | `Audience.ts` | `Audience` is `AudienceLocked` or `AudienceReport` (discriminated on `locked`); report has `totals`, `daily`, and `countries`/`devices`/`browsers`/`referrers` dimensions; `AUDIENCE_WINDOWS = [7, 30, 90]`. See [listener analytics](listener-analytics.md). |
 | `Notification.ts` | `Notification` (level info/success/warning/error, category, `action {mode, label, url, detail{heading, points}}`, `read_at`), `NotificationPage` (`links.next`, `meta.unread_count`), `UnreadCount {unread_count, capped_at}`. See [notifications and email](notifications-and-email.md). |
 

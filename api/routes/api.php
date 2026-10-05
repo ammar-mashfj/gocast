@@ -9,6 +9,7 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\InviteController;
+use App\Http\Controllers\JingleListController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
 use App\Http\Controllers\MetricsController;
@@ -171,10 +172,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/stations/{station:slug}/uplink-checks', UplinkCheckController::class)
             ->middleware('throttle:20,1,uplink-checks');
 
-        // Skip the current AutoDJ track — a telnet command to the running
-        // container, no restart involved.
-        Route::post('/stations/{station:slug}/skip', [StationPowerController::class, 'skip'])
-            ->middleware('throttle:30,1,station-skip');
+        // DISABLED 2026-10-05: skip-track is no longer used — the overview Skip button
+        // was removed and no web or mobile client calls this. Kept commented out rather
+        // than deleted; a hand-made skip would also break the AutoDJ start-time clock
+        // planned in docs/JINGLES-AND-HARD-SLOTS-PLAN.md.
+        // Route::post('/stations/{station:slug}/skip', [StationPowerController::class, 'skip'])
+        //     ->middleware('throttle:30,1,station-skip');
 
         // Live audio state, read from the station's own container. Polled by
         // the dashboard while a station is starting and by the broadcast
@@ -238,6 +241,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/playlists/{playlist}/tracks', [PlaylistTrackController::class, 'store']);
         Route::patch('/playlists/{playlist}/tracks/reorder', [PlaylistTrackController::class, 'reorder']);
         Route::delete('/playlists/{playlist}/tracks/{track}', [PlaylistTrackController::class, 'destroy']);
+
+        // Jingle lists — each with one rule for when its jingles play. The
+        // jingles themselves are tracks (kind=jingle), uploaded and deleted
+        // through the track routes above with a `jingle_list_id`.
+        Route::get('/stations/{station:slug}/jingle-lists', [JingleListController::class, 'index']);
+        Route::post('/stations/{station:slug}/jingle-lists', [JingleListController::class, 'store']);
+        Route::patch('/jingle-lists/{jingleList}', [JingleListController::class, 'update']);
+        Route::delete('/jingle-lists/{jingleList}', [JingleListController::class, 'destroy']);
     });
 });
 

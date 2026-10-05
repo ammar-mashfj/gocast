@@ -99,7 +99,15 @@ class AnalyzeTrack implements ShouldQueue
             return;
         }
 
-        [$cueIn, $cueOut] = $analysis->cuePoints((float) $track->duration_seconds);
+        // The decode just measured how long the file really is. The upload
+        // only had the header's figure, which is often wrong for VBR MP3s, so
+        // the measurement replaces it: cue points are judged against it, the
+        // `duration` annotation carries it, and the AutoDJ planner times hard
+        // slot starts with it. No measurement keeps the header's, unmarked.
+        $measured = $analysis->decodedSeconds !== null && $analysis->decodedSeconds > 0;
+        $duration = $measured ? round($analysis->decodedSeconds, 3) : (float) $track->duration_seconds;
+
+        [$cueIn, $cueOut] = $analysis->cuePoints($duration);
 
         // saveQuietly: this is a measurement of a file that has not changed,
         // not an edit to the track. Firing model events would put a row in the
@@ -110,17 +118,11 @@ class AnalyzeTrack implements ShouldQueue
             'true_peak_db' => $analysis->truePeakDb,
             'cue_in_seconds' => $cueIn,
             'cue_out_seconds' => $cueOut,
+            'duration_seconds' => $duration,
+            'duration_measured_at' => $measured ? now() : $track->duration_measured_at,
             'analyzed_at' => now(),
             'analysis_error' => null,
         ])->saveQuietly();
-
-        // jingles.m3u bakes these annotations into its URIs, so it is now
-        // stale for a jingle; the rotation reads the database per request and
-        // needs nothing. Rewritten without a telnet reload on purpose:
-        // `reload` restarts the list at index 0, and a jingle whose cue points
-        // land one playback late is not worth that. The file is picked up at
-        // the next natural reload.
-        $writer->write($station);
     }
 
     public function failed(?Throwable $e): void

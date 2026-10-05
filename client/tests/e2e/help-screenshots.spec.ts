@@ -259,15 +259,16 @@ test.describe("@screenshots", () => {
     await shot(page, "share-qr", { x: qrBox.x, y: qrBox.y, width: qrBox.width, height: qrImg.y + qrImg.height + 18 - qrBox.y })
     await page.keyboard.press("Escape")
 
-    // ---- AutoDJ library ---------------------------------------------------
-    await page.goto(at("/library"))
+    // ---- AutoDJ playlists -------------------------------------------------
+    // The playlist list beside the open playlist (All tracks is its own
+    // Library page now).
+    await page.goto(at("/playlists"))
     await settle(page)
-    await shot(page, "music-library", padded(page, await cardBox(page.getByRole("button", { name: /All tracks/ }).first(), 1100, 400), 18))
+    await shot(page, "music-library", padded(page, await cardBox(page.getByRole("button", { name: "New playlist" }).first(), 1100, 400), 18))
 
     // ---- schedule ---------------------------------------------------------
     await page.goto(at("/schedule"))
     await settle(page)
-    await shot(page, "schedule-on-now", padded(page, await cardBox(page.getByText("Right now", { exact: true }), 1100, 80), 0))
 
     // Draw a believable week on screen. Nothing is saved.
     await page.locator("[data-day-row] button[title^='Morning Soul']").first().click()

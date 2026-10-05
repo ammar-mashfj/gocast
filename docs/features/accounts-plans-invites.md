@@ -93,7 +93,7 @@ sources:
   - client/components/dashboard/ProRequestDialog.tsx
   - client/hooks/useAccessRequest.ts
   - client/components/dashboard/account/PlanCard.tsx
-fingerprint: 4f1f47b0fb614b81
+fingerprint: a0b7bc3ca846c251
 ---
 
 # Accounts, plans, Pro access, invites, waitlist
@@ -135,14 +135,13 @@ Nothing else in `api/app` reads a plan. If you add a gate, add it here.
 | Gate | Plan field | Enforced at | Behaviour on refusal |
 |---|---|---|---|
 | Create a station | `max_stations` | `StoreStationRequest::authorize()` (`stations()->count() < plan->max_stations`; soft-deleted stations are not counted) | FormRequest returns the framework default 403 |
-| Put a second station on air | `max_running_stations` | `StationLifecycleService::assertCanRunAnother` (line ~301, `?? 1` if no plan). Counts stations with `desired_state = running`, excluding this one | `StationLifecycleException::concurrencyLimit` ("Your plan allows N stations on air at a time...") |
+| Put a second station on air | `max_running_stations` | `StationLifecycleService::assertCanRunAnother` (line ~291, `?? 1` if no plan). Counts stations with `desired_state = running`, excluding this one | `StationLifecycleException::concurrencyLimit` ("Your plan allows N stations on air at a time...") |
 | Upload to the AutoDJ library | `autodj_enabled` | `TrackController` (`assertAutoDjEnabled`, line ~102) | `autodj_not_available` |
-| Turn jingles on | `autodj_enabled` | `StationController::update`, only in the off-to-on direction | same code; turning off is always allowed |
-| Play the rotation | `autodj_enabled` | `AutoDjScheduler::next()` line 65, returns null before touching the cursor | `/internal/next-track` answers 204; music stops at the next track boundary |
-| Hear jingles | `autodj_enabled` | `Station::jinglesAudible()` (jingles_enabled AND `canUseAutoDj()`) | pushed live by `UserObserver::updated` |
+| Play the rotation and jingles | `autodj_enabled` | `AutoDjScheduler::next()` (first check, line ~97), returns null before touching the cursor, the jingle rotation or the clock (it only clears `autodj_queued_*`) | `/internal/next-track` answers 204; music and jingles stop at the next track boundary. Jingles are chosen in the same call, so they need no separate gate |
 | "Has playable rotation" for auto-stop | `autodj_enabled` | `StationAudioPolicy::hasPlayableRotation` via `StationLifecycleService::autoDjEnabled` | a free owner is never "playable", so the sweeper can power the station down |
 | AutoDJ slots (Schedule) | `autodj_enabled` | only at playback, through the same `next()` gate; the PUT is not gated (see [schedule](schedule.md)) | slots save but never play |
 | Playlists | none | `PlaylistController` is deliberately not plan-gated | UI locks it, API does not |
+| Jingle lists | none | `JingleListController` / `JingleListPolicy` are not plan-gated (ownership only); jingle uploads go through the `TrackController` upload gate above | UI locks it, API does not; lists save but never play |
 | Audience history | `analytics_days` | `AudienceController::__invoke` (line 48) | `<= 0` returns `locked: true` with only live count and all-time peak; else `plan_days` is first clamped to `analytics.retention_days` (`AudienceReport::clampWindow`, default 90), and the window is `min(requested, plan_days)` when `requested` is 7, 30 or 90 (`WINDOWS`), otherwise `plan_days` |
 | Embed player | `embed_enabled` | `PublicEmbedController::show` (`abort_unless(canEmbed(), 404)`) | 404 to the public, so a pasted snippet goes dark on downgrade |
 | Stream key / encoder | `encoder_enabled` | `StreamKeyController::rotate` (403 `encoder_not_available`); `HarborAuthController` line ~112 checks on every connection, refuses with reason `plan`; `StationResource` withholds `encoder` for a locked owner | encoder stops at next reconnect. The browser studio is not gated |
@@ -153,7 +152,7 @@ Helpers on `User`: `canUseAutoDj()`, `canEmbed()`, `canUseEncoder()`, `watermark
 
 ### What a plan change does live
 
-`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` and `applyJingleSettings` in separate try/catch blocks that log and swallow errors. Stopped stations pick up the new values when they next start. Rotation, encoder, embed and analytics need no push: they are read on each request.
+`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` in a try/catch that logs and swallows errors. Stopped stations pick up the new values when they next start. Rotation, jingles, encoder, embed and analytics need no push: they are read on each request (jingles are decided by `AutoDjScheduler::next()` at every track boundary).
 
 `UserObserver::deleting` (account deletion): a force delete force-deletes every station including trashed ones; a soft delete soft-deletes each station individually (a mass delete would skip `StationObserver::deleting` and orphan containers).
 
@@ -240,7 +239,7 @@ Google sign-in links an existing password account by email and then redeems, whi
 
 Scheduled hourly, `withoutOverlapping` (`routes/console.php`). It picks users where `plan_expires_at <= now()` with `lazyById(500)` (keyset paging, because the loop nulls the column it filters on), sets `plan_id` to Free and `plan_expires_at` to null on each, one save per user so `UserObserver` fires, then sends `PlanExpired` only if the ended plan differs from Free. Fails with an error if no `free` plan exists.
 
-It deletes and stops nothing. Caps apply only when creating or starting, so a downgraded account keeps its station and library. The visible effects: rotation stops at the next track boundary, jingles are pushed off, uploads and slot playback are refused, the encoder key stops working on reconnect, the embed 404s, audience history locks, and a second running station cannot be started. `PlanExpired` copy promises the station and uploads are untouched, and says the AutoDJ library "no longer accepts new uploads" only when the ended plan had AutoDJ and Free does not.
+It deletes and stops nothing. Caps apply only when creating or starting, so a downgraded account keeps its station and library. The visible effects: rotation and jingles stop at the next track boundary, uploads and slot playback are refused, the encoder key stops working on reconnect, the embed 404s, audience history locks, and a second running station cannot be started. `PlanExpired` copy promises the station and uploads are untouched, and says the AutoDJ library "no longer accepts new uploads" only when the ended plan had AutoDJ and Free does not.
 
 ## Notifications owned by this feature
 
@@ -309,7 +308,7 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 - `api/tests/Feature/Console/ExpirePlansTest.php`, `NudgeInactiveBroadcastersTest.php`, `UnsubscribeTest.php`, `WaitlistControllerTest.php`
 - `api/tests/Feature/Auth/UserEntitlementsTest.php` (plan block on `/user`)
 - `api/tests/Feature/Account/AccountDeletionConfirmationTest.php`, `AccountDeletionCascadeTest.php`, `PasswordChangeNotificationTest.php`
-- Gate tests: `PublicEmbedTest.php`, `HarborAuthTest.php`, `AudienceControllerTest.php`, `NextTrackControllerTest.php`, `WatermarkTest.php`, `StationJingleSettingsTest.php`, `Notifications/BellContractTest.php`
+- Gate tests: `PublicEmbedTest.php`, `HarborAuthTest.php`, `AudienceControllerTest.php`, `NextTrackControllerTest.php`, `WatermarkTest.php` (also covers `plans:expire` pushing the watermark), `JingleListControllerTest.php`, `Notifications/BellContractTest.php`
 
 Targeted runs only; the full API suite takes minutes.
 

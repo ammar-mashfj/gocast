@@ -18,24 +18,34 @@ function renumber(list: Track[]): Track[] {
   return list.map((t, i) => (t.position === i + 1 ? t : { ...t, position: i + 1 }))
 }
 
+/** Which AutoDJ page the hook serves: Library (every file) or Playlists. */
+export type LibraryPage = "library" | "playlists"
+
 /**
- * The AutoDJ screen's state: the library and the playlists built from it,
- * kept agreeing.
+ * The Library and Playlists pages' state: the library and the playlists
+ * built from it, kept agreeing.
  *
  * Two lists describe the same tracks — the library (every file, with which
  * playlists it is in) and each playlist's members (a subset, in play order) —
  * so every edit is applied to both here, optimistically, and refetched on
  * failure. The views only render and call these.
  */
-export function useLibrary(station: Station, initialTracks: Track[], initialMeta: LibraryMeta, initialPlaylists: Playlist[]) {
+export function useLibrary(
+  page: LibraryPage,
+  station: Station,
+  initialTracks: Track[],
+  initialMeta: LibraryMeta,
+  initialPlaylists: Playlist[],
+) {
   const [confirm, confirmDialog] = useConfirm()
   const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
   const [playlists, setPlaylists] = useState<Playlist[]>(initialPlaylists)
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
   const [members, setMembers] = useState<Record<string, Track[]>>({})
-  const [selected, setSelected] = useState<string>(
-    () => initialPlaylists.find((p) => p.is_default)?.id ?? LIBRARY_KEY,
+  // Library is always the whole library; Playlists opens on the default.
+  const [selected, setSelected] = useState<string>(() =>
+    page === "library" ? LIBRARY_KEY : (initialPlaylists.find((p) => p.is_default)?.id ?? initialPlaylists[0]?.id ?? LIBRARY_KEY),
   )
   const [savingOrder, setSavingOrder] = useState(false)
 
@@ -49,7 +59,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
   const locked = useAutoDjLocked()
 
   // Which row is on air. Polled at the hook's own pace.
-  const { status, loading: statusLoading } = useStationStatus(slug)
+  const { status } = useStationStatus(slug)
 
   const defaultPlaylist = useMemo(() => playlists.find((p) => p.is_default) ?? null, [playlists])
   const currentPlaylist = useMemo(
@@ -527,8 +537,6 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
   return {
     slug,
     locked,
-    status,
-    statusLoading,
     tracks,
     playlists,
     meta,

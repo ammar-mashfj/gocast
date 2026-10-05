@@ -5,15 +5,19 @@ import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useCurrentStation } from "@/contexts/StationContext"
-import { NAV_ITEMS, activeNav, type NavKey } from "@/lib/dashboardNav"
+import { NAV_ITEMS, activeNav, inAutoDj, type NavKey } from "@/lib/dashboardNav"
 import { cn } from "@/lib/utils"
 
-/** The four places a phone reaches most; everything else is under More. */
+/**
+ * The four places a phone reaches most; everything else is under More. The
+ * AutoDJ tab opens Library and stays lit on all four AutoDJ sections, which
+ * switch between themselves (AutoDjSections).
+ */
 const TABS: { key: NavKey; label: string }[] = [
   { key: "overview", label: "Station" },
   { key: "studio", label: "Studio" },
-  { key: "autodj", label: "AutoDJ" },
-  { key: "schedule", label: "Schedule" },
+  { key: "library", label: "AutoDJ" },
+  { key: "audience", label: "Audience" },
 ]
 
 /**
@@ -28,7 +32,8 @@ export function TabBar() {
   const { state, stationSlug } = useBroadcast()
   if (!station) return null
 
-  const active = activeNav(pathname)
+  const page = activeNav(pathname)
+  const active = inAutoDj(page) ? "library" : page
   const broadcasting = state === "live" || state === "reconnecting"
   const inTabs = TABS.some((t) => t.key === active)
 

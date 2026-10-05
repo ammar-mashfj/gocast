@@ -155,7 +155,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
 
         if ($autoDj) {
             $points[] = 'Upload audio to your library and AutoDJ starts playing it straight away.';
-            $points[] = 'Jingles live on the same page — station IDs between tracks, never cutting into one.';
+            $points[] = 'Jingles have their own page: lists of station IDs and liners, each with a rule for when it plays.';
         } elseif ($this->plan->autodj_enabled) {
             // Plan carries AutoDJ but there is no station to point at yet, so
             // this says what is waiting rather than how to use it.
@@ -244,7 +244,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
                 ->line('1. Open your library using the button below.')
                 ->line('2. Select your audio files and upload them.')
                 ->line("3. That's it. They start playing on your station right away.")
-                ->line('4. Want station IDs or liners between songs? Open **Jingles** on the same page, upload them, and choose how often they play. They never cut into a track.');
+                ->line('4. Want station IDs or liners between songs? Open **Jingles** under AutoDJ, upload them, and set when they play: every few songs, every so many minutes, or at set times.');
         }
 
         if ($station) {

@@ -1,6 +1,6 @@
 ---
 feature: Station management dashboard (shell, overview, station CRUD, settings)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-05 against c970b2d plus uncommitted work (feat/design-system: jingle lists, AutoDJ nav regroup)
 sources:
   - client/app/dashboard/layout.tsx
   - client/app/dashboard/page.tsx
@@ -103,6 +103,7 @@ sources:
   - client/hooks/useStationStatusPoll.ts
   - client/hooks/useStationPower.ts
   - client/lib/dashboardNav.ts
+  - client/components/dashboard/autodj/AutoDjSections.tsx
   - client/lib/airState.ts
   - client/lib/stationHero.ts
   - client/lib/comingUp.ts
@@ -115,7 +116,7 @@ sources:
   - client/hooks/useEmailVerification.ts
   - client/lib/navigation.ts
   - client/lib/clipboard.ts
-fingerprint: 63ba63b84c9428a2
+fingerprint: 0f621b8b8adde96b
 ---
 
 # Station management dashboard
@@ -138,12 +139,12 @@ All under `client/app/dashboard/`. Every route is inside `layout.tsx` and `error
 |---|---|---|
 | `/dashboard` | `page.tsx` | Resolves the station. Has one: `redirect` to `/dashboard/stations/{slug}`. Has none: the create page ("Create your station" with `StationForm` right on the page). A failed `/stations` fetch throws to `error.tsx`. |
 | `/dashboard/stations` | `stations/page.tsx` | Dead URL kept for old bookmarks. Always `redirect("/dashboard")`. |
-| `/dashboard/library` | `library/page.tsx` | Forwarder. Station: redirect to `.../library`; none: `/dashboard`. Exists only because the sidebar's slugless AutoDJ fallback points here. |
+| `/dashboard/library` | `library/page.tsx` | Forwarder. Station: redirect to `.../library`; none: `/dashboard`. Exists only because the sidebar's slugless Library fallback points here. |
 | `/dashboard/station/{...path}` | `station/[[...path]]/page.tsx` | Slug-free deep link (singular "station"). Looks up the viewer's own station and redirects. Allowlist `STATION_PAGES = studio, live, library, audience, settings`; anything else (including `schedule`, multi-segment paths and typos) lands on the station Overview. No station: `/dashboard`. Built for announcement buttons (one payload for every account). |
 | `/dashboard/stations/{slug}` | `stations/[slug]/(overview)/page.tsx` | The Overview (below). |
 | `/dashboard/stations/{slug}/settings` | `.../settings/page.tsx` | Station settings (below). Anchors `#links` and `#show-times` are deep-linked from the checklist and elsewhere. |
 | `/dashboard/stations/{slug}/live`, `/studio`, `/studio/wrap` | own docs | Go live, the studio and "That's a wrap". The sidebar's Studio item and the band link here. |
-| `.../library`, `.../schedule`, `.../audience` | own docs | Library, Schedule, Audience. |
+| `.../library`, `.../playlists`, `.../jingles`, `.../schedule`, `.../audience` | own docs | The four AutoDJ sections ([Library and playlists](library-and-playlists.md), [Schedule](schedule.md)) and Audience. |
 | `/dashboard/broadcasts` | `broadcasts/page.tsx` | **Your shows** (below). |
 | `/dashboard/settings` | `settings/page.tsx` | **Account** page (not station settings). Tab title "Account" via `settings/layout.tsx`. |
 | `/dashboard/design-system` | `design-system/page.tsx` | The ds component gallery; `notFound()` in production. |
@@ -178,23 +179,26 @@ The broadcast (mic, mixer, encoder) lives in `BroadcastProvider`, above every pa
 
 ### Navigation (`lib/dashboardNav.ts`)
 
-One list, `NAV_ITEMS`, drives the sidebar, the phone tab bar and the top bar's breadcrumb. Each item has a slugless fallback `href` and, once a station is resolved, a `stationHref`.
+One list, `NAV_ITEMS`, drives the sidebar, the phone tab bar and the top bar's breadcrumb. Each item has a slugless fallback `href` and, once a station is resolved, a `stationHref`. The four AutoDJ sections carry `group: "autodj"` (`AUTODJ_ITEMS`); the lock and the on-air lamp belong to the group heading (`AUTODJ_GROUP`), not the children.
 
 | Item | With station | Fallback | Lock |
 |---|---|---|---|
 | Overview | `/dashboard/stations/{slug}` | `/dashboard` | |
 | Studio | `.../live` (the **broadcasting** station's `.../studio` while this tab broadcasts) | `/dashboard` | |
-| AutoDJ | `.../library` | `/dashboard/library` | AutoDJ |
-| Schedule | `.../schedule` | `/dashboard` | AutoDJ |
+| *AutoDJ* (group heading, links to Library) | | | AutoDJ |
+| ↳ Library | `.../library` | `/dashboard/library` | (the heading's) |
+| ↳ Playlists | `.../playlists` | `/dashboard` | (the heading's) |
+| ↳ Jingles | `.../jingles` | `/dashboard` | (the heading's) |
+| ↳ Schedule | `.../schedule` | `/dashboard` | (the heading's) |
 | Audience | `.../audience` | `/dashboard` | Audience |
 | Your shows | `/dashboard/broadcasts` | same | |
 | Settings (station) | `.../settings` | `/dashboard` | |
 
-`activeNav(pathname)` maps `/dashboard` and a bare station path to Overview, `/dashboard/library` to AutoDJ, `/dashboard/broadcasts` to Your shows, and the station sub-segment through `SEGMENT_TO_KEY` (`live`/`studio` Studio, `library`, `schedule`, `audience`, `settings`); anything else is null (no item lit). `pageLabel` gives the breadcrumb's page name: null on the overview, "Account" for `/dashboard/settings`, "Design system" for the gallery, else the item's label. Covered by `lib/dashboardNav.test.ts`.
+`activeNav(pathname)` maps `/dashboard` and a bare station path to Overview, `/dashboard/library` to Library, `/dashboard/broadcasts` to Your shows, and the station sub-segment through `SEGMENT_TO_KEY` (`live`/`studio` Studio, `library`, `playlists`, `jingles`, `schedule`, `audience`, `settings`); anything else is null (no item lit). `inAutoDj(key)` says whether a key is one of the AutoDJ sections. `pageLabel` gives the breadcrumb's page name: null on the overview, "Account" for `/dashboard/settings`, "Design system" for the gallery, else the item's label. Covered by `lib/dashboardNav.test.ts`.
 
 ### Sidebar (`AppSidebar.tsx`)
 
-Header: the GoCast logo (to `/dashboard`) and, with a station, a station card (artwork, name, and a `StatusLamp` with the band's coarse state from `airState`). Items: the table above. A locked item stays clickable and carries an amber **PRO** tag. Studio shows a pulsing red "Live" lamp while this tab broadcasts or the station is live; AutoDJ shows a violet "On" lamp while AutoDJ is on air. Below 1024 px (`useIsMobile(1024)`, matching the sidebar's `lg:` classes) the sidebar is a drawer, closed on every route change.
+Header: the GoCast logo (to `/dashboard`) and, with a station, a station card (artwork, name, and a `StatusLamp` with the band's coarse state from `airState`). Items: the table above. The AutoDJ group is drawn once as a `role="group"`: a heading link (bold while any section is open) over the four sections, indented with a rule down their left edge (`NavLink nested`). A locked item stays clickable and carries an amber **PRO** tag (for AutoDJ, on the heading only). Studio shows a pulsing red "Live" lamp while this tab broadcasts or the station is live; the AutoDJ heading shows a violet "On" lamp while AutoDJ is on air. Below 1024 px each AutoDJ page also opens with `AutoDjSections` (`components/dashboard/autodj/`), a row of links between the four sections. Below 1024 px (`useIsMobile(1024)`, matching the sidebar's `lg:` classes) the sidebar is a drawer, closed on every route change.
 
 Footer:
 - **Plan card**, only when `useAutoDjLocked` (Free, plan known): "{plan name} plan", an amber "Request Pro" button (becomes "Requested"), and "Your station goes silent when you stop broadcasting." (after a request: "Request sent — we'll be in touch.").
@@ -225,7 +229,7 @@ While this tab broadcasts, the band also shows the show's uptime, the listener c
 
 ### Phone tab bar (`shell/TabBar.tsx`)
 
-Below 640 px, fixed to the bottom: Station, Studio, AutoDJ, Schedule, and More (opens the sidebar drawer). Studio goes to the broadcasting studio while a show runs and shows a red dot. Not rendered without a station. It carries `data-slot="tab-bar"`, which `dashboard.css` uses below 40 rem to lift toasts above it (`--toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom))`).
+Below 640 px, fixed to the bottom: Station, Studio, AutoDJ (opens Library; lit on all four AutoDJ sections via `inAutoDj`), Audience, and More (opens the sidebar drawer). Studio goes to the broadcasting studio while a show runs and shows a red dot. Not rendered without a station. It carries `data-slot="tab-bar"`, which `dashboard.css` uses below 40 rem to lift toasts above it (`--toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom))`).
 
 ### Error boundary (`error.tsx`)
 
@@ -299,7 +303,7 @@ Only surface: `/dashboard` when the account has no station, which renders `Stati
 
 What the `creating`/`created` hooks in `Station::booted` and `StationObserver::creating` do:
 - `slug` = `Str::slug(name)` (empty result, e.g. emoji-only, becomes `station`), truncated to 55 chars, then `-2`, `-3`, ... until free. The uniqueness check uses `withTrashed()`, so a deleted station's slug is not reused until the row is force-deleted. Column is `varchar(60)` unique. **The slug is immutable**: it is not in `UpdateStationRequest`, and no hook regenerates it. Renaming changes the name only; the URL stays.
-- `icecast_mount` = `/stream/{slug}`; `icecast_password` = `Str::random(32)`; `stream_key` = 32 chars `[A-Za-z0-9]` (`generateStreamKey`, stored with the `encrypted` cast); `desired_state` = `stopped`; jingle defaults (`jingles_enabled` false, `jingle_mode` interval, 1800 s, every 5 tracks).
+- `icecast_mount` = `/stream/{slug}`; `icecast_password` = `Str::random(32)`; `stream_key` = 32 chars `[A-Za-z0-9]` (`generateStreamKey`, stored with the `encrypted` cast); `desired_state` = `stopped`. (The model no longer sets jingle defaults; the four `jingle_*` columns keep their column defaults and are unused.)
 - `container_index` = `max(container_index, including trashed) + 1`, never recycled (unique).
 - After create, a default playlist is created (`Playlist::DEFAULT_NAME`, `is_default`, sequential, position 0).
 - **Nothing starts.** A new station has no container and is `state: "offline"` until the owner presses Start AutoDJ or Go live.
@@ -319,14 +323,10 @@ Client (`StationForm`): success shows "Station created — ready to go live?" an
 | `timezone` | nullable, `timezone:all` | Nothing in the web or mobile apps (both send the zone in `PUT /stations/{slug}/schedules`, [Schedule](schedule.md)) | IANA name only. Clearing to null is a 422 while any show time (`schedules()`) or AutoDJ slot (`autodjSlots()`) exists (`withValidator` after-hook, two separate messages). Column `varchar(64)`. |
 | `social_links` | nullable array, max 8 (`Station::MAX_SOCIAL_LINKS`); each element `array:label,url` (extra keys rejected); `url` required string `url:http,https` max 2048; `label` nullable string max 30 | `LinksCard` | Full-list replace; stored as JSON. |
 | `theme_config` | nullable array | nothing | **Dead.** Validated, stored and returned, read by no client code. |
-| `jingles_enabled` | `sometimes` boolean | Library jingles dialog | Turning it **on** requires AutoDJ (`StationLifecycleService::assertAutoDjEnabled`); turning it off is always allowed. |
-| `jingle_mode` | `sometimes`, in `interval`, `tracks` | Library jingles dialog | |
-| `jingle_interval_seconds` | `sometimes` integer 60..14400 | Library jingles dialog | |
-| `jingle_every_tracks` | `sometimes` integer 1..100 | Library jingles dialog | |
 
-`slug` in a payload is ignored. Admin-owned columns (`featured`, `featured_at`, `stream_key`, `desired_state`...) are not in the rules, so `validated()` never carries them. The model uses `$guarded = []`, so anything that bypasses the FormRequest (admin code, factories, tinker) can write any column.
+Jingle settings are no longer station fields: they are per-list rules on `jingle_lists` (`/stations/{slug}/jingle-lists`, [Library and playlists](library-and-playlists.md)), and `jingle_*` keys in this payload are dropped by `validated()`. `slug` in a payload is ignored. Admin-owned columns (`featured`, `featured_at`, `stream_key`, `desired_state`...) are not in the rules, so `validated()` never carries them. The model uses `$guarded = []`, so anything that bypasses the FormRequest (admin code, factories, tinker) can write any column.
 
-Observer effects on update (`StationObserver::updated`): jingle columns changed on a running station are pushed over telnet (`applyJingleSettings`), no restart. If any of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changed and the station is running, `supervisor->up()` restarts it (`safely()`: a Docker failure is logged, not thrown, and `stations:reconcile` later converges). A stopped station just picks the change up at next start. Slug-change branches (stop old container, rename the playlist directory) exist but are unreachable through the API today because the slug is immutable.
+Observer effects on update (`StationObserver::updated`): if any of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changed and the station is running, `supervisor->up()` restarts it (`safely()`: a Docker failure is logged, not thrown, and `stations:reconcile` later converges). A stopped station just picks the change up at next start. Slug-change branches (stop old container, rename the playlist directory) exist but are unreachable through the API today because the slug is immutable.
 
 Audit: `LogsActivity` on `Station` logs only `name, slug, description, genre, featured, desired_state`, dirty only. Artwork, timezone and social links are not in the activity log.
 
@@ -416,16 +416,14 @@ Model `App\Models\Station` (`HasUuids` string primary key, `SoftDeletes`, `LogsA
 | `icecast_password` | string | | Random 32; never in the resource |
 | `stream_key` | text null | `encrypted` | Encoder credential |
 | `stream_key_rotated_at` | timestamp null | datetime | |
-| `jingles_enabled` | bool default false | boolean | |
-| `jingle_mode` | varchar(16) default interval | | `interval` or `tracks` |
-| `jingle_interval_seconds` | uint default 1800 | integer | |
-| `jingle_every_tracks` | uint default 5 | integer | |
+| `autodj_queued_starts_at`, `autodj_queued_seconds`, `autodj_queued_is_jingle` | timestamp(3) null, double null, bool default false | immutable_datetime, float, boolean | AutoDJ clock, written by `AutoDjScheduler` with the query builder ([AutoDJ](autodj.md)) |
+| `jingles_enabled`, `jingle_mode`, `jingle_interval_seconds`, `jingle_every_tracks` | bool false, varchar(16) interval, uint 1800, uint 5 | none | **Unused** since jingle lists (2026-10-05); copied into each station's first list by the migration, to be dropped in a follow-up |
 | `social_links` | json null | array | |
 | `theme_config` | json null | array | Unused |
 | `featured`, `featured_at` | bool default false indexed, timestamp null indexed | boolean, datetime | Admin-only, via `markFeatured()` |
 | `created_at`, `updated_at`, `deleted_at` | timestamps | | |
 
-`is_live` is **not** a column: it is derived from an open `stream_sessions` row (`Station::isLive`, `scopeLive`). Relations: `user`, `streamSessions`, `events`, `listenerStats`, `tracks`, `musicTracks`, `jingles`, `playlists`, `defaultPlaylist`, `autodjSlots`, `schedules`, `notifySubscriptions`. Constants: `MAX_SOCIAL_LINKS = 8`, `FEATURED_RAIL_SIZE = 4`, `DEFAULT_JINGLE_INTERVAL_SECONDS = 1800`, `DEFAULT_JINGLE_EVERY_TRACKS = 5`. Scopes `running`, `live`, `featured`, `indexable`, `withIndexability`.
+`is_live` is **not** a column: it is derived from an open `stream_sessions` row (`Station::isLive`, `scopeLive`). Relations: `user`, `streamSessions`, `events`, `listenerStats`, `tracks`, `musicTracks`, `jingles`, `playlists`, `defaultPlaylist`, `autodjSlots`, `jingleLists`, `schedules`, `notifySubscriptions`. Constants: `MAX_SOCIAL_LINKS = 8`, `FEATURED_RAIL_SIZE = 4`. Scopes `running`, `live`, `featured`, `indexable`, `withIndexability`.
 
 ### Limits per plan
 
@@ -438,7 +436,7 @@ Model `App\Models\Station` (`HasUuids` string primary key, `SoftDeletes`, `LogsA
 | `GET /stations` | `StationController::index` | sanctum, verified | The account's non-deleted stations, **unordered**, no pagination; no `encoder`, `schedules`, `stats`. Used by `getMyStation` and the mobile home. |
 | `POST /stations` | `store` | + plan limit | Create (201) |
 | `GET /stations/{slug}` | `show` | owner (`view`) | Loads `streamSessions` (all rows, to compute stats), `schedules`, `autodjSlots.playlist`, `defaultPlaylist`; adds `encoder`, `programme`, `stats` |
-| `PUT /stations/{slug}` (also PATCH) | `update` | owner | Profile, links, timezone, jingles |
+| `PUT /stations/{slug}` (also PATCH) | `update` | owner | Profile, links, timezone |
 | `DELETE /stations/{slug}` | `destroy` | owner | Soft delete |
 | `GET /stations/{slug}/sessions` | `StreamSessionController::index` | owner | `latest('started_at')->paginate(20)`; `?finished=1` leaves out the open session. Paginator JSON (top-level `data`, `total`, `current_page`, `last_page`) plus `summary: { shows, live_seconds }` over **every** finished session. Used by the Overview, Your shows and the mobile station screen |
 | `POST /stations/{slug}/sessions`, `DELETE /stations/{slug}/sessions/{id}` | `store`, `destroy` | owner (`update`) | Routed but **called by nothing in the web client or mobile app** (reserved for a desktop client): `store` refuses with 409 `station_already_live` when another device or an encoder session holds the mount and dispatches the live notification after 2 minutes; `destroy` ends the session and clears `metadata:{id}` |
@@ -451,7 +449,7 @@ Model `App\Models\Station` (`HasUuids` string primary key, `SoftDeletes`, `LogsA
 
 ### `StationResource` fields (what the client receives)
 
-Always: `id, user_id, name, slug, description, genre, timezone, artwork_url, featured, is_live, is_on_air, desired_state, started_at, state, now_playing, icecast_mount, hls_url, jingles_enabled, jingle_mode, jingle_interval_seconds, jingle_every_tracks, social_links, theme_config, created_at, updated_at`. Conditional: `indexable` (only when the public show endpoint loaded `withIndexability`); `watermarked` (owner only); `encoder` (owner, plan, deployed, and `withEncoder()`); `schedules` (when loaded); `autodj_slots` and `programme` (when `autodjSlots` loaded, which is `show()` and the slot save); `stats` (only when `streamSessions` is loaded, i.e. `show()`).
+Always: `id, user_id, name, slug, description, genre, timezone, artwork_url, featured, is_live, is_on_air, desired_state, started_at, state, now_playing, icecast_mount, hls_url, social_links, theme_config, created_at, updated_at`. Conditional: `indexable` (only when the public show endpoint loaded `withIndexability`); `watermarked` (owner only); `encoder` (owner, plan, deployed, and `withEncoder()`); `schedules` (when loaded); `autodj_slots` and `programme` (when `autodjSlots` loaded, which is `show()` and the slot save); `stats` (only when `streamSessions` is loaded, i.e. `show()`).
 
 - `state` is **intent-derived and cheap**: `offline` unless `desired_state === running`, then `live` if an open session exists, else `on_air`. It never says `starting` or `degraded` (only `/status` does). `is_on_air` is simply "is running", true even on silence.
 - `stats`: `sessions` and `total_airtime_seconds` come from **closed** sessions; `peak_listeners` is `max(listener_stats_hourly.peak_listeners)` (one extra aggregate query); `has_listeners` is `peak > 0` or any `listener_sessions` row for the station.
@@ -486,7 +484,7 @@ Hand-written TypeScript mirrors of API payloads. There is no generated schema, s
 ## Gaps and traps
 
 1. **One station per account is a client convention.** The API allows `max_stations` (Free 1, Pro 5). A Pro user creating a second station via API gets it silently ignored by the dashboard, which resolves the oldest. The form's 403 text "Each account has one station, and yours already exists." is therefore only accurate for Free.
-2. **Editing name, genre, description or artwork restarts a running station** and drops listeners; the form gives no warning. Only jingles, timezone and links are restart-free.
+2. **Editing name, genre, description or artwork restarts a running station** and drops listeners; the form gives no warning. Only timezone and links are restart-free (jingle rules are not station fields and never touch the container).
 3. **The form's 403 message is wrong in edit mode.** Any 403 (for example the `email_unverified` middleware response) toasts "Each account has one station...". The axios interceptor also toasts "Verify your email to continue." for that code.
 4. **Artwork: GIF is accepted by the server but refused by the client** (`ARTWORK_TYPES` is PNG/JPEG/WebP). Both cap at 5 MB.
 5. **`artwork_url` accepts any http(s) URL** and the column is `varchar(255)` while the rule allows 2048 (a long URL 500s at the database). `next.config.ts` `images.remotePatterns` allows only `https://{host of NEXT_PUBLIC_API_URL, else api.gocast.fm}/storage/**`, `https://lh3.googleusercontent.com/**` and `http://localhost:8000/storage/**`, so an arbitrary external artwork URL fails in the Next image optimizer (in development images are `unoptimized`, so the problem only appears in a production build).
@@ -515,7 +513,7 @@ Hand-written TypeScript mirrors of API payloads. There is no generated schema, s
 - `api/tests/Feature/Models/StationSoftDeleteTest.php`, `UserSoftDeleteTest.php`: soft delete and cascade from user.
 - `api/tests/Feature/PruneDeletedStationsTest.php`: window, `--days`, disabled retention, `--dry-run`, deleted accounts.
 - `api/tests/Feature/StationSocialLinksTest.php`: order, clear, protocol allowlist, required url, unknown keys, max 8, label length, public visibility, cross-owner block.
-- `api/tests/Feature/StationObserverTest.php`, `StationJingleSettingsTest.php`, `StationEncoderResourceTest.php`, `StreamKeyRotationTest.php`, `StationStatsTest.php`, `StationPowerControllerTest.php` (creates a station off air), `Auth/EmailVerificationEnforcementTest.php` (station routes need a verified email).
+- `api/tests/Feature/StationObserverTest.php`, `StationEncoderResourceTest.php`, `StreamKeyRotationTest.php`, `StationStatsTest.php`, `StationPowerControllerTest.php` (creates a station off air), `Auth/EmailVerificationEnforcementTest.php` (station routes need a verified email).
 - `DerivedStationStateTest.php` (the intent-derived `state`/`is_live`/`is_on_air` vs `/status`), `StationContainerIndexTest.php` (index allocation, never reissued), `StationHlsUrlTest.php` (`hls_url`).
 - `api/tests/Feature/StreamSessionIndexTest.php`: the sessions summary over every finished show, `?finished=1`, paging, owner only.
 - Client unit tests (Vitest, `npm test`): `lib/airState`, `lib/stationHero`, `lib/comingUp`, `lib/liveShows`, `lib/showsTrend`, `lib/dashboardNav`, `lib/format`, `lib/socialLinks` (`resolveSocialLink`, including the host check), `components/ds/*.test.tsx`, `ConfirmDialog.test.tsx`, `StationForm.test.tsx`, `ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`.

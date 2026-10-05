@@ -10,17 +10,17 @@ import { Card, CardHeader } from "@/components/ds/Card"
 import { Dialog, DialogContent } from "@/components/ds/Dialog"
 import { Notice } from "@/components/ds/Notice"
 import { PageHeader } from "@/components/ds/PageHeader"
+import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
 import { useMounted } from "@/hooks/useMounted"
 import api from "@/lib/axios"
 import { cn } from "@/lib/utils"
 import type { Playlist } from "@/interfaces/Playlist"
-import type { Programme, Station } from "@/interfaces/Station"
+import type { Station } from "@/interfaces/Station"
+import { AutoDjUpsell } from "../library/AutoDjUpsell"
 import { DayList } from "./DayList"
-import { ScheduleNow } from "./ScheduleNow"
 import { SlotPanel } from "./SlotPanel"
 import { DAY_SHORT, SWATCHES, WEEK_ORDER, WeekGrid } from "./WeekGrid"
 import { weekDates } from "./weekDates"
@@ -95,7 +95,6 @@ function stationNow(timeZone: string): { day: number; minute: number; label: str
  */
 export function SchedulePlanner({ station, playlists }: Props) {
   const locked = useAutoDjLocked()
-  const proRequest = useProRequest()
   const mounted = useMounted()
   const timezone = station.timezone
   const settingsHref = `/dashboard/stations/${station.slug}/settings#show-times`
@@ -103,7 +102,6 @@ export function SchedulePlanner({ station, playlists }: Props) {
   const [blocks, setBlocks] = useState<Block[]>(() => explode(station.autodj_slots ?? []))
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [newKeys, setNewKeys] = useState<Set<string>>(() => new Set())
-  const [programme, setProgramme] = useState<Programme | null>(station.programme ?? null)
 
   const [saved, setSaved] = useState(() => snapshot(blocks))
   const [saving, setSaving] = useState(false)
@@ -119,7 +117,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
   // case; without one a slot has nothing to play, and drawing one would
   // silently do nothing.
   const noPlaylists = playlists.length === 0
-  const libraryHref = `/dashboard/stations/${station.slug}/library`
+  const playlistsHref = `/dashboard/stations/${station.slug}/playlists`
   const byId = useMemo(() => new Map(playlists.map((p, i) => [p.id, { p, swatch: SWATCHES[i % SWATCHES.length] }])), [playlists])
   const swatchFor = useCallback((id: string) => byId.get(id)?.swatch ?? SWATCHES[0], [byId])
   const nameFor = useCallback((b: Block) => b.label.trim() || byId.get(b.playlistId)?.p.name || "Slot", [byId])
@@ -148,13 +146,12 @@ export function SchedulePlanner({ station, playlists }: Props) {
     setSaving(true)
     setSaveError(null)
     try {
-      const { data } = await api.put<{ data: Station }>(`/stations/${station.slug}/autodj-slots`, {
+      await api.put(`/stations/${station.slug}/autodj-slots`, {
         // No `timezone`: it is set in Station settings, and the API keeps
         // the station's when this is omitted.
         slots: merge(sending),
       })
       setSaved(snapshot(sending))
-      setProgramme(data.data.programme ?? null)
       toast.success("Schedule saved", {
         description: "Takes effect when the current song ends. Nothing restarts.",
       })
@@ -178,20 +175,6 @@ export function SchedulePlanner({ station, playlists }: Props) {
     return () => window.removeEventListener("beforeunload", warn)
   }, [dirty])
 
-  // The "right now" line goes stale when the current slot ends; ask again then.
-  useEffect(() => {
-    if (locked || !programme?.until) return
-    const wait = new Date(programme.until).getTime() - Date.now() + 5_000
-    if (wait <= 0 || wait > 24 * 60 * 60 * 1000) return
-    const id = setTimeout(() => {
-      api
-        .get<{ data: Station }>(`/stations/${station.slug}`)
-        .then(({ data }) => setProgramme(data.data.programme ?? null))
-        .catch(() => {})
-    }, wait)
-    return () => clearTimeout(id)
-  }, [locked, programme, station.slug])
-
   const saveState: SaveState = blockedBy ?? (saveError ? "error" : saving ? "saving" : dirty ? "pending" : "saved")
 
   // ── Edits ──
@@ -204,7 +187,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
     const playlist = playlists.find((p) => !p.is_default) ?? playlists[0]
     if (!playlist) return
     const block = fromSpan(
-      { key: newKey(), day, playlistId: playlist.id, label: "", start: "00:00", end: "00:00" },
+      { key: newKey(), day, playlistId: playlist.id, label: "", start: "00:00", end: "00:00", startMode: "soft" },
       span[0],
       span[1],
     )
@@ -229,7 +212,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
     edit(blocks.map((b) => (b.key === block.key ? block : b)))
   }
 
-  function changeGroup(patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end">>) {
+  function changeGroup(patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end" | "startMode">>) {
     if (!selected) return
     edit(blocks.map((b) => (siblings.has(b.key) ? { ...b, ...patch } : b)))
   }
@@ -282,6 +265,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
 
   return (
     <div className="flex flex-col gap-5.5">
+      <AutoDjSections slug={station.slug} />
       <PageHeader
         title="Schedule"
         aside={locked ? <ProTag /> : <HelpLink article="schedule-playlists-by-time" label="scheduling playlists by day and time" />}
@@ -300,7 +284,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
                 variant="ghost"
                 onClick={addFromButton}
                 disabled={noPlaylists}
-                title={noPlaylists ? "Make a playlist in your Library first." : undefined}
+                title={noPlaylists ? "Make a playlist in Playlists first." : undefined}
               >
                 <IconPlus />
                 Add slot
@@ -311,6 +295,8 @@ export function SchedulePlanner({ station, playlists }: Props) {
         }
       />
 
+      {locked && <AutoDjUpsell stationName={station.name} />}
+
       {saveState === "error" && <Notice label="Not saved">{saveError}</Notice>}
       {saveState === "no-timezone" && (
         <Notice label="No timezone">
@@ -319,7 +305,6 @@ export function SchedulePlanner({ station, playlists }: Props) {
         </Notice>
       )}
 
-      <ScheduleNow slug={station.slug} locked={locked} programme={programme} timezone={timezone} defaultName={defaultPlaylist?.name ?? null} shows={station.schedules ?? []} settingsHref={settingsHref} />
 
       <Dialog open={selected !== null && !locked} onOpenChange={(open) => !open && setSelectedKey(null)}>
         <DialogContent>
@@ -410,20 +395,14 @@ export function SchedulePlanner({ station, playlists }: Props) {
         {!locked && noPlaylists && (
           <p className="max-w-[62ch] text-body-sm text-muted-foreground">
             A slot plays a playlist, and this station has none yet.{" "}
-            <Link href={libraryHref} className="text-violet-muted hover:underline">Make one in AutoDJ</Link>, then come back to plan the week.
+            <Link href={playlistsHref} className="text-violet-muted hover:underline">Make one in Playlists</Link>, then come back to plan the week.
           </p>
         )}
 
-        <p className="max-w-[62ch] text-body-sm text-text-faint">
-          {locked
-            ? "With Pro, AutoDJ plays your music whenever you're not live, and you can pick a different playlist for certain hours."
-            : "Slots switch at the next song break, so one can start a minute or two late."}
-        </p>
-
-        {locked && (
-          <Button variant="pro" className="self-start" onClick={proRequest.open} disabled={proRequest.requested}>
-            {proRequest.requested ? "Request sent" : "Request Pro"}
-          </Button>
+        {!locked && (
+          <p className="max-w-[62ch] text-body-sm text-text-faint">
+            Slots switch at the next song break, so one can start a minute or two late, unless it is set to start exactly on time.
+          </p>
         )}
       </Card>
 

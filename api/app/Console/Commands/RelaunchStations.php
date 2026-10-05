@@ -70,11 +70,9 @@ class RelaunchStations extends Command
 
         foreach ($stations as $station) {
             try {
-                // Ensure jingles.m3u exists before bringing the container up;
-                // Liquidsoap warns and falls back to the bed source when the
-                // file is missing, but writing an empty m3u at boot keeps the
-                // logs quiet.
-                $playlistWriter->write($station);
+                // The bind-mounted audio directory must exist before the
+                // container comes up.
+                $playlistWriter->prepare($station);
                 $supervisor->up($station);
                 $this->line("  ✓ {$station->slug}");
             } catch (Throwable $e) {

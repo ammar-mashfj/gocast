@@ -7,19 +7,15 @@ const HOURS = Array.from({ length: 13 }, (_, i) => i * 2)
 
 /**
  * The Schedule page while it loads, in SchedulePlanner's geometry: the
- * header, the two "now" cards, and the week (the day strip on a phone, the
+ * header and the week (the day strip on a phone, the
  * grid from md). Constants — the title, day names, hour labels — are drawn
  * for real; change one file, change the other.
  */
 export default function ScheduleLoading() {
   return (
     <div className="flex flex-col gap-5.5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+      <Skeleton className="h-12 rounded-control lg:hidden" />
       <PageHeader title="Schedule" description="What AutoDJ plays when you’re not live. Going live always takes over." />
-
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18.75rem),1fr))] gap-5">
-        <Skeleton className="h-28 rounded-panel" />
-        <Skeleton className="h-28 rounded-panel" />
-      </div>
 
       <Card>
         <CardHeader title="This week" />

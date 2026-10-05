@@ -77,7 +77,7 @@ sources:
   - client/components/dashboard/account/ProfileForm.tsx
   - client/components/dashboard/account/PasswordForm.tsx
   - client/components/dashboard/account/DeleteAccount.tsx
-fingerprint: 797d611c0cfb495b
+fingerprint: 322605d5ac5ead0d
 ---
 
 # Authentication and sessions

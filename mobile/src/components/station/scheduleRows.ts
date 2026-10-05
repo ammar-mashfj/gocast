@@ -60,7 +60,7 @@ export function buildRows(
         time: `${s.start_time} – ${s.end_time}`,
         sort: s.start_time,
         title: s.label || p?.name || 'AutoDJ',
-        sub: describe(p),
+        sub: s.start_mode === 'hard' ? `${describe(p)} · starts on time` : describe(p),
         color: colors.autodj,
         now: isToday && autodjOnAir && station.programme?.slot_id === s.id,
         onPress: () =>
@@ -72,6 +72,7 @@ export function buildRows(
             start: s.start_time,
             end: s.end_time || addHours(s.start_time, 2),
             playlistId: s.playlist_id,
+            startMode: s.start_mode ?? 'soft',
           }),
       });
     });

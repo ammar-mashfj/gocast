@@ -27,13 +27,6 @@ class StationFactory extends Factory
             'description' => fake()->optional()->sentence(),
             'genre' => fake()->optional()->word(),
             'featured' => false,
-            // Mirrors the column defaults. Station::booted() also sets these,
-            // but only on create() — a `make()`d station would otherwise carry
-            // nulls into anything that renders or pushes them.
-            'jingles_enabled' => false,
-            'jingle_mode' => Station::JINGLE_MODE_INTERVAL,
-            'jingle_interval_seconds' => Station::DEFAULT_JINGLE_INTERVAL_SECONDS,
-            'jingle_every_tracks' => Station::DEFAULT_JINGLE_EVERY_TRACKS,
             // Station::booted() mints one on create() too. Setting it here as
             // well means a `make()`d station — and every test that asserts on
             // the encoder block of StationResource — sees the same shape a

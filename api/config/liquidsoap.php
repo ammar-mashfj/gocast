@@ -644,6 +644,16 @@ return [
     'autodj_retry_delay_seconds' => (float) env('LIQUIDSOAP_AUTODJ_RETRY_DELAY', 10.0),
 
     /*
+    | Hard starts — an "exactly on time" slot or an exact-time jingle. With
+    | fewer than `hard_start_early_seconds` left before one, AutoDJ starts it
+    | early rather than play a fragment of a song; otherwise the song that
+    | would run past it is faded out over `hard_start_fade_seconds`, ending on
+    | the time. See AutoDjScheduler::next().
+    */
+    'hard_start_early_seconds' => (float) env('LIQUIDSOAP_HARD_START_EARLY_SECONDS', 20.0),
+    'hard_start_fade_seconds' => (float) env('LIQUIDSOAP_HARD_START_FADE_SECONDS', 2.0),
+
+    /*
     |--------------------------------------------------------------------------
     | Auto-stop
     |--------------------------------------------------------------------------

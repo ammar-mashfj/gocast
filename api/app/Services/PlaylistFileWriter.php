@@ -4,49 +4,32 @@ namespace App\Services;
 
 use App\Models\Station;
 use App\Models\Track;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * Builds the Liquidsoap `annotate:` URIs a station's tracks are played
- * through, and writes the one m3u still left in the audio graph —
- * `jingles.m3u` (station IDs and liners).
+ * through, and prepares the directory they are played from.
  *
- * The AutoDJ rotation is NOT a file. It is served one track at a time by
- * NextTrackController, which calls annotateTrack() here for each answer — see
- * the "AutoDJ rotation" note in config/liquidsoap.php for why a playlist file
- * could not work. So this class has two jobs that used to be one: URI
- * construction (used by both paths) and the jingle m3u (used by one).
+ * Nothing here writes a playlist file any more. Music and jingles alike are
+ * served one track at a time by NextTrackController, which calls
+ * annotateTrack() for each answer — see the "AutoDJ rotation" note in
+ * config/liquidsoap.php for why a playlist file could not work, and
+ * docs/JINGLES-AND-HARD-SLOTS-PLAN.md for why jingles followed.
  *
  * Each track is rendered as a Liquidsoap `annotate:` URI carrying the
  * canonical title/artist from the DB — Liquidsoap passes those directly into
- * the request's metadata, bypassing ID3 tag reads and (for the m3u) EXTINF
- * parsing. That means the DB is the single source of truth for now-playing
- * metadata, regardless of whether the audio file has tags or whether the
- * title contains punctuation that LS's EXTINF parser would mangle.
+ * the request's metadata, bypassing ID3 tag reads. That means the DB is the
+ * single source of truth for now-playing metadata, regardless of whether the
+ * audio file has tags or whether the title contains punctuation.
  *
- * Jingle entries carry one extra annotation, `jingle="true"`. The .liq
- * script reads it in two places — the crossfade transition (a jingle is
- * always hard cut, never mixed under a song) and the now-playing push
- * (a station ID is not "now playing"). Both of those live downstream of
- * the audio file, so the flag has to travel WITH the request rather than
- * being inferred from which source produced it.
- *
- * `jingles.m3u` is always written, even when empty and even when jingles are
- * switched off: the container's script references it by path, and a missing
- * file is a decoding error on every read attempt, whereas an empty one just
- * makes the source fallible (which the fallback already handles).
- *
- * Triggered by `reload()` via telnet whenever the jingle list changes
- * (add/remove/reorder); we deliberately don't use `reload_mode="watch"`
- * because some LS 2.x versions reset the queue cursor on watch reload.
+ * Jingles carry one extra annotation, `jingle="true"`. The .liq script reads
+ * it in two places — the crossfade transition (a jingle is always hard cut,
+ * never mixed under a song) and the now-playing push (a station ID is not
+ * "now playing"). Both of those live downstream of the audio file, so the
+ * flag has to travel WITH the request.
  */
 class PlaylistFileWriter
 {
-    public const JINGLES_FILENAME = 'jingles.m3u';
-
     /**
      * The Liquidsoap source name of the AutoDJ rotation. Telnet commands use
      * "{source}.skip"; LiquidsoapSupervisor renders the same constant as the
@@ -61,13 +44,6 @@ class PlaylistFileWriter
     public const LIQ_SOURCE = 'playlist_m3u';
 
     /**
-     * Same contract for the jingle playlist. Only reachable while the
-     * station has jingles enabled — the source is not in the rendered
-     * script otherwise, and telnet answers "unknown command".
-     */
-    public const JINGLES_LIQ_SOURCE = 'jingles_m3u';
-
-    /**
      * Where the per-station playlist dir is mounted inside the Liquidsoap
      * container. Defined by LiquidsoapSupervisor's bind-mount:
      *   {host_playlists_dir}/{slug}:/data/playlists
@@ -76,71 +52,14 @@ class PlaylistFileWriter
      */
     private const CONTAINER_PLAYLIST_DIR = '/data/playlists';
 
-    public function __construct(
-        private readonly LiquidsoapSupervisor $supervisor,
-    ) {}
-
     /**
-     * Rewrite the station's jingle m3u from its current Track rows.
-     * Idempotent — safe to call after any track-table mutation.
-     *
-     * It also ensures the station's playlist directory exists, which is where
-     * uploaded audio files live and what LiquidsoapSupervisor bind-mounts as
-     * /data/playlists. That has to happen before a container starts whether or
-     * not the station has any jingles.
-     *
-     * If the list has zero tracks, an empty m3u is written. Liquidsoap
-     * tolerates this (the source becomes fallible) and the fallback chain
-     * demotes past it to the rotation.
-     *
-     * The music rotation is deliberately not written anywhere: it is served
-     * per-track by NextTrackController. See the class docblock.
+     * Make sure the station's playlist directory exists: where uploaded
+     * audio lives, and what LiquidsoapSupervisor bind-mounts as
+     * /data/playlists. Called before a container starts.
      */
-    public function write(Station $station): void
+    public function prepare(Station $station): void
     {
-        $dir = $this->stationDir($station);
-        File::ensureDirectoryExists($dir);
-
-        $this->writeJingleM3u(
-            "{$dir}/".self::JINGLES_FILENAME,
-            $station->jingles()->get(['path', 'title', 'artist', 'duration_seconds']),
-        );
-    }
-
-    /**
-     * Render the jingle m3u and swap it into place.
-     *
-     * @param  Collection<int, Track>  $tracks
-     */
-    private function writeJingleM3u(string $target, Collection $tracks): void
-    {
-        // Lines are Liquidsoap `annotate:` URIs — key="value" metadata pairs
-        // followed by the audio file path. This makes the DB the single
-        // source of truth for title/artist regardless of whether the file
-        // has ID3 tags.
-        //
-        // We intentionally do *not* emit `#EXTINF:` lines. Liquidsoap's m3u
-        // parser auto-wraps the next URI in its own `annotate:` prefix
-        // derived from EXTINF, which then nests with ours and produces an
-        // unresolvable URI like `annotate:foo:annotate:bar:file.mp3`.
-        $lines = ['#EXTM3U'];
-        foreach ($tracks as $track) {
-            // Absolute container path — relative paths inside an annotate URI
-            // are not resolved against the m3u's own directory (unlike bare
-            // m3u entries), so we must spell out where Liquidsoap finds the
-            // file inside its sandbox. basename() defends against accidental
-            // absolute paths slipping into Track::$path — only the leaf name
-            // is ever joined under the container playlist dir.
-            $lines[] = $this->annotateTrack($track, isJingle: true);
-        }
-
-        // Write to a sibling .tmp and rename: rename(2) is atomic on the
-        // same filesystem, so Liquidsoap can never read a half-written
-        // playlist (matters because reload() is fired right after this
-        // returns).
-        $tmp = $target.'.tmp';
-        File::put($tmp, implode("\n", $lines)."\n");
-        rename($tmp, $target);
+        File::ensureDirectoryExists($this->stationDir($station));
     }
 
     /**
@@ -149,11 +68,15 @@ class PlaylistFileWriter
      * Shared with AutoDjScheduler, which hands a single one of these straight
      * to `request.dynamic` instead of writing a file. Same builder on purpose:
      * the annotations are a contract with the .liq script (the crossfade reads
-     * `duration`, the jingle arm reads `jingle`), and two builders would be
-     * two places for that contract to drift.
+     * `duration` and `jingle`).
      */
-    public function annotateTrack(Track $track, bool $isJingle = false, ?string $playlist = null): string
-    {
+    public function annotateTrack(
+        Track $track,
+        bool $isJingle = false,
+        ?string $playlist = null,
+        ?float $playFor = null,
+        ?float $fadeOut = null,
+    ): string {
         // Absolute container path — relative paths inside an annotate URI are
         // not resolved against the m3u's own directory (unlike bare m3u
         // entries), so we must spell out where Liquidsoap finds the file
@@ -168,54 +91,18 @@ class PlaylistFileWriter
             $isJingle,
             $track,
             $playlist,
+            $playFor,
+            $fadeOut,
         );
     }
 
     /**
      * Host path to the station's playlist directory. Tracks land here as
-     * `{ulid}.{ext}`; the m3u is a sibling.
+     * `{ulid}.{ext}`.
      */
     public function stationDir(Station $station): string
     {
         return rtrim(config('liquidsoap.playlists_dir'), '/').'/'.$station->slug;
-    }
-
-    /**
-     * Tell the running Liquidsoap container to re-read the jingle m3u and
-     * rebuild its queue. Call this only when the *list* changes (jingle added,
-     * removed, reordered) — not when only title/artist tags change, since
-     * that disrupts the currently playing track without a real benefit.
-     *
-     * There is nothing to reload for the music rotation: it is not a list
-     * Liquidsoap holds. The next track is simply asked for at the next
-     * boundary, and by then the tracks table already has the change.
-     *
-     * The jingle source only exists in the rendered script while the station
-     * has jingles enabled, so its reload is conditional — sending it anyway
-     * would log a spurious failure on every upload for the (common) station
-     * that has never turned jingles on.
-     *
-     * Failures are swallowed and logged: a Liquidsoap that's down or
-     * restarting will pick up the new file on its next start anyway.
-     */
-    public function reload(Station $station): void
-    {
-        if ($station->jingles_enabled) {
-            $this->reloadSource($station, self::JINGLES_LIQ_SOURCE);
-        }
-    }
-
-    private function reloadSource(Station $station, string $source): void
-    {
-        try {
-            $this->supervisor->telnet($station, $source.'.reload');
-        } catch (Throwable $e) {
-            Log::info('PlaylistFileWriter reload skipped', [
-                'station' => $station->slug,
-                'source' => $source,
-                'error' => $e->getMessage(),
-            ]);
-        }
     }
 
     /**
@@ -254,6 +141,8 @@ class PlaylistFileWriter
         bool $isJingle = false,
         ?Track $track = null,
         ?string $playlist = null,
+        ?float $playFor = null,
+        ?float $fadeOut = null,
     ): string {
         $parts = [];
 
@@ -261,8 +150,15 @@ class PlaylistFileWriter
             $parts[] = 'jingle="true"';
         }
 
-        foreach ($this->analysisAnnotations($track) as $annotation) {
+        foreach ($this->analysisAnnotations($track, $playFor) as $annotation) {
             $parts[] = $annotation;
+        }
+
+        // A track cut short for a hard start fades out over its last
+        // seconds. `liq_fade_out` is read by the script's fade.out on the
+        // rotation (Liquidsoap's own key, like the cue points).
+        if ($playFor !== null && $fadeOut !== null) {
+            $parts[] = 'liq_fade_out="'.number_format($fadeOut, 3, '.', '').'"';
         }
 
         if ($durationSeconds !== null && $durationSeconds > 0) {
@@ -310,7 +206,7 @@ class PlaylistFileWriter
      *
      * @return list<string>
      */
-    private function analysisAnnotations(?Track $track): array
+    private function analysisAnnotations(?Track $track, ?float $playFor = null): array
     {
         if ($track === null) {
             return [];
@@ -324,6 +220,13 @@ class PlaylistFileWriter
             cueInSeconds: $track->cue_in_seconds,
             cueOutSeconds: $track->cue_out_seconds,
         ))->cuePoints((float) $track->duration_seconds);
+
+        // Played for `$playFor` seconds from its start: the cue-out moves in
+        // so the track ends on a hard start. It only ever moves earlier.
+        if ($playFor !== null) {
+            $cut = round(($cueIn ?? 0.0) + max(0.0, $playFor), 3);
+            $cueOut = $cueOut === null ? $cut : min($cueOut, $cut);
+        }
 
         if ($cueIn !== null) {
             $parts[] = 'liq_cue_in="'.number_format($cueIn, 3, '.', '').'"';

@@ -40,7 +40,7 @@ sources:
   - api/app/Http/Controllers/GoogleAuthController.php
   - api/app/Services/GoogleIdTokenVerifier.php
   - api/app/Http/Middleware/EnsureEmailIsVerified.php
-fingerprint: de8e083fa137c1bd
+fingerprint: 0156a2eea602818c
 ---
 
 # Mobile app shell and sign-in
