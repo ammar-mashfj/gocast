@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\AutodjSlot;
 use App\Models\Station;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
@@ -63,6 +64,7 @@ class ReplaceAutodjSlotsRequest extends FormRequest
             'slots.*.days.*' => ['integer', 'between:0,6'],
             'slots.*.start_time' => ['required', 'date_format:H:i'],
             'slots.*.end_time' => ['required', 'date_format:H:i'],
+            'slots.*.start_mode' => ['sometimes', Rule::in(AutodjSlot::START_MODES)],
         ];
     }
 

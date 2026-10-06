@@ -20,11 +20,11 @@ use Throwable;
  * container already runs just restarts it (cheap, ~3s blip per station).
  *
  * Three reasons to run this:
- *   1. Deploy — backfills any stations that pre-date the per-station
- *      Liquidsoap rollout. NOT run by deploy-native.sh: it would blip every
- *      station on the box (~3s each, live DJs disconnect). The deploy prints
- *      it as a manual step when the .liq template, the supervisor or the
- *      Liquidsoap image changed; `stations:reconcile` is the automatic one.
+ *   1. Deploy — NOT run by deploy-native.sh: it would blip every station on
+ *      the box (~3s each, live DJs disconnect). A deploy that changes the
+ *      .liq template, the image or the docker flags needs nothing: the
+ *      `stations:reconcile` pass recreates each outdated station once nobody
+ *      is broadcasting into it. This is the force, for when waiting is wrong.
  *   2. Recovery — Docker daemon restart, host reboot without restart-policy
  *      doing its job, manual stop, OOM kill. Bring everything back up.
  *   3. Mass config change — bumped Liquidsoap version, edited the .liq Blade
@@ -70,11 +70,8 @@ class RelaunchStations extends Command
 
         foreach ($stations as $station) {
             try {
-                // Ensure jingles.m3u exists before bringing the container up;
-                // Liquidsoap warns and falls back to the bed source when the
-                // file is missing, but writing an empty m3u at boot keeps the
-                // logs quiet.
-                $playlistWriter->write($station);
+                // The audio directory is bind-mounted; it must exist first.
+                $playlistWriter->ensureDirectory($station);
                 $supervisor->up($station);
                 $this->line("  ✓ {$station->slug}");
             } catch (Throwable $e) {

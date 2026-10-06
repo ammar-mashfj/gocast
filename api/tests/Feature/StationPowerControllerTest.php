@@ -60,13 +60,14 @@ it('starts a station and records when it went on air', function () {
         ->and($station->started_at)->not->toBeNull();
 });
 
-it('writes an empty jingles playlist when a station starts so Liquidsoap has a file to read', function () {
+it('creates the station audio directory before the container starts', function () {
+    // It is bind-mounted; left to Docker it would be created owned by root.
     $user = proUser();
     $station = Station::factory()->for($user, 'user')->create();
 
     actingAs($user)->postJson("/api/stations/{$station->slug}/start")->assertStatus(202);
 
-    expect(file_exists($this->tmpDir.'/'.$station->slug.'/'.PlaylistFileWriter::JINGLES_FILENAME))->toBeTrue();
+    expect(is_dir($this->tmpDir.'/'.$station->slug))->toBeTrue();
 });
 
 it('stops a station and clears its start time', function () {

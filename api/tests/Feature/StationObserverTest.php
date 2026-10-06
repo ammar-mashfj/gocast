@@ -83,6 +83,35 @@ it('ignores changes that do not affect the generated script', function () {
     $station->update(['featured' => true]);
 });
 
+it('does not restart a running station for artwork or password edits', function () {
+    // Neither is in the rendered script: artwork reaches players through the
+    // API, and the source password is the install-wide one.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->forceFill(['artwork_url' => 'https://example.com/new.png', 'icecast_password' => 'changed'])->save();
+});
+
+it('does not restart a live station when its settings change', function () {
+    // The restart would cut the broadcaster off; the reconciler recreates the
+    // station once the show ends, because the edit changed its fingerprint.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['name' => 'Renamed Mid-Show']);
+});
+
 it('tears down the old container when a running station is renamed', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'slug' => 'old-name',
@@ -138,41 +167,26 @@ it('keeps the script and segments when a station is only soft-deleted', function
     File::deleteDirectory($liqDir);
 });
 
-it('applies jingle settings live instead of restarting the station', function () {
-    // The point of declaring these as interactive variables. A restart drops
-    // every listener mid-track, which is an absurd price for changing how
-    // often a station ID plays — so `up()` must not be called at all here.
+it('never touches the container when jingle settings change', function () {
+    // Jingle settings are read by Laravel at every track boundary
+    // (JingleClock); nothing about them is in the script, so a change needs
+    // neither a restart nor a telnet push.
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'desired_state' => Station::STATE_RUNNING,
     ]);
 
     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
     $supervisor->shouldNotReceive('up');
-    $supervisor->shouldReceive('applyJingleSettings')->twice();
+    $supervisor->shouldNotReceive('telnet');
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
     $station->update(['jingles_enabled' => true]);
-    $station->update(['jingle_interval_seconds' => 600]);
-});
-
-it('does not reach for the container when a stopped station changes jingles', function () {
-    // Nothing to tell: up() renders the current values as the script's initial
-    // state, so a stopped station is already correct whenever it next starts.
-    $station = Station::factory()->for(User::factory(), 'user')->create([
-        'desired_state' => Station::STATE_STOPPED,
-    ]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldNotReceive('up');
-    $supervisor->shouldNotReceive('applyJingleSettings');
-    app()->instance(LiquidsoapSupervisor::class, $supervisor);
-
-    $station->update(['jingles_enabled' => true]);
+    $station->update(['jingle_mode' => Station::JINGLE_MODE_TIMES, 'jingle_times' => [0, 30]]);
 });
 
 it('still restarts a running station for changes that are baked into the script', function () {
-    // The jingle carve-out must not leak: name/genre/mount are literals in the
-    // rendered .liq and there is no telnet command that can change them.
+    // name/genre/mount are literals in the rendered .liq and there is no
+    // telnet command that can change them.
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'desired_state' => Station::STATE_RUNNING,
     ]);
@@ -182,4 +196,20 @@ it('still restarts a running station for changes that are baked into the script'
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
     $station->update(['genre' => 'Ambient']);
+});
+
+it('brings a restored running station back even with a stream session left open', function () {
+    // Deleted mid-show: deleting() removed the container but nothing closed
+    // the session. There is no show left to protect, so restore starts it.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+    $station->delete();
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldReceive('up')->once();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->restore();
 });

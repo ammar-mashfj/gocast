@@ -51,12 +51,11 @@ The second thing: the supervisor knows nothing about intent. `stations.desired_s
 |---|---|---|
 | `StationLifecycleService::start()` | `isRunning()`, `up()` | Power button, studio start-before-broadcast. Skips `up()` when intent is running and the container is `running`. |
 | `StationLifecycleService::stop()` | `down()` | Power button, `StopStation` job (reason `silent`). Runs after `desired_state=stopped` is saved and open `StreamSession`s are closed; if `down()` throws, the exception skips the `stopped` event and broadcast (intent is already stopped, so reconcile removes the leftover). |
-| `StationObserver` | `up()`, `downBySlug()`, `down()`, `applyJingleSettings()`, `destroyArtifacts()` | Station row updated / renamed / deleted / restored / force-deleted. |
-| `UserObserver::updated` (`plan_id` changed) | `applyWatermarkSettings()`, `applyJingleSettings()` | Pushed over telnet to each of the owner's stations with `desired_state=running` (not stopped ones); a throw is logged at error and the loop continues. |
+| `StationObserver` | `up()`, `downBySlug()`, `down()`, `destroyArtifacts()` | Station row updated / renamed / deleted / restored / force-deleted. |
+| `UserObserver::updated` (`plan_id` changed) | `applyWatermarkSettings()` | Pushed over telnet to each of the owner's stations with `desired_state=running` (not stopped ones); a throw is logged at error and the loop continues. |
 | `UserObserver::deleting` | none directly | Soft-deleting a user soft-deletes each of their stations; force-deleting a user force-deletes every station including trashed ones. Both then fire `StationObserver` (`down()`, and for force `destroyArtifacts()`). |
 | `ReconcileStations` | `listContainerStates()`, `removeContainer()`, `up()`, `slugFromContainerName()` | Every minute (`routes/console.php`, `withoutOverlapping`, background). |
 | `RelaunchStations` | `up()` | Manual only. Not scheduled. |
-| `PlaylistFileWriter::reload()` | `telnet()` | Jingle list changes (`TrackController`, `TrackImporter`). |
 | `ReloadWatermarkClips` job | `telnet()` | Every `running()` station, `watermark.reload`; skipped when `liquidsoap.watermark_enabled` is false; per-station failures logged at info. Dispatched by `Admin\WatermarkClipController` (two call sites). |
 | `StationPowerController::skip` | `telnet()` | `playlist_m3u.skip`; 409 `station_not_running` if intent is stopped, 503 `station_unreachable` if telnet throws. |
 | `StationStatusService` | `containerHost()`, `containerName()`, `containerState()` | Every status poll: `containerState()` inspect first (a Docker error counts as "up"), then harbor `/status` over HTTP, then a second inspect if harbor fails. |
@@ -148,7 +147,7 @@ There is no registry. Identity is the container name plus two labels.
 
 Health constants: `healthy`, `unhealthy`, `starting`, `none` (no healthcheck configured). Note `listContainerStates()` filters by `name=` substring and then re-filters by prefix, so a container that merely contains the prefix is dropped.
 
-Labels are set but nothing reads them: the reconciler recovers the slug by parsing the container name, not the `gocast.station` label. Renames therefore depend on the observer tearing the old name down (see Rename).
+`gocast.config` carries `configFingerprint()` as of `docker run` and is read by the reconciler (Outdated) through `listContainerStates()`, which returns it as `config` ('' when absent). `gocast.station` / `gocast.station_id` are not read: the reconciler recovers the slug by parsing the container name. Renames therefore depend on the observer tearing the old name down (see Rename).
 
 ### Addressing: `container_index`, `containerIp`, `containerHost`
 
@@ -166,7 +165,6 @@ The subnet must equal the one the network is really created with. In the native 
 
 - `telnet($station, $command)`: plain `fsockopen` to `containerHost:1234` (`TELNET_PORT`, must match `settings.server.telnet.port` in the blade), 3 s connect and read timeout, sends `{command}\nquit\n`, reads to EOF, returns trimmed text. CR/LF in the command are stripped. Throws `RuntimeException` if the connect fails. It deliberately avoids `docker exec` because the socket proxy denies EXEC. It does **not** inspect the reply: a Liquidsoap `ERROR: unknown command` (source not present in an older script, or jingles disabled) comes back as ordinary text and callers treat it as success.
 - Harbor HTTP (`/status`, `/healthz` on `LIQUIDSOAP_HARBOR_PORT`, default 8080) is called by `StationStatusService`, not by the supervisor. The container's own healthcheck probes `/healthz`.
-- `applyJingleSettings()` sends four `var.set` commands: `jingles_enabled` (from `jinglesAudible()`, i.e. flag AND owner's plan has AutoDJ), `jingle_by_tracks`, `jingle_interval` (float, min 60.0), `jingle_every_tracks` (int, min 1). Returns false on the first failed telnet connect (logged at info), true otherwise. Because telnet returns text, true only means "the socket accepted it".
 - `applyWatermarkSettings()` sends `watermark_enabled` (owner's plan `watermarked()`, false if user/plan is unresolved), `watermark_interval` (min 60.0), `watermark_duck` (clamped 0.01 to 1.0).
 - The variable names live in `VAR_*` constants and are passed into the blade so both sides agree. The same values are rendered as the script's initial state, so telnet is a fast path; a stopped or unreachable container is correct at next boot.
 
@@ -174,11 +172,11 @@ The subnet must equal the one the network is really created with. In the native 
 
 `renderLiqFile()` passes these into the blade (see [station script](liquidsoap-station-script.md) for behaviour). Everything here is baked in at render time and reaches the container only on the next `up()` or `restart`.
 
-- Station: `station` (slug, name, description, genre, mount, artwork, jingle settings), `nextTrackUrl` (`{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`).
+- Station: `station` (slug, name, description, genre, mount, artwork), `nextTrackUrl` (`{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`).
 - Secrets: `icecastPassword` from `services.icecast.source_password`, `internalApiKey` from `services.internal_api_key`. The `.liq` file on disk therefore contains both, and the harbor-auth call sends the key as `X-Internal-Key`.
 - Addresses from the container's point of view: `LIQUIDSOAP_ICECAST_HOST` / `_PORT` (default `host.docker.internal`:8000), `LIQUIDSOAP_API_URL` (default `http://host.docker.internal:8081`, trailing slash trimmed).
 - Harbor: `harbor_port`, `harbor_input_port`, `harbor_input_timeout` (10.0 s), `rms_window_seconds` (2), `hls_variant` (`aac`).
-- Jingles: `jinglesEnabled = jinglesAudible()`, `jingleByTracks`, `jingleEveryTracks`, `jingleInterval` (max 60.0), file and source names from `PlaylistFileWriter` constants.
+- Jingles: nothing. Laravel decides them per `next-track` ask (`JingleClock`); the script has no jingle source. `up()` itself calls `JingleClock::containerStarted()` first (even in test mode, it is a DB write): in interval mode it sets `autodj_last_jingle_at` to now so a station never opens on a jingle after a start, relaunch, reconcile or restart.
 - Rotation: `autodjRetryDelay` (min 1.0; default 10), `liqSource = playlist_m3u`.
 - Watermark: `watermarkSupported` (install switch), `watermarkEnabled` (owner's plan), interval, duck, fade (default 1.0), container dir `/data/system`.
 - Crossfade (default **off**, `LIQUIDSOAP_CROSSFADE_ENABLED`): duration 5, fade 3 (clamped to `min(fade, max(duration - 0.5, 0.1))`), high -15 dB, medium -32 dB, margin 4 dB.
@@ -187,16 +185,15 @@ The subnet must equal the one the network is really created with. In the native 
 
 ### PlaylistFileWriter (the parts that touch the supervisor)
 
-- `write($station)`: ensures `{playlists_dir}/{slug}` exists and atomically (tmp + `rename`) writes `jingles.m3u` from `$station->jingles()`. Always written, even empty and even with jingles off, because the script references the path. Called before `up()` by `StationLifecycleService::start()`, `ReconcileStations` (missing and recreate) and `RelaunchStations`. **Not** called by `StationObserver`'s restart path (see traps).
-- `reload($station)`: sends `jingles_m3u.reload` over telnet only when `jingles_enabled`; failures are swallowed to an info log. There is deliberately no reload for the AutoDJ rotation: it is `request.dynamic` asking `/api/internal/next-track` per track. `LIQ_SOURCE = 'playlist_m3u'` is a leftover wire name kept so `.skip` works on already-rendered scripts.
-- `annotateTrack()` / `annotateUri()` build `annotate:` URIs (jingle flag, `liq_cue_in/out`, `liq_amplify` with a `dB` suffix, `duration` with 3 decimals, title, artist, playlist) with `"` and `\` escaped. Used by both the jingle file and `NextTrackController`. Only the leaf of `Track::path` is joined under `/data/playlists`.
+- `ensureDirectory($station)`: ensures `{playlists_dir}/{slug}` exists, before a container starts (it is bind-mounted; Docker would create it owned by root). Called by the lifecycle start, reconcile and relaunch. No playlist files are written.
+- `annotateTrack()` / `annotateUri()` build `annotate:` URIs (jingle flag, `liq_cue_in/out`, `liq_amplify` with a `dB` suffix, `duration` with 3 decimals, title, artist, playlist) with `"` and `\` escaped. Used by `NextTrackController`. Only the leaf of `Track::path` is joined under `/data/playlists`.
 - `stationDir()` = `rtrim(playlists_dir) / slug`.
 
 ## Test-environment guard
 
 `LiquidsoapSupervisor::inTestMode()` is `app()->runningUnitTests()`. When true, `up`, `down`, `downBySlug`, `removeContainer`, `restart`, `isRunning` (false), `isHealthy` (true), `containerState` (a fake running tuple), `logTail` (''), `listManagedContainers` ([]), `listContainerStates` ([]), `containerExistsByName` (false) and `telnet` ('') return without touching Docker. Consequences:
 
-- `applyJingleSettings()` and `applyWatermarkSettings()` return true in tests because `telnet()` returns ''.
+- `applyWatermarkSettings()` returns true in tests because `telnet()` returns ''.
 - **Not guarded:** `destroyArtifacts()` (real filesystem deletes, which is why `StationObserverTest` can assert on it), `renderLiqFile()` is only reached through `up()`, and `containerIp()` / `containerHost()` / `ingestUrl()` are pure and run for real.
 - The guard depends on the environment being `testing`. `tests/TestCase.php::createApplication()` forces `APP_ENV=testing` before boot because docker compose's `env_file` leaks `APP_ENV=local`, which otherwise disables the guard and lets factory-created stations spawn real containers on the host daemon.
 - Existing tests exercise command construction by invoking the private flag builders via reflection (`tests/Feature/LiquidsoapSupervisorTest.php`), not the daemon.
@@ -208,15 +205,14 @@ Registered in `AppServiceProvider` (`Station::observe`). Does not create contain
 | Event | Behaviour |
 |---|---|
 | `creating` | Assign `container_index` if null. |
-| `updated`, jingle columns changed and station `isRunning()` | `applyJingleSettings()` over telnet, no restart. Columns: `jingles_enabled`, `jingle_mode`, `jingle_interval_seconds`, `jingle_every_tracks`. Independent of the block below. |
-| `updated`, any of `LIQ_RELEVANT_COLUMNS` changed | Columns: `name`, `slug`, `description`, `genre`, `icecast_mount`, `icecast_password`, `artwork_url`. If the station is stopped and slug did not change: nothing (the next `up()` re-renders). If slug changed: `downBySlug(oldSlug)` and rename `{playlists_dir}/{old}` to `{new}` if old exists and new does not. Then, if `isRunning()`: `up()`. |
+| `updated`, any of `LIQ_RELEVANT_COLUMNS` changed | Columns: `name`, `slug`, `description`, `genre`, `icecast_mount` (only what the template reads; `artwork_url` and `icecast_password` were dropped 2026-10-06, the script uses neither). If the station is stopped and slug did not change: nothing (the next `up()` re-renders). If slug changed: `downBySlug(oldSlug)` and rename `{playlists_dir}/{old}` to `{new}` if old exists and new does not. Then, if `isRunning()`: `up()`, except when the slug did not change and `isLive()`: then nothing, and the reconciler's Outdated pass recreates it once the broadcast ends (the edit changed its fingerprint). |
 | `deleting` | `down()` (also fires on a hard delete, because `forceDelete()` calls `delete()`). |
 | `forceDeleted` | Delete the playlist tree, then `destroyArtifacts(slug)` (`.liq` and HLS dir). |
 | `restored` | `up()` if `isRunning()`, otherwise nothing. |
 
 Every action is wrapped in `safely()`: failures are logged as `StationObserver failed` and swallowed, so a Docker hiccup never fails the HTTP request. Drift left behind is the reconciler's job.
 
-Things that are **not** in `LIQ_RELEVANT_COLUMNS` but are rendered into the script: none of the plan-derived inputs (jingle audibility, watermark) are; those are handled by `UserObserver` over telnet. Changing `jingle_*` while stopped needs nothing. Changing config env values (image, memory, ports) is not a station change at all; see drift.
+Things that are **not** in `LIQ_RELEVANT_COLUMNS` but are rendered into the script: none of the plan-derived inputs (the watermark) are; those are handled by `UserObserver` over telnet. Changing `jingle_*` while stopped needs nothing. Changing config env values (image, memory, ports) is not a station change at all; see drift.
 
 ## Reconcile: what converges the daemon onto intent
 
@@ -228,6 +224,7 @@ Things that are **not** in `LIQ_RELEVANT_COLUMNS` but are rendered into the scri
 | Unwanted | station exists but is stopped or soft-deleted | `removeContainer()` (this is what makes the power button survive `--restart unless-stopped` and a host reboot) |
 | Missing | wanted station with no container | `playlistWriter->write()`, `up()`, broadcast `StationStateChanged` reason `reconciled`, log warning |
 | Unhealthy | wanted container whose status is `restarting`, `exited`, `dead` or `paused`, or health is `unhealthy` (`starting` is NOT unhealthy) | Counted per pass in cache; see below |
+| Outdated | healthy wanted container (health not `starting`) whose `gocast.config` label differs from `supervisor->configFingerprint()` (hash of the rendered `.liq` with the watermark forced off, the image ID, and every `docker run` flag); unlabelled containers always differ | only if nobody is broadcasting (no open `StreamSession`, and a reachable container whose `broadcaster`, fallback `source === 'live'`, is false; unreachable waits): `ensureDirectory` + `up()`, `reconciled` event. At most `LIQUIDSOAP_OUTDATED_RECREATES_PER_PASS` (5) per pass; a failed recreate sets cache key `stations-outdated-halt` for 1 h, during which no outdated station is touched and the command exits FAILURE |
 
 Unhealthy handling: cache key `station-unhealthy-passes:{slug}` counts consecutive bad passes (TTL 6 h; forgotten on any clean pass). Recreate when passes >= `LIQUIDSOAP_UNHEALTHY_PASSES` (default 2; `max(1, ...)`). Recreates are capped by `station-recreates:{slug}` (TTL 1 h) at `LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR` (default 3); past the cap the station is left alone with an error log and counts as a failure. A recreate is `removeContainer()` + `playlistWriter->write()` + `up()`, then cache bookkeeping and a `reconciled` broadcast. Dry run reports without touching containers or the recreate/pass counters it would increment, but a clean pass still calls `Cache::forget` on the pass and live-strike keys, and `reconcileLiveFlags()` still runs its status fetches. The recreate counter's TTL restarts from one hour after each recreate (sliding, not a fixed hourly window).
 
@@ -237,7 +234,7 @@ Exit code is FAILURE if any remove/start/recreate failed or a station is over it
 
 ## Other commands
 
-- `php artisan stations:relaunch [--slug=] [--include-trashed]`: for every `running()` station, `playlistWriter->write()` then `up()`. Because `up()` restarts a healthy container, each station blips (the deploy script says about 3 s; in code it is graceful stop up to 5 s, `docker run`, 750 ms verify) and live broadcasters are disconnected. Not scheduled and not run by `deploy-native.sh`, which runs only `stations:reconcile` (`|| true`) and prints a manual `stations:relaunch` step when `infra/liquidsoap`, the station blade view or `LiquidsoapSupervisor.php` changed; it is the manual "re-render every script / new image / new limits" tool. No lifecycle lock, no `StationEvent`, no broadcast. `--include-trashed` also starts soft-deleted stations that are marked running; the next `stations:reconcile` pass will remove them again as unwanted.
+- `php artisan stations:relaunch [--slug=] [--include-trashed]`: for every `running()` station, `playlistWriter->write()` then `up()`. Because `up()` restarts a healthy container, each station blips (the deploy script says about 3 s; in code it is graceful stop up to 5 s, `docker run`, 750 ms verify) and live broadcasters are disconnected. Not scheduled and not run by `deploy-native.sh`, which runs only `stations:reconcile` (`|| true`); that pass, and every one after it, moves outdated stations onto the new script, image or flags once nobody is broadcasting. `deploy-native.sh` still prints a manual image rebuild when `infra/liquidsoap` changed. Relaunch is the force, for when waiting for shows to end is wrong. No lifecycle lock, no `StationEvent`, no broadcast. `--include-trashed` also starts soft-deleted stations that are marked running; the next `stations:reconcile` pass will remove them again as unwanted.
 - `php artisan stations:prune-deleted [--days=N] [--dry-run]`: scheduled daily 04:40. Retention `LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS` (default 30); `<= 0` disables (prints a message, exits 0). Selects `onlyTrashed()` with `deleted_at < now - N days`, oldest first, and calls `forceDelete()` on each model one at a time (mass delete would skip the observer and strand files). Each failure is reported and retried next run; the command still exits SUCCESS. Force delete triggers `deleting` (`down()`, a no-op when no container) and `forceDeleted` (playlist tree, `.liq`, HLS dir); `tracks` rows go by FK cascade.
 - `App\Jobs\StopStation` (dispatched by `stations:sweep`, see [AutoDJ](autodj.md) and [Station lifecycle](station-lifecycle.md)): one try, `WithoutOverlapping($stationId)->dontRelease()`. Reloads the station with `user.plan`, exits if gone or not intended-running, re-asks `StationAudioPolicy::verdict()` against `pullFresh()` and only calls `lifecycle->stop($station, reason: 'silent')` (force false) if it is still `Stop`. A `StationLifecycleException` (someone went live in the meantime) is logged and dropped. On success it clears `silent_since`. It is a job so a stalled `docker stop` only blocks itself.
 
@@ -281,7 +278,7 @@ A container's settings are frozen at `docker run` time. Nothing compares a live 
 | Owner stops the station | `StationLifecycleService::stop` then reconcile as backstop | Unwanted container removed. |
 | Docker `rm` fails during stop | Reconcile | Intent is already `stopped`, so the leftover is removed next pass. |
 | Station renamed while running | `StationObserver` | Old container removed by old slug, playlist dir renamed, new container started. |
-| Jingle settings or owner's plan | `StationObserver` / `UserObserver` | Over telnet, best-effort; a failed push is corrected at next boot. |
+| Owner's plan (watermark) | `UserObserver` | Over telnet, best-effort; a failed push is corrected at next boot. Jingle settings need nothing: Laravel reads them at every `next-track` ask. |
 | Plan-derived state while the container is stopped | Nobody needed | `up()` renders current values. |
 | Container in `starting` health for the whole start period | Not drift | Reconciler ignores `starting`. |
 | Unhealthy past 3 recreates/hour | Human | Logged as `Station unhealthy and past its recreate budget`; the metrics gauges show it. |
@@ -291,13 +288,13 @@ A container's settings are frozen at `docker run` time. Nothing compares a live 
 1. **No modes.** The brief's "docker / native / hybrid" split does not exist in this class. It is all env (`DOCKER_HOST`, dirs, hosts, `LIQUIDSOAP_TELNET_RESOLVE`). The class docblock still says `--restart=always` while the code uses `unless-stopped`.
 2. **`up()` on a healthy container restarts it.** `RelaunchStations`, `ReconcileStations`, and the observer call `up()` directly and can drop live listeners and a live broadcaster. Only `StationLifecycleService::start()` guards this.
 3. **No lock outside the lifecycle service.** Reconcile, relaunch and the observer call `up()`/`removeContainer()` without `Cache::lock("station-lifecycle:{id}")`, so they can interleave a `docker run` and `docker rm -f` on the same name with a power-button press.
-4. **The observer restart path does not rewrite `jingles.m3u`**; `up()` only renders the `.liq` and creates directories. Lifecycle start, reconcile and relaunch call `PlaylistFileWriter::write()` first; `StationObserver::updated`/`restored` do not. A missing m3u is only a fallible source, so it degrades quietly.
+4. **The observer restart path does not call `ensureDirectory()`**; `up()` renders the `.liq` and creates its own directories, so this is harmless.
 5. **A failed start leaves the container behind and skips the start event.** See Start verification. The same `verifyStarted()` exception also bubbles out of reconcile/relaunch as a per-station failure line.
 6. **Rename leaks and can lose files.** The old slug's `.liq` and HLS directory are not removed (only `destroyArtifacts` at force-delete, and only for the final slug). If the playlist dir rename fails (logged, swallowed), `ensureDirectories()` creates an empty new dir and the library is orphaned under the old slug. If the new dir already exists the rename is silently skipped. The container labels carry the old slug until recreate.
 7. **Deleted-and-running stations keep `desired_state=running`.** Soft delete calls `down()` but does not change intent. Restore then brings the station back (`restored` hook). Reconcile ignores trashed stations for intent, so any container for one is "unwanted".
 8. **Direct row edits bypass everything.** Mass updates, raw SQL, and `withoutEvents` skip the observer; only reconcile (within about a minute) catches container-side drift, and it never re-renders scripts for a healthy container.
 9. **Dead code.** `listManagedContainers()` and `isHealthy()` have no callers in `app/`. `exists()` is used only inside `up()`, and `restart()` only inside `up()`. Two tests mock `listManagedContainers` (`ReconcileStationsTest`, `MetricsControllerTest`) although nothing calls it. The `gocast.station` and `gocast.station_id` labels are written and never read. The docblock on `listManagedContainers` says "running" though it uses `-a`.
-10. **Telnet success is not verified.** `telnet()` returns the reply text and nobody checks for `ERROR`, so `applyJingleSettings()`/`applyWatermarkSettings()` can return true against a container whose script predates the variables. Fix by relaunching.
+10. **Telnet success is not verified.** `telnet()` returns the reply text and nobody checks for `ERROR`, so `applyWatermarkSettings()` can return true against a container whose script predates the variables. Fix by relaunching.
 11. **`docker rm -f` on the "exists but not running" branch of `up()`** is a SIGKILL, skipping the graceful HLS/Icecast shutdown that `removeContainer()` provides.
 12. **`.liq` contains secrets** (Icecast source password, internal API key) in a host file under `liq_dir`, mounted read-only into the container. `File::put` is not atomic.
 13. **Address arithmetic depends on external setup.** `LIQUIDSOAP_CONTAINER_SUBNET` must equal the subnet in `infra/native/docker-compose.native.yml`, whose `ip_range` confines Docker's IPAM; the supervisor checks neither, so a mismatch surfaces as `docker run` "address already in use" or a status that never answers. The network itself is not created here and its absence fails `docker run`.
@@ -325,4 +322,4 @@ A container's settings are frozen at `docker run` time. Nothing compares a live 
 - 2026-08-14: memory default raised from 256m (silent SIGKILL at boot) to 512m.
 - 2026-08-29: `container_index` and fixed IPs replaced per-poll `docker inspect` address lookups.
 - Reconcile went from every five minutes to every minute; its two debounces were rescaled in passes.
-- The AutoDJ rotation moved from a `playlist.m3u` file with telnet reload to `request.dynamic` per track; only the jingle m3u remains.
+- The AutoDJ rotation moved from a `playlist.m3u` file with telnet reload to `request.dynamic` per track; on 2026-10-06 the jingles followed (`JingleClock`), and no m3u remains.

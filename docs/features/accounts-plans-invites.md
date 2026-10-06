@@ -136,7 +136,7 @@ Nothing else in `api/app` reads a plan. If you add a gate, add it here.
 | Upload to the AutoDJ library | `autodj_enabled` | `TrackController` (`assertAutoDjEnabled`, line ~102) | `autodj_not_available` |
 | Turn jingles on | `autodj_enabled` | `StationController::update`, only in the off-to-on direction | same code; turning off is always allowed |
 | Play the rotation | `autodj_enabled` | `AutoDjScheduler::next()` line 65, returns null before touching the cursor | `/internal/next-track` answers 204; music stops at the next track boundary |
-| Hear jingles | `autodj_enabled` | `Station::jinglesAudible()` (jingles_enabled AND `canUseAutoDj()`) | pushed live by `UserObserver::updated` |
+| Hear jingles | `autodj_enabled` | `AutoDjScheduler::next()` hands out jingles behind the same `canUseAutoDj()` gate as music | at the next track boundary, nothing pushed |
 | "Has playable rotation" for auto-stop | `autodj_enabled` | `StationAudioPolicy::hasPlayableRotation` via `StationLifecycleService::autoDjEnabled` | a free owner is never "playable", so the sweeper can power the station down |
 | AutoDJ slots (Schedule) | `autodj_enabled` | only at playback, through the same `next()` gate; the PUT is not gated (see [schedule](schedule.md)) | slots save but never play |
 | Playlists | none | `PlaylistController` is deliberately not plan-gated | UI locks it, API does not |
@@ -150,7 +150,7 @@ Helpers on `User`: `canUseAutoDj()`, `canEmbed()`, `canUseEncoder()`, `watermark
 
 ### What a plan change does live
 
-`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` and `applyJingleSettings` in separate try/catch blocks that log and swallow errors. Stopped stations pick up the new values when they next start. Rotation, encoder, embed and analytics need no push: they are read on each request.
+`UserObserver::updated` fires only when `plan_id` was changed (`wasChanged('plan_id')`); a change to `plan_expires_at` alone does nothing. It first `unsetRelation('plan')` (a loaded relation would still hold the old plan), then for each **running** station calls `LiquidsoapSupervisor::applyWatermarkSettings` in a try/catch that logs and swallows errors. Stopped stations pick up the new values when they next start. Rotation, encoder, embed and analytics need no push: they are read on each request.
 
 `UserObserver::deleting` (account deletion): a force delete force-deletes every station including trashed ones; a soft delete soft-deletes each station individually (a mass delete would skip `StationObserver::deleting` and orphan containers).
 

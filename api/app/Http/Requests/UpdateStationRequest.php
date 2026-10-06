@@ -68,6 +68,25 @@ class UpdateStationRequest extends FormRequest
             // format), so the floor is only there to keep the count gate
             // meaningful — at 0 it would be permanently satisfied.
             'jingle_every_tracks' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            // Minutes past the hour for the `times` mode: [0, 30] is ":00 and
+            // :30". Required with that mode — a set-times rule with no times
+            // would be a switch that is on and can never fire. That check is
+            // in withValidator(), against the saved row as well as the
+            // request. Twelve is every five minutes, past which it is a liner
+            // between songs, which the `tracks` mode already says better.
+            'jingle_times' => ['nullable', 'array', 'min:1', 'max:12'],
+            'jingle_times.*' => ['integer', 'between:0,59', 'distinct'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'jingle_times.min' => 'Pick at least one time past the hour.',
+            'jingle_times.max' => 'Pick up to 12 times an hour.',
         ];
     }
 
@@ -85,11 +104,26 @@ class UpdateStationRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            $station = $this->route('station');
+
+            // Set-times mode needs times, judged on what the station will
+            // hold after this request — the request's value where it sends
+            // one, the saved one where it does not. A rule on the request
+            // alone lets `{"jingle_times": null}` through on a station
+            // already in that mode, and jingles stop while the card still
+            // says on.
+            if ($station instanceof Station && ! $validator->errors()->has('jingle_times')) {
+                $mode = $this->has('jingle_mode') ? $this->input('jingle_mode') : $station->jingle_mode;
+                $times = $this->has('jingle_times') ? $this->input('jingle_times') : $station->jingle_times;
+
+                if ($mode === Station::JINGLE_MODE_TIMES && empty($times)) {
+                    $validator->errors()->add('jingle_times', 'Pick at least one time past the hour.');
+                }
+            }
+
             if (! $this->has('timezone') || $this->input('timezone') !== null) {
                 return;
             }
-
-            $station = $this->route('station');
 
             if ($station instanceof Station && $station->schedules()->exists()) {
                 $validator->errors()->add(

@@ -120,4 +120,40 @@ class AutoDjProgramme
             'next' => $next,
         ];
     }
+
+    /**
+     * The first start of an on-time slot (start_mode = hard) after `$after`
+     * and no later than `$until`, or null.
+     *
+     * A slot whose playlist is empty is skipped: resolve() would play the
+     * default through it, so there is nothing to start on time, and cutting
+     * a song to carry on with the same rotation would be a fade for nothing.
+     *
+     * Same lookahead as resolve(); callers pass a much shorter `$until`.
+     */
+    public function nextHardStart(Station $station, CarbonImmutable $after, CarbonImmutable $until): ?CarbonImmutable
+    {
+        $timezone = $station->timezone;
+
+        if ($timezone === null || $until <= $after) {
+            return null;
+        }
+
+        $next = null;
+
+        foreach ($station->autodjSlots as $slot) {
+            if (! $slot->startsOnTime()) {
+                continue;
+            }
+
+            foreach ($slot->windowsBetween($after->subDay(), $until, $timezone) as [$start]) {
+                if ($start > $after && $start <= $until && ($next === null || $start < $next)
+                    && $slot->playlist !== null && $slot->playlist->tracks()->exists()) {
+                    $next = $start;
+                }
+            }
+        }
+
+        return $next;
+    }
 }

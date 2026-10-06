@@ -32,6 +32,8 @@ export interface Block {
   start: string
   /** "HH:MM"; at or before `start` means it runs past midnight. */
   end: string
+  /** Whether the slot starts on time or after the song playing then. */
+  startMode: AutodjSlot["start_mode"]
 }
 
 /** The row shape `PUT /stations/{slug}/autodj-slots` takes. */
@@ -41,6 +43,7 @@ export interface SlotPayload {
   days: number[]
   start_time: string
   end_time: string
+  start_mode: AutodjSlot["start_mode"]
 }
 
 let counter = 0
@@ -123,13 +126,14 @@ export function explode(slots: AutodjSlot[]): Block[] {
       label: slot.label ?? "",
       start: slot.start_time,
       end: slot.end_time,
+      startMode: slot.start_mode ?? "soft",
     })),
   )
 }
 
-/** Blocks that are the same slot on different days: same playlist, name and times. */
+/** Blocks that are the same slot on different days: same playlist, name, times and start. */
 export function signature(block: Block): string {
-  return JSON.stringify([block.playlistId, block.label.trim(), block.start, block.end])
+  return JSON.stringify([block.playlistId, block.label.trim(), block.start, block.end, block.startMode])
 }
 
 /** Merge identical blocks back into multi-day rows, in first-seen order. */
@@ -148,6 +152,7 @@ export function merge(blocks: Block[]): SlotPayload[] {
       days: [block.day],
       start_time: block.start,
       end_time: block.end,
+      start_mode: block.startMode,
     })
   }
   return [...rows.values()].map((row) => ({ ...row, days: [...row.days].sort() }))

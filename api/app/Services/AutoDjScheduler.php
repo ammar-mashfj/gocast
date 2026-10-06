@@ -7,6 +7,7 @@ use App\Models\Playlist;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\Track;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -30,10 +31,41 @@ use Illuminate\Support\Facades\DB;
  */
 class AutoDjScheduler
 {
+    /**
+     * How far ahead to look for something that must start on time. Past this
+     * a song is never long enough to collide with it.
+     */
+    private const PLAN_HORIZON_HOURS = 6;
+
+    /**
+     * A song ending this much past a boundary still counts as fitting: the
+     * start-time estimate is no finer than this, and trimming half a second
+     * is not worth a fade.
+     */
+    private const FIT_TOLERANCE_SECONDS = 0.5;
+
+    /**
+     * A track whose length is unknown is played as normal while the next
+     * boundary is at least this far away, on the bet that it is a song and
+     * not an hour-long mix. Closer than this it is treated as not fitting.
+     */
+    private const UNKNOWN_LENGTH_SAFE_SECONDS = 30 * 60;
+
     public function __construct(
         private readonly PlaylistFileWriter $writer,
         private readonly AutoDjProgramme $programme,
+        private readonly JingleClock $jingles,
     ) {}
+
+    /**
+     * Under this many seconds before something that must start on time, it
+     * starts now instead: a slot or jingle a few seconds early is inaudible,
+     * a song cut after ten seconds is not.
+     */
+    public static function earlyStartSeconds(): float
+    {
+        return max(1.0, (float) config('liquidsoap.hard_start_early_seconds', 20.0));
+    }
 
     /**
      * The next track as a Liquidsoap `annotate:` URI, or null when the station
@@ -60,12 +92,109 @@ class AutoDjScheduler
      * advancing the cursor — or dealing a new shuffle deck — on each of those
      * would shred the running order the owner gets back if they re-subscribe.
      */
-    public function next(Station $station): ?string
+    public function next(Station $station, ?float $remaining = null): ?string
     {
         if (! ($station->user?->canUseAutoDj() ?? false)) {
             return null;
         }
 
+        if ($remaining === null) {
+            return $this->nextUnplanned($station);
+        }
+
+        $now = CarbonImmutable::now();
+        $queueStart = $this->queueStart($station, $now, $remaining);
+        $start = $queueStart->addMilliseconds((int) round(self::leadSeconds() * 1000));
+
+        $answer = $this->nextPlanned($station, $start);
+
+        if ($answer === null) {
+            return null;
+        }
+
+        [$uri, $airtime] = $answer;
+        $this->noteQueued($station, $now, $queueStart, $airtime);
+
+        return $uri;
+    }
+
+    /**
+     * When the answer to this ask starts, in the container's own timeline:
+     * when its current track ends.
+     *
+     * Except when Liquidsoap asks again before the previous answer has finished
+     * playing — measured on 2.4.5, request.dynamic occasionally asks
+     * twice within a fraction of a second. The second answer then plays
+     * after the first, which the current track's remaining time cannot say.
+     */
+    private function queueStart(Station $station, CarbonImmutable $now, float $remaining): CarbonImmutable
+    {
+        $start = $now->addMilliseconds((int) round(max(0.0, $remaining) * 1000));
+
+        $queuedAt = $station->autodj_queued_at;
+        $queuedStart = $station->autodj_queued_start;
+        $queuedAirtime = $station->autodj_queued_airtime;
+
+        if ($queuedAt === null || $queuedStart === null || $queuedAirtime === null) {
+            return $start;
+        }
+
+        $queuedStart = CarbonImmutable::instance($queuedStart);
+
+        $afterQueued = $queuedStart->addMilliseconds((int) round((float) $queuedAirtime * 1000));
+
+        // Judged on when the previous answer ENDS, not starts: at boot, after
+        // a skip or a retry it was asked with nothing playing, so it started
+        // at once and has already begun by the time the double ask arrives.
+        if (CarbonImmutable::instance($queuedAt) > $now->subSeconds(2) && $afterQueued > $now) {
+            return $afterQueued->max($start);
+        }
+
+        return $start;
+    }
+
+    /**
+     * How far behind the container's timeline listeners are. With crossfade
+     * on, Liquidsoap reads the next track a crossfade window ahead of what is
+     * heard — measured on 2.4.5 with a 5s window: 6.3s after a song, 1.5s
+     * after a 3s jingle. Adding the window lands on-time starts within about
+     * a second and a half after songs, a few seconds early after a jingle.
+     */
+    public static function leadSeconds(): float
+    {
+        $configured = config('liquidsoap.planning_lead_seconds');
+
+        if (is_numeric($configured)) {
+            return max(0.0, (float) $configured);
+        }
+
+        return config('liquidsoap.crossfade_enabled') ? max(0.0, (float) config('liquidsoap.crossfade_duration')) : 0.0;
+    }
+
+    /**
+     * Remember what was just handed out, for queueStart(). Query builder,
+     * not save(): a track boundary is not a station edit.
+     */
+    private function noteQueued(Station $station, CarbonImmutable $now, CarbonImmutable $start, ?float $airtime): void
+    {
+        $values = [
+            'autodj_queued_at' => $now->utc()->format('Y-m-d H:i:s.v'),
+            'autodj_queued_start' => $start->utc()->format('Y-m-d H:i:s.v'),
+            'autodj_queued_airtime' => $airtime,
+        ];
+
+        DB::table('stations')->where('id', $station->getKey())->update($values);
+
+        $station->forceFill($values);
+        $station->syncOriginalAttributes(array_keys($values));
+    }
+
+    /**
+     * For a container on a script that does not report its timing: the
+     * schedule as of now, music only. See the class docblock.
+     */
+    private function nextUnplanned(Station $station): ?string
+    {
         $programme = $this->programme->resolve($station);
         $playlist = $programme['playlist'];
 
@@ -75,11 +204,132 @@ class AutoDjScheduler
 
         $this->noteSwitch($station, $playlist, $programme['slot']);
 
-        $track = $playlist->order === Playlist::ORDER_SHUFFLE
+        [$track] = $playlist->order === Playlist::ORDER_SHUFFLE
             ? $this->advanceShuffled($playlist)
             : $this->advanceSequential($playlist);
 
         return $track === null ? null : $this->writer->annotateTrack($track, playlist: $playlist->name);
+    }
+
+    /**
+     * What starts at `$start`.
+     *
+     *   1. Something that must start on time is under earlyStartSeconds()
+     *      away: it starts now, a little early.
+     *   2. A set-time jingle is due: the jingle.
+     *   3. An every-N jingle is due and ends before the next on-time
+     *      boundary: the jingle.
+     *   4. Otherwise a song from the scheduled playlist, one that ends before
+     *      the next boundary when there is one in reach — or, when no song
+     *      fits, the next one cut to end on it with a fade.
+     *
+     * A station with nothing to rotate plays no jingles either: they punctuate
+     * music, and a station of only IDs is the thing StationAudioPolicy powers
+     * down.
+     */
+    /**
+     * @return array{0: string, 1: ?float}|null the answer, and how long it plays
+     */
+    private function nextPlanned(Station $station, CarbonImmutable $start): ?array
+    {
+        $early = self::earlyStartSeconds();
+        $jingles = $this->jingles->enabled($station);
+
+        $boundary = $this->nextBoundary($station, $start, $jingles);
+        $from = $start;
+
+        if ($boundary !== null && $start->floatDiffInSeconds($boundary) < $early) {
+            $from = $boundary;
+            $boundary = $this->nextBoundary($station, $from, $jingles);
+        }
+
+        $programme = $this->programme->resolve($station, $from);
+        $playlist = $programme['playlist'];
+
+        // An empty default comes back as the playlist, not as null; without
+        // music there is nothing for a jingle to punctuate either.
+        if ($playlist === null || ($jingles && ! $playlist->tracks()->exists())) {
+            return null;
+        }
+
+        if ($jingles && ($time = $this->jingles->setTimeDue($station, $start, $early)) !== null
+            && ($jingle = $this->jingles->pick($station)) !== null) {
+            $this->jingles->played($station, $jingle, $time->max($start));
+
+            return [$this->writer->annotateTrack($jingle, isJingle: true), $jingle->airtimeSeconds()];
+        }
+
+        $budget = $boundary === null ? null : $start->floatDiffInSeconds($boundary);
+
+        if ($jingles && $this->jingles->breakDue($station, $start)
+            && ($jingle = $this->jingles->pick($station)) !== null
+            && ($budget === null || $this->fits($jingle, $budget))) {
+            $this->jingles->played($station, $jingle, $start);
+
+            return [$this->writer->annotateTrack($jingle, isJingle: true), $jingle->airtimeSeconds()];
+        }
+
+        $this->noteSwitch($station, $playlist, $programme['slot']);
+
+        [$track, $cut] = $playlist->order === Playlist::ORDER_SHUFFLE
+            ? $this->advanceShuffled($playlist, $budget)
+            : $this->advanceSequential($playlist, $budget);
+
+        if ($track === null) {
+            return null;
+        }
+
+        $this->jingles->songPlayed($station);
+
+        return [
+            $this->writer->annotateTrack($track, playlist: $playlist->name, playFor: $cut),
+            $cut ?? $track->airtimeSeconds(),
+        ];
+    }
+
+    /**
+     * The next moment after `$after` that something must start on time: an
+     * on-time slot, or a set-time jingle not yet played.
+     */
+    private function nextBoundary(Station $station, CarbonImmutable $after, bool $jingles): ?CarbonImmutable
+    {
+        $horizon = $after->addHours(self::PLAN_HORIZON_HOURS);
+
+        $candidates = [$this->programme->nextHardStart($station, $after, $horizon)];
+
+        if ($jingles) {
+            $spent = $station->autodj_last_jingle_at === null ? null : CarbonImmutable::instance($station->autodj_last_jingle_at);
+            $candidates[] = $this->jingles->nextSetTime($station, $spent !== null && $spent > $after ? $spent : $after);
+        }
+
+        $candidates = array_filter($candidates);
+
+        return $candidates === [] ? null : min($candidates);
+    }
+
+    /** Whether `$track` is known to end within `$budget` seconds. */
+    private function fits(Track $track, float $budget): bool
+    {
+        $airtime = $track->airtimeSeconds();
+
+        return $airtime !== null && $airtime <= $budget + self::FIT_TOLERANCE_SECONDS;
+    }
+
+    /**
+     * Whether the next track in line would run into a boundary `$budget`
+     * seconds away (null: none in reach), so something else has to give.
+     */
+    private function overruns(Track $track, ?float $budget): bool
+    {
+        if ($budget === null) {
+            return false;
+        }
+
+        if ($track->airtimeSeconds() === null) {
+            return $budget < self::UNKNOWN_LENGTH_SAFE_SECONDS;
+        }
+
+        return ! $this->fits($track, $budget);
     }
 
     /**
@@ -160,8 +410,15 @@ class AutoDjScheduler
      * Ordering is by pivot `position`, top to bottom, wrapping at the end —
      * the semantics `mode = "normal"` gave us, preserved deliberately because
      * the owner controls that order with the drag handles in the library.
+     *
+     * With a `$budget` (seconds to something that must start on time) the
+     * next track is still the next track — an in-order playlist is an order
+     * the owner chose, so nothing is skipped past. When it does not fit it is
+     * returned with that budget as its cut, and plays faded to end on time.
+     *
+     * @return array{0: ?Track, 1: ?float} the track, and where to cut it
      */
-    private function advanceSequential(Playlist $playlist): ?Track
+    private function advanceSequential(Playlist $playlist, ?float $budget = null): array
     {
         $cursor = $playlist->cursor_position;
 
@@ -179,7 +436,7 @@ class AutoDjScheduler
         $next ??= $playlist->tracks()->first();
 
         if ($next === null) {
-            return null;
+            return [null, null];
         }
 
         // Straight to the query builder, not the model: this runs at every
@@ -195,7 +452,7 @@ class AutoDjScheduler
         $playlist->cursor_position = $next->pivot->position;
         $playlist->syncOriginalAttribute('cursor_position');
 
-        return $next;
+        return [$next, $this->overruns($next, $budget) ? $budget : null];
     }
 
     /**
@@ -209,8 +466,12 @@ class AutoDjScheduler
      * (pick at random each time, reject anything played in the last N) needs
      * an N, needs a history to check it against, and still has to decide what
      * to do when the library is smaller than N.
+     *
+     * With a `$budget`, see popShuffled().
+     *
+     * @return array{0: ?Track, 1: ?float} the track, and where to cut it
      */
-    private function advanceShuffled(Playlist $playlist): ?Track
+    private function advanceShuffled(Playlist $playlist, ?float $budget = null): array
     {
         // One short transaction with the playlist row locked, so the pop
         // here and dealIn()'s splice (which runs under PlaylistTracks::lock)
@@ -219,32 +480,45 @@ class AutoDjScheduler
         // overwritten by the popped copy read a moment earlier, and would
         // wait for the next deal. Same lock order as PlaylistTracks —
         // playlist row first — so the two cannot deadlock.
-        return DB::transaction(function () use ($playlist) {
+        return DB::transaction(function () use ($playlist, $budget) {
             $raw = DB::table('playlists')
                 ->where('id', $playlist->getKey())
                 ->lockForUpdate()
                 ->value('deck');
             $deck = is_string($raw) ? (json_decode($raw, true) ?: []) : [];
 
-            return $this->popShuffled($playlist, $deck);
+            return $this->popShuffled($playlist, $deck, $budget);
         });
     }
 
     /**
      * The body of advanceShuffled(), given the deck as read under the lock.
      *
+     * With a `$budget` (seconds to something that must start on time) the top
+     * card is played only if it ends in time. Otherwise the first card further
+     * down that does is taken out of the deck instead, and the ones it was
+     * taken past stay where they are — they still play this cycle, just
+     * after the boundary, so the shuffle stays fair. A card of unknown length
+     * is never taken that way. When no card fits, the top card plays, cut to
+     * end on time.
+     *
      * @param  list<string>  $deck
+     * @return array{0: ?Track, 1: ?float} the track, and where to cut it
      */
-    private function popShuffled(Playlist $playlist, array $deck): ?Track
+    private function popShuffled(Playlist $playlist, array $deck, ?float $budget = null): array
     {
         $track = null;
 
-        // Pop until we land on a track that still exists. A track deleted or
-        // removed since the deal leaves a dead ID behind, and skipping it
-        // lazily here is cheaper and less fragile than rewriting every deck
-        // from the delete path. Normally this loop runs exactly once.
+        // Drop dead IDs off the top until one still exists. A track deleted or
+        // removed since the deal leaves its ID behind, and skipping it lazily
+        // here is cheaper and less fragile than rewriting every deck from the
+        // delete path. Normally this loop runs exactly once.
         while ($deck !== [] && $track === null) {
-            $track = $this->find($playlist, array_shift($deck));
+            $track = $this->find($playlist, $deck[0]);
+
+            if ($track === null) {
+                array_shift($deck);
+            }
         }
 
         // Cold start (no deck yet, or the owner just switched to shuffle), or
@@ -253,19 +527,34 @@ class AutoDjScheduler
             $deck = $this->deal($playlist);
 
             if ($deck === []) {
-                return null;
+                return [null, null];
             }
 
-            $track = $this->find($playlist, array_shift($deck));
+            $track = $this->find($playlist, $deck[0]);
 
             // Every ID came from the playlist a statement ago, so only a
             // delete landing in between can get us here. Bail rather than
             // loop: the next request deals again, and one silent retry_delay
             // is a better failure than a query storm on the audio path.
             if ($track === null) {
-                return null;
+                return [null, null];
             }
         }
+
+        $index = 0;
+        $cut = null;
+
+        if ($this->overruns($track, $budget)) {
+            $fitting = $this->firstFitting($playlist, $deck, $budget);
+
+            if ($fitting === null) {
+                $cut = $budget;
+            } else {
+                [$index, $track] = $fitting;
+            }
+        }
+
+        array_splice($deck, $index, 1);
 
         // Refill EAGERLY, the moment the deck runs dry, rather than lazily on
         // the next request. This is the only place the seam is cheap to fix:
@@ -277,7 +566,37 @@ class AutoDjScheduler
 
         $this->persistDeck($playlist, $deck);
 
-        return $track;
+        return [$track, $cut];
+    }
+
+    /**
+     * The first card below the top of `$deck` that ends within `$budget`, as
+     * [its index, the track]. One query for the whole deck — this runs only
+     * in the last few minutes before an on-time boundary.
+     *
+     * @param  list<string>  $deck
+     * @return array{0: int, 1: Track}|null
+     */
+    private function firstFitting(Playlist $playlist, array $deck, float $budget): ?array
+    {
+        $rest = array_slice($deck, 1);
+
+        if ($rest === []) {
+            return null;
+        }
+
+        $members = $playlist->tracks()->whereIn('tracks.id', $rest)->get()
+            ->keyBy(fn (Track $track) => (string) $track->getKey());
+
+        foreach ($rest as $offset => $id) {
+            $candidate = $members->get($id);
+
+            if ($candidate !== null && $this->fits($candidate, $budget)) {
+                return [$offset + 1, $candidate];
+            }
+        }
+
+        return null;
     }
 
     /**

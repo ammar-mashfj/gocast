@@ -200,7 +200,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
     const playlist = playlists.find((p) => !p.is_default) ?? playlists[0]
     if (!playlist) return
     const block = fromSpan(
-      { key: newKey(), day, playlistId: playlist.id, label: "", start: "00:00", end: "00:00" },
+      { key: newKey(), day, playlistId: playlist.id, label: "", start: "00:00", end: "00:00", startMode: "soft" },
       span[0],
       span[1],
     )
@@ -225,7 +225,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
     edit(blocks.map((b) => (b.key === block.key ? block : b)))
   }
 
-  function changeGroup(patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end">>) {
+  function changeGroup(patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end" | "startMode">>) {
     if (!selected) return
     edit(blocks.map((b) => (siblings.has(b.key) ? { ...b, ...patch } : b)))
   }
@@ -442,7 +442,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
           <p className="text-sm text-muted-foreground max-w-[62ch]">
             {locked
               ? "With Pro, AutoDJ plays your music whenever you're not live, and you can pick a different playlist for certain hours."
-              : "When you're not live, AutoDJ plays your music. Slots switch at the next song break, so one can start a minute or two late. Going live always takes over."}
+              : "When you're not live, AutoDJ plays your music. A slot starts after the song playing at its start time, or exactly on time if you set it to. Going live always takes over."}
           </p>
 
           {locked && (

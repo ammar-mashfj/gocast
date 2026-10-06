@@ -42,9 +42,16 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property string|null $stream_key long-lived credential an external encoder authenticates with
  * @property Carbon|null $stream_key_rotated_at
  * @property bool $jingles_enabled
- * @property string $jingle_mode one of JINGLE_MODE_INTERVAL | JINGLE_MODE_TRACKS
+ * @property string $jingle_mode one of JINGLE_MODES
  * @property int $jingle_interval_seconds
  * @property int $jingle_every_tracks
+ * @property list<int>|null $jingle_times minutes past the hour, for JINGLE_MODE_TIMES
+ * @property Carbon|null $autodj_last_jingle_at when the last jingle was planned to start; JingleClock state
+ * @property string|null $autodj_last_jingle_id which jingle that was; JingleClock state
+ * @property int $autodj_songs_since_jingle songs handed out since it; JingleClock state
+ * @property Carbon|null $autodj_queued_at when AutoDjScheduler last handed out a track
+ * @property Carbon|null $autodj_queued_start when that track was expected to start, container timeline
+ * @property float|null $autodj_queued_airtime how long it plays
  * @property array|null $social_links
  * @property array|null $theme_config
  * @property Carbon $created_at
@@ -102,8 +109,15 @@ class Station extends Model
      */
     public const JINGLE_MODE_TRACKS = 'tracks';
 
+    /**
+     * Play a jingle at set minutes past every hour (":00 and :30"), on time:
+     * AutoDJ picks songs that end before it, and fades one only when none
+     * fits — the same planning as a slot that starts on time.
+     */
+    public const JINGLE_MODE_TIMES = 'times';
+
     /** @var list<string> */
-    public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS];
+    public const JINGLE_MODES = [self::JINGLE_MODE_INTERVAL, self::JINGLE_MODE_TRACKS, self::JINGLE_MODE_TIMES];
 
     /**
      * How many featured stations the public rail shows. Featuring more than
@@ -242,6 +256,12 @@ class Station extends Model
             'jingles_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
+            'jingle_times' => 'array',
+            'autodj_last_jingle_at' => 'datetime',
+            'autodj_songs_since_jingle' => 'integer',
+            'autodj_queued_at' => 'datetime',
+            'autodj_queued_start' => 'datetime',
+            'autodj_queued_airtime' => 'float',
             'social_links' => 'array',
             'theme_config' => 'array',
             'started_at' => 'datetime',
@@ -453,31 +473,6 @@ class Station extends Model
     }
 
     /**
-     * Should the jingle arm be allowed to play?
-     *
-     * The owner's switch AND their plan. The switch alone is not enough, and
-     * the reason is the same one that put the plan check inside
-     * AutoDjScheduler::next(): nothing in the rendered .liq knows about plans,
-     * and a plan change never restarts a container.
-     *
-     * Without this, a station downgraded off AutoDJ went silent on the
-     * rotation and kept playing station IDs forever — the jingle arm reads an
-     * m3u from disk, which no downgrade rewrites and no scheduler is asked
-     * about. Worse than cosmetic: a jingle puts real signal on the meter, so
-     * StationAudioPolicy scored the station `InUse` at every sweep and it
-     * never powered down. That contradicts hasPlayableRotation(), which
-     * already says jingles must not count — "a library of nothing but jingles
-     * has nothing to punctuate".
-     *
-     * Read at render time for the initial value and pushed over telnet by
-     * UserObserver on a plan change, so it lands without dropping listeners.
-     */
-    public function jinglesAudible(): bool
-    {
-        return (bool) $this->jingles_enabled && ($this->user?->canUseAutoDj() ?? false);
-    }
-
-    /**
      * Every music file in the library, in library order.
      *
      * NOT the rotation any more: what AutoDJ walks is a Playlist (see
@@ -523,9 +518,8 @@ class Station extends Model
     }
 
     /**
-     * Station IDs / liners. Written to `jingles.m3u`, which Liquidsoap reads
-     * in randomize mode — so the ordering carried here is cosmetic, it only
-     * gives the UI a stable list.
+     * Station IDs / liners. JingleClock picks from them at random, so the
+     * ordering carried here is cosmetic; it only gives the UI a stable list.
      */
     public function jingles(): HasMany
     {

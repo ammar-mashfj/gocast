@@ -85,11 +85,9 @@ class StationLifecycleService
                 ])->save();
             }
 
-            // The observer no longer seeds an m3u at create time, so this is
-            // the first moment the jingle file is guaranteed to be needed.
-            // Writing it before the container boots keeps Liquidsoap from
-            // logging "file not found" on a station with no jingles yet.
-            $this->playlistWriter->write($station);
+            // The audio directory is bind-mounted into the container, so it
+            // must exist before the container boots.
+            $this->playlistWriter->ensureDirectory($station);
             $this->supervisor->up($station);
 
             Log::info('Station started', [

@@ -40,6 +40,16 @@ use Throwable;
  *                  broken script restarted forever while the dashboard showed
  *                  "starting" and no alert fired anywhere.
  *
+ *   5. OUTDATED  — a healthy container started with a different config
+ *                  than a fresh start would get: the .liq template, the
+ *                  image or a `docker run` flag changed since (a deploy), or
+ *                  a setting baked into the script was edited while someone
+ *                  was live (StationObserver defers those). Recreated, but
+ *                  ONLY while nobody is broadcasting — a live show finishes on
+ *                  the old config and the station catches up in the first
+ *                  pass after it ends. See
+ *                  LiquidsoapSupervisor::configFingerprint().
+ *
  * Recreating an unhealthy container is capped two ways: it must look unhealthy
  * across consecutive passes (a station legitimately booting is not drift), and
  * only so many recreates are allowed per hour before we stop and leave it for
@@ -74,6 +84,14 @@ class ReconcileStations extends Command
     /** Cache key prefix: recreates performed for a station in the last hour. */
     private const RECREATES_PREFIX = 'station-recreates:';
 
+    /**
+     * Cache key: set when recreating an outdated station failed. While it is
+     * set no other outdated station is touched, so a broken template or image
+     * takes down one idle station rather than walking through the fleet five a
+     * minute. Stations already on the old config keep playing it.
+     */
+    private const OUTDATED_HALT = 'stations-outdated-halt';
+
     /** Cache key prefix: consecutive passes an open session disagreed with the container. */
     private const LIVE_STRIKES_PREFIX = 'station-live-strikes:';
 
@@ -103,6 +121,7 @@ class ReconcileStations extends Command
         $unwanted = [];
         $present = [];
         $unhealthy = [];
+        $healthy = [];
 
         foreach ($containerStates as $name => $state) {
             $slug = LiquidsoapSupervisor::slugFromContainerName($name);
@@ -130,6 +149,12 @@ class ReconcileStations extends Command
                 // A pass in which the container looks fine resets the streak,
                 // so the counter always measures CONSECUTIVE bad passes.
                 Cache::forget(self::UNHEALTHY_PASSES_PREFIX.$slug);
+
+                // `starting` is a container still booting, maybe on the new
+                // config already; judge it once it has settled.
+                if ($state['health'] !== LiquidsoapSupervisor::HEALTH_STARTING) {
+                    $healthy[$slug] = $state['config'] ?? '';
+                }
             }
         }
 
@@ -140,7 +165,9 @@ class ReconcileStations extends Command
 
         $liveCleared = $this->reconcileLiveFlags($statusService, $dryRun);
 
-        if ($orphans === [] && $unwanted === [] && $missing === [] && $unhealthy === []) {
+        $outdated = $this->outdatedStations($supervisor, $healthy);
+
+        if ($orphans === [] && $unwanted === [] && $missing === [] && $unhealthy === [] && $outdated === []) {
             $this->info(sprintf(
                 '%d container(s), %d station(s) want to be running. Nothing to do.',
                 count($containers),
@@ -151,11 +178,12 @@ class ReconcileStations extends Command
         }
 
         $this->warn(sprintf(
-            'Drift: %d orphan(s), %d unwanted, %d missing, %d unhealthy%s.',
+            'Drift: %d orphan(s), %d unwanted, %d missing, %d unhealthy, %d outdated%s.',
             count($orphans),
             count($unwanted),
             count($missing),
             count($unhealthy),
+            count($outdated),
             $dryRun ? ' (dry run — not changing anything)' : '',
         ));
 
@@ -195,7 +223,7 @@ class ReconcileStations extends Command
             }
 
             try {
-                $playlistWriter->write($station);
+                $playlistWriter->ensureDirectory($station);
                 $supervisor->up($station);
                 $this->line("  ✓ started {$slug}");
 
@@ -268,7 +296,7 @@ class ReconcileStations extends Command
 
             try {
                 $supervisor->removeContainer(LiquidsoapSupervisor::CONTAINER_PREFIX.$slug);
-                $playlistWriter->write($station);
+                $playlistWriter->ensureDirectory($station);
                 $supervisor->up($station);
 
                 Cache::put(self::RECREATES_PREFIX.$slug, $recreates + 1, now()->addHour());
@@ -293,6 +321,8 @@ class ReconcileStations extends Command
             }
         }
 
+        $failed += $this->recreateOutdated($supervisor, $playlistWriter, $statusService, $outdated, $dryRun);
+
         if ($liveCleared > 0) {
             $this->line("  ✓ closed a stranded broadcast session on {$liveCleared} station(s)");
         }
@@ -304,6 +334,131 @@ class ReconcileStations extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Healthy wanted stations whose container label differs from the config a
+     * fresh start would get. None when that config can't be computed.
+     *
+     * @param  array<string, string>  $healthy  slug => the container's config label
+     * @return list<Station>
+     */
+    private function outdatedStations(LiquidsoapSupervisor $supervisor, array $healthy): array
+    {
+        if ($healthy === []) {
+            return [];
+        }
+
+        return Station::query()
+            ->running()
+            ->whereIn('slug', array_keys($healthy))
+            ->get()
+            ->filter(function (Station $station) use ($supervisor, $healthy) {
+                $fingerprint = $supervisor->configFingerprint($station);
+
+                // Unknown (image inspect failed): judge nothing this pass
+                // rather than call every station outdated at once.
+                return $fingerprint !== null && $healthy[$station->slug] !== $fingerprint;
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Recreate outdated stations nobody is broadcasting into.
+     *
+     * Two answers to "is somebody here", either one enough to wait: an open
+     * StreamSession, and the container's own `broadcaster`. The session can
+     * lag a connect by one harbor callback; the container cannot lag it, but
+     * may be unreachable — and unreachable is not "nobody", so that waits too.
+     *
+     * Capped per pass: a deploy that changes the template outdates every
+     * station at once, and recreating them all in one pass would hold the
+     * pass for minutes and restart the whole box in the same second.
+     *
+     * @param  list<Station>  $outdated
+     * @return int failures
+     */
+    private function recreateOutdated(
+        LiquidsoapSupervisor $supervisor,
+        PlaylistFileWriter $playlistWriter,
+        StationStatusService $statusService,
+        array $outdated,
+        bool $dryRun,
+    ): int {
+        if ($outdated !== [] && Cache::has(self::OUTDATED_HALT)) {
+            $this->error('  ✗ '.count($outdated).' outdated station(s) left alone: a recreate onto the new config failed within the hour');
+
+            return 1;
+        }
+
+        $budget = max(1, (int) config('liquidsoap.outdated_recreates_per_pass', 5));
+        $failed = 0;
+
+        foreach ($outdated as $station) {
+            if ($budget === 0) {
+                $this->line("  • {$station->slug} outdated, next pass (per-pass limit reached)");
+
+                continue;
+            }
+
+            if ($this->someoneBroadcasting($station, $statusService)) {
+                $this->line("  • {$station->slug} outdated, waiting for the broadcast to end");
+
+                continue;
+            }
+
+            if ($dryRun) {
+                $this->line("  • recreate {$station->slug} (outdated)");
+
+                continue;
+            }
+
+            $budget--;
+
+            try {
+                $playlistWriter->ensureDirectory($station);
+                $supervisor->up($station);
+
+                $this->line("  ✓ recreated {$station->slug} (outdated)");
+
+                event(StationStateChanged::for($station, 'reconciled'));
+
+                Log::info('Reconciler recreated an outdated station', [
+                    'station' => $station->slug,
+                ]);
+            } catch (Throwable $e) {
+                Cache::put(self::OUTDATED_HALT, $station->slug, now()->addHour());
+
+                Log::error('Recreating an outdated station failed; outdated recreates halted for an hour', [
+                    'station' => $station->slug,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $this->error("  ✗ {$station->slug}: {$e->getMessage()} — halting outdated recreates for an hour");
+
+                return $failed + 1;
+            }
+        }
+
+        return $failed;
+    }
+
+    private function someoneBroadcasting(Station $station, StationStatusService $statusService): bool
+    {
+        if ($station->isLive()) {
+            return true;
+        }
+
+        $status = $statusService->fetch($station);
+
+        if ($status === null) {
+            return true;
+        }
+
+        // Same reading as reconcileLiveFlags(): `source` only for a container
+        // too old to report `broadcaster`.
+        return (bool) ($status['broadcaster'] ?? (($status['source'] ?? null) === 'live'));
     }
 
     /**

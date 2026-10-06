@@ -57,6 +57,22 @@ it('stores slots in payload order and returns them with the programme', function
         ->and($this->station->autodjSlots()->pluck('position')->all())->toBe([0, 1]);
 });
 
+it('stores whether each slot starts on time, soft when not said', function () {
+    // Soft when missing: an older client that never sends the field keeps
+    // today's behaviour rather than failing validation.
+    $response = putSlots($this->owner, $this->station, [
+        ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '08:00', 'start_mode' => 'hard'],
+        ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '08:00', 'end_time' => '10:00'],
+    ])->assertOk();
+
+    expect($response->json('data.autodj_slots.0.start_mode'))->toBe('hard')
+        ->and($response->json('data.autodj_slots.1.start_mode'))->toBe('soft');
+
+    putSlots($this->owner, $this->station, [
+        ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '08:00', 'start_mode' => 'sharp'],
+    ])->assertUnprocessable()->assertJsonValidationErrors('slots.0.start_mode');
+});
+
 it('replaces the whole list, so an empty list clears it', function () {
     putSlots($this->owner, $this->station, [
         ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '12:00'],

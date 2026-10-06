@@ -251,15 +251,14 @@ if changed infra/native/station-router; then
         only if the router itself does not restart, which it will)")
 fi
 if changed infra/liquidsoap; then
-  MANUAL_STEPS+=("the Liquidsoap image under infra/liquidsoap/ changed — rebuild it and relaunch:
+  MANUAL_STEPS+=("the Liquidsoap image under infra/liquidsoap/ changed — rebuild it:
        docker build -t gocast/liquidsoap:latest infra/liquidsoap/
-       sudo -u $RUN_USER php api/artisan stations:relaunch")
+       stations:reconcile then moves each station onto it once nobody is live")
 fi
-if changed api/resources/views/liquidsoap api/app/Services/LiquidsoapSupervisor.php; then
-  MANUAL_STEPS+=("the station .liq template or supervisor changed — running stations keep
-       the OLD config until relaunched (~3s blip each, live DJs disconnect):
-       sudo -u $RUN_USER php api/artisan stations:relaunch")
-fi
+# No step for a .liq template or supervisor change: stations:reconcile (below,
+# and every minute) recreates each outdated station once nobody is
+# broadcasting into it, a few per pass. `stations:relaunch` is still there to
+# force it, at the cost of cutting live shows off.
 if [[ ${#MANUAL_STEPS[@]} -gt 0 ]]; then
   echo ""
   for step in "${MANUAL_STEPS[@]}"; do echo "  !! $step"; done
@@ -421,10 +420,11 @@ for i in $(seq 1 20); do
 done
 
 echo "==> Reconciling containers against the station table"
-# Three-way convergence: removes containers with no station row, removes
-# containers for stopped or soft-deleted stations, and starts containers for
-# stations that should be on air but are not. Healthy running containers are
-# left alone. Also runs every five minutes from gocast-scheduler.
+# Removes containers with no station row, removes containers for stopped or
+# soft-deleted stations, starts containers for stations that should be on air
+# but are not, and recreates stations whose container predates this deploy's
+# .liq/image/flags — only those nobody is broadcasting into; the rest follow
+# when their show ends. Also runs every minute from gocast-scheduler.
 artisan stations:reconcile || true
 
 ROLLBACK_HINT="${LAST_GOOD_REF:-$PREVIOUS_REF}"

@@ -73,13 +73,17 @@ export default function ScheduleTab() {
       days: s.days,
       start_time: s.start_time,
       end_time: s.end_time,
+      start_mode: s.start_mode ?? 'soft',
     }));
+    // Sent for every slot: the API reads a missing start_mode as 'soft', so
+    // leaving it out would turn every on-time slot back on each save here.
     const row = {
       label: next.label.trim() || null,
       playlist_id: next.playlistId,
       days: next.days,
       start_time: next.start,
       end_time: next.end,
+      start_mode: next.index === null ? ('soft' as const) : (all[next.index]?.start_mode ?? 'soft'),
     };
     if (next.index === null) all.push(row);
     else if (remove) all.splice(next.index, 1);

@@ -113,14 +113,6 @@ class AnalyzeTrack implements ShouldQueue
             'analyzed_at' => now(),
             'analysis_error' => null,
         ])->saveQuietly();
-
-        // jingles.m3u bakes these annotations into its URIs, so it is now
-        // stale for a jingle; the rotation reads the database per request and
-        // needs nothing. Rewritten without a telnet reload on purpose:
-        // `reload` restarts the list at index 0, and a jingle whose cue points
-        // land one playback late is not worth that. The file is picked up at
-        // the next natural reload.
-        $writer->write($station);
     }
 
     public function failed(?Throwable $e): void

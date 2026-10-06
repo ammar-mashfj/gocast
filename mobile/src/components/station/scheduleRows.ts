@@ -57,7 +57,7 @@ export function buildRows(
       const p = byId.get(s.playlist_id);
       rows.push({
         key: `slot-${s.id}`,
-        time: `${s.start_time} – ${s.end_time}`,
+        time: `${s.start_time} – ${s.end_time}${s.start_mode === 'hard' ? ' · on time' : ''}`,
         sort: s.start_time,
         title: s.label || p?.name || 'AutoDJ',
         sub: describe(p),

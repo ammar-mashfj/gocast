@@ -29,6 +29,8 @@ export interface AutodjSlot {
   start_time: string;
   /** At or before start_time means the slot runs past midnight. */
   end_time: string;
+  /** 'hard': starts on time. Only the web Schedule edits it; this app keeps it as it is. */
+  start_mode: 'soft' | 'hard';
   position: number;
 }
 

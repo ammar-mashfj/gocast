@@ -24,7 +24,11 @@ function fakeSupervisor(array $containers): LiquidsoapSupervisor
         ? array_fill_keys($containers, ['status' => 'running', 'health' => LiquidsoapSupervisor::HEALTH_HEALTHY])
         : $containers;
 
+    // Every container is on the current config unless a test says otherwise.
+    $states = array_map(fn (array $state) => $state + ['config' => 'current'], $states);
+
     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldReceive('configFingerprint')->andReturn('current')->byDefault();
     $supervisor->shouldReceive('listContainerStates')->andReturn($states);
     $supervisor->shouldReceive('listManagedContainers')->andReturn(array_keys($states));
 
@@ -423,4 +427,162 @@ it('tells an open dashboard when it recreates a wedged station', function () {
         StationStateChanged::class,
         fn (StationStateChanged $e) => $e->slug === 'crash-looping' && $e->event === 'reconciled',
     );
+});
+
+it('recreates a station started on an older config once nobody is broadcasting', function () {
+    // A deploy changed the template, image or docker flags: the container's
+    // label no longer matches what a fresh start would get.
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'stale-idle',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-stale-idle' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+    ]);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-idle-host');
+    $supervisor->shouldReceive('up')->once()->with(Mockery::on(fn ($s) => $s->is($station)));
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'source' => 'autodj', 'broadcaster' => false], 200)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('1 outdated')
+        ->expectsOutputToContain('recreated stale-idle (outdated)')
+        ->assertExitCode(0);
+});
+
+it('judges no station outdated when the image cannot be inspected', function () {
+    // A daemon timeout on `docker image inspect` would otherwise change every
+    // station's fingerprint at once and restart all the idle ones.
+    Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'blind-pass',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-blind-pass' => ['status' => 'running', 'health' => 'healthy', 'config' => 'current'],
+    ]);
+    $supervisor->shouldReceive('configFingerprint')->andReturn(null);
+    $supervisor->shouldNotReceive('up');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $this->artisan('stations:reconcile')
+        ->doesntExpectOutputToContain('outdated')
+        ->assertExitCode(0);
+});
+
+it('leaves an outdated station alone while its broadcast session is open', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'stale-live',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+    $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-stale-live' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+    ]);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-live-host');
+    $supervisor->shouldNotReceive('up');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'source' => 'live', 'broadcaster' => true], 200)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('stale-live outdated, waiting for the broadcast to end')
+        ->assertExitCode(0);
+});
+
+it('leaves an outdated station alone while the container reports a broadcaster', function () {
+    // No session yet: harbor's live_connected callback can trail the connect.
+    Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'stale-joining',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-stale-joining' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+    ]);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-joining-host');
+    $supervisor->shouldNotReceive('up');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'source' => 'autodj', 'broadcaster' => true], 200)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('waiting for the broadcast to end')
+        ->assertExitCode(0);
+});
+
+it('leaves an outdated station alone when its container cannot be asked', function () {
+    Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => 'stale-mute',
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-stale-mute' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+    ]);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-mute-host');
+    $supervisor->shouldNotReceive('up');
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response('', 500)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('waiting for the broadcast to end')
+        ->assertExitCode(0);
+});
+
+it('stops recreating outdated stations after one fails', function () {
+    // A broken template must cost one idle station, not walk the fleet.
+    foreach (['stale-a', 'stale-b'] as $slug) {
+        Station::factory()->for(User::factory(), 'user')->create([
+            'slug' => $slug,
+            'desired_state' => Station::STATE_RUNNING,
+        ]);
+    }
+
+    $supervisor = fakeSupervisor([
+        'gocast-liquidsoap-stale-a' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+        'gocast-liquidsoap-stale-b' => ['status' => 'running', 'health' => 'healthy', 'config' => 'old'],
+    ]);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-host');
+    $supervisor->shouldReceive('up')->once()->andThrow(new RuntimeException('script failed to parse'));
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'source' => 'autodj', 'broadcaster' => false], 200)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('halting outdated recreates')
+        ->assertExitCode(1);
+
+    // Next pass: still halted, nothing touched.
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('left alone')
+        ->assertExitCode(1);
+});
+
+it('spreads outdated recreates across passes', function () {
+    config(['liquidsoap.outdated_recreates_per_pass' => 1]);
+
+    $states = [];
+    foreach (['stale-x', 'stale-y'] as $slug) {
+        Station::factory()->for(User::factory(), 'user')->create([
+            'slug' => $slug,
+            'desired_state' => Station::STATE_RUNNING,
+        ]);
+        $states["gocast-liquidsoap-{$slug}"] = ['status' => 'running', 'health' => 'healthy', 'config' => 'old'];
+    }
+
+    $supervisor = fakeSupervisor($states);
+    $supervisor->shouldReceive('containerHost')->andReturn('stale-host');
+    $supervisor->shouldReceive('up')->once();
+    $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    Http::fake(['*/status' => Http::response(['ready' => true, 'source' => 'autodj', 'broadcaster' => false], 200)]);
+
+    $this->artisan('stations:reconcile')
+        ->expectsOutputToContain('next pass (per-pass limit reached)')
+        ->assertExitCode(0);
 });

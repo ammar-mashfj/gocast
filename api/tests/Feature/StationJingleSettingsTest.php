@@ -221,37 +221,113 @@ it('leaves the rest of the station editable without AutoDJ', function () {
         ->assertJsonPath('data.name', 'Renamed');
 });
 
+// ── Set times ──
+
+it('lets the owner play jingles at set minutes past the hour', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", [
+            'jingles_enabled' => true,
+            'jingle_mode' => Station::JINGLE_MODE_TIMES,
+            'jingle_times' => [30, 0],
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.jingle_mode', 'times')
+        // Sorted, so the card reads them back as a clock.
+        ->assertJsonPath('data.jingle_times', [0, 30]);
+});
+
+it('refuses set-times mode without any times', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", [
+            'jingle_mode' => Station::JINGLE_MODE_TIMES,
+            'jingle_times' => [],
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('jingle_times');
+});
+
+it('refuses a minute that is not on the clock', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", [
+            'jingle_mode' => Station::JINGLE_MODE_TIMES,
+            'jingle_times' => [60],
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('jingle_times.0');
+});
+
+it('refuses to clear the times of a station already in set-times mode', function () {
+    // The request names no mode, so only the saved row says it is set times.
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create([
+        'jingles_enabled' => true,
+        'jingle_mode' => Station::JINGLE_MODE_TIMES,
+        'jingle_times' => [0, 30],
+    ]);
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['jingle_times' => null])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['jingle_times' => 'Pick at least one time past the hour.']);
+
+    expect($station->fresh()->jingle_times)->toBe([0, 30]);
+});
+
+it('refuses set-times mode on a station with no saved times when the request sends none', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['jingle_mode' => Station::JINGLE_MODE_TIMES])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('jingle_times');
+});
+
+it('lets the owner switch back to set times that are already saved', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create([
+        'jingle_mode' => Station::JINGLE_MODE_INTERVAL,
+        'jingle_times' => [15],
+    ]);
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['jingle_mode' => Station::JINGLE_MODE_TIMES])
+        ->assertOk()
+        ->assertJsonPath('data.jingle_times', [15]);
+});
+
+it('lets the owner clear the times while leaving set-times mode', function () {
+    $owner = proOwner();
+    $station = Station::factory()->for($owner, 'user')->create([
+        'jingle_mode' => Station::JINGLE_MODE_TIMES,
+        'jingle_times' => [0],
+    ]);
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", [
+            'jingle_mode' => Station::JINGLE_MODE_INTERVAL,
+            'jingle_times' => null,
+        ])
+        ->assertOk();
+});
+
 // ── The downgrade gate ──
 //
-// The rotation half of a downgrade enforces itself: the container asks Laravel
-// for every track and AutoDjScheduler::next() answers null. The jingle arm
-// asks nobody — it reads an m3u off disk — so a downgraded station used to go
-// silent on music and carry on playing station IDs forever. Worse than
-// cosmetic: a jingle registers on the output meter, so StationAudioPolicy
-// scored the station `InUse` at every sweep and it never powered down.
+// Jingles are handed out by AutoDjScheduler, behind the same plan check as
+// the music (see AutoDjSchedulingTest), so a downgrade takes them off air at
+// the next track boundary by itself. A plan change pushes only the
+// watermark.
 
-it('keeps jingles audible while the owner is on an AutoDJ plan', function () {
-    $station = Station::factory()->for(proOwner(), 'user')->create(['jingles_enabled' => true]);
-
-    expect($station->jinglesAudible())->toBeTrue();
-});
-
-it('takes jingles off air when the owner loses AutoDJ', function () {
-    $owner = proOwner();
-    $station = Station::factory()->for($owner, 'user')->create(['jingles_enabled' => true]);
-
-    $owner->forceFill(['plan_id' => Plan::query()->where('slug', 'free')->value('id')])->save();
-
-    // The column is untouched — the owner's own setting is theirs to keep, and
-    // it comes back on its own if the plan does.
-    expect($station->fresh()->jingles_enabled)->toBeTrue()
-        ->and($station->fresh()->jinglesAudible())->toBeFalse();
-});
-
-it('pushes the jingle switch to running containers on a plan change', function () {
-    // Without a restart, exactly like the watermark: the whole reason both are
-    // interactive variables. A downgrade that waited for the next restart
-    // would leave the station IDs playing for as long as the container lives.
+it('pushes only the watermark to running containers on a plan change', function () {
     $owner = proOwner();
     Station::factory()->for($owner, 'user')->create([
         'jingles_enabled' => true,
@@ -261,7 +337,6 @@ it('pushes the jingle switch to running containers on a plan change', function (
     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
     $supervisor->shouldNotReceive('restart');
     $supervisor->shouldReceive('applyWatermarkSettings')->once();
-    $supervisor->shouldReceive('applyJingleSettings')->once();
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
     $owner->update(['plan_id' => Plan::query()->where('slug', 'free')->value('id')]);
@@ -272,10 +347,10 @@ it('pushes the NEW plan when plans:expire performs the downgrade', function () {
     // written, and the caller that matters most did not: plans:expire
     // eager-loads `plan` to name the ended one in its email, and Eloquent
     // keeps a loaded belongsTo across a change of its key. The observer hands
-    // that same user to the pushes, which walk station -> user -> plan — so
-    // without unsetting it, a term running out pushed `jingles_enabled = true`
-    // and the watermark off, the entitlements of the plan that had just ended.
-    // Asserted on what was actually read, not on the call having happened.
+    // that same user to the push, which walks station -> user -> plan — so
+    // without unsetting it, a term running out pushed the watermark off, the
+    // entitlement of the plan that had just ended. Asserted on what was
+    // actually read, not on the call having happened.
     $owner = proOwner();
     $owner->forceFill(['plan_expires_at' => now()->subMinute()])->save();
     Station::factory()->for($owner, 'user')->create([
@@ -292,16 +367,9 @@ it('pushes the NEW plan when plans:expire performs the downgrade', function () {
 
             return true;
         });
-    $supervisor->shouldReceive('applyJingleSettings')->once()
-        ->andReturnUsing(function (Station $station) use (&$pushed) {
-            $pushed['jingles'] = $station->jinglesAudible();
-
-            return true;
-        });
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
     test()->artisan('plans:expire')->assertSuccessful();
 
-    expect($pushed['jingles'])->toBeFalse()
-        ->and($pushed['watermark'])->toBe((bool) Plan::query()->where('slug', 'free')->value('watermark_enabled'));
+    expect($pushed['watermark'])->toBe((bool) Plan::query()->where('slug', 'free')->value('watermark_enabled'));
 });

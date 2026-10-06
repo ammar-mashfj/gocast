@@ -143,19 +143,11 @@ class TrackController extends Controller
         ], $status);
     }
 
-    public function update(UpdateTrackRequest $request, Track $track, PlaylistFileWriter $writer): JsonResponse
+    public function update(UpdateTrackRequest $request, Track $track): JsonResponse
     {
         $this->authorize('update', $track);
 
         $track->update($request->validated());
-        // For a jingle, title/artist are baked into the annotate: URIs in
-        // jingles.m3u, which Liquidsoap caches on read — without a rewrite,
-        // edits stick in the DB but listeners keep hearing the old
-        // StreamTitle on every replay. A music track needs none of this (the
-        // rotation reads the DB per request), but write() is cheap and
-        // idempotent, so it is not worth branching on kind here.
-        $writer->write($track->station);
-        $writer->reload($track->station);
 
         return response()->json(['data' => new TrackResource($track)]);
     }

@@ -96,7 +96,7 @@ The signed-in web shell for one broadcaster: the sidebar and header, the station
 
 Other things that surprise people:
 
-- **Editing the station profile on a running station restarts its Liquidsoap container.** `name`, `slug`, `description`, `genre` and `artwork_url` are in `StationObserver::LIQ_RELEVANT_COLUMNS`, so a changed value re-renders the `.liq` and calls `supervisor->up()`, which "always re-renders the .liq and restarts the container ... a restart drops connected listeners" (`LiquidsoapSupervisor::up` docblock). Show times, timezone, social links, `theme_config` are not in that list and never restart anything.
+- **Editing the station profile on a running station restarts its Liquidsoap container**, or, if someone is live, restarts it right after the show (the reconciler's Outdated pass). `name`, `slug`, `description` and `genre` are in `StationObserver::LIQ_RELEVANT_COLUMNS`, so a changed value re-renders the `.liq` and calls `supervisor->up()`, which "always re-renders the .liq and restarts the container ... a restart drops connected listeners" (`LiquidsoapSupervisor::up` docblock). Artwork, show times, timezone, social links, `theme_config` are not in that list and never restart anything.
 - **"Delete station" is a soft delete.** The container comes down at once; the row, audio and history stay for 30 days and are then erased by `stations:prune-deleted`. The dialog says "This can't be undone", and in the product that is true (no restore UI or endpoint exists), but the data is not gone for a month.
 - **The station has two "states" on the same screen** with different sources of truth: the server-rendered Overview page carries the cheap intent-derived `state`, while `StationPower` polls `/stations/{slug}/status` and paints the real one. See Overview below.
 
@@ -278,18 +278,19 @@ Client (`StationFormDialog`): success shows "Station created - ready to go live?
 | `name` | `sometimes`, string, max 100 | Edit profile dialog | `sometimes` plus not nullable: an explicit null is a 422. Restarts a running container. |
 | `description` | nullable string | Edit profile dialog | No length cap; the column is `text`. Restarts a running container. |
 | `genre` | nullable string, max 255 | Edit profile dialog | Restarts a running container. |
-| `artwork_url` | nullable string, `url:http,https`, max 2048 | Edit profile dialog (after an upload) | Any http(s) URL is accepted, not only ones we uploaded. Restarts a running container. |
+| `artwork_url` | nullable string, `url:http,https`, max 2048 | Edit profile dialog (after an upload) | Any http(s) URL is accepted, not only ones we uploaded. Never restarts the container (the script does not use it). |
 | `timezone` | nullable, `timezone:all` | Nothing in the web or mobile apps (both send the zone in `PUT /stations/{slug}/schedules`, [Schedule](schedule.md)) | IANA name only. Clearing to null is a 422 while any show time (`schedules()`) or AutoDJ slot (`autodjSlots()`) exists (`withValidator` after-hook, two separate messages). Column `varchar(64)`. |
 | `social_links` | nullable array, max 8 (`Station::MAX_SOCIAL_LINKS`); each element `array:label,url` (extra keys rejected); `url` required string `url:http,https` max 2048; `label` nullable string max 30 | `LinksEditor` | Full-list replace; stored as JSON. |
 | `theme_config` | nullable array | nothing | **Dead.** Validated, stored and returned, read by no client code. |
 | `jingles_enabled` | `sometimes` boolean | Library jingles dialog | Turning it **on** requires AutoDJ (`StationLifecycleService::assertAutoDjEnabled`); turning it off is always allowed. |
-| `jingle_mode` | `sometimes`, in `interval`, `tracks` | Library jingles dialog | |
+| `jingle_mode` | `sometimes`, in `interval`, `tracks`, `times` | Library jingles dialog | |
 | `jingle_interval_seconds` | `sometimes` integer 60..14400 | Library jingles dialog | |
 | `jingle_every_tracks` | `sometimes` integer 1..100 | Library jingles dialog | |
+| `jingle_times` | nullable array, 1..12 items, each integer 0..59, distinct | Library jingles dialog | Minutes past the hour, in the station's zone. Set-times mode with no times is a 422, judged on the row after the request (the request's mode/times, else the saved ones; `withValidator` after-hook), so clearing the times of a station already in that mode is refused. |
 
 `slug` in a payload is ignored. Admin-owned columns (`featured`, `featured_at`, `stream_key`, `desired_state`...) are not in the rules, so `validated()` never carries them. The model uses `$guarded = []`, so anything that bypasses the FormRequest (admin code, factories, tinker) can write any column.
 
-Observer effects on update (`StationObserver::updated`): jingle columns changed on a running station are pushed over telnet (`applyJingleSettings`), no restart. If any of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changed and the station is running, `supervisor->up()` restarts it (`safely()`: a Docker failure is logged, not thrown, and `stations:reconcile` later converges). A stopped station just picks the change up at next start. Slug-change branches (stop old container, rename the playlist directory) exist but are unreachable through the API today because the slug is immutable.
+Observer effects on update (`StationObserver::updated`): jingle columns need nothing (Laravel reads them per track). If any of `name, slug, description, genre, icecast_mount` changed and the station is running and nobody is live, `supervisor->up()` restarts it (live: the reconciler does it after the show) (`safely()`: a Docker failure is logged, not thrown, and `stations:reconcile` later converges). A stopped station just picks the change up at next start. Slug-change branches (stop old container, rename the playlist directory) exist but are unreachable through the API today because the slug is immutable.
 
 Audit: `LogsActivity` on `Station` logs only `name, slug, description, genre, featured, desired_state`, dirty only. Artwork, timezone and social links are not in the activity log.
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ReplaceAutodjSlotsRequest;
 use App\Http\Resources\StationResource;
+use App\Models\AutodjSlot;
 use App\Models\Station;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,7 @@ class AutodjSlotController extends Controller
                     'days' => collect($row['days'])->map(fn ($day) => (int) $day)->unique()->sort()->values()->all(),
                     'start_time' => $row['start_time'],
                     'end_time' => $row['end_time'],
+                    'start_mode' => $row['start_mode'] ?? AutodjSlot::START_SOFT,
                     'position' => $position,
                 ]);
             }

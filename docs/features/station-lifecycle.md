@@ -214,7 +214,7 @@ The mobile studio's budget is `30 * 60_000` (`mobile/src/broadcast/broadcastMana
 
 ### AutoDJ audibility and "fault"
 
-`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()` (returns null for a non-AutoDJ plan), and in `Station::jinglesAudible()` (jingle arm requires the owner's switch and the plan, so a downgraded station does not keep meter signal from jingles). So:
+`hasPlayableRotation()` is true only if the owner's plan has `autodj_enabled` **and** the playlist that `AutoDjProgramme::resolve($station)['playlist']` names right now has at least one track. Jingles do not count. The same gate appears in `AutoDjScheduler::next()` (returns null for a non-AutoDJ plan), which also covers jingles, since they are handed out by the same call (so a downgraded station does not keep meter signal from jingles). So:
 
 - Pro station, playlist has tracks, silent output: `Fault` (alert only, never stopped, stays on air).
 - Pro station, resolved playlist empty (even with a full library elsewhere): not a fault; eligible to stop.
@@ -234,11 +234,12 @@ Every minute (`console.php`). It compares `docker ps -a` to intent (`ReconcileSt
 | Unwanted | station exists but stopped or soft-deleted | remove (this is what stops `--restart unless-stopped` resurrecting stopped stations after a reboot) |
 | Missing | `desired_state = running`, no container | `PlaylistFileWriter::write` + `supervisor->up()` directly (not through `StationLifecycleService`, so no lock, no `station_events` row), broadcast `StationStateChanged` event `reconciled` |
 | Unhealthy | status in `restarting`/`exited`/`dead`/`paused` or health `unhealthy` (health `starting` is not unhealthy) | after 2 consecutive passes (counter reset when a pass finds it healthy), remove + recreate; the recreate counter expires 1 hour after the latest recreate, and at 3 the reconciler logs an error, leaves it, and the command exits FAILURE; `reconciled` event |
+| Outdated | healthy wanted container (health not `starting`) whose `gocast.config` label differs from `supervisor->configFingerprint()` (hash of the rendered `.liq` with the watermark forced off, the image ID, and every `docker run` flag); unlabelled containers always differ | only if nobody is broadcasting (no open `StreamSession`, and a reachable container whose `broadcaster`, fallback `source === 'live'`, is false; unreachable waits): `ensureDirectory` + `up()`, `reconciled` event. At most `LIQUIDSOAP_OUTDATED_RECREATES_PER_PASS` (5) per pass; a failed recreate sets cache key `stations-outdated-halt` for 1 h, during which no outdated station is touched and the command exits FAILURE |
 | Stranded session | open session on a running station while container `broadcaster` (fallback `source === 'live'`) is false | after 3 consecutive passes, close the session (`ended_at = now`). Uses the cached `fetch()`; skipped if the container does not answer. Sends no realtime event and does not delete `metadata:{id}` |
 
 Counters live in cache keys `station-unhealthy-passes:` (6 h), `station-recreates:` (1 h), `station-live-strikes:` (1 h). `--dry-run` supported. The command also exits FAILURE when any action throws.
 
-A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it rewrites the m3u and calls `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop).
+A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is not scheduled: it calls `supervisor->up()` for every `running` station, which **restarts** containers that are already healthy (listeners drop, live DJs are cut off). It is the force; a template, image or flag change otherwise reaches each station through the Outdated row above, once its broadcast ends.
 
 ### What clients see in each failure
 
@@ -285,7 +286,7 @@ The container's `live_disconnected` never says why a broadcaster left. The web s
 | Cache `station-status:{id}` | status cache | `StationStatusService` |
 | Cache `station-lifecycle:{id}` | lifecycle lock | `StationLifecycleService` |
 
-`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount, icecast_password, artwork_url` changes (jingle columns are instead pushed live over telnet, only when running); a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes watermark and jingle settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
+`StationObserver::updated()` restarts (`supervisor->up()`) a **running** station when one of `name, slug, description, genre, icecast_mount` changes, unless someone is live (then the reconciler's Outdated pass restarts it after the show; a slug change never waits) (jingle columns are instead pushed live over telnet, only when running); a stopped station is left alone and picks changes up at next start, except that a **slug** change always tears down the old-slug container and renames the playlists directory, running or not. `deleting` (soft delete) removes the container without touching `desired_state`; `restored` brings it back only if `desired_state` was `running`. `UserObserver::updated()` pushes watermark and jingle settings to a user's running stations over telnet when `plan_id` changes; it does not stop or start anything. Station `desired_state` changes are also written to the activity log (`Station::getActivitylogOptions`).
 
 ## Surfaces
 

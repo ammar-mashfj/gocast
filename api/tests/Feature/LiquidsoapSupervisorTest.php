@@ -136,155 +136,35 @@ it('mounts the station script read-only and the hls directory writable', functio
         ->toContain('/data/hls');
 });
 
-it('sets jingle settings over telnet in liquidsoap var syntax', function () {
-    // Liquidsoap's `var.set` is typed: a float variable refuses "1800", and a
-    // bool refuses "1". Both failures are answered on a socket nobody reads,
-    // so the setting silently never applies and the only symptom is a station
-    // that ignores its own settings until it happens to restart.
-    // onPlan('pro'): the switch is gated on the owner's plan too — see
-    // Station::jinglesAudible() — so a free owner would push `false` here and
-    // this test would be asserting against the gate rather than the syntax.
-    $station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->make([
-        'slug' => 'night-shift',
-        'jingles_enabled' => true,
-        'jingle_interval_seconds' => 900,
-    ]);
+it('changes the config fingerprint when a setting baked into the script changes', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create(['name' => 'Before']);
+    $supervisor = app(LiquidsoapSupervisor::class);
 
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingles_enabled = true')
-        ->andReturn('Variable jingles_enabled set.');
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingle_by_tracks = false')
-        ->andReturn('Variable jingle_by_tracks set.');
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingle_interval = 900.0')
-        ->andReturn('Variable jingle_interval set.');
-    // Int variable, so no decimal point — the mirror image of the float above.
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingle_every_tracks = 5')
-        ->andReturn('Variable jingle_every_tracks set.');
+    $before = $supervisor->configFingerprint($station);
+    $station->name = 'After';
 
-    expect($supervisor->applyJingleSettings($station))->toBeTrue();
+    expect($supervisor->configFingerprint($station))->not->toBe($before);
 });
 
-it('pushes both modes settings, not only the active one', function () {
-    // They are independent variables in the script. Sending only the mode in
-    // use would leave the other stale, so switching modes back would briefly
-    // apply whatever was last written until the next save.
-    $station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->make([
-        'jingles_enabled' => true,
-        'jingle_mode' => Station::JINGLE_MODE_TRACKS,
-        'jingle_interval_seconds' => 600,
-        'jingle_every_tracks' => 8,
-    ]);
+it('keeps the config fingerprint when only artwork changes', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+    $supervisor = app(LiquidsoapSupervisor::class);
 
-    $sent = [];
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')
-        ->times(4)
-        ->andReturnUsing(function ($_station, $command) use (&$sent) {
-            $sent[] = $command;
+    $before = $supervisor->configFingerprint($station);
+    $station->artwork_url = 'https://example.com/other.png';
 
-            return '';
-        });
-
-    $supervisor->applyJingleSettings($station);
-
-    expect($sent)->toBe([
-        'var.set jingles_enabled = true',
-        'var.set jingle_by_tracks = true',
-        'var.set jingle_interval = 600.0',
-        'var.set jingle_every_tracks = 8',
-    ]);
+    expect($supervisor->configFingerprint($station))->toBe($before);
 });
 
-it('sends false rather than omitting the switch when jingles are turned off', function () {
-    // Turning jingles OFF is a change that has to travel too. Skipping the
-    // command would leave a running container happily playing station IDs the
-    // owner just disabled.
-    $station = Station::factory()->for(User::factory(), 'user')->make([
-        'jingles_enabled' => false,
-        'jingle_interval_seconds' => 1800,
-    ]);
+it('keeps the config fingerprint when the owner plan flips the watermark', function () {
+    // The watermark follows the plan and is pushed live; a plan change must
+    // not read as drift and recreate the station.
+    $station = Station::factory()->for(User::factory(), 'user')->create();
 
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingles_enabled = false')
-        ->andReturn('');
-    $supervisor->shouldReceive('telnet')->times(3)->andReturn('');
+    $on = Mockery::mock(LiquidsoapSupervisor::class, [])->makePartial();
+    $on->shouldReceive('watermarkEnabledFor')->andReturn(true);
+    $off = Mockery::mock(LiquidsoapSupervisor::class, [])->makePartial();
+    $off->shouldReceive('watermarkEnabledFor')->andReturn(false);
 
-    expect($supervisor->applyJingleSettings($station))->toBeTrue();
-});
-
-it('sends false for a station whose owner is not on an AutoDJ plan', function () {
-    // The owner's switch is still on — it is theirs to keep, and it comes back
-    // if the plan does. What changes is whether the arm may play: the jingle
-    // playlist reads an m3u off disk and asks nobody, so this push is the only
-    // thing that takes station IDs off air short of a restart. Left playing,
-    // they keep signal on the output meter and StationAudioPolicy never scores
-    // the station silent enough to power down.
-    $station = Station::factory()->for(User::factory()->onPlan('free'), 'user')->make([
-        'jingles_enabled' => true,
-        'jingle_interval_seconds' => 1800,
-    ]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with($station, 'var.set jingles_enabled = false')
-        ->andReturn('');
-    $supervisor->shouldReceive('telnet')->times(3)->andReturn('');
-
-    expect($supervisor->applyJingleSettings($station))->toBeTrue();
-});
-
-it('reports failure without throwing when the container cannot be reached', function () {
-    // Best-effort, like the playlist reload: the values are also rendered into
-    // the script as its initial state, so an unreachable container picks them
-    // up on its next start. A failed push must never fail the HTTP request
-    // that saved the setting.
-    $station = Station::factory()->for(User::factory(), 'user')->make();
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->once()->andThrow(new RuntimeException('connect failed'));
-
-    expect($supervisor->applyJingleSettings($station))->toBeFalse();
-});
-
-it('never sends an interval that would fire a jingle between every track', function () {
-    // The request layer enforces a 60s minimum, but a row edited by hand or by
-    // a seeder must not be able to reach delay() as 0 — that makes the jingle
-    // source permanently ready, so every single track boundary plays one.
-    $station = Station::factory()->for(User::factory(), 'user')->make([
-        'jingles_enabled' => true,
-        'jingle_interval_seconds' => 0,
-    ]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set jingle_interval = 60.0');
-    $supervisor->shouldReceive('telnet')->times(3)->andReturn('');
-
-    $supervisor->applyJingleSettings($station);
-});
-
-it('never sends a track count that would satisfy the counter permanently', function () {
-    // The count gate is `tracks_since_jingle() >= N`. At N=0 that is true the
-    // instant a jingle ends, so every boundary would play one.
-    $station = Station::factory()->for(User::factory(), 'user')->make([
-        'jingles_enabled' => true,
-        'jingle_mode' => Station::JINGLE_MODE_TRACKS,
-        'jingle_every_tracks' => 0,
-    ]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set jingle_every_tracks = 1');
-    $supervisor->shouldReceive('telnet')->times(3)->andReturn('');
-
-    $supervisor->applyJingleSettings($station);
+    expect($on->configFingerprint($station))->toBe($off->configFingerprint($station));
 });

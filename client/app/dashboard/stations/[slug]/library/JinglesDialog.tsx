@@ -48,6 +48,22 @@ const INTERVALS = [5, 10, 15, 30, 60, 120]
 /** Track counts, same reasoning. The API accepts 1–100. */
 const TRACK_COUNTS = [2, 3, 5, 8, 10, 15, 20]
 
+/**
+ * Set times past the hour we offer, same reasoning as the lists above. The
+ * API takes any minutes 0–59 (up to twelve), so this can grow without a
+ * backend change.
+ */
+const TIME_PRESETS: number[][] = [[0], [0, 30], [0, 15, 30, 45], [30]]
+
+function timesKey(minutes: number[]): string {
+  return [...minutes].sort((a, b) => a - b).join(",")
+}
+
+function timesLabel(minutes: number[]): string {
+  const marks = [...minutes].sort((a, b) => a - b).map((m) => `:${String(m).padStart(2, "0")}`)
+  return marks.length === 1 ? marks[0] : `${marks.slice(0, -1).join(", ")} and ${marks[marks.length - 1]}`
+}
+
 function intervalLabel(minutes: number): string {
   if (minutes < 60) return `${minutes} minutes`
   return minutes === 60 ? "hour" : `${minutes / 60} hours`
@@ -70,6 +86,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     Math.round(station.jingle_interval_seconds / 60),
   )
   const [everyTracks, setEveryTracks] = useState(station.jingle_every_tracks)
+  const [times, setTimes] = useState(timesKey(station.jingle_times.length > 0 ? station.jingle_times : [0]))
   const [jingles, setJingles] = useState<Track[]>([])
   const [loading, setLoading] = useState(true)
   // Inline rather than a toast alone: with the list empty, a failed load
@@ -116,12 +133,14 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     setMode(station.jingle_mode)
     setIntervalMinutes(Math.round(station.jingle_interval_seconds / 60))
     setEveryTracks(station.jingle_every_tracks)
+    setTimes(timesKey(station.jingle_times.length > 0 ? station.jingle_times : [0]))
   }, [
     open,
     station.jingles_enabled,
     station.jingle_mode,
     station.jingle_interval_seconds,
     station.jingle_every_tracks,
+    station.jingle_times,
   ])
 
   const handleUploaded = useCallback(
@@ -170,18 +189,17 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
   async function handleSave() {
     setSaving(true)
     try {
-      // Both modes' settings are sent, not just the active one, so switching
+      // Every mode's setting is sent, not just the active one, so switching
       // back later restores what the owner last chose rather than a default.
       await api.patch(`/stations/${station.slug}`, {
         jingles_enabled: enabled,
         jingle_mode: mode,
         jingle_interval_seconds: intervalMinutes * 60,
         jingle_every_tracks: everyTracks,
+        jingle_times: times.split(",").map((m) => parseInt(m, 10)),
       })
-      // No restart involved: these two settings are interactive variables in
-      // the station's Liquidsoap script, pushed over telnet. A live station
-      // picks the change up at its next track boundary without dropping
-      // anyone.
+      // No restart involved: AutoDJ reads these settings each time it picks
+      // the next track, so a live station picks the change up from there.
       toast.success(
         enabled
           ? "Jingles on — takes effect after the current track."
@@ -207,7 +225,13 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
     enabled !== station.jingles_enabled ||
     mode !== station.jingle_mode ||
     intervalMinutes * 60 !== station.jingle_interval_seconds ||
-    everyTracks !== station.jingle_every_tracks
+    everyTracks !== station.jingle_every_tracks ||
+    times !== timesKey(station.jingle_times.length > 0 ? station.jingle_times : [0])
+
+  // A station saved with times outside the presets keeps them on offer.
+  const timeOptions = TIME_PRESETS.some((preset) => timesKey(preset) === times)
+    ? TIME_PRESETS
+    : [...TIME_PRESETS, times.split(",").map((m) => parseInt(m, 10))]
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
@@ -217,8 +241,7 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
           <DialogDescription>
             Short clips that play between AutoDJ songs, like &ldquo;You&apos;re
             listening to&hellip;&rdquo;. Radio calls them station IDs
-            and liners. They never cut into a song: each waits for the current
-            track to finish.
+            and liners.
           </DialogDescription>
         </DialogHeader>
 
@@ -291,16 +314,43 @@ export function JinglesDialog({ open, onClose, station, onStorageChange }: Props
                   }))}
                 />
               </label>
+
+              <label
+                className={`flex items-center gap-2 text-sm ${enabled ? "" : "opacity-50"}`}
+              >
+                <input
+                  type="radio"
+                  name="jingle-mode"
+                  value="times"
+                  checked={mode === "times"}
+                  onChange={() => setMode("times")}
+                  disabled={!enabled}
+                  className="accent-primary"
+                />
+                <span>At</span>
+                <Select
+                  aria-label="Times past the hour"
+                  value={times}
+                  onChange={setTimes}
+                  disabled={!enabled || mode !== "times"}
+                  className="w-48"
+                  options={timeOptions.map((minutes) => ({
+                    value: timesKey(minutes),
+                    label: `${timesLabel(minutes)} past the hour`,
+                  }))}
+                />
+              </label>
             </div>
 
             <FieldDescription>
               {mode === "interval"
-                ? "Predictable in real time — good for legal IDs and sponsor reads. On a station with long tracks the actual gap can run past this, because the jingle still waits for the current track to end."
-                : "Even spacing through your rotation. How often that lands in real time depends on how long your tracks are."}
+                ? "Predictable in real time — good for legal IDs and sponsor reads. It’s a minimum, never a cut: the jingle waits for the current track to finish, so on a station with long tracks the gap can run past this."
+                : mode === "tracks"
+                  ? "Even spacing through your rotation. It never cuts a song: the jingle waits for the current track to finish."
+                  : "On the clock. Before each time, AutoDJ picks songs that end in time for the jingle. If none fits, the song before it fades out."}
             </FieldDescription>
             <FieldDescription>
-              Either way it&apos;s a minimum, never a cut: the jingle waits for the
-              current track to finish. Changes apply live — your station stays on air.
+              Changes apply live — your station stays on air.
             </FieldDescription>
           </Field>
         </FieldGroup>

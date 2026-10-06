@@ -77,7 +77,7 @@ In `station.blade.php` the graph is:
    - 204: returns `null`, silently ("nothing to play" is normal for a live-only station).
    - Any other status, or an exception: `log.severe(...)` "rotation stalled" and `null`.
    - After a `null`, Liquidsoap waits `retry_delay` and asks again. Rendered from `config('liquidsoap.autodj_retry_delay_seconds')` (env `LIQUIDSOAP_AUTODJ_RETRY_DELAY`, default 10.0), floored at 1.0 by `LiquidsoapSupervisor` when rendering. So every running station with no rotation calls the API every 10 s for as long as it runs.
-2. `jingles` (a `playlist()` on `jingles.m3u`, gated by an interactive bool) and `autodj` are joined by `autodj_rotation = fallback(track_sensitive = true, [jingle_arm, autodj])`. Jingles are out of scope here; see [Liquidsoap station script](liquidsoap-station-script.md).
+2. `autodj_rotation = autodj` with crossfade on, `fade.out(track_sensitive=true, duration=0.1, autodj)` with it off (the fade a cut song asks for with `liq_fade_out`). There is no jingle source in the graph: jingles come through `next-track` too, chosen by `JingleClock` (interval, every N songs, or set minutes past the hour) and annotated `jingle="true"`. See [Schedule](schedule.md) for on-time planning.
 3. `amplify(1., autodj_rotation)` when `applyAmplify` is on (`LIQUIDSOAP_APPLY_AMPLIFY`, default true). It acts on the per-track `liq_amplify` annotation and wraps jingles too.
 4. `cross(...)` (crossfade) only when `crossfade_enabled` (`LIQUIDSOAP_CROSSFADE_ENABLED`, default **false**). Off means hard cuts. Duration 5, fade 3, high -15 dB, medium -32 dB, margin 4 dB are the defaults in `config/liquidsoap.php`. A jingle is never crossfaded.
 5. `limit(...)` on the AutoDJ arm only when `limiter_include_live` is false. By default (true) the limiter sits at the bottom of the graph instead, over live too.
@@ -127,7 +127,7 @@ Switching a playlist between orders is a plain `PATCH /playlists/{playlist}` `or
 
 Amplify gain = target LUFS (`-14`) minus measured loudness, capped so true peak stays under the ceiling (`-1` dBFS), capped above at `+12` dB, attenuation unlimited. It is computed at answer time from stored raw measurements, so changing the config re-levels the library at each station's next boundary. Quotes and backslashes in values are backslash-escaped.
 
-`PlaylistFileWriter` no longer writes any music playlist file. `write()` only creates the station directory and rewrites `jingles.m3u`; `reload()` only sends `jingles_m3u.reload` over telnet, and only if `jingles_enabled`. It is still called after every track import/delete/reorder (`TrackImporter`), so a music upload sends a harmless jingle reload for jingle-enabled stations.
+`PlaylistFileWriter` writes no playlist files at all. `ensureDirectory()` creates the station directory before a container starts; nothing reloads anything over telnet. A `jingles.m3u` left from before may still sit in a station directory; nothing reads it.
 
 ### The endpoint contract
 

@@ -23,11 +23,14 @@ use Throwable;
  *
  *  • updated   → re-render the .liq (name/genre/desc land in the Icecast
  *                metadata block) and restart — but only while the station is
- *                meant to be running. A stopped station picks up the change
- *                when it next starts, since up() always re-renders.
- *                Jingle settings are the exception: they are interactive
- *                variables in the script, so they go over telnet and cost no
- *                listener their audio.
+ *                meant to be running, and not while someone is live: that
+ *                restart would cut the show off, so it is left to
+ *                `stations:reconcile`, which recreates the station once the
+ *                broadcast ends (the edit changed its config fingerprint).
+ *                A stopped station picks up the change when it next starts,
+ *                since up() always re-renders.
+ *                Jingle settings are not in the script at all: Laravel
+ *                reads them at every track boundary (JingleClock).
  *  • deleting  → stop and remove the container (also fires for soft deletes;
  *                listeners stop hearing the station as soon as it's "deleted")
  *  • restored  → bring a soft-deleted station back, if it was running
@@ -74,6 +77,12 @@ class StationObserver
      * any of these requires a Liquidsoap container restart so the new value
      * lands in the Icecast metadata block / output mount / etc.
      *
+     * Only columns the template actually reads. `artwork_url` and
+     * `icecast_password` used to be here and were never in the script —
+     * artwork reaches players through the API, and the source password is
+     * the install-wide one from config — so changing either restarted the
+     * station for nothing.
+     *
      * Importantly this excludes `listener_count` and the timestamps — those
      * change constantly during a broadcast, and restarting Liquidsoap on each
      * change would kick every listener off mid-stream. Live-ness is no longer
@@ -87,38 +96,10 @@ class StationObserver
         'description',
         'genre',
         'icecast_mount',
-        'icecast_password',
-        'artwork_url',
-    ];
-
-    /**
-     * Columns that reach a running container over telnet instead of through a
-     * restart. Deliberately NOT in the list above: these two are declared as
-     * interactive variables in the script (see LiquidsoapSupervisor's
-     * VAR_JINGLES_* constants), so changing how often a station ID plays costs
-     * nobody their audio.
-     *
-     * The rendered script still carries them as its initial state, so a
-     * station that is stopped — or one whose telnet push fails — picks the new
-     * values up on its next start regardless.
-     */
-    private const JINGLE_COLUMNS = [
-        'jingles_enabled',
-        'jingle_mode',
-        'jingle_interval_seconds',
-        'jingle_every_tracks',
     ];
 
     public function updated(Station $station): void
     {
-        // Handled first and independently of everything below: a jingle change
-        // is applied to the live container, never by restarting it. A station
-        // that is stopped needs nothing at all — up() renders the current
-        // values into the script whenever it next starts.
-        if ($station->wasChanged(self::JINGLE_COLUMNS) && $station->isRunning()) {
-            $this->safely('jingle-settings', $station, fn () => $this->supervisor->applyJingleSettings($station));
-        }
-
         if (! $station->wasChanged(self::LIQ_RELEVANT_COLUMNS)) {
             return;
         }
@@ -162,6 +143,12 @@ class StationObserver
             return;
         }
 
+        // A rename cannot wait: the old container was just removed above.
+        // Anything else waits for the show to end — see the class docblock.
+        if (! $station->wasChanged('slug') && $station->isLive()) {
+            return;
+        }
+
         $this->safely('up', $station, fn () => $this->supervisor->up($station));
     }
 
@@ -199,6 +186,9 @@ class StationObserver
             return;
         }
 
+        // No live guard here, unlike updated(): deleting() already removed the
+        // container, so there is no show left to protect, and a stream session
+        // left open by the delete would otherwise keep the station down.
         $this->safely('up', $station, fn () => $this->supervisor->up($station));
     }
 

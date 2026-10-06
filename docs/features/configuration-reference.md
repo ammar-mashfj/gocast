@@ -279,7 +279,7 @@ Assembled by `LiquidsoapSupervisor::baseRunCommand/sandboxFlags/healthFlags/reso
 - **Timeouts inside the supervisor (constants, not env):** docker command 10 s, docker read 3 s, telnet 3 s (`LiquidsoapSupervisor.php:79,93,106`).
 - The station's own `docker run` for analysis uses `--network none`, so analysis cannot reach Icecast or the API.
 
-Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appears in the script does not affect an already-running station** until it is re-rendered and recreated. Exceptions: the station's jingle settings and the watermark enabled/interval/duck are interactive variables pushed over telnet (`applyJingleSettings`, `applyWatermarkSettings`, the latter called from `UserObserver.php:120` when an owner's plan changes), so they change live, but the interval/duck pushed are whatever config held at that moment. See [Liquidsoap supervisor](liquidsoap-supervisor.md) and [Liquidsoap station script](liquidsoap-station-script.md).
+Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appears in the script does not affect an already-running station** until it is re-rendered and recreated. Exceptions: jingle settings are not in the script at all (Laravel reads them per track), and the watermark enabled/interval/duck are interactive variables pushed over telnet (`applyWatermarkSettings`, called from `UserObserver.php:120` when an owner's plan changes), so they change live, but the interval/duck pushed are whatever config held at that moment. See [Liquidsoap supervisor](liquidsoap-supervisor.md) and [Liquidsoap station script](liquidsoap-station-script.md).
 
 ## Test environment (API)
 

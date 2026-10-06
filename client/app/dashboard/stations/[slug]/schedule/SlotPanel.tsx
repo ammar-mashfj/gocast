@@ -20,7 +20,7 @@ interface Props {
   playlists: Playlist[]
   swatchFor: (playlistId: string) => Swatch
   /** Applied to the block and its siblings on every ticked day. */
-  onChange: (patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end">>) => void
+  onChange: (patch: Partial<Pick<Block, "label" | "playlistId" | "start" | "end" | "startMode">>) => void
   onToggleDay: (day: number) => void
   onDone: () => void
   onDelete: () => void
@@ -111,6 +111,31 @@ export function SlotPanel({
         />
       </div>
 
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-xs text-muted-foreground">When it starts</legend>
+        <div className="flex flex-col gap-1" role="radiogroup">
+          {START_MODES.map((mode) => {
+            const on = block.startMode === mode.value
+            return (
+              <button
+                key={mode.value}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => onChange({ startMode: mode.value })}
+                className={cn(
+                  "flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2.5 text-left transition-colors motion-reduce:transition-none",
+                  on ? "bg-white/[0.07] text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                )}
+              >
+                <span className="text-sm font-medium">{mode.label}</span>
+                <span className="text-xs text-muted-foreground">{mode.hint}</span>
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+
       <div className="flex flex-col gap-2">
         <span className="text-xs text-muted-foreground">Days</span>
         <div role="group" aria-label="Days this slot runs" className="flex flex-wrap gap-2">
@@ -151,6 +176,19 @@ export function SlotPanel({
     </div>
   )
 }
+
+const START_MODES: { value: Block["startMode"]; label: string; hint: string }[] = [
+  {
+    value: "soft",
+    label: "After the current song",
+    hint: "The song playing at the start time finishes first.",
+  },
+  {
+    value: "hard",
+    label: "Exactly on time",
+    hint: "AutoDJ picks songs that end in time. If none fits, the last one fades out.",
+  },
+]
 
 function TimeStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const step = (by: number) => onChange(toClock(Math.round((toMinutes(value) + by) / SNAP) * SNAP + DAY_MINUTES))

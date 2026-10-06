@@ -182,7 +182,11 @@ export function DayList({
                 >
                   <span aria-hidden="true" className={cn("w-1 shrink-0 rounded-full", swatch.dot)} />
                   <Row
-                    time={s.head ? `${s.block.start} – ${s.block.end}` : `→ ${s.block.end}`}
+                    time={
+                      s.head
+                        ? `${s.block.start} – ${s.block.end}${s.block.startMode === "hard" ? " · on time" : ""}`
+                        : `→ ${s.block.end}`
+                    }
                     title={nameFor(s.block)}
                     sub={
                       clash

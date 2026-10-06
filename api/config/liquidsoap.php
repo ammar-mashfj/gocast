@@ -644,6 +644,23 @@ return [
     'autodj_retry_delay_seconds' => (float) env('LIQUIDSOAP_AUTODJ_RETRY_DELAY', 10.0),
 
     /*
+    | On-time starts (AutoDjScheduler). Before a slot set to start on time, or
+    | a jingle at a set time, AutoDJ hands out songs that end before it and
+    | fades one out only when none fits. When the gap left is under this many
+    | seconds it starts the slot or jingle that much early instead: a few
+    | seconds early is inaudible, a song cut after ten seconds is not.
+    */
+    'hard_start_early_seconds' => (float) env('LIQUIDSOAP_HARD_START_EARLY_SECONDS', 20.0),
+
+    /*
+    | How far listeners are behind the container's own timeline, which is
+    | what the X-Gocast-Remaining header measures. Unset, it is the crossfade
+    | window when crossfade is on and zero when it is off — see
+    | AutoDjScheduler::leadSeconds() for the measurements.
+    */
+    'planning_lead_seconds' => env('LIQUIDSOAP_PLANNING_LEAD_SECONDS'),
+
+    /*
     |--------------------------------------------------------------------------
     | Auto-stop
     |--------------------------------------------------------------------------
@@ -861,6 +878,15 @@ return [
 
     'unhealthy_passes_before_recreate' => (int) env('LIQUIDSOAP_UNHEALTHY_PASSES', 2),
     'unhealthy_recreates_per_hour' => (int) env('LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR', 3),
+
+    /*
+    | Outdated stations (container started on an older .liq, image or docker
+    | flags) the reconciler recreates per pass, once nobody is broadcasting.
+    | Spreads a template change across minutes instead of restarting the whole
+    | box at once. A failed recreate halts the rest for an hour.
+    */
+
+    'outdated_recreates_per_pass' => (int) env('LIQUIDSOAP_OUTDATED_RECREATES_PER_PASS', 5),
 
     /*
     | Consecutive passes an open StreamSession may disagree with its container

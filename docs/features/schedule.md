@@ -98,7 +98,7 @@ Everything confusing about this feature comes from the two looking alike: both h
 4. If the active slot's playlist is empty, it falls through to the default playlist, not to silence.
 5. An end at or before the start means the slot runs past midnight into the next day, and it's filed under the day it starts.
 
-**Playback** is `AutoDjScheduler::next`, called by the container's `request.dynamic` through `GET /internal/next-track` at every track boundary:
+**Playback** is `AutoDjScheduler::next`, called by the container's `request.dynamic` through `GET /internal/next-track` at every track boundary. The container sends `X-Gocast-Remaining`, the seconds left on its current track, so the answer's start time is known: `now + remaining`, plus the crossfade window when crossfade is on (`AutoDjScheduler::leadSeconds()`, override `LIQUIDSOAP_PLANNING_LEAD_SECONDS`). The programme is resolved **at that start time**, not at now. A container on a script older than the header is served the old way: resolved at now, music only.
 
 - **Plan gate:** if the owner can't use AutoDJ, it returns null, the endpoint answers 204, and nothing plays. This is the only real enforcement point.
 - Each playlist keeps its own cursor or shuffle deck, so leaving a playlist and coming back resumes where it left off.
@@ -106,7 +106,11 @@ Everything confusing about this feature comes from the two looking alike: both h
 
 **Timing consequences:**
 
-- A slot starts at the **next track boundary**, not on the minute. A long track delays it by the rest of that track.
+- Each slot has a `start_mode` (`autodj_slots.start_mode`, default `soft`). The editor calls them "After the current song" and "Exactly on time".
+- **Soft:** the slot starts with the first track that *starts* after its start time. The song playing at the start time finishes first.
+- **Hard (on time):** before the start time, AutoDJ hands out only songs that end before it. In a shuffled playlist it takes the first card further down the deck that fits, and the cards it skipped stay in the deck. An in-order playlist never skips ahead. When nothing fits, the next song is cut to end on the start time with a 2s fade (`liq_cue_out` + `liq_fade_out`). When less than `LIQUIDSOAP_HARD_START_EARLY_SECONDS` (20) is left, the slot starts that much early instead. A song of unknown length counts as fitting while the boundary is 30+ minutes away. A hard slot whose playlist is empty is ignored.
+- Accuracy, measured on Liquidsoap 2.4.5: within about 1.5s after a song, a few seconds early after a short jingle.
+- If Liquidsoap asks twice within 2s (it sometimes re-asks while the first answer is still loading), the second answer is planned after the first (`stations.autodj_queued_*`).
 - Going live overrides any slot instantly. When the broadcaster disconnects, the next boundary resolves *at that moment*, so AutoDJ comes back with whatever should be on then, not what was playing before.
 
 **Where the resolved programme appears:**

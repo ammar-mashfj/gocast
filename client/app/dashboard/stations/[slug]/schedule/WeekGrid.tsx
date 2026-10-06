@@ -304,7 +304,7 @@ export function WeekGrid({
                           type="button"
                           disabled={readOnly}
                           onClick={() => onSelect(s.block.key)}
-                          title={`${nameFor(s.block)} · ${s.block.start}–${s.block.end}`}
+                          title={`${nameFor(s.block)} · ${s.block.start}–${s.block.end}${s.block.startMode === "hard" ? " · starts on time" : ""}`}
                           className={cn(
                             "flex h-full w-full min-w-0 flex-col justify-center px-2.5 text-left leading-tight",
                             !readOnly && "cursor-pointer",
@@ -314,7 +314,9 @@ export function WeekGrid({
                           <span className="truncate text-[12px] font-semibold">{nameFor(s.block)}</span>
                           {!narrow && (
                             <span className="truncate font-mono text-[10.5px] opacity-80 tabular-nums">
-                              {s.head ? `${s.block.start}–${s.block.end}` : `→ ${s.block.end}`}
+                              {s.head
+                                ? `${s.block.start}–${s.block.end}${s.block.startMode === "hard" ? " · on time" : ""}`
+                                : `→ ${s.block.end}`}
                             </span>
                           )}
                         </button>

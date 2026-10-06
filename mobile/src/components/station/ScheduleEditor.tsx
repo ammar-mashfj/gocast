@@ -125,7 +125,7 @@ export function ScheduleEditor({
         <T weight={400} size={14} tone="muted" lineHeight={1.45}>
           {draft.kind === 'show'
             ? 'Tells listeners when to tune in: it shows on your player page. Nothing starts on its own; you still press Go live.'
-            : 'What AutoDJ plays while you’re not live. It switches at the next track break, so it can start a minute or two late. Going live always takes over.'}
+            : 'What AutoDJ plays while you’re not live. It starts after the song playing at its start time, unless it’s set on the web to start exactly on time. Going live always takes over.'}
         </T>
 
         <TextField

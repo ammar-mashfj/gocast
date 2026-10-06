@@ -275,6 +275,7 @@ class StationResource extends JsonResource
             'jingle_mode' => $this->jingle_mode,
             'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
             'jingle_every_tracks' => (int) $this->jingle_every_tracks,
+            'jingle_times' => $this->jingle_times === null ? [] : array_map('intval', $this->jingle_times),
             'social_links' => $this->social_links,
             'theme_config' => $this->theme_config,
             'created_at' => $this->created_at,

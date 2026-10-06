@@ -50,9 +50,8 @@ output.icecast (mp3 128k, 44.1k)   output.file.hls (adts AAC 128k)
                                              else autodj_faded
                                  autodj_faded   = cross(...) over autodj_leveled   [only if crossfade_enabled]
                                  autodj_leveled = amplify(1., autodj_rotation)      [only if apply_amplify]
-                                    autodj_rotation = fallback(track_sensitive=true, [jingle_arm, autodj])
-                                       jingle_arm = source.available(delay(initial, jingle_delay, jingles), jingle_due)
-                                       autodj     = request.dynamic(autodj_next)   <- asks Laravel
+                                    autodj_rotation = autodj   [fade.out(track_sensitive=true, 0.1, autodj) without crossfade]
+                                       autodj     = request.dynamic(autodj_next)   <- asks Laravel, songs and jingles
                               bed          = mksafe(blank())
 ```
 
@@ -137,15 +136,11 @@ What the server answers is decided in Laravel (`AutoDjScheduler::next()`, see [A
 
 The URI is built by `PlaylistFileWriter::annotateUri()`: `annotate:` then, in order, `jingle="true"` (jingles only), the analyser's `liq_cue_in` / `liq_cue_out` / `liq_amplify="<n> dB"`, `duration="<3dp>"` (only when positive), `title`, `artist`, `playlist="<name>"`, then `:/data/playlists/<file>`. Empty artist and playlist are omitted. Backslash and double quote are escaped. The rotation entry is annotated with `playlist` (the name of the playlist it came from) which the script never reads, but which reaches `on_metadata`.
 
-### Jingles (lines 536-685)
+### Jingles and on-time cuts
 
-- `jingles = playlist(id="jingles_m3u", "/data/playlists/jingles.m3u", mode="randomize", reload_mode="never", on_fail=... [])`. It is the only m3u left in the graph. It is rendered for every station, including ones that never enable jingles. An empty file makes the `on_fail` handler log `jingles: no playable jingle` at level 2; how many lines and how often needs a live Liquidsoap to observe. Laravel reloads it over telnet (`jingles_m3u.reload`) when jingle files change.
-- Four interactive variables, settable at runtime with `var.set` over telnet: `jingles_enabled` (bool), `jingle_by_tracks` (bool), `jingle_interval` (float, seconds), `jingle_every_tracks` (int). Initial values come from the station row at render time (`jinglesAudible()`, i.e. `jingles_enabled` AND owner `canUseAutoDj()`; `jingle_mode === 'tracks'`; `jingle_interval_seconds` floored at 60; `jingle_every_tracks` floored at 1). `LiquidsoapSupervisor::applyJingleSettings()` sends the four `var.set` commands live. Type matters: a float must contain a decimal point and an int must not, or Liquidsoap refuses the command.
-- `tracks_since_jingle` counts tracks. `autodj.on_track` increments and `jingles.on_track` resets it to 0. Both are `synchronous=true`, the only synchronous callbacks in the script, because they do a single integer assignment and must be ordered with the boundary that triggered them.
-- Two gates and one graph. `delay(initial=true, jingle_delay, jingles)` is the time gate; `jingle_delay()` is 0.0 in track mode and `jingle_interval()` in interval mode. `jingle_due()` is `jingles_enabled() and (not jingle_by_tracks() or tracks_since_jingle() >= jingle_every_tracks())`. `source.available(..., jingle_due)` applies the count gate and is deliberately not `track_sensitive` (that was a bug that latched a stale true).
-- `initial=true`: a station never opens with a jingle; the delay counts from boot.
-- `autodj_rotation = fallback(track_sensitive=true, [jingle_arm, autodj])`. Track-sensitive is what stops a jingle from cutting a song in half: the switch waits for the track boundary. Contrast the outer fallback, which is track-insensitive.
-- Turning jingles off mid-jingle is expected to cut it short: the predicate is deliberately not track-sensitive (per the template's comments; the runtime behaviour itself needs a live Liquidsoap to confirm).
+- There is no jingle source in the graph. Laravel decides when a jingle plays (`JingleClock`: every N minutes, every N songs, or at set minutes past the hour) and hands it out through `next-track` like a song, annotated `jingle="true"`. The annotation still drives the crossfade's hard cut and keeps jingles out of now-playing.
+- `autodj_next` sends `X-Gocast-Remaining`: `autodj.remaining()` of the track on air, read through a ref (`autodj_remaining`) because the source is defined after the function. Laravel uses it as the start time of its answer. Its presence also marks the script as one that leaves jingles to Laravel.
+- A song Laravel cuts short to start something on time carries `liq_cue_out` and `liq_fade_out`. With crossfade on, the first branch of `autodj_cross` fades `a` over `min(window, liq_fade_out)` and sequences into `b` (fade.out cannot sit in front of `cross()` on 2.4.5: "may control its own latency"). With crossfade off, `autodj_rotation = fade.out(track_sensitive=true, duration=0.1, autodj)` applies it. Measured on 2.4.5 with the real rendered script: the cut lands within 0.2s of `liq_cue_out` and the level reaches zero at it.
 
 ### Loudness (`amplify`) (lines 687-725)
 
@@ -159,6 +154,7 @@ Only when `crossfade_enabled` is true, and **the config default is false** (`LIQ
 
 | Condition (dB values are the `db_level` of outgoing `a` and incoming `b`) | Transition |
 |---|---|
+| `a` carries `liq_fade_out` (cut short by Laravel) | fade `a` out over `min(window, liq_fade_out)`, then `b` |
 | either has `jingle == "true"` metadata | `sequence([a, b])`, hard cut |
 | both `<= medium` and `abs(a-b) <= margin` | fade out a, fade in b, summed |
 | `b >= a + margin` and `a >= medium` and `b <= high` | fade out a under b |
@@ -262,7 +258,7 @@ The per-boot token exists because segments are served `immutable`; the default n
 
 ## What the supervisor injects
 
-`LiquidsoapSupervisor::renderLiqFile()` calls `View::make('liquidsoap.station', [...])`, writes `{liq_dir}/{slug}.liq`, and is called from `up()` (which then starts or restarts the container). Every render is from scratch, so a stopped station picks changes up whenever it next starts. `up()` is the only renderer. Which station edits cause a re-render and restart is decided by `StationObserver` (`LIQ_RELEVANT_COLUMNS`: `name`, `slug`, `description`, `genre`, `icecast_mount`, `icecast_password`, `artwork_url`) and only while the station is running (or when the slug changed).
+`LiquidsoapSupervisor::renderLiqFile()` calls `View::make('liquidsoap.station', [...])`, writes `{liq_dir}/{slug}.liq`, and is called from `up()` (which then starts or restarts the container). Every render is from scratch, so a stopped station picks changes up whenever it next starts. `up()` is the only renderer. Which station edits cause a re-render and restart is decided by `StationObserver` (`LIQ_RELEVANT_COLUMNS`: `name`, `slug`, `description`, `genre`, `icecast_mount`) and only while the station is running and nobody is live (or when the slug changed). A running container whose script, image or flags no longer match a fresh render is recreated by `stations:reconcile` once nobody is broadcasting (`configFingerprint()`, see [Liquidsoap supervisor](liquidsoap-supervisor.md)).
 
 Every template variable and where it comes from:
 
@@ -278,10 +274,8 @@ Every template variable and where it comes from:
 | `$harborInputPort`, `$harborInputTimeout` | `liquidsoap.harbor_input_port`, `harbor_input_timeout` |
 | `$hlsVariant` | `liquidsoap.hls_variant` |
 | `$rmsWindow` | `liquidsoap.rms_window_seconds` |
-| `$liqSource`, `$jinglesLiqSource`, `$jinglesFilename` | `PlaylistFileWriter::LIQ_SOURCE` (`playlist_m3u`), `JINGLES_LIQ_SOURCE` (`jingles_m3u`), `JINGLES_FILENAME` (`jingles.m3u`) |
+| `$liqSource` | `PlaylistFileWriter::LIQ_SOURCE` (`playlist_m3u`) |
 | `$autodjRetryDelay` | `max(1.0, autodj_retry_delay_seconds)` |
-| `$jinglesEnabled`, `$jingleByTracks`, `$jingleEveryTracks`, `$jingleInterval` | station row via `jinglesAudible()`, `jingle_mode`, `jingle_every_tracks` (min 1), `jingle_interval_seconds` (min 60) |
-| `$jinglesEnabledVar`, `$jingleByTracksVar`, `$jingleIntervalVar`, `$jingleEveryTracksVar` | constants `VAR_JINGLES_ENABLED` etc. (`jingles_enabled`, `jingle_by_tracks`, `jingle_interval`, `jingle_every_tracks`) |
 | `$watermarkSupported` | `liquidsoap.watermark_enabled` |
 | `$watermarkEnabled` | `$station->user->watermarked()` (false if owner or plan is unresolved) |
 | `$watermarkEnabledVar`, `$watermarkIntervalVar`, `$watermarkDuckVar` | `VAR_WATERMARK_*` constants |
@@ -322,7 +316,7 @@ The `/api/internal/metrics` route (`MetricsController`, Prometheus format, same 
 
 | Channel | Used by | Commands |
 |---|---|---|
-| Telnet `:1234`, plain TCP, 3s connect and read timeout, newlines stripped (`LiquidsoapSupervisor::telnet()`) | `StationPowerController::skip` sends `playlist_m3u.skip` (409 `station_not_running` if the station is off, 503 `station_unreachable` if telnet fails). `PlaylistFileWriter::reload()` sends `jingles_m3u.reload`, but only when the station's `jingles_enabled` column is true. `ReloadWatermarkClips` sends `watermark.reload` to every running station. `applyJingleSettings` (from `StationObserver` on jingle column changes to a running station, and `UserObserver` on plan change) and `applyWatermarkSettings` (`UserObserver`, plan change) send `var.set <name> = <value>`. | see left |
+| Telnet `:1234`, plain TCP, 3s connect and read timeout, newlines stripped (`LiquidsoapSupervisor::telnet()`) | `StationPowerController::skip` sends `playlist_m3u.skip` (409 `station_not_running` if the station is off, 503 `station_unreachable` if telnet fails). `ReloadWatermarkClips` sends `watermark.reload` to every running station. `applyWatermarkSettings` (`UserObserver`, plan change) sends `var.set <name> = <value>`. | see left |
 | Harbor HTTP `:8080` | `StationStatusService` polls `/status`. Docker healthcheck polls `/healthz`. | see above |
 
 Telnet is a no-op returning `''` when running unit tests (`LiquidsoapSupervisor::inTestMode()`, which is `app()->runningUnitTests()`).
@@ -336,14 +330,16 @@ Telnet is a no-op returning `''` when running unit tests (`LiquidsoapSupervisor:
 | Harbor stalled-source timeout | 10s | `LIQUIDSOAP_HARBOR_INPUT_TIMEOUT` |
 | All HTTP calls from the script | 5s | template |
 | Empty-rotation re-ask | 10s (floor 1s) | `LIQUIDSOAP_AUTODJ_RETRY_DELAY` |
-| Jingle interval | station value, min 60s | station row |
+| Jingle interval | station value, min 60s | station row, read by Laravel |
+| On-time early start | 20s | `LIQUIDSOAP_HARD_START_EARLY_SECONDS` |
+| Planning lead | crossfade window when crossfade is on, else 0 | `LIQUIDSOAP_PLANNING_LEAD_SECONDS` |
 | Watermark interval | 600s default, min 60s | `LIQUIDSOAP_WATERMARK_INTERVAL` |
 | Watermark fade | 1.0s | `LIQUIDSOAP_WATERMARK_FADE` |
 | Crossfade window / fade | 5s / 3s (only if enabled) | `LIQUIDSOAP_CROSSFADE_*` |
 | RMS window | 2s | `LIQUIDSOAP_RMS_WINDOW_SECONDS` |
 | Icecast reconnect | 5s after an error | literal `restart_in(5.)` |
 | HLS segment | 4s, 5 segments plus 5 overhead | literal |
-| Track-to-jingle switch | at the next track boundary | `track_sensitive=true` |
+| Track-to-jingle switch | at a track boundary, or on the minute for a set-time jingle (the song before it is cut and faded) | Laravel, `AutoDjScheduler` |
 | Live to AutoDJ switch | after harbor's `timeout` for a stall, or immediately on clean close, plus buffer drain of the live arm (5s harbor buffer plus 2s `buffer()`) | not measured; derived from the constants |
 | Live in | on connect, after the buffers fill | not measured |
 | Container start check | 750ms | `LIQUIDSOAP_START_VERIFY_DELAY_MS` |
@@ -400,13 +396,13 @@ The script has no UI. Its outputs surface as: the Icecast mount and HLS URL list
 1. **`source` is not `broadcaster`.** `source` reads `live.is_ready()` which stays true while the live arm drains (and is false until it fills), so it lags connects and disconnects. The dashboard and sweep must use `broadcaster`. (`current_source()` vs `broadcaster_attached()` in the template.)
 2. **A live broadcast has no fade in or out.** Hard cuts both ways, and the 5s harbor buffer plus 2s `buffer()` keep the live arm "ready" for several seconds after the DJ leaves, so AutoDJ does not resume instantly on a clean disconnect. The 5s and 2s values are literals, not config.
 3. **Crossfade is off by default in config** even though every comment in the template talks as if it were on. Production stations do hard cuts unless `LIQUIDSOAP_CROSSFADE_ENABLED=true`. The `cross()` block, its 5s/3s numbers and the loudness thresholds are inert until then.
-4. **Cue points are annotated but not applied in the script.** `PlaylistFileWriter` writes `liq_cue_in` and `liq_cue_out`, and its docblock says Liquidsoap's request layer reads them (`settings.playlist.cue_in_metadata`). The template sets no cue setting and does not call `enable_autocue_metadata`. Whether cue trimming actually happens on 2.4.5 with this graph cannot be read from code; it needs a running container.
-5. **Stale docblock claims contradict the code.** `PlaylistFileWriter` says the jingle source "only exists in the rendered script while the station has jingles enabled" and its `reload()` is gated on that; the template renders `jingles` for every station always. Consequence: files added while jingles are off are not reloaded (the `reload()` call is skipped), so the running container's list may be empty or stale after the owner switches jingles on until a restart or a later reload. `applyJingleSettings` only sends `var.set`, not a reload. Whether Liquidsoap re-reads an m3u that was empty at boot needs a live container to answer; treat it as a risk.
+4. **Cue points are applied.** `PlaylistFileWriter` writes `liq_cue_in` and `liq_cue_out`; measured on 2.4.5 with the rendered script (2026-10-06), a request with `liq_cue_out="10.000"` hands over after 10s, and `autodj.remaining()` already accounts for it. The template sets no cue setting; the request layer applies them by default.
+5. **No jingle list in the container.** Jingle uploads, deletes and settings reach air at the next `next-track` ask; nothing is reloaded over telnet.
 6. **`healthFlags()` docblock in the supervisor says `/healthz` answers 200 only when the graph is producing frames AND Icecast is up. The template does the opposite** (Icecast is reported but excluded from the 200/503 verdict). The template is right and is the intent.
 7. **Stale variable documentation.** The template header lists `$rtspHost` and `$rtspPort` (from the removed MediaMTX pull). The supervisor does not pass them and the template does not use them.
-8. **`icecast_password` and `artwork_url` restart a running station for no reason.** They are in `StationObserver::LIQ_RELEVANT_COLUMNS` but the script uses neither (the Icecast password is the global `services.icecast.source_password`, and no artwork is rendered).
+8. **`icecast_password` and `artwork_url` are not in the script** (the Icecast password is the global `services.icecast.source_password`, and no artwork is rendered), so since 2026-10-06 they are not in `StationObserver::LIQ_RELEVANT_COLUMNS` and editing them restarts nothing.
 9. **Harbor input mount is the slug, Icecast output mount is `/stream/{slug}`.** They are different things; the ingest URL a broadcaster uses ends in the slug, and listeners use the `icecast_mount`. A custom `icecast_mount` does not change ingest.
-10. **Telnet is unauthenticated** and bound on `0.0.0.0` in the container. Protection is network isolation only. Skip, jingle and watermark control all rely on it. Jingle/watermark pushes and clip/jingle reloads are best effort (failure logged at info, never surfaced); skip answers 503 to the user.
+10. **Telnet is unauthenticated** and bound on `0.0.0.0` in the container. Protection is network isolation only. Skip and watermark control rely on it. Watermark pushes and clip reloads are best effort (failure logged at info, never surfaced); skip answers 503 to the user.
 11. **Interactive variables are not persisted.** After a container restart they reset to the rendered initial values, which come from the row and plan at render time. This is by design, but an admin editing the config for watermark interval must relaunch, or wait for the next plan-change push, because only a plan change (`UserObserver`) calls `applyWatermarkSettings`.
 12. **Watermark clip reload is skipped when the install switch is off**, since the `watermark` source does not exist. Any telnet call to it would answer "unknown command".
 13. **Old `live_silent` / `live_audio` events**: containers rendered before the dead-air guard was removed keep posting them and get 422 until recreated. Harmless noise.

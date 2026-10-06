@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TrackAnalysis;
 use Database\Factories\TrackFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -100,6 +101,30 @@ class Track extends Model
     public function isJingle(): bool
     {
         return $this->kind === self::KIND_JINGLE;
+    }
+
+    /**
+     * How long this track is on air: from its cue-in to its cue-out, which is
+     * what Liquidsoap plays once PlaylistFileWriter annotates the cue points.
+     * Null when the length is unknown, so the AutoDJ planner never counts on a
+     * track it cannot time.
+     */
+    public function airtimeSeconds(): ?float
+    {
+        $duration = (float) $this->duration_seconds;
+
+        if ($duration <= 0) {
+            return null;
+        }
+
+        [$in, $out] = (new TrackAnalysis(
+            loudnessLufs: $this->loudness_lufs,
+            truePeakDb: $this->true_peak_db,
+            cueInSeconds: $this->cue_in_seconds,
+            cueOutSeconds: $this->cue_out_seconds,
+        ))->cuePoints($duration);
+
+        return ($out ?? $duration) - ($in ?? 0.0);
     }
 
     public function station(): BelongsTo

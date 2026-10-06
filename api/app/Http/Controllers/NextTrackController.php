@@ -27,6 +27,11 @@ use Illuminate\Http\Response;
  * guard in AutoDjScheduler::next(). It is not an error case and must not look
  * like one: the container is running and correct, it simply has nothing it may
  * play, which is indistinguishable here from an empty library.
+ *
+ * X-Gocast-Remaining is how long the container's current track has left, in
+ * seconds. The answer starts when that track ends, which is what lets the
+ * scheduler plan on-time starts and jingles. A container rendered before the
+ * header existed does not send it and is served the way it always was.
  */
 class NextTrackController extends Controller
 {
@@ -51,7 +56,9 @@ class NextTrackController extends Controller
             return response('', 404);
         }
 
-        $uri = $scheduler->next($station);
+        $remaining = $request->header('X-Gocast-Remaining');
+
+        $uri = $scheduler->next($station, is_numeric($remaining) ? (float) $remaining : null);
 
         if ($uri === null) {
             return response('', 204);

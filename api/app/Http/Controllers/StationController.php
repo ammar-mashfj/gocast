@@ -65,6 +65,12 @@ class StationController extends Controller
             $this->lifecycle->assertAutoDjEnabled($request->user());
         }
 
+        // Sorted and deduplicated so the settings card reads them back in
+        // order and JingleClock can walk them as a clock face.
+        if (isset($data['jingle_times'])) {
+            $data['jingle_times'] = collect($data['jingle_times'])->map(fn ($minute) => (int) $minute)->unique()->sort()->values()->all();
+        }
+
         $station->update($data);
 
         return new StationResource($station);

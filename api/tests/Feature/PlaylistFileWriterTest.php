@@ -3,7 +3,6 @@
 use App\Models\Station;
 use App\Models\Track;
 use App\Models\User;
-use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\File;
 
@@ -19,8 +18,8 @@ afterEach(function () {
 });
 
 /**
- * A track for annotateTrack() to render. Not persisted through write() — the
- * rotation is no longer a file, so the URI is the whole contract here.
+ * A track for annotateTrack() to render. Nothing is written to disk any more,
+ * so the URI is the whole contract here.
  */
 function playlistTrack(array $attributes = []): Track
 {
@@ -91,68 +90,28 @@ it('escapes double quotes inside titles', function () {
         ->toContain('title="She said \\"hi\\""');
 });
 
-it('does not write a rotation playlist file', function () {
-    // The rotation is served one track at a time by NextTrackController. A
-    // file here would be dead weight at best, and at worst something a future
-    // .liq is tempted to read — reintroducing the reload-resets-to-track-one
-    // bug that moved the rotation off a playlist in the first place.
-    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'no-rotation-file']);
-    Track::factory()->for($station)->create([
-        'path' => '01song.mp3',
-        'title' => 'A Song',
-        'duration_seconds' => 200,
-        'position' => 1,
-    ]);
+it('creates the station directory and writes no playlist file into it', function () {
+    // Songs and jingles are both served one track at a time by
+    // NextTrackController. A file here would be dead weight at best, and at
+    // worst something a future .liq is tempted to read — reintroducing the
+    // reload-resets-to-track-one bug that moved the rotation off a playlist.
+    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'no-files']);
 
-    app(PlaylistFileWriter::class)->write($station);
+    app(PlaylistFileWriter::class)->ensureDirectory($station);
 
-    expect(File::exists($this->tmpDir.'/no-rotation-file/playlist.m3u'))->toBeFalse();
+    expect(File::isDirectory($this->tmpDir.'/no-files'))->toBeTrue()
+        ->and(File::files($this->tmpDir.'/no-files'))->toBe([]);
 });
 
-it('writes jingles to their own m3u and keeps the rotation out of it', function () {
-    // Mixing jingles into the rotation would have them played in order, once
-    // per loop — the exact behaviour the delay/fallback in the .liq exists to
-    // avoid.
-    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'split']);
-    Track::factory()->for($station)->create([
-        'path' => '01song.mp3',
-        'title' => 'A Song',
-        'artist' => 'Someone',
-        'duration_seconds' => 200,
-        'position' => 1,
-    ]);
-    Track::factory()->for($station)->jingle()->create([
-        'path' => '01id.mp3',
-        'title' => 'Station ID',
-        'duration_seconds' => 6,
-        'position' => 1,
-    ]);
-
-    app(PlaylistFileWriter::class)->write($station);
-
-    expect(File::get($this->tmpDir.'/split/jingles.m3u'))
-        ->toContain('/data/playlists/01id.mp3')
-        ->not->toContain('01song.mp3');
-});
-
-it('flags jingle entries so the audio graph can recognise them downstream', function () {
+it('flags a jingle so the audio graph can recognise it downstream', function () {
     // The .liq reads this annotation in two places — the crossfade (hard cut,
     // never a mix) and the now-playing push (a station ID is not "now
     // playing"). Both run long after the request left its source, so the flag
     // has to travel on the request itself.
-    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'flagged']);
-    Track::factory()->for($station)->jingle()->create([
-        'path' => '01id.mp3',
-        'title' => 'Top of the hour',
-        'artist' => null,
-        'duration_seconds' => 8,
-        'position' => 1,
-    ]);
+    $track = playlistTrack(['path' => '01id.mp3', 'title' => 'Top of the hour', 'duration_seconds' => 8, 'kind' => Track::KIND_JINGLE]);
 
-    app(PlaylistFileWriter::class)->write($station);
-
-    expect(File::get($this->tmpDir.'/flagged/jingles.m3u'))
-        ->toContain('annotate:jingle="true",duration="8.000",title="Top of the hour":/data/playlists/01id.mp3');
+    expect(app(PlaylistFileWriter::class)->annotateTrack($track, isJingle: true))
+        ->toBe('annotate:jingle="true",duration="8.000",title="Top of the hour":/data/playlists/01id.mp3');
 });
 
 it('never flags a rotation entry as a jingle', function () {
@@ -163,45 +122,23 @@ it('never flags a rotation entry as a jingle', function () {
     expect(app(PlaylistFileWriter::class)->annotateTrack($track))->not->toContain('jingle=');
 });
 
-it('always writes a jingles file, even when the station has none', function () {
-    // The rendered script references jingles.m3u by path. A missing file is a
-    // decoding error on every read; an empty one just makes the source
-    // fallible, which the fallback already handles.
-    $station = Station::factory()->for(User::factory(), 'user')->create(['slug' => 'nojingles']);
+it('cuts a song short with a fade when told how long to play it', function () {
+    // The planner's way of starting something on time: cue-out after that
+    // many seconds of airtime, and a fade into it rather than a hard stop.
+    $track = playlistTrack(['duration_seconds' => 240, 'cue_in_seconds' => 1.5]);
 
-    app(PlaylistFileWriter::class)->write($station);
-
-    expect(File::get($this->tmpDir.'/nojingles/jingles.m3u'))->toBe("#EXTM3U\n");
+    expect(app(PlaylistFileWriter::class)->annotateTrack($track, playFor: 42.25))
+        ->toContain('liq_cue_in="1.500"')
+        ->toContain('liq_cue_out="43.750"')
+        ->toContain('liq_fade_out="2.000"');
 });
 
-/**
- * `playlist_m3u.reload` restarts the rotation at track one (measured on
- * 2.4.5). There is no list in the container to reload any more, and sending
- * the command anyway would only reintroduce that bug.
- */
-it('never sends a rotation reload', function () {
-    $station = Station::factory()->create(['jingles_enabled' => false]);
+it('never fades longer than the cut itself', function () {
+    $track = playlistTrack(['duration_seconds' => 240]);
 
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class);
-    $supervisor->shouldNotReceive('telnet');
-
-    (new PlaylistFileWriter($supervisor))->reload($station);
-});
-
-/**
- * Jingles are still a playlist file, so they still need telling — and their
- * source is randomized, so a cursor reset there is inaudible.
- */
-it('reloads jingles when the station has them enabled', function () {
-    $station = Station::factory()->create(['jingles_enabled' => true]);
-
-    $supervisor = Mockery::mock(LiquidsoapSupervisor::class);
-    $supervisor->shouldReceive('telnet')
-        ->once()
-        ->with(Mockery::type(Station::class), PlaylistFileWriter::JINGLES_LIQ_SOURCE.'.reload')
-        ->andReturn('');
-
-    (new PlaylistFileWriter($supervisor))->reload($station);
+    expect(app(PlaylistFileWriter::class)->annotateTrack($track, playFor: 1.2))
+        ->toContain('liq_cue_out="1.200"')
+        ->toContain('liq_fade_out="1.200"');
 });
 
 it('names the playlist a rotation track came from', function () {

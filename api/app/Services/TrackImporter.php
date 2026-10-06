@@ -150,11 +150,6 @@ class TrackImporter
             }
         });
 
-        // Playlist regeneration runs outside the transaction so a slow disk
-        // doesn't extend the lock window.
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
-
         // Loudness and cue points, measured on the queue. Deliberately after
         // the commit and outside the transaction: the job looks the track up
         // by id, and a worker fast enough to beat the commit would find
@@ -224,9 +219,6 @@ class TrackImporter
             ->where('position', '>', $deletedPosition)
             ->decrement('position');
 
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
-
         StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $deletedDetails);
     }
 
@@ -294,9 +286,6 @@ class TrackImporter
                 @unlink($absolute);
             }
         }
-
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
 
         // One event per file, the same as deleting them one at a time would
         // have produced — the admin timeline should not lose detail just
@@ -373,8 +362,6 @@ class TrackImporter
             }
         });
 
-        $this->playlistWriter->write($station);
-        $this->playlistWriter->reload($station);
     }
 
     /**
