@@ -46,8 +46,11 @@ const INITIAL_LIMIT = 50
 
 interface Props {
   playlist: Playlist
-  /** Members in play order, or null while they load. */
+  /** Members in play order, or null while they load (or failed to). */
   tracks: Track[] | null
+  /** The member fetch failed; `tracks` is null and stays so until `onRetry`. */
+  loadFailed?: boolean
+  onRetry?: () => void
   locked: boolean
   savingOrder: boolean
   nowPlayingId: string | null
@@ -73,10 +76,12 @@ interface Props {
 export function PlaylistView({
   playlist,
   tracks,
+  loadFailed = false,
   locked,
   savingOrder,
   nowPlayingId,
   onAddFromLibrary,
+  onRetry,
   onReorder,
   onRemove,
   onEdit,
@@ -207,7 +212,9 @@ export function PlaylistView({
           {/* Neutral: "default" is a role the playlist has, not a station state. */}
           {playlist.is_default && <Tag title="New uploads land in it too.">Plays when nothing’s scheduled</Tag>}
         </div>
-        <p className="font-mono text-caption text-text-faint">{tracks === null ? "Loading…" : summary.join(" \u00b7 ")}</p>
+        <p className="font-mono text-caption text-text-faint">
+          {tracks === null ? (loadFailed ? "Couldn’t load" : "Loading…") : summary.join(" \u00b7 ")}
+        </p>
       </div>
 
       <LibraryToolbar
@@ -227,7 +234,15 @@ export function PlaylistView({
 
       {belowToolbar}
 
-      {tracks === null ? (
+      {tracks === null && loadFailed ? (
+        <div className="flex flex-col items-center gap-1.5 border-t border-line px-5.5 py-14 text-center">
+          <p className="text-body font-semibold">Couldn’t load {playlist.name}</p>
+          <p className="max-w-sm text-body-sm text-muted-foreground">The tracks are still there; the list just didn’t come through.</p>
+          <Button variant="subtle" className="mt-3" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      ) : tracks === null ? (
         <div className="flex items-center justify-center gap-2 border-t border-line py-14 text-body-sm text-muted-foreground">
           <IconLoader2 className="size-4 animate-spin" />
           Loading playlist…

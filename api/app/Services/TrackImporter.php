@@ -9,6 +9,7 @@ use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\Track;
 use getID3;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -89,10 +90,6 @@ class TrackImporter
         ?string $originalName = null,
         ?JingleList $jingleList = null,
     ): Track {
-        if ($kind === Track::KIND_JINGLE) {
-            $jingleList ??= $this->jingleListFor($station);
-        }
-
         $size = $file->getSize();
         if ($size === false) {
             throw new RuntimeException('Could not determine uploaded file size.');
@@ -115,7 +112,6 @@ class TrackImporter
         $track = (new Track)->forceFill([
             'station_id' => $station->id,
             'kind' => $kind,
-            'jingle_list_id' => $jingleList?->getKey(),
             'original_filename' => $originalName,
             'file_size_bytes' => $size,
         ]);
@@ -123,11 +119,18 @@ class TrackImporter
         $relativePath = $track->getKey().'.'.$extension;
         $absolutePath = $dir.'/'.$relativePath;
 
-        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track, $kind, $playlist) {
+        DB::transaction(function () use ($station, $file, $size, $absolutePath, $dir, $relativePath, $originalName, $track, $kind, $playlist, $jingleList) {
             // Lock the station row so two concurrent uploads serialize and
             // each sees the other's incremented total in the quota check.
             Station::whereKey($station->id)->lockForUpdate()->first();
             $this->ensureWithinQuota($station, $size);
+
+            // After the quota check and under the station lock: a first
+            // jingle upload that is refused leaves no empty list behind, and
+            // two first uploads at once share the one list.
+            if ($kind === Track::KIND_JINGLE) {
+                $jingleList ??= $this->jingleListFor($station);
+            }
 
             try {
                 $file->move($dir, $relativePath);
@@ -137,6 +140,7 @@ class TrackImporter
                 [$derivedArtist, $derivedTitle] = $this->splitArtistTitle($originalName);
 
                 $track->forceFill([
+                    'jingle_list_id' => $jingleList?->getKey(),
                     'path' => $relativePath,
                     'title' => $tags['title'] ?: ($derivedTitle ?: $this->titleFromFilename($originalName)),
                     'artist' => $tags['artist'] ?: $derivedArtist,
@@ -191,6 +195,10 @@ class TrackImporter
      * The jingle list an upload joins: the one named, else the station's
      * first, else a new "Jingles" list — so a first jingle upload plays
      * without anyone having to make a list first.
+     *
+     * The find-or-make runs under a lock on the station row (a savepoint
+     * when already inside import()'s transaction, which holds that lock),
+     * so two first uploads racing here make one list, not two.
      */
     public function jingleListFor(Station $station, ?string $id = null): JingleList
     {
@@ -198,17 +206,21 @@ class TrackImporter
             return $station->jingleLists()->whereKey($id)->firstOrFail();
         }
 
-        $list = $station->jingleLists()->first();
+        return DB::transaction(function () use ($station): JingleList {
+            Station::whereKey($station->id)->lockForUpdate()->first();
 
-        if ($list !== null) {
+            $list = $station->jingleLists()->first();
+
+            if ($list !== null) {
+                return $list;
+            }
+
+            $list = new JingleList(['name' => 'Jingles']);
+            $list->station()->associate($station);
+            $list->save();
+
             return $list;
-        }
-
-        $list = new JingleList(['name' => 'Jingles']);
-        $list->station()->associate($station);
-        $list->save();
-
-        return $list;
+        });
     }
 
     /**
@@ -255,6 +267,10 @@ class TrackImporter
             ->where('position', '>', $deletedPosition)
             ->decrement('position');
 
+        if ($deletedKind === Track::KIND_JINGLE) {
+            $this->shiftJingleCursors($station, [$deletedPosition]);
+        }
+
         StationEvent::record($station, StationEvent::TYPE_TRACK_DELETED, properties: $deletedDetails);
     }
 
@@ -287,7 +303,11 @@ class TrackImporter
         $paths = [];
         $events = [];
         $kinds = [];
+        $jinglePositions = [];
         foreach ($tracks as $track) {
+            if ($track->kind === Track::KIND_JINGLE) {
+                $jinglePositions[] = (int) $track->position;
+            }
             $paths[] = $stationDir.'/'.$track->path;
             $kinds[$track->kind] = true;
             $events[] = [
@@ -299,7 +319,7 @@ class TrackImporter
             ];
         }
 
-        DB::transaction(function () use ($tracks, $station, $kinds) {
+        DB::transaction(function () use ($tracks, $station, $kinds, $jinglePositions) {
             // The FK cascade would drop the pivot rows on its own, but only
             // this renumbers what each playlist has left.
             foreach ($tracks as $track) {
@@ -312,6 +332,10 @@ class TrackImporter
             // decrement-per-deletion. The two lists number independently.
             foreach (array_keys($kinds) as $kind) {
                 $this->resequence($station, (string) $kind);
+            }
+
+            if ($jinglePositions !== []) {
+                $this->shiftJingleCursors($station, $jinglePositions);
             }
         });
 
@@ -329,6 +353,31 @@ class TrackImporter
         }
 
         return $tracks->count();
+    }
+
+    /**
+     * Keep each in-order jingle list's place after jingles are deleted.
+     *
+     * A list remembers the `position` it last played, and positions number
+     * every jingle at the station, so a deletion at or before that place
+     * shifts the list's next clip down too. Moving the cursor down by the same
+     * count keeps "next" the clip that followed — without it, deleting the
+     * last-played clip (or any earlier one, in any list) skipped one.
+     *
+     * @param  list<int>  $deletedPositions  positions as they were before the delete
+     */
+    private function shiftJingleCursors(Station $station, array $deletedPositions): void
+    {
+        $lists = JingleList::where('station_id', $station->getKey())
+            ->whereNotNull('cursor_position')
+            ->get(['id', 'cursor_position']);
+
+        foreach ($lists as $list) {
+            $shift = count(array_filter($deletedPositions, fn (int $p): bool => $p <= $list->cursor_position));
+            if ($shift > 0) {
+                JingleList::whereKey($list->getKey())->update(['cursor_position' => $list->cursor_position - $shift]);
+            }
+        }
     }
 
     /**
@@ -371,6 +420,12 @@ class TrackImporter
         DB::transaction(function () use ($station, $idsInOrder, $kind) {
             $tracks = $station->tracks()->where('kind', $kind)->lockForUpdate()->get()->keyBy('id');
 
+            /** @var array<int, string> $wasAt old position => track id, before anything moves */
+            $wasAt = [];
+            foreach ($tracks as $id => $track) {
+                $wasAt[(int) $track->position] = (string) $id;
+            }
+
             $position = 1;
             $touched = [];
             foreach ($idsInOrder as $id) {
@@ -394,8 +449,38 @@ class TrackImporter
                 }
                 $position++;
             }
-        });
 
+            if ($kind === Track::KIND_JINGLE) {
+                $this->remapJingleCursors($station, $wasAt, $tracks);
+            }
+        });
+    }
+
+    /**
+     * Keep each in-order jingle list's place after jingles are reordered.
+     *
+     * The cursor is the `position` last played, so it must follow the clip
+     * that sat there to wherever it now sits — otherwise "next" becomes
+     * whichever clip the reorder dropped onto the old number. A cursor at a
+     * position no clip held (a stale one) is left alone.
+     *
+     * @param  array<int, string>  $wasAt  old position => track id
+     * @param  Collection<string, Track>  $tracks  the same tracks, positions now renumbered
+     */
+    private function remapJingleCursors(Station $station, array $wasAt, Collection $tracks): void
+    {
+        $lists = JingleList::where('station_id', $station->getKey())
+            ->whereNotNull('cursor_position')
+            ->get(['id', 'cursor_position']);
+
+        foreach ($lists as $list) {
+            $id = $wasAt[(int) $list->cursor_position] ?? null;
+            $nowAt = $id === null ? null : $tracks->get($id)?->position;
+
+            if ($nowAt !== null && (int) $nowAt !== (int) $list->cursor_position) {
+                JingleList::whereKey($list->getKey())->update(['cursor_position' => (int) $nowAt]);
+            }
+        }
     }
 
     /**

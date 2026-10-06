@@ -55,8 +55,14 @@ class JingleRotation
     /**
      * A clip to fill the gap before a hard slot start, as [list, track]:
      * the longest one that fits in `$gap` seconds and leaves less than
-     * `$leftover` over, from any switched-on list whose "when" is open at
-     * `$at`. Only measured clips: a guessed length cannot be trusted to fit.
+     * `$leftover` over, from any switched-on interval list whose "when" is
+     * open at `$at`. Only measured clips: a guessed length cannot be trusted
+     * to fit.
+     *
+     * Never a set-times list: it is for its times only. Used as filler it
+     * would be stamped with the break start, which precedes the set time,
+     * so it would still be owed and the same clip would play again right
+     * after the slot.
      *
      * @return array{0: JingleList, 1: Track}|null
      */
@@ -66,7 +72,7 @@ class JingleRotation
         $best = null;
 
         foreach ($station->jingleLists as $list) {
-            if (! $list->enabled || ! $list->isOpenAt($at, $timezone)) {
+            if (! $list->enabled || $list->frequency === JingleList::FREQUENCY_TIMES || ! $list->isOpenAt($at, $timezone)) {
                 continue;
             }
 

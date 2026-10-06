@@ -21,9 +21,28 @@ use Illuminate\Validation\Rule;
  */
 class JingleListRequest extends FormRequest
 {
+    /**
+     * Checked before any rule runs: after() queries the list's clips and
+     * its station, so a stranger must be turned away before that — and a
+     * list whose station is gone (soft-deleted) must answer 403, not 500.
+     */
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        $list = $this->route('jingleList');
+
+        if ($list instanceof JingleList) {
+            return $user->can('update', $list);
+        }
+
+        $station = $this->route('station');
+
+        return $station instanceof Station && $user->can('create', [JingleList::class, $station]);
     }
 
     /**
@@ -95,7 +114,11 @@ class JingleListRequest extends FormRequest
                     $validator->errors()->add('to_time', 'The end time must differ from the start.');
                 }
 
-                if ($rule['pick'] === JingleList::PICK_SINGLE && $rule['pinned_track_id'] !== null) {
+                // Only when this save sets the pick: a stored pin that went
+                // stale must not block renaming or switching the list off.
+                $settingPick = $this->has('pick') || $this->has('pinned_track_id');
+
+                if ($settingPick && $rule['pick'] === JingleList::PICK_SINGLE && $rule['pinned_track_id'] !== null) {
                     $list = $this->route('jingleList');
                     $belongs = $list instanceof JingleList
                         && $list->tracks()->whereKey($rule['pinned_track_id'])->exists();
@@ -105,11 +128,16 @@ class JingleListRequest extends FormRequest
                     }
                 }
 
+                // A pin with any other pick would be silently dropped on save.
+                if ($this->filled('pinned_track_id') && $rule['pick'] !== JingleList::PICK_SINGLE) {
+                    $validator->errors()->add('pinned_track_id', "Pinning a jingle needs the 'same jingle' pick.");
+                }
+
                 $clocked = $rule['frequency'] === JingleList::FREQUENCY_TIMES
                     || $rule['days'] !== null
                     || $rule['from_time'] !== null;
 
-                if ($clocked && $this->station()->timezone === null) {
+                if ($clocked && $this->station()?->timezone === null) {
                     $validator->errors()->add('frequency', 'Set the station timezone in Settings before using times or days.');
                 }
             },
@@ -147,10 +175,12 @@ class JingleListRequest extends FormRequest
         return $rule;
     }
 
-    private function station(): Station
+    /** Null when the list's station is gone: its timezone then counts as unset. */
+    private function station(): ?Station
     {
         $list = $this->route('jingleList');
+        $station = $list instanceof JingleList ? $list->station : $this->route('station');
 
-        return $list instanceof JingleList ? $list->station : $this->route('station');
+        return $station instanceof Station ? $station : null;
     }
 }

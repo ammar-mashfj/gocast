@@ -253,3 +253,145 @@ it('unpins a clip that is deleted, so the list falls back to its first', functio
 
     expect($list->fresh()->pinned_track_id)->toBeNull();
 });
+
+it('unpins a clip moved to another list, so its old list can still be edited', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_SINGLE]);
+    $to = JingleList::factory()->for($this->station)->create();
+    $pinned = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id]);
+    $list->update(['pinned_track_id' => $pinned->id]);
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/tracks/{$pinned->id}", ['jingle_list_id' => $to->id])
+        ->assertOk();
+
+    expect($list->fresh()->pinned_track_id)->toBeNull();
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/jingle-lists/{$list->id}", ['enabled' => false])
+        ->assertOk();
+});
+
+it('lets a list with a stale pin be switched off and renamed', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_SINGLE]);
+    $elsewhere = Track::factory()->for($this->station)->jingle()->create([
+        'jingle_list_id' => JingleList::factory()->for($this->station)->create()->id,
+    ]);
+    DB::table('jingle_lists')->where('id', $list->id)->update(['pinned_track_id' => $elsewhere->id]);
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/jingle-lists/{$list->id}", ['enabled' => false, 'name' => 'Renamed'])
+        ->assertOk();
+});
+
+it('keeps an in-order list’s place when jingles before it are deleted', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_IN_ORDER]);
+    $other = JingleList::factory()->for($this->station)->create();
+    $o1 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $other->id, 'position' => 1]);
+    $a1 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 2]);
+    Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 3, 'title' => 'A2']);
+    Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 4]);
+    // A1 just played.
+    $list->forceFill(['cursor_position' => 2])->save();
+
+    // Another list's earlier clip, then the clip that just played.
+    actingAs($this->owner, 'sanctum')->deleteJson("/api/tracks/{$o1->id}")->assertNoContent();
+    actingAs($this->owner, 'sanctum')->deleteJson("/api/tracks/{$a1->id}")->assertNoContent();
+
+    $list->refresh();
+    $next = $list->tracks()->where('position', '>', $list->cursor_position)->first();
+    expect($list->cursor_position)->toBe(0)
+        ->and($next->title)->toBe('A2');
+});
+
+it('keeps an in-order list’s place through a bulk delete', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_IN_ORDER]);
+    $a1 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 1]);
+    $a2 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 2]);
+    Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 3, 'title' => 'A3']);
+    Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 4]);
+    // A2 just played; deleting A1 and A2 leaves A3 next.
+    $list->forceFill(['cursor_position' => 2])->save();
+
+    actingAs($this->owner, 'sanctum')
+        ->deleteJson("/api/stations/{$this->station->slug}/tracks", ['track_ids' => [$a1->id, $a2->id]])
+        ->assertOk();
+
+    $list->refresh();
+    $next = $list->tracks()->where('position', '>', $list->cursor_position)->first();
+    expect($list->cursor_position)->toBe(0)
+        ->and($next->title)->toBe('A3');
+});
+
+it('keeps an in-order list’s place when jingles are reordered', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_IN_ORDER]);
+    $a1 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 1, 'title' => 'A1']);
+    $a2 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 2, 'title' => 'A2']);
+    $a3 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 3, 'title' => 'A3']);
+    // A2 just played: A3 is next.
+    $list->forceFill(['cursor_position' => 2])->save();
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/stations/{$this->station->slug}/tracks/reorder", ['kind' => 'jingle', 'ids' => [$a2->id, $a3->id, $a1->id]])
+        ->assertOk();
+
+    $list->refresh();
+    $next = $list->tracks()->where('position', '>', $list->cursor_position)->first();
+    expect($list->cursor_position)->toBe(1)
+        ->and($next->title)->toBe('A3');
+});
+
+it('leaves a stale in-order cursor alone on reorder', function () {
+    $list = JingleList::factory()->for($this->station)->create(['pick' => JingleList::PICK_IN_ORDER]);
+    $a1 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 1]);
+    $a2 = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id, 'position' => 2]);
+    $list->forceFill(['cursor_position' => 9])->save();
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/stations/{$this->station->slug}/tracks/reorder", ['kind' => 'jingle', 'ids' => [$a2->id, $a1->id]])
+        ->assertOk();
+
+    expect($list->fresh()->cursor_position)->toBe(9);
+});
+
+it('refuses a pin with any pick but the same jingle, rather than dropping it', function () {
+    $list = JingleList::factory()->for($this->station)->create();
+    $mine = Track::factory()->for($this->station)->jingle()->create(['jingle_list_id' => $list->id]);
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/jingle-lists/{$list->id}", ['pinned_track_id' => $mine->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('pinned_track_id');
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/jingle-lists/{$list->id}", ['pick' => JingleList::PICK_IN_ORDER, 'pinned_track_id' => $mine->id])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('pinned_track_id');
+
+    expect($list->fresh()->pinned_track_id)->toBeNull();
+});
+
+it('turns a stranger away before validating a clocked rule', function () {
+    $list = JingleList::factory()->for($this->station)->create();
+    $stranger = User::factory()->create();
+    $clocked = ['frequency' => JingleList::FREQUENCY_TIMES, 'times' => ['08:00'], 'days' => [1]];
+
+    actingAs($stranger, 'sanctum')->patchJson("/api/jingle-lists/{$list->id}", $clocked)->assertForbidden();
+    actingAs($stranger, 'sanctum')->postJson("/api/stations/{$this->station->slug}/jingle-lists", ['name' => 'Theirs'] + $clocked)->assertForbidden();
+
+    // A list whose station is gone has no timezone to check: 403, not 500.
+    $this->station->delete();
+    actingAs($this->owner, 'sanctum')->patchJson("/api/jingle-lists/{$list->id}", $clocked)->assertForbidden();
+});
+
+it('leaves no empty list behind when a first jingle upload is refused', function () {
+    config(['liquidsoap.station_storage_bytes' => 1024]);
+
+    actingAs($this->owner, 'sanctum')
+        ->postJson("/api/stations/{$this->station->slug}/tracks", [
+            'kind' => 'jingle',
+            'files' => [UploadedFile::fake()->create('id.mp3', 10, 'audio/mpeg')],
+        ])
+        ->assertUnprocessable();
+
+    expect($this->station->jingleLists()->exists())->toBeFalse();
+});

@@ -104,7 +104,10 @@ class AutoDjScheduler
         $now = CarbonImmutable::now();
         $queued = $fresh ? null : $station->autodj_queued_seconds;
         $start = $queued === null ? $now : $now->addMilliseconds((int) round($queued * 1000));
-        $afterJingle = ! $fresh && $queued !== null && $station->autodj_queued_is_jingle;
+        // The jingle flag stands on its own: a clip with no measured length
+        // was still a jingle, and it must not be followed by another one. Its
+        // unknown airtime counts as zero, so the next answer starts now.
+        $afterJingle = ! $fresh && $station->autodj_queued_is_jingle;
 
         // 1. A boundary within the early-start window is treated as reached.
         $planAt = $start;

@@ -189,6 +189,9 @@ function reconnectDelay(attempt: number): number {
   return Math.round(base - spread + Math.random() * spread * 2)
 }
 
+/** Thrown inside a checklist that stop() overtook; never reaches the host. */
+class ChecksCancelled extends Error {}
+
 /**
  * Manages the full broadcast lifecycle: mic → audio engine → webcast socket.
  *
@@ -224,6 +227,19 @@ export class BroadcastManager {
   private wakeLockRequesting = false
   private steps: BroadcastStepInfo[] = []
   private stopping = false
+  // Bumped by start() and stop(). A checklist remembers the value it began
+  // with and gives up at its next await once it differs, so Cancel during the
+  // checks can't later open the mic, build an engine and land in `ready`.
+  // Not `stopping`: a fresh start() clears that while the old run is in flight.
+  private checksRun = 0
+  /**
+   * Did this manager's checklist turn the station on — was it off when
+   * {@link ensureStationOnAir} read it, just before `POST /start`? Read by
+   * BroadcastContext.stop() when a Cancel asks it to hand back only what the
+   * cancelled run took: a station the host had left running stays running.
+   * Never cleared by stop(), which is when it is read.
+   */
+  startedStationThisRun = false
   // True once the server has accepted the hello frame and kept the connection.
   // Until then openSocket() owns failure reporting; after it, a close is a real
   // mid-broadcast drop and the reconnect loop takes over.
@@ -376,13 +392,20 @@ export class BroadcastManager {
     this.lastMetadata = null
     this.sentMetadataKey = null
     this.startOptions = options
+    this.startedStationThisRun = false
+    const run = ++this.checksRun
     this.callbacks.onStateChange('connecting')
 
     try {
-      await this.runChecks(options)
+      await this.runChecks(run, options)
       this.readyAt = Date.now()
       this.callbacks.onStateChange('ready')
     } catch (err) {
+      // Cancelled: stop() has already torn down and said `idle`. A step that
+      // failed on its own AFTER the cancel (the mic prompt answered Block, a
+      // 422 from /start) is the same case: reporting it would put `error` on
+      // a manager that is already stopped.
+      if (err instanceof ChecksCancelled || run !== this.checksRun) return
       await this.fail(err)
     }
   }
@@ -399,6 +422,11 @@ export class BroadcastManager {
    */
   async goLive(): Promise<void> {
     if (!this.engine || this.ws) return
+    const run = this.checksRun
+    // stop() bumps checksRun. Every await below is a place it can land, and
+    // past it this method must not touch `this` again: the engine is gone,
+    // and a socket opened now would sit on the harbor mount behind an `idle`.
+    const cancelled = () => run !== this.checksRun
     this.callbacks.onStateChange('connecting')
     // Inside the Start click: the one moment a resume is sure to be allowed.
     void this.engine.resume().catch(() => {})
@@ -411,15 +439,17 @@ export class BroadcastManager {
         this.micStream = null
         await this.engine.destroy()
         this.engine = null
-        await this.runChecks(this.startOptions)
+        await this.runChecks(run, this.startOptions)
       } else if (Date.now() - this.stationCheckedAt > STATION_FRESH_MS) {
         this.setActiveStep('station')
-        await this.ensureStationOnAir()
+        await this.ensureStationOnAir(run)
+        if (cancelled()) throw new ChecksCancelled()
         this.updateStep('station', 'done')
       }
       this.quietSteps = false
 
-      await this.connectWebcast()
+      await this.connectWebcast(run)
+      if (cancelled()) throw new ChecksCancelled()
 
       // Socket is up and accepted — safe to resume saved playback. Starting
       // earlier would encode audio that gets dropped for want of a socket,
@@ -437,12 +467,20 @@ export class BroadcastManager {
       // Reports left over from an earlier broadcast that never got out.
       void flushDrops()
     } catch (err) {
+      // See start(): a cancelled run reports nothing, however it ended.
+      if (err instanceof ChecksCancelled || cancelled()) return
       await this.fail(err)
     }
   }
 
-  /** The checklist itself, minus the socket. Throws on the first failure. */
-  private async runChecks(options?: BroadcastStartOptions): Promise<void> {
+  /**
+   * The checklist itself, minus the socket. Throws on the first failure, and
+   * {@link ChecksCancelled} at the first await after stop() — releasing
+   * whatever this run opened that stop() could not yet see.
+   */
+  private async runChecks(run: number, options?: BroadcastStartOptions): Promise<void> {
+    const cancelled = () => run !== this.checksRun
+
     this.bitrate = DEFAULT_BITRATE
     this.uplinkKbps = null
     this.lastBacklogSampleAt = 0
@@ -466,9 +504,12 @@ export class BroadcastManager {
     try {
       uplink = await checkUplink()
     } catch (err) {
+      if (cancelled()) throw new ChecksCancelled()
       reportUplinkCheck(this.stationSlug, 'failed', { kbps: null, bitrate: null })
       throw err
     }
+    // Before POST /start: a cancelled check must not bring the station on air.
+    if (cancelled()) throw new ChecksCancelled()
     this.uplinkKbps = uplink.kbps
     reportUplinkCheck(
       this.stationSlug,
@@ -492,21 +533,34 @@ export class BroadcastManager {
     // Step 0: Make sure the station is on air and its Liquidsoap container
     // is actually ready to consume our stream.
     this.setActiveStep('station')
-    await this.ensureStationOnAir()
+    await this.ensureStationOnAir(run)
+    if (cancelled()) throw new ChecksCancelled()
     this.updateStep('station', 'done')
 
     // Step 1: Microphone (skipped in music-only mode).
     if (!options?.skipMic) {
       this.setActiveStep('mic')
-      this.micStream = await this.openSavedMic()
+      const mic = await this.openSavedMic()
+      if (cancelled()) {
+        mic.getTracks().forEach((t) => t.stop())
+        throw new ChecksCancelled()
+      }
+      this.micStream = mic
       this.updateStep('mic', 'done')
     }
 
     // Step 2: Audio engine — mic + queue mixer, encoding MP3 off-thread.
-    // Frames go out through handleChunk.
+    // Frames go out through handleChunk. Kept local until it survives both
+    // awaits: stop() can only destroy what is already on `this`. (A mic it
+    // reached in between, stop() has already released.)
     this.setActiveStep('engine')
-    this.engine = await this.createEngine()
-    await this.engine.restoreQueue()
+    const engine = await this.createEngine()
+    if (!cancelled()) await engine.restoreQueue()
+    if (cancelled()) {
+      await engine.destroy()
+      throw new ChecksCancelled()
+    }
+    this.engine = engine
     this.updateStep('engine', 'done')
   }
 
@@ -718,12 +772,51 @@ export class BroadcastManager {
    * would drop existing listeners). That is what makes it safe to call again
    * on every reconnect attempt, where the station may have been stopped for
    * silence while we were away.
+   *
+   * `run` is the checklist this belongs to (see `checksRun`): once stop() has
+   * overtaken it, the wait for readiness ends in {@link ChecksCancelled}
+   * rather than polling a station nobody is going to use for 20 more seconds.
+   * The POST itself, once sent, is not undone here — whether a cancelled run
+   * hands the station back is the host's call (BroadcastContext.stop()), and
+   * {@link startedStationThisRun} is what tells it there is something to hand
+   * back.
+   *
+   * @param probe Read the station first, to learn whether THIS run is the one
+   *   turning it on. Off for a reconnect, where the question is moot — End
+   *   releases unconditionally — and every attempt would pay the extra read.
    */
-  private async ensureStationOnAir(readyTimeoutMs = STATION_READY_TIMEOUT_MS): Promise<void> {
+  private async ensureStationOnAir(
+    run: number,
+    readyTimeoutMs = STATION_READY_TIMEOUT_MS,
+    probe = true,
+  ): Promise<void> {
+    const cancelled = () => run !== this.checksRun
     this.stationCheckedAt = 0
+
+    // Was it off before we asked? `desired_state`, not `state`: a container
+    // that died under a station the owner left running is not ours to hand
+    // back, only to restore. A failed read answers "don't know", which is
+    // "not ours": the sweep covers a station left on by mistake, and nothing
+    // covers one taken off air by mistake.
+    let wasOff = false
+    if (probe) {
+      try {
+        const { data } = await api.get<{ data: { desired_state?: 'stopped' | 'running' } }>(
+          `/stations/${this.stationSlug}/status`,
+        )
+        wasOff = data.data.desired_state === 'stopped'
+      } catch {
+        wasOff = false
+      }
+      // Cancelled while reading: don't send the POST at all.
+      if (cancelled()) throw new ChecksCancelled()
+    }
+
     try {
       await api.post(`/stations/${this.stationSlug}/start`)
+      if (wasOff) this.startedStationThisRun = true
     } catch (err) {
+      if (cancelled()) throw new ChecksCancelled()
       const response = (err as { response?: { status?: number; data?: { message?: string } } })?.response
       // Plan limits and ownership are the two refusals worth repeating
       // verbatim — the API writes them for humans.
@@ -738,20 +831,24 @@ export class BroadcastManager {
 
     const deadline = Date.now() + readyTimeoutMs
     while (Date.now() < deadline) {
+      if (cancelled()) throw new ChecksCancelled()
       try {
         const { data } = await api.get<{ data: { ready: boolean } }>(
           `/stations/${this.stationSlug}/status`,
         )
+        if (cancelled()) throw new ChecksCancelled()
         if (data.data.ready) {
           this.stationCheckedAt = Date.now()
           return
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof ChecksCancelled) throw err
         // Status is a live read from the container; a blip here is not a
         // reason to abandon the broadcast.
       }
       await new Promise((resolve) => setTimeout(resolve, STATION_READY_POLL_MS))
     }
+    if (cancelled()) throw new ChecksCancelled()
 
     // Timed out. Publish anyway rather than refusing to broadcast: harbor
     // accepts the connection the moment it is listening, so a container that
@@ -778,8 +875,15 @@ export class BroadcastManager {
    * attempt. They live about a minute, so one cached from before a drop is
    * dead on arrival — reusing it would turn a recoverable network blip into an
    * auth failure.
+   *
+   * `run` is the checklist (or reconnect attempt) this belongs to. stop()
+   * bumps `checksRun` and nulls `this.ws` synchronously, before this method
+   * can resume from either of its awaits; a run it has overtaken must not
+   * open a socket, and one it opened must be closed again — not installed —
+   * or it sits on the harbor mount behind an `idle` with nothing feeding it.
    */
-  private async connectWebcast(): Promise<void> {
+  private async connectWebcast(run: number): Promise<void> {
+    const cancelled = () => run !== this.checksRun
     if (!this.engine) throw new Error('Audio engine not initialized')
 
     // Mint the scoped broadcaster token and learn where to publish. Doing this
@@ -807,8 +911,19 @@ export class BroadcastManager {
     if (!ingestUrl) {
       throw new Error('The server did not return a publish address for this station')
     }
+    // Before the socket exists: stop() landed during the token request.
+    if (cancelled()) throw new ChecksCancelled()
 
     const ws = await this.openSocket(ingestUrl, token)
+
+    // stop() landed during the handshake. It has already let go of (and
+    // closed) whatever `this.ws` was at that moment; if the handshake still
+    // resolved, the socket is ours to close, and never `established`.
+    if (cancelled()) {
+      if (this.ws === ws) this.ws = null
+      try { ws.close(1000, 'broadcast ended') } catch { /* already closing */ }
+      throw new ChecksCancelled()
+    }
 
     this.established = true
     this.connectedAt = Date.now()
@@ -977,12 +1092,16 @@ export class BroadcastManager {
 
       if (this.stopping) break
 
+      // stop() bumps checksRun, so the two calls below give up at their own
+      // awaits (ChecksCancelled lands in the catch, and `stopping` ends the
+      // loop) instead of finishing a round-trip nobody is waiting for.
+      const run = this.checksRun
       try {
-        await this.ensureStationOnAir(RECONNECT_STATION_READY_TIMEOUT_MS)
+        await this.ensureStationOnAir(run, RECONNECT_STATION_READY_TIMEOUT_MS, false)
 
         if (this.stopping) break
 
-        await this.connectWebcast()
+        await this.connectWebcast(run)
 
         // stop() can land while an attempt is mid-flight — it awaits an HTTP
         // round-trip and a socket handshake. Without this the broadcaster
@@ -1230,6 +1349,7 @@ export class BroadcastManager {
     // Set first: it is what makes an in-flight reconnect give up rather than
     // race this teardown and reopen a socket behind it.
     this.stopping = true
+    this.checksRun++
     this.wakeFromBackoff?.()
     this.reconnecting = false
     this.established = false
@@ -1249,7 +1369,11 @@ export class BroadcastManager {
     // ignores it and nothing is reported or reconnected.
     try { this.ws?.close(1000, 'broadcast ended') } catch { /* already closing */ }
     this.ws = null
-    await this.engine?.destroy()
+    // Guarded like fail(): a rebuild or a cancelled goLive can be mid-destroy
+    // already, and Chrome rejects a second close on a closing AudioContext.
+    // Throwing here would skip `idle`, and BroadcastContext would keep a
+    // manager it believes is still running.
+    try { await this.engine?.destroy() } catch { /* already torn down */ }
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.micStream = null
     this.engine = null

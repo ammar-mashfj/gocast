@@ -20,8 +20,18 @@ export function useMicPreview(enabled: boolean) {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  /**
+   * Which open() is current. release() and a newer open() bump it, so an
+   * open() that was still waiting on getUserMedia when either happened
+   * finds itself superseded on resume and lets its stream go instead of
+   * installing it. Without this, Go live pressed while the prompt was up
+   * released nothing, and the preview's mic came back to sit alongside the
+   * checks' own — two holders of one device.
+   */
+  const generation = useRef(0)
 
   const release = useCallback(() => {
+    generation.current += 1
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     setStream(null)
@@ -29,6 +39,8 @@ export function useMicPreview(enabled: boolean) {
   }, [])
 
   const open = useCallback(async (deviceId?: string) => {
+    const mine = ++generation.current
+    const superseded = () => mine !== generation.current
     setState("opening")
     streamRef.current?.getTracks().forEach((t) => t.stop())
     try {
@@ -40,6 +52,10 @@ export function useMicPreview(enabled: boolean) {
         if (!deviceId && err instanceof DOMException && err.name !== "NotAllowedError") next = await openMic()
         else throw err
       }
+      if (superseded()) {
+        next.getTracks().forEach((t) => t.stop())
+        return
+      }
       streamRef.current = next
       setStream(next)
       setState("on")
@@ -47,8 +63,11 @@ export function useMicPreview(enabled: boolean) {
       if (deviceId && used) rememberMicDevice(used)
       // Names only exist once the page holds permission, which it now does.
       const all = await navigator.mediaDevices.enumerateDevices()
+      if (superseded()) return
       setDevices(all.filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "communications"))
     } catch (err) {
+      // Released while the prompt was up: release() already said `idle`.
+      if (superseded()) return
       const name = err instanceof DOMException ? err.name : ""
       setState(name === "NotAllowedError" || name === "SecurityError" ? "blocked" : "none")
     }
@@ -73,7 +92,10 @@ export function useMicPreview(enabled: boolean) {
     }
   }, [enabled, open, release])
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), [])
+  useEffect(() => () => {
+    generation.current += 1
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+  }, [])
 
   const current = stream?.getAudioTracks()[0]?.getSettings().deviceId ?? ""
 

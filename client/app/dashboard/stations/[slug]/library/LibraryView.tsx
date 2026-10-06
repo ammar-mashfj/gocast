@@ -212,6 +212,8 @@ export function LibraryView({
                 key={currentPlaylist.id}
                 playlist={currentPlaylist}
                 tracks={lib.members[currentPlaylist.id] ?? null}
+                loadFailed={lib.memberErrors.has(currentPlaylist.id)}
+                onRetry={() => lib.retryMembers(currentPlaylist.id)}
                 locked={locked}
                 savingOrder={lib.savingOrder}
                 nowPlayingId={lib.nowPlayingId}

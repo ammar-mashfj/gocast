@@ -337,3 +337,31 @@ it('never trims or serves jingles to a container on an older script', function (
 
     expect(hsTitle($uri))->toBe('Long')->and(hsCueOut($uri))->toBeNull();
 });
+
+it('never fills the gap before a hard slot from a set-times list', function () {
+    // The 08:00 ID is for 08:00. Used as filler at 07:59:30 it would be
+    // stamped as played then — before its time — so it would still be owed
+    // at the first break after the slot and play a second time.
+    $station = hsStation();
+    hsTrack($station, 'Default song', 200);
+    $morning = Playlist::factory()->for($station)->create(['name' => 'Morning']);
+    hsTrack($station, 'Morning song', 200, $morning);
+    hsSlot($station, $morning, '08:00', '10:00');
+    $ids = JingleList::factory()->for($station)->atTimes(['08:00'])->create();
+    Track::factory()->for($station)->jingle()->create([
+        'jingle_list_id' => $ids->id, 'title' => 'ID', 'duration_seconds' => 15.0, 'duration_measured_at' => now(),
+    ]);
+
+    $uri = hsNext($station, '2026-10-05 07:59:30', fresh: true);
+    expect(hsTitle($uri))->toBe('Default song')->and(hsCueOut($uri))->toBe('30.000');
+
+    // Each later ask comes when the previous answer starts.
+    $titles = [];
+    $at = CarbonImmutable::parse('2026-10-05 07:59:30');
+    foreach (range(1, 4) as $i) {
+        $titles[] = hsTitle(hsNext($station, $at->format('Y-m-d H:i:s')));
+        $at = $station->fresh()->autodj_queued_starts_at;
+    }
+
+    expect($titles)->toBe(['ID', 'Morning song', 'Morning song', 'Morning song']);
+});

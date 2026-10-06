@@ -22,8 +22,8 @@ interface Props {
   playlistName: string
   /** Library tracks NOT already in the playlist — the only ones worth offering. */
   candidates: Track[]
-  /** Resolves once the server has them; the dialog closes on success. */
-  onAdd: (ids: string[]) => Promise<void>
+  /** Resolves true once the server has them; the dialog closes on true and stays open on false. */
+  onAdd: (ids: string[]) => Promise<boolean>
   /**
    * The library itself has nothing in it. Separate from `candidates` being
    * empty, which otherwise reads as "everything is already in here" — untrue,
@@ -88,8 +88,8 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
     try {
       // In library order, so "select all" adds them the way they are listed
       // rather than in click order.
-      await onAdd(candidates.filter((t) => picked.has(t.id)).map((t) => t.id))
-      onClose()
+      const ok = await onAdd(candidates.filter((t) => picked.has(t.id)).map((t) => t.id))
+      if (ok) onClose()
     } finally {
       setSaving(false)
     }

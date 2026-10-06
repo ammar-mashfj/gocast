@@ -148,6 +148,9 @@ export function JinglesView({
     if (!ok) return
 
     setJingles((prev) => prev.filter((t) => t.id !== track.id))
+    // The server clears the pin with the row (FK nullOnDelete); match it, or
+    // the card keeps a dead "Plays" tag and the rule dialog saves a dead id.
+    setLists((prev) => prev.map((l) => (l.pinned_track_id === track.id ? { ...l, pinned_track_id: null } : l)))
     applyStorageDelta(-track.file_size_bytes)
     try {
       await api.delete(`/tracks/${track.id}`)
@@ -159,6 +162,10 @@ export function JinglesView({
 
   async function moveJingle(track: Track, to: JingleList) {
     setJingles((prev) => prev.map((t) => (t.id === track.id ? { ...t, jingle_list_id: to.id } : t)))
+    // Moving unpins it from the list it left (TrackController does the same).
+    setLists((prev) =>
+      prev.map((l) => (l.id === track.jingle_list_id && l.pinned_track_id === track.id ? { ...l, pinned_track_id: null } : l)),
+    )
     try {
       await api.patch(`/tracks/${track.id}`, { jingle_list_id: to.id })
       toast.success(`Moved to ${to.name}.`)

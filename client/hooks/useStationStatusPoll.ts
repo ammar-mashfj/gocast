@@ -193,6 +193,17 @@ export function useStationStatusPoll(slug: string, enabled = true, intervalMs?: 
     cancelled.current = false
     let coalesce: ReturnType<typeof setTimeout> | null = null
     /**
+     * This effect run's own liveness, as a local and not the shared ref
+     * above. The ref is reset to false by the NEXT run of this effect (a
+     * slug change, the socket coming or going), so a tick of the old run
+     * that was mid-read when that happened resumed, saw "not cancelled" and
+     * a `generation` that only its own closure could bump, and scheduled its
+     * successor on top of the new run's — two loops, one `timer`, and the
+     * orphan polling for as long as the dashboard stayed open. A local is
+     * flipped once, by this run's cleanup, and nothing can un-flip it.
+     */
+    let active = true
+    /**
      * Which run of the loop a tick belongs to. restart() bumps it, so a tick
      * that was already awaiting read() when the restart happened finds itself
      * stale on resume and does not schedule a successor — clearing the timer
@@ -207,12 +218,12 @@ export function useStationStatusPoll(slug: string, enabled = true, intervalMs?: 
     let generation = 0
 
     async function tick() {
-      if (cancelled.current) return
+      if (!active) return
       const mine = generation
       const next = document.hidden ? status : await read()
       // The read itself is not wasted: it already wrote the fresher status.
       // Only the scheduling belongs to the run that started it.
-      if (cancelled.current || mine !== generation) return
+      if (!active || mine !== generation) return
       timer.current = setTimeout(
         tick,
         next === FAILED
@@ -236,6 +247,7 @@ export function useStationStatusPoll(slug: string, enabled = true, intervalMs?: 
     // exists to avoid. The generation bump retires a tick that is mid-read,
     // which the timer clear cannot see.
     function restart() {
+      if (!active) return
       generation += 1
       if (timer.current) clearTimeout(timer.current)
       tick()
@@ -275,6 +287,9 @@ export function useStationStatusPoll(slug: string, enabled = true, intervalMs?: 
     })
 
     return () => {
+      active = false
+      // Still set: read() keys its setState calls off it, and on unmount
+      // nothing comes along to reset it.
       cancelled.current = true
       if (timer.current) clearTimeout(timer.current)
       if (coalesce) clearTimeout(coalesce)

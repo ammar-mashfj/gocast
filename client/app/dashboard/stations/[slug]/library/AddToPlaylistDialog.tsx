@@ -19,8 +19,8 @@ interface Props {
   /** How many library tracks are selected — this dialog never sees which. */
   count: number
   playlists: Playlist[]
-  /** Resolves once the server has them; the dialog closes on success. */
-  onAdd: (playlistId: string) => Promise<void>
+  /** Resolves true once the server has them; the dialog closes on true and stays open on false. */
+  onAdd: (playlistId: string) => Promise<boolean>
 }
 
 /**
@@ -48,8 +48,8 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
     if (saving !== null) return
     setSaving(playlistId)
     try {
-      await onAdd(playlistId)
-      onClose()
+      const ok = await onAdd(playlistId)
+      if (ok) onClose()
     } finally {
       setSaving(null)
     }

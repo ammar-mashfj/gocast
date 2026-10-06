@@ -249,3 +249,15 @@ it('plays no jingles on a station with no music to punctuate', function () {
 
     expect(jrPlay($station, '2026-10-05 07:00', 2))->toBe(['-', '-']);
 });
+
+it('never plays two jingles back to back even when the first has no measured length', function () {
+    // A clip the analysis has not reached yet has no airtime to queue, but
+    // it was still a jingle: the next answer must be a song.
+    $station = jrStation();
+    $a = JingleList::factory()->for($station)->create(['every_songs' => 1, 'songs_since' => 5, 'position' => 1]);
+    $b = JingleList::factory()->for($station)->create(['every_songs' => 1, 'songs_since' => 5, 'position' => 2]);
+    Track::factory()->for($station)->jingle()->create(['jingle_list_id' => $a->id, 'title' => 'A', 'duration_seconds' => 0, 'duration_measured_at' => null]);
+    Track::factory()->for($station)->jingle()->create(['jingle_list_id' => $b->id, 'title' => 'B', 'duration_seconds' => 0, 'duration_measured_at' => null]);
+
+    expect(jrPlay($station, '2026-10-05 07:00', 4))->toBe(['A', 'Song 1', 'B', 'Song 2']);
+});

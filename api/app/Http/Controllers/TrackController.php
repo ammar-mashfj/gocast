@@ -7,6 +7,7 @@ use App\Http\Requests\ReorderTracksRequest;
 use App\Http\Requests\StoreTrackRequest;
 use App\Http\Requests\UpdateTrackRequest;
 use App\Http\Resources\TrackResource;
+use App\Models\JingleList;
 use App\Models\Station;
 use App\Models\Track;
 use App\Services\PlaylistFileWriter;
@@ -109,8 +110,12 @@ class TrackController extends Controller
         $playlistId = $request->playlistId();
         $playlist = $playlistId === null ? null : $station->playlists()->whereKey($playlistId)->first();
 
-        $jingleList = $kind === Track::KIND_JINGLE
-            ? $this->importer->jingleListFor($station, $request->jingleListId())
+        // Only a named list is resolved here; with none named, each import
+        // finds or makes the station's list inside its own transaction, after
+        // the quota check, so a refused first upload leaves no empty list.
+        $jingleListId = $request->jingleListId();
+        $jingleList = $kind === Track::KIND_JINGLE && $jingleListId !== null
+            ? $this->importer->jingleListFor($station, $jingleListId)
             : null;
 
         $created = [];
@@ -155,7 +160,13 @@ class TrackController extends Controller
         // database when it is next handed to the station.
         $data = $request->validated();
 
-        if (array_key_exists('jingle_list_id', $data)) {
+        if (array_key_exists('jingle_list_id', $data) && $data['jingle_list_id'] !== $track->jingle_list_id) {
+            // A list left pinned to a clip it no longer holds fails its own
+            // validation on every later save, the on/off switch included.
+            JingleList::whereKey($track->jingle_list_id)
+                ->where('pinned_track_id', $track->getKey())
+                ->update(['pinned_track_id' => null]);
+
             $track->forceFill(['jingle_list_id' => $data['jingle_list_id']]);
         }
 
