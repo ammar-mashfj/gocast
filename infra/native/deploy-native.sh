@@ -67,8 +67,10 @@
 #   - every scheduler tick is a fresh `schedule:run` process that loads
 #     whatever is on disk, and a queue worker lazy-loads any class it has not
 #     touched yet. Both are STOPPED right after the pull and started again
-#     once migrations and caches are done. A reconcile pass that ran the new
-#     code against the old schema once halted station recreates for an hour.
+#     once migrations and caches are done — before the asset and client
+#     builds, so their outage is composer plus migrate. A reconcile pass that
+#     ran the new code against the old schema once halted station recreates
+#     for an hour.
 #   - php-fpm runs with opcache.validate_timestamps=1, so web requests serve
 #     the new files ~2s after the pull. They cannot be stopped without taking
 #     down the station callbacks live DJs connect through, so instead the
@@ -357,10 +359,54 @@ fi
 # already serving the pulled code, so every minute spent building is a minute
 # of web requests against the old schema (see the header). Not before
 # composer — a migration may need a class or package this deploy added.
+# Stopping the scheduler kills any runInBackground() pass mid-flight, before
+# it releases its withoutOverlapping lock — and an orphaned lock silences that
+# command until it expires. Nothing can legitimately hold one while the
+# scheduler is down, so clear them all. After composer, so the app boots
+# against a class map that matches the pulled code.
+if [[ $WORKERS_STOPPED -eq 1 ]]; then
+  artisan schedule:clear-cache || rollback
+fi
+
 if [[ $MIGRATE -eq 1 ]]; then
   echo "==> Migrations"
   artisan migrate --force || rollback
 fi
+
+# API caches, php-fpm and the workers go live straight after the migration.
+# The admin asset and client builds below take minutes and nothing here
+# depends on them.
+if [[ $API_CHANGED -eq 1 ]]; then
+  echo "==> Storage symlink"
+  # --relative is required. An absolute link created while the app still ran
+  # in a container points at /app/storage/app/public, which does not exist on
+  # the host; the symptom is every piece of station artwork 404ing while the
+  # files are plainly there on disk.
+  artisan storage:link --relative || true
+
+  echo "==> Caching config, routes, events"
+  # view:clear matters as much as the caches below. Compiled Blade lives in
+  # storage/framework/views keyed by source path, so a template that still
+  # compiles is never re-compiled -- even when the classes it referenced are
+  # gone. Removing Filament left a compiled welcome.blade.php calling
+  # Livewire\Mechanisms\ExtendBlade, which 500'd the API root until cleared.
+  artisan view:clear   || rollback
+  artisan config:clear || rollback
+  artisan config:cache || rollback
+  artisan route:cache  || rollback
+  artisan event:cache  || rollback
+
+  echo "==> Reloading API services"
+  # reload, not restart: in-flight requests (a 100 MB upload takes minutes)
+  # finish on the old workers while new ones pick up the new code.
+  systemctl reload "php${PHP_VERSION}-fpm" || rollback
+  # Stopped right after the pull; the schema and caches now match the code.
+  # Started here rather than at the end so the asset and client builds below
+  # are not part of their outage.
+  WORKERS_STOPPED=0
+  systemctl start gocast-queue gocast-scheduler || rollback
+fi
+
 
 # api/ has its own Vite build (resources/css/admin.css + app.js) that emits
 # public/build/manifest.json. The Blade admin panel calls @vite(), which
@@ -409,35 +455,6 @@ if [[ $CLIENT_CHANGED -eq 1 ]]; then
   echo "  ✓ standalone bundle assembled"
 else
   echo "==> Client unchanged"
-fi
-
-if [[ $API_CHANGED -eq 1 ]]; then
-  echo "==> Storage symlink"
-  # --relative is required. An absolute link created while the app still ran
-  # in a container points at /app/storage/app/public, which does not exist on
-  # the host; the symptom is every piece of station artwork 404ing while the
-  # files are plainly there on disk.
-  artisan storage:link --relative || true
-
-  echo "==> Caching config, routes, events"
-  # view:clear matters as much as the caches below. Compiled Blade lives in
-  # storage/framework/views keyed by source path, so a template that still
-  # compiles is never re-compiled -- even when the classes it referenced are
-  # gone. Removing Filament left a compiled welcome.blade.php calling
-  # Livewire\Mechanisms\ExtendBlade, which 500'd the API root until cleared.
-  artisan view:clear   || rollback
-  artisan config:clear || rollback
-  artisan config:cache || rollback
-  artisan route:cache  || rollback
-  artisan event:cache  || rollback
-
-  echo "==> Reloading API services"
-  # reload, not restart: in-flight requests (a 100 MB upload takes minutes)
-  # finish on the old workers while new ones pick up the new code.
-  systemctl reload "php${PHP_VERSION}-fpm" || rollback
-  # Stopped right after the pull; the schema and caches now match the code.
-  WORKERS_STOPPED=0
-  systemctl start gocast-queue gocast-scheduler || rollback
 fi
 
 if [[ $CLIENT_CHANGED -eq 1 ]]; then

@@ -8,12 +8,19 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+// The per-minute commands below lock for 10 minutes, not the default 24
+// hours. A runInBackground() pass killed mid-flight (scheduler restart, OOM)
+// never releases its lock, and the default would silence that command for a
+// day. 10 rather than 5 because a reconcile pass that recreates several
+// stations can legitimately run for minutes. The deploy also clears the locks
+// outright (schedule:clear-cache) after it stops the scheduler.
+
 // Listener counts come from Icecast's admin API — nothing pushes them to us.
 // Every minute is a good balance: the dashboard number feels live without
 // hammering Icecast. withoutOverlapping so a slow/hung poll can't stack up.
 Schedule::command('stations:sync-listeners')
     ->everyMinute()
-    ->withoutOverlapping()
+    ->withoutOverlapping(10)
     ->runInBackground();
 
 // Container convergence: removes containers for stations that are stopped,
@@ -32,7 +39,7 @@ Schedule::command('stations:sync-listeners')
 // and both were rescaled when this moved from five minutes to one.
 Schedule::command('stations:reconcile')
     ->everyMinute()
-    ->withoutOverlapping()
+    ->withoutOverlapping(10)
     ->runInBackground();
 
 // Auto-stop — the single decision tree for taking a station off air. Replaces
@@ -51,7 +58,7 @@ Schedule::command('stations:reconcile')
 // from "nothing to play" to "off air" is the window plus up to two passes.
 Schedule::command('stations:sweep')
     ->everyMinute()
-    ->withoutOverlapping()
+    ->withoutOverlapping(10)
     ->runInBackground();
 
 // Listener analytics — closes sessions whose player stopped checking in, and
@@ -64,7 +71,7 @@ Schedule::command('stations:sweep')
 // what it says.
 Schedule::command('listeners:sweep')
     ->everyMinute()
-    ->withoutOverlapping()
+    ->withoutOverlapping(10)
     ->runInBackground();
 
 // Recomputes the session-derived half of the rollups over a trailing window.
