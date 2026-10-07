@@ -5,6 +5,7 @@ import Link from "next/link"
 import { toast } from "sonner"
 import { useParams, useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { usePreflightQueue } from "@/hooks/usePreflightQueue"
 import { useMicPreview } from "@/hooks/useMicPreview"
 import api from "@/lib/axios"
@@ -44,6 +45,10 @@ export default function GoLivePage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
   const { state, steps, error, start, goLive, stop } = useBroadcast()
+  // Cancel hands back a station the checks turned on — only without AutoDJ,
+  // the same rule as End (components/studio/EndBroadcast): with a rotation,
+  // on air is the station's normal state and there is nothing to hand back.
+  const autoDjLocked = useAutoDjLocked()
 
   const [station, setStation] = useState<Station | null>(null)
   // Only read to explain a refusal, so fetched once rather than polled.
@@ -101,8 +106,12 @@ export default function GoLivePage() {
     void start(slug, { skipMic, resumeFromStart })
   }
 
+  // Cancel. Leaving the page instead (the unmount above) hands nothing back:
+  // the sweep takes a station nobody connected to off air by itself.
   function back() {
-    if (state === "ready" || state === "connecting") void stop()
+    if (state === "ready" || state === "connecting") {
+      void stop({ releaseStation: autoDjLocked ? "if-started-here" : false })
+    }
     setPressed(false)
   }
 

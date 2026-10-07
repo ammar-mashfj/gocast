@@ -10,15 +10,16 @@ import { Card, CardHeader } from "@/components/ds/Card"
 import { Dialog, DialogContent } from "@/components/ds/Dialog"
 import { Notice } from "@/components/ds/Notice"
 import { PageHeader } from "@/components/ds/PageHeader"
+import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
 import { useMounted } from "@/hooks/useMounted"
 import api from "@/lib/axios"
 import { cn } from "@/lib/utils"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Programme, Station } from "@/interfaces/Station"
+import { AutoDjUpsell } from "../library/AutoDjUpsell"
 import { DayList } from "./DayList"
 import { ScheduleNow } from "./ScheduleNow"
 import { SlotPanel } from "./SlotPanel"
@@ -95,7 +96,6 @@ function stationNow(timeZone: string): { day: number; minute: number; label: str
  */
 export function SchedulePlanner({ station, playlists }: Props) {
   const locked = useAutoDjLocked()
-  const proRequest = useProRequest()
   const mounted = useMounted()
   const timezone = station.timezone
   const settingsHref = `/dashboard/stations/${station.slug}/settings#show-times`
@@ -119,7 +119,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
   // case; without one a slot has nothing to play, and drawing one would
   // silently do nothing.
   const noPlaylists = playlists.length === 0
-  const libraryHref = `/dashboard/stations/${station.slug}/library`
+  const playlistsHref = `/dashboard/stations/${station.slug}/playlists`
   const byId = useMemo(() => new Map(playlists.map((p, i) => [p.id, { p, swatch: SWATCHES[i % SWATCHES.length] }])), [playlists])
   const swatchFor = useCallback((id: string) => byId.get(id)?.swatch ?? SWATCHES[0], [byId])
   const nameFor = useCallback((b: Block) => b.label.trim() || byId.get(b.playlistId)?.p.name || "Slot", [byId])
@@ -282,6 +282,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
 
   return (
     <div className="flex flex-col gap-5.5">
+      <AutoDjSections slug={station.slug} />
       <PageHeader
         title="Schedule"
         aside={locked ? <ProTag /> : <HelpLink article="schedule-playlists-by-time" label="scheduling playlists by day and time" />}
@@ -300,7 +301,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
                 variant="ghost"
                 onClick={addFromButton}
                 disabled={noPlaylists}
-                title={noPlaylists ? "Make a playlist in your Library first." : undefined}
+                title={noPlaylists ? "Make a playlist in Playlists first." : undefined}
               >
                 <IconPlus />
                 Add slot
@@ -310,6 +311,8 @@ export function SchedulePlanner({ station, playlists }: Props) {
           </>
         }
       />
+
+      {locked && <AutoDjUpsell stationName={station.name} />}
 
       {saveState === "error" && <Notice label="Not saved">{saveError}</Notice>}
       {saveState === "no-timezone" && (
@@ -410,20 +413,14 @@ export function SchedulePlanner({ station, playlists }: Props) {
         {!locked && noPlaylists && (
           <p className="max-w-[62ch] text-body-sm text-muted-foreground">
             A slot plays a playlist, and this station has none yet.{" "}
-            <Link href={libraryHref} className="text-violet-muted hover:underline">Make one in AutoDJ</Link>, then come back to plan the week.
+            <Link href={playlistsHref} className="text-violet-muted hover:underline">Make one in Playlists</Link>, then come back to plan the week.
           </p>
         )}
 
-        <p className="max-w-[62ch] text-body-sm text-text-faint">
-          {locked
-            ? "With Pro, AutoDJ plays your music whenever you're not live, and you can pick a different playlist for certain hours."
-            : "When you're not live, AutoDJ plays your music. A slot starts after the song playing at its start time, or exactly on time if you set it to. Going live always takes over."}
-        </p>
-
-        {locked && (
-          <Button variant="pro" className="self-start" onClick={proRequest.open} disabled={proRequest.requested}>
-            {proRequest.requested ? "Request sent" : "Request Pro"}
-          </Button>
+        {!locked && (
+          <p className="max-w-[62ch] text-body-sm text-text-faint">
+            When you’re not live, AutoDJ plays your music. A slot starts after the song playing at its start time, or exactly on time if you set it to. Going live always takes over.
+          </p>
         )}
       </Card>
 

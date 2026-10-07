@@ -18,24 +18,37 @@ function renumber(list: Track[]): Track[] {
   return list.map((t, i) => (t.position === i + 1 ? t : { ...t, position: i + 1 }))
 }
 
+/** Which AutoDJ page the hook serves: Library (every file) or Playlists. */
+export type LibraryPage = "library" | "playlists"
+
 /**
- * The AutoDJ screen's state: the library and the playlists built from it,
- * kept agreeing.
+ * The Library and Playlists pages' state: the library and the playlists
+ * built from it, kept agreeing.
  *
  * Two lists describe the same tracks — the library (every file, with which
  * playlists it is in) and each playlist's members (a subset, in play order) —
  * so every edit is applied to both here, optimistically, and refetched on
  * failure. The views only render and call these.
  */
-export function useLibrary(station: Station, initialTracks: Track[], initialMeta: LibraryMeta, initialPlaylists: Playlist[]) {
+export function useLibrary(
+  page: LibraryPage,
+  station: Station,
+  initialTracks: Track[],
+  initialMeta: LibraryMeta,
+  initialPlaylists: Playlist[],
+) {
   const [confirm, confirmDialog] = useConfirm()
   const slug = station.slug
   const [tracks, setTracks] = useState<Track[]>(initialTracks)
   const [playlists, setPlaylists] = useState<Playlist[]>(initialPlaylists)
   const [meta, setMeta] = useState<LibraryMeta>(initialMeta)
   const [members, setMembers] = useState<Record<string, Track[]>>({})
-  const [selected, setSelected] = useState<string>(
-    () => initialPlaylists.find((p) => p.is_default)?.id ?? LIBRARY_KEY,
+  // Playlists whose member fetch failed. Without this the entry stays
+  // undefined, the effect below never retries, and the view spins forever.
+  const [memberErrors, setMemberErrors] = useState<Set<string>>(() => new Set())
+  // Library is always the whole library; Playlists opens on the default.
+  const [selected, setSelected] = useState<string>(() =>
+    page === "library" ? LIBRARY_KEY : (initialPlaylists.find((p) => p.is_default)?.id ?? initialPlaylists[0]?.id ?? LIBRARY_KEY),
   )
   const [savingOrder, setSavingOrder] = useState(false)
 
@@ -49,7 +62,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
   const locked = useAutoDjLocked()
 
   // Which row is on air. Polled at the hook's own pace.
-  const { status, loading: statusLoading } = useStationStatus(slug)
+  const { status } = useStationStatus(slug)
 
   const defaultPlaylist = useMemo(() => playlists.find((p) => p.is_default) ?? null, [playlists])
   const currentPlaylist = useMemo(
@@ -63,6 +76,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
   useEffect(() => {
     if (currentPlaylist === null || members[currentPlaylist.id] !== undefined) return
     const id = currentPlaylist.id
+    if (memberErrors.has(id)) return
     let cancelled = false
     api
       .get<{ data: Track[] }>(`/playlists/${id}/tracks`)
@@ -70,12 +84,24 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         if (!cancelled) setMembers((prev) => ({ ...prev, [id]: data.data }))
       })
       .catch(() => {
-        if (!cancelled) toast.error("Couldn't load that playlist.")
+        if (cancelled) return
+        toast.error("Couldn't load that playlist.")
+        setMemberErrors((prev) => new Set(prev).add(id))
       })
     return () => {
       cancelled = true
     }
-  }, [currentPlaylist, members])
+  }, [currentPlaylist, members, memberErrors])
+
+  /** Clear a failed fetch so the effect above tries again. */
+  const retryMembers = useCallback((id: string) => {
+    setMemberErrors((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
 
   const refetchMembers = useCallback(async (id: string) => {
     const { data } = await api.get<{ data: Track[] }>(`/playlists/${id}/tracks`)
@@ -156,8 +182,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         await api.patch(`/tracks/${id}`, fields)
       } catch {
         toast.error("Save failed. Refreshing…")
-        await refetchLibrary()
-        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+        await Promise.allSettled([refetchLibrary(), currentPlaylist ? refetchMembers(currentPlaylist.id) : null])
       }
     },
     [refetchLibrary, refetchMembers, currentPlaylist],
@@ -187,8 +212,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         toast.success("Track deleted.")
       } catch {
         toast.error("Delete failed. Refreshing…")
-        await refetchLibrary()
-        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+        await Promise.allSettled([refetchLibrary(), currentPlaylist ? refetchMembers(currentPlaylist.id) : null])
       }
     },
     [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchMembers, currentPlaylist, confirm],
@@ -224,6 +248,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
       }
       applyStorageDelta(-targets.reduce((sum, t) => sum + t.file_size_bytes, 0))
 
+      const deleted = `Deleted ${targets.length} track${targets.length === 1 ? "" : "s"}`
       try {
         const { data } = await api.delete<{ data: Track[]; meta: LibraryMeta }>(
           `/stations/${slug}/tracks`,
@@ -231,16 +256,24 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         )
         setTracks(data.data)
         setMeta(data.meta)
-        toast.success(`Deleted ${targets.length} track${targets.length === 1 ? "" : "s"}.`)
-        // The rail's per-playlist counts and the open playlist's membership
-        // both moved; neither is in the response.
-        await refetchPlaylists()
-        if (currentPlaylist) await refetchMembers(currentPlaylist.id)
       } catch {
         toast.error("Delete failed. Refreshing…")
-        await refetchLibrary()
+        await Promise.allSettled([
+          refetchLibrary(),
+          refetchPlaylists(),
+          currentPlaylist ? refetchMembers(currentPlaylist.id) : null,
+        ])
+        return
+      }
+      // The delete landed. The rail's per-playlist counts and the open
+      // playlist's membership both moved; neither is in the response. A
+      // failure here is a stale list, not a failed delete, and says so.
+      try {
         await refetchPlaylists()
         if (currentPlaylist) await refetchMembers(currentPlaylist.id)
+        toast.success(`${deleted}.`)
+      } catch {
+        toast.error(`${deleted}, but the list didn't refresh.`)
       }
     },
     [
@@ -263,8 +296,8 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
    * special case here.
    */
   const handleBulkAddToPlaylist = useCallback(
-    async (playlistId: string, ids: string[]) => {
-      if (ids.length === 0) return
+    async (playlistId: string, ids: string[]): Promise<boolean> => {
+      if (ids.length === 0) return true
 
       try {
         const { data } = await api.post<{ data: Track[] }>(`/playlists/${playlistId}/tracks`, {
@@ -292,9 +325,10 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         )
         const name = playlistNames.get(playlistId) ?? "the playlist"
         toast.success(`Added ${ids.length} track${ids.length === 1 ? "" : "s"} to ${name}.`)
+        return true
       } catch {
         toast.error("Couldn't add those tracks.")
-        throw new Error("add failed")
+        return false
       }
     },
     [playlistNames],
@@ -325,17 +359,16 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         await api.delete(`/playlists/${playlist.id}/tracks/${trackId}`)
       } catch {
         toast.error("Couldn't remove it. Refreshing…")
-        await refetchMembers(playlist.id)
-        await refetchLibrary()
+        await Promise.allSettled([refetchMembers(playlist.id), refetchLibrary()])
       }
     },
     [currentPlaylist, members, bumpPlaylist, refetchMembers, refetchLibrary],
   )
 
   const handleAddFromLibrary = useCallback(
-    async (ids: string[]) => {
+    async (ids: string[]): Promise<boolean> => {
       const playlist = currentPlaylist
-      if (!playlist) return
+      if (!playlist) return true
       try {
         const { data } = await api.post<{ data: Track[] }>(`/playlists/${playlist.id}/tracks`, { track_ids: ids })
         setMembers((prev) => ({ ...prev, [playlist.id]: data.data }))
@@ -359,9 +392,10 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
           ),
         )
         toast.success(`Added ${ids.length} track${ids.length === 1 ? "" : "s"} to ${playlist.name}.`)
+        return true
       } catch {
         toast.error("Couldn't add those tracks.")
-        throw new Error("add failed")
+        return false
       }
     },
     [currentPlaylist],
@@ -379,7 +413,7 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
         await api.patch(`/playlists/${playlist.id}/tracks/reorder`, { ids })
       } catch {
         toast.error("Couldn't save order. Refreshing…")
-        await refetchMembers(playlist.id)
+        await refetchMembers(playlist.id).catch(() => undefined)
       }
     },
     [currentPlaylist, refetchMembers],
@@ -480,11 +514,9 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
       toast.success(`Deleted ${playlist.name}.`)
     } catch {
       toast.error("Couldn't delete it. Refreshing…")
-      const { data } = await api.get<{ data: Playlist[] }>(`/stations/${slug}/playlists`)
-      setPlaylists(data.data)
-      await refetchLibrary()
+      await Promise.allSettled([refetchPlaylists(), refetchLibrary()])
     }
-  }, [currentPlaylist, defaultPlaylist, slug, station.autodj_slots, refetchLibrary, confirm])
+  }, [currentPlaylist, defaultPlaylist, station.autodj_slots, refetchPlaylists, refetchLibrary, confirm])
 
   // ---- derived ----------------------------------------------------------
 
@@ -527,12 +559,12 @@ export function useLibrary(station: Station, initialTracks: Track[], initialMeta
   return {
     slug,
     locked,
-    status,
-    statusLoading,
     tracks,
     playlists,
     meta,
     members,
+    memberErrors,
+    retryMembers,
     selected,
     setSelected,
     savingOrder,

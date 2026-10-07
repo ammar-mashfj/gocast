@@ -7,6 +7,7 @@ import { Button } from "@/components/ds/Button"
 import { DayToggle } from "@/components/ds/DayToggle"
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { TextField } from "@/components/ds/Field"
+import { SwitchRow } from "@/components/ds/Switch"
 import { DAY_NAMES } from "./days"
 import { WEEK_ORDER, type Swatch } from "./WeekGrid"
 import { DAY_MINUTES, SNAP, toClock, toMinutes, type Block } from "./weekModel"
@@ -91,30 +92,16 @@ export function SlotPanel({ block, days, isNew, overlapping, playlists, swatchFo
         <TimeStepper label={overnight ? "To (next day)" : "To"} value={block.end} onChange={(end) => onChange({ end })} />
       </div>
 
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="mb-1.5 text-xs text-muted-foreground">When it starts</legend>
-        <div className="flex flex-col gap-1" role="radiogroup">
-          {START_MODES.map((mode) => {
-            const on = block.startMode === mode.value
-            return (
-              <button
-                key={mode.value}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                onClick={() => onChange({ startMode: mode.value })}
-                className={cn(
-                  "flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2.5 text-left transition-colors motion-reduce:transition-none",
-                  on ? "bg-white/[0.07] text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
-                )}
-              >
-                <span className="text-sm font-medium">{mode.label}</span>
-                <span className="text-xs text-muted-foreground">{mode.hint}</span>
-              </button>
-            )
-          })}
-        </div>
-      </fieldset>
+      <SwitchRow
+        title="Start exactly on time"
+        description={
+          block.startMode === "hard"
+            ? `Starts at ${block.start} on the dot. AutoDJ picks a song that ends in time, or fades out the one playing.`
+            : `Starts after the song playing at ${block.start} ends.`
+        }
+        checked={block.startMode === "hard"}
+        onCheckedChange={(on) => onChange({ startMode: on ? "hard" : "soft" })}
+      />
 
       <div className="flex flex-col gap-2">
         <span className="text-body-sm font-semibold text-muted-foreground">Every</span>
@@ -152,18 +139,6 @@ export function SlotPanel({ block, days, isNew, overlapping, playlists, swatchFo
   )
 }
 
-const START_MODES: { value: Block["startMode"]; label: string; hint: string }[] = [
-  {
-    value: "soft",
-    label: "After the current song",
-    hint: "The song playing at the start time finishes first.",
-  },
-  {
-    value: "hard",
-    label: "Exactly on time",
-    hint: "AutoDJ picks songs that end in time. If none fits, the last one fades out.",
-  },
-]
 
 function TimeStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const step = (by: number) => onChange(toClock(Math.round((toMinutes(value) + by) / SNAP) * SNAP + DAY_MINUTES))

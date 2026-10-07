@@ -5,8 +5,8 @@ export default function Body() {
   return (
     <>
       <p>
-        AutoDJ plays from a library you upload once. Everything here happens on
-        the <strong>AutoDJ</strong>{" "}page in your dashboard.
+        AutoDJ plays from a library you upload once. Everything here happens
+        under <strong>AutoDJ</strong>{" "}›{" "}<strong>Library</strong>{" "}in your dashboard.
       </p>
 
       <h2>What You Can Upload</h2>
@@ -48,7 +48,7 @@ export default function Body() {
         listeners see as the now-playing text on your player page. A library
         full of <code>track04.mp3</code>{" "}becomes a station that cannot say what
         it is playing. Fixing tags before you upload is easiest; for anything
-        that slips through, the AutoDJ page flags tracks with no artist and
+        that slips through, the Library page flags tracks with no artist and
         offers <strong>Fix tags</strong>.
       </p>
 
@@ -66,11 +66,17 @@ export default function Body() {
       <h2>Jingles</h2>
       <p>
         Station idents, liners and stings are uploaded as jingles rather than
-        as music. They behave differently: they are not playlist members and
-        they have no running order, because they drop in between rotation
-        tracks on a timer and are picked at random. Upload half a dozen and
-        your station identifies itself all day without you arranging anything.
-        They come out of the same 3 GB.
+        as music, from the <strong>Jingles</strong>{" "}button on the Library
+        page. They are not playlist members and have no running order: they
+        drop in between songs, picked at random, as often as you set &mdash;
+        every few songs, every so many minutes, or at set times past the hour.
+      </p>
+      <p>
+        Jingles play between songs, one per break. At a set time AutoDJ picks
+        songs that end in time for it, and if none does, the song playing
+        fades out so the jingle starts on the dot. Upload half a dozen and
+        your station identifies itself all day without you arranging
+        anything. They come out of the same 3 GB.
       </p>
 
       <h2>A Word on Licensing</h2>

@@ -76,16 +76,22 @@ export default function Body() {
       <h3>Station IDs and Jingles</h3>
       <p>
         Jingles are uploaded separately from your music and slot in
-        automatically. You choose how often, two ways:
+        automatically. You choose how often, three ways:
       </p>
       <ul>
         <li>
-          <strong>By the clock</strong>{" "} &mdash; one every few minutes. Good for
-          legal IDs and sponsor reads, because you know exactly when they land.
+          <strong>By song count</strong>{" "}&mdash; one every few tracks. Good for
+          station imaging, because it never lands in the middle of a song.
         </li>
         <li>
-          <strong>By song count</strong>{" "} &mdash; one every few tracks. Good for
-          station imaging, because it never lands in the middle of a song.
+          <strong>By the clock</strong>{" "}&mdash; one every so many minutes, at
+          the first break once the time is up.
+        </li>
+        <li>
+          <strong>At set times</strong>{" "}&mdash; :00 and :30, say. Good for
+          legal IDs and sponsor reads, because they land on the dot: AutoDJ
+          picks songs that end in time, and if none does, the song playing
+          fades out.
         </li>
       </ul>
       <p>

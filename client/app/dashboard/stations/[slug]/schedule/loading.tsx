@@ -14,6 +14,7 @@ const HOURS = Array.from({ length: 13 }, (_, i) => i * 2)
 export default function ScheduleLoading() {
   return (
     <div className="flex flex-col gap-5.5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
+      <Skeleton className="h-12 rounded-control lg:hidden" />
       <PageHeader title="Schedule" description="What AutoDJ plays when you’re not live. Going live always takes over." />
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18.75rem),1fr))] gap-5">

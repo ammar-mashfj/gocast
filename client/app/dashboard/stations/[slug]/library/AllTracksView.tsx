@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { DndContext } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { IconTrash, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import type { Track } from "@/interfaces/Track"
 import { useTrackPreview } from "@/hooks/useTrackPreview"
@@ -176,30 +177,6 @@ export function AllTracksView({
         menu={menuItems}
       />
 
-      {/* Only while something is selected, so the resting panel is unchanged. */}
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-raised px-5.5 py-2.5">
-          <span className="font-mono text-body-sm font-semibold tabular-nums">{selected.size} selected</span>
-          <span className="flex-1" />
-          <Button
-            size="sm"
-            variant="subtle"
-            onClick={() => onBulkAdd(pickedInOrder())}
-            disabled={locked || deleting}
-            title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-          >
-            Add to playlist
-          </Button>
-          {/* Deleting stays on every plan: a downgrade never traps files. */}
-          <Button size="sm" variant="subtle" onClick={() => void deletePicked()} disabled={deleting}>
-            {deleting ? "Deleting…" : `Delete ${selected.size}`}
-          </Button>
-          <Button size="sm" variant="quiet" onClick={() => setPicked(new Set())} disabled={deleting}>
-            Clear
-          </Button>
-        </div>
-      )}
-
       {belowToolbar}
 
       {tracks.length === 0 ? (
@@ -259,6 +236,41 @@ export function AllTracksView({
             {/* Select-all reaches past the painted rows, so say so. */}
             {selected.size > shown.length && <span> · {selected.size} selected, including rows below</span>}
           </LibraryFooter>
+
+          {/* The selection's actions float over the list instead of
+              joining it, so ticking a row never moves the rows. Sticky to
+              the bottom of the screen while the card is in view (above the
+              phone's tab bar, as Schedule's save bar is), and resting at the
+              card's foot once you scroll past it. */}
+          {selected.size > 0 && (
+            <div
+              role="region"
+              aria-label="Selected tracks"
+              className="sticky bottom-4 z-20 mx-3 mb-3 flex items-center gap-1.5 rounded-panel bg-popover py-2.5 pr-2 pl-4 sm:gap-2 sm:pr-2.5 sm:pl-4.5 shadow-panel animate-in fade-in-0 slide-in-from-bottom-2 duration-150 max-sm:bottom-20"
+            >
+              <span className="font-mono text-body-sm font-semibold whitespace-nowrap tabular-nums">{selected.size} selected</span>
+              <span className="flex-1" />
+              <Button
+                size="sm"
+                variant="subtle"
+                onClick={() => onBulkAdd(pickedInOrder())}
+                disabled={locked || deleting}
+                title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
+              >
+                Add to playlist
+              </Button>
+              {/* Deleting stays on every plan: a downgrade never traps files.
+                  Icon-only on a phone, where the words don't all fit. */}
+              <Button size="sm" variant="subtle" onClick={() => void deletePicked()} disabled={deleting} aria-label={`Delete ${selected.size} selected`} className="max-sm:px-2">
+                <IconTrash className="sm:hidden" aria-hidden />
+                <span className="max-sm:hidden">{deleting ? "Deleting…" : "Delete"}</span>
+              </Button>
+              <Button size="sm" variant="quiet" onClick={() => setPicked(new Set())} disabled={deleting} aria-label="Clear selection" className="max-sm:px-2">
+                <IconX className="sm:hidden" aria-hidden />
+                <span className="max-sm:hidden">Clear</span>
+              </Button>
+            </div>
+          )}
         </>
       )}
       {confirmDialog}
