@@ -17,8 +17,8 @@
 #   api/package-lock.json changed  -> npm ci (admin assets)
 #   api/resources, vite.config     -> vite build (admin assets)
 #   api/database/migrations        -> mysqldump, then migrate
-#   anything under api/            -> config/route/event cache, php-fpm reload,
-#                                     queue + scheduler restart
+#   anything under api/            -> queue + scheduler stopped for the deploy,
+#                                     config/route/event cache, php-fpm reload
 #   client/package-lock.json       -> npm ci (client)
 #   anything under client/         -> next build, client restart
 #
@@ -62,10 +62,26 @@
 #      loss — a down() that drops a column discards what was in it. The dump
 #      path is printed instead so a human decides.
 #
-# The ordering here is not arbitrary. Migrations run BEFORE the caches are
-# rebuilt and the workers restart, so there is never a window where new code
-# is live against an old schema. php-fpm is reloaded (not restarted) so
-# in-flight uploads finish on the old workers.
+# The ordering here is not arbitrary. New code is live the moment `git pull`
+# writes it, not when a service restarts:
+#   - every scheduler tick is a fresh `schedule:run` process that loads
+#     whatever is on disk, and a queue worker lazy-loads any class it has not
+#     touched yet. Both are STOPPED right after the pull and started again
+#     once migrations and caches are done. A reconcile pass that ran the new
+#     code against the old schema once halted station recreates for an hour.
+#   - php-fpm runs with opcache.validate_timestamps=1, so web requests serve
+#     the new files ~2s after the pull. They cannot be stopped without taking
+#     down the station callbacks live DJs connect through, so instead the
+#     migration runs straight after composer, BEFORE the slow asset and client
+#     builds. The window shrinks to the composer step.
+# That second point only holds if migrations are ADDITIVE: during the builds
+# the OLD code that is still loaded runs against the NEW schema, and old code
+# ignores a column it does not know but breaks on one that was dropped or
+# renamed. So add first, remove later — drop or rename a column in a later
+# deploy, once no deployed code reads it.
+#
+# php-fpm is reloaded (not restarted) so in-flight uploads finish on the old
+# workers.
 
 set -euo pipefail
 
@@ -220,6 +236,26 @@ changed() {
 changed api/    && API_CHANGED=1
 changed client/ && CLIENT_CHANGED=1
 
+# The scheduler and queue worker would otherwise run the just-pulled code
+# against the old schema until the migration below (see the header). Stopped
+# here, started again after the caches are rebuilt. The EXIT trap brings them
+# back on any path out of the script — `set -e`, a refused backup, rollback —
+# so a failed deploy never leaves them down.
+WORKERS_STOPPED=0
+start_workers() {
+  if [[ $WORKERS_STOPPED -eq 1 ]]; then
+    systemctl start gocast-queue gocast-scheduler || true
+    WORKERS_STOPPED=0
+  fi
+}
+trap start_workers EXIT
+
+if [[ $API_CHANGED -eq 1 ]]; then
+  echo "==> Stopping the queue worker and scheduler for the deploy"
+  WORKERS_STOPPED=1
+  systemctl stop gocast-queue gocast-scheduler
+fi
+
 # domains.env is gitignored, so `changed` cannot see it — but NEXT_PUBLIC_*
 # are baked into the client bundle from it. Compare against the hash stamped
 # by the last successful deploy; no stamp counts as changed.
@@ -317,6 +353,15 @@ else
   echo "==> PHP dependencies unchanged"
 fi
 
+# Straight after composer, before the asset and client builds: php-fpm is
+# already serving the pulled code, so every minute spent building is a minute
+# of web requests against the old schema (see the header). Not before
+# composer — a migration may need a class or package this deploy added.
+if [[ $MIGRATE -eq 1 ]]; then
+  echo "==> Migrations"
+  artisan migrate --force || rollback
+fi
+
 # api/ has its own Vite build (resources/css/admin.css + app.js) that emits
 # public/build/manifest.json. The Blade admin panel calls @vite(), which
 # throws "Vite manifest not found" without it -- so every route under /admin
@@ -366,11 +411,6 @@ else
   echo "==> Client unchanged"
 fi
 
-if [[ $MIGRATE -eq 1 ]]; then
-  echo "==> Migrations"
-  artisan migrate --force || rollback
-fi
-
 if [[ $API_CHANGED -eq 1 ]]; then
   echo "==> Storage symlink"
   # --relative is required. An absolute link created while the app still ran
@@ -395,11 +435,9 @@ if [[ $API_CHANGED -eq 1 ]]; then
   # reload, not restart: in-flight requests (a 100 MB upload takes minutes)
   # finish on the old workers while new ones pick up the new code.
   systemctl reload "php${PHP_VERSION}-fpm" || rollback
-  # The workers hold the framework in memory, so they are blind to the new
-  # code until they exit. queue:restart asks the worker to finish its current
-  # job and stop; systemd's Restart=always brings it straight back.
-  artisan queue:restart || rollback
-  systemctl restart gocast-scheduler || rollback
+  # Stopped right after the pull; the schema and caches now match the code.
+  WORKERS_STOPPED=0
+  systemctl start gocast-queue gocast-scheduler || rollback
 fi
 
 if [[ $CLIENT_CHANGED -eq 1 ]]; then
