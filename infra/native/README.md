@@ -16,7 +16,7 @@ Everything in this directory is rendered and installed by
 |---|---|
 | Web server + PHP | nginx + php-fpm |
 | MySQL, Redis, Icecast | apt packages, on loopback |
-| Queue worker | `gocast-queue.service` |
+| Queue workers | `gocast-queue.service` (default), `gocast-realtime.service` (realtime), `gocast-analysis.service` (analysis) |
 | Scheduler | `gocast-scheduler.service` |
 | Next.js client | `gocast-client.service` |
 | TLS | `certbot --nginx` |
@@ -318,7 +318,7 @@ existing certificate.
 ```bash
 sudo systemctl enable --now redis-server icecast2 php8.4-fpm
 sudo bash infra/native/deploy-native.sh
-sudo systemctl enable --now gocast-queue gocast-scheduler gocast-client
+sudo systemctl enable --now gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client
 ```
 
 `deploy-native.sh` is the steady-state command from here on: dump the DB,
@@ -345,7 +345,7 @@ curl -fsS http://127.0.0.1:8000/status-json.xsl
 curl -fsS http://<public-ip>:8000/            # must time out
 
 # 4. Workers are alive
-systemctl status gocast-queue gocast-scheduler gocast-client
+systemctl status gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client
 
 # 5. Docker access works through the proxy, not the raw socket
 sudo -u gocast DOCKER_HOST=tcp://127.0.0.1:2375 docker ps
@@ -504,7 +504,9 @@ Then run the app processes directly, and only the audio in Docker:
 docker compose -f infra/native/docker-compose.native.yml up -d   # network + proxy + router
 cd api    && php artisan serve --no-reload                       # :8000, 4 workers
 cd client && npm run dev                                         # :3000
-cd api    && php artisan queue:work --queue=realtime,default            # realtime first, or broadcasts never send
+cd api    && php artisan queue:work --queue=default                    # emails, stops
+cd api    && php artisan queue:work --queue=analysis                   # track analysis
+cd api    && php artisan queue:work --queue=realtime                   # dashboard pushes; never share a worker with default
 ```
 
 `api/.env` for a laptop differs from the server in three ways:

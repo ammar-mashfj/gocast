@@ -41,7 +41,10 @@
 # deploy would otherwise "roll back" to a commit that never ran.
 #
 # Host provisioning (nginx, php-fpm pool, systemd units, icecast, ufw) is NOT
-# part of the deploy. setup-native.sh re-renders the vhosts from port-80
+# part of the deploy — except the queue worker units, which install_worker_units
+# below keeps in step with the code (and puts back on a rollback), because the
+# queues they serve change with it: a job moved to a queue no worker serves
+# just never runs. setup-native.sh re-renders the vhosts from port-80
 # templates and wipes the :443 blocks certbot added in place; run it by hand
 # when host config changes, then re-run certbot:
 #   sudo bash infra/native/setup-native.sh
@@ -120,6 +123,23 @@ API_CHANGED=0
 CLIENT_CHANGED=0
 CLIENT_BUILD_STARTED=0
 
+# The queue workers, one per queue (see the --queue comment in
+# gocast-queue.service for why none serves two), and every unit the deploy
+# stops and starts. Split on 2026-10-10.
+QUEUE_UNITS=(gocast-queue gocast-realtime gocast-analysis)
+WORKER_UNITS=("${QUEUE_UNITS[@]}" gocast-scheduler)
+
+# WORKER_UNITS minus any not installed on this host. After a rollback to a
+# commit that predates a worker, install_worker_units removes its unit, and a
+# systemctl start/stop naming a missing unit fails for all of them.
+present_workers() {
+  local unit
+  for unit in "${WORKER_UNITS[@]}"; do
+    [[ -f "/etc/systemd/system/${unit}.service" ]] && echo "$unit"
+  done
+  return 0
+}
+
 # Everything that touches the app tree runs as the service user, so a deploy
 # never leaves root-owned files that php-fpm then cannot write. This is the
 # most common way a native Laravel deploy breaks a day later: bootstrap/cache
@@ -186,7 +206,10 @@ rollback() {
   fi
   artisan config:cache || true
   systemctl reload "php${PHP_VERSION}-fpm" || true
-  systemctl restart gocast-queue gocast-scheduler || true
+  # The units back to the rolled-back code's too, or its jobs could land on a
+  # queue the new units no longer serve.
+  install_worker_units || true
+  systemctl restart $(present_workers) || true
   # `next build` overwrites .next in place, so once it has started the tree
   # on disk is neither the old build nor a whole new one. Resetting the
   # source does not bring the old bundle back; only a rebuild does. Until it
@@ -238,6 +261,55 @@ changed() {
 changed api/    && API_CHANGED=1
 changed client/ && CLIENT_CHANGED=1
 
+# The queue workers' units are rendered here, not only by setup-native.sh: the
+# code decides which queue a job goes on and the unit decides which queues get
+# served, so the two must move together. Rendered with the same placeholders
+# setup-native.sh uses (all from domains.env, sourced above); installed only
+# when the rendered text differs, so an ordinary deploy leaves them alone. A
+# unit whose template is not in this tree (a rollback past the commit that
+# added it) is stopped and removed. Returns 0 when it changed anything.
+install_worker_units() {
+  local unit src target rendered installed=1
+  for unit in "${QUEUE_UNITS[@]}"; do
+    src="$NATIVE/systemd/${unit}.service"
+    target="/etc/systemd/system/${unit}.service"
+    if [[ ! -f "$src" ]]; then
+      if [[ -f "$target" ]]; then
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+        rm -f "$target"
+        echo "  ✓ removed ${unit}.service (not in this commit)"
+        installed=0
+      fi
+      continue
+    fi
+    rendered="$(sed -e "s|__APP_ROOT__|${APP_ROOT}|g" \
+                    -e "s|__RUN_USER__|${RUN_USER}|g" \
+                    -e "s|__DOCKER_HOST__|${DOCKER_HOST_ADDR}|g" \
+                    "$src")"
+    if [[ "$rendered" != "$(cat "$target" 2>/dev/null)" ]]; then
+      printf '%s\n' "$rendered" > "$target"
+      echo "  ✓ installed ${unit}.service"
+      installed=0
+    fi
+  done
+  if [[ $installed -eq 0 ]]; then
+    systemctl daemon-reload
+    for unit in "${QUEUE_UNITS[@]}"; do
+      [[ -f "$NATIVE/systemd/${unit}.service" ]] && systemctl enable "$unit" >/dev/null 2>&1
+    done
+  fi
+  return $installed
+}
+
+echo "==> Queue worker units"
+if install_worker_units; then
+  # Installed but not yet running the new unit text. When api/ changed, the
+  # stop/start below picks it up; otherwise restart them here.
+  [[ $API_CHANGED -eq 0 ]] && systemctl restart $(present_workers)
+else
+  echo "  · unchanged"
+fi
+
 # The scheduler and queue worker would otherwise run the just-pulled code
 # against the old schema until the migration below (see the header). Stopped
 # here, started again after the caches are rebuilt. The EXIT trap brings them
@@ -246,7 +318,7 @@ changed client/ && CLIENT_CHANGED=1
 WORKERS_STOPPED=0
 start_workers() {
   if [[ $WORKERS_STOPPED -eq 1 ]]; then
-    systemctl start gocast-queue gocast-scheduler || true
+    systemctl start $(present_workers) || true
     WORKERS_STOPPED=0
   fi
 }
@@ -255,7 +327,7 @@ trap start_workers EXIT
 if [[ $API_CHANGED -eq 1 ]]; then
   echo "==> Stopping the queue worker and scheduler for the deploy"
   WORKERS_STOPPED=1
-  systemctl stop gocast-queue gocast-scheduler
+  systemctl stop $(present_workers)
 fi
 
 # domains.env is gitignored, so `changed` cannot see it — but NEXT_PUBLIC_*
@@ -404,7 +476,7 @@ if [[ $API_CHANGED -eq 1 ]]; then
   # Started here rather than at the end so the asset and client builds below
   # are not part of their outage.
   WORKERS_STOPPED=0
-  systemctl start gocast-queue gocast-scheduler || rollback
+  systemctl start $(present_workers) || rollback
 fi
 
 
@@ -491,7 +563,7 @@ echo ""
 echo "✓ Deployed $(git rev-parse --short HEAD)"
 echo "  Previous: ${ROLLBACK_HINT:0:8}  (roll back: git reset --hard $ROLLBACK_HINT && FULL_DEPLOY=1 bash infra/native/deploy-native.sh)"
 [[ -n "$DB_DUMP" ]] && echo "  Pre-migration dump: $DB_DUMP"
-echo "  Logs: journalctl -u gocast-queue -u gocast-scheduler -u gocast-client -f"
+echo "  Logs: journalctl -u gocast-queue -u gocast-realtime -u gocast-analysis -u gocast-scheduler -u gocast-client -f"
 if [[ ${#MANUAL_STEPS[@]} -gt 0 ]]; then
   echo ""
   echo "  Manual steps still owed:"

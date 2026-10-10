@@ -1,5 +1,5 @@
 [Unit]
-Description=GoCast queue worker
+Description=GoCast track analysis worker (uploads)
 # Redis backs the queue; MySQL backs everything the jobs touch. Starting
 # before either is up means the worker dies immediately and systemd's
 # restart budget starts burning for no reason.
@@ -13,13 +13,13 @@ User=__RUN_USER__
 Group=__RUN_USER__
 WorkingDirectory=__APP_ROOT__/api
 
-# The queue worker needs DOCKER_HOST for the same reason the scheduler does:
-# StopStation stops a station's container. See the php-fpm pool's env[] block
-# for why api/.env alone does not supply it.
+# Same environment as gocast-queue, so a job behaves the same whichever
+# worker picks it up. See the php-fpm pool's env[] block for why api/.env
+# alone does not supply DOCKER_HOST.
 Environment=DOCKER_HOST=__DOCKER_HOST__
 
-# --tries=3 and --timeout=60 are carried over verbatim from the `queue`
-# queue worker. Do not raise --timeout past
+# --tries=3 and --timeout=60 are carried over verbatim from gocast-queue.
+# Do not raise --timeout past
 # request_terminate_timeout thinking; this is the CLI, and the ceiling that
 # matters is max_execution_time in the CLI php.ini copy.
 #
@@ -28,15 +28,16 @@ Environment=DOCKER_HOST=__DOCKER_HOST__
 # restart; deploy-native.sh restarts this unit explicitly, and the hourly
 # bound is the backstop for when someone deploys by hand.
 #
-# --queue=default: emails, verification codes, stop checks. `realtime` and
-# `analysis` each have a unit of their own (gocast-realtime.service,
-# gocast-analysis.service), and no worker serves two queues. With `block_for`
-# set (config/queue.php) a worker given `a,b` blocks on `a` and only looks at
-# `b` after 5s with nothing arriving on `a`. On 2026-10-10 this worker ran
-# --queue=realtime,default: one Icecast retry loop kept `realtime` from ever
-# going quiet that long, and `default` waited an hour on a worker that was
-# idle 97% of the time.
-ExecStart=/usr/bin/php artisan queue:work --queue=default --tries=3 --timeout=60 --max-time=3600
+# --queue=analysis: AnalyzeTrack only, which measures an upload's loudness
+# and cue points. A batch of uploads is minutes of decoding (120 uploads held
+# a shared queue ~15 minutes on 2026-10-10), so it has a worker of its own
+# rather than sharing one with `default`; see the --queue comment in
+# gocast-queue.service for why no worker serves two queues. Drop this unit
+# and uploads are never measured.
+#
+# --timeout=60 is only the default: AnalyzeTrack sets its own $timeout from
+# the file's length, and that wins.
+ExecStart=/usr/bin/php artisan queue:work --queue=analysis --tries=3 --timeout=60 --max-time=3600
 
 # `queue:restart` sets a flag the worker checks between jobs and then exits
 # 0. Without Restart=always that graceful exit would stop the service for
@@ -52,7 +53,7 @@ TimeoutStopSec=90
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=gocast-queue
+SyslogIdentifier=gocast-analysis
 
 # Hardening. NOT ProtectSystem=strict: the worker writes Laravel's storage
 # tree and the per-station playlist directories under /var/gocast, and both

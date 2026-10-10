@@ -63,6 +63,12 @@ class AnalyzeTrack implements ShouldQueue
         ?float $durationSeconds = null,
     ) {
         $this->timeout = TrackAnalyzer::timeoutFor($durationSeconds) + 30;
+
+        // Its own queue and its own worker (gocast-analysis.service). A batch of
+        // uploads is minutes of decoding, and on `default` every verification
+        // code and stop check queued behind it waited that long: 120 uploads
+        // on 2026-10-10 held the queue for ~15 minutes.
+        $this->onQueue('analysis');
     }
 
     public function handle(TrackAnalyzer $analyzer, PlaylistFileWriter $writer): void

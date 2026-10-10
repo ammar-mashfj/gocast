@@ -99,6 +99,14 @@ return [
              * lands. Must stay comfortably below `retry_after`, or a worker
              * blocking longer than the retry window would let another take a
              * job it is about to receive.
+             *
+             * THE TRAP: a worker given several queues (`--queue=a,b`) blocks
+             * on `a` for this long before it ever looks at `b`, and a job
+             * landing on `a` inside that window resets it. A steady trickle on
+             * `a` (one every <5s) starves `b` completely, however idle the
+             * worker is. That is how one Icecast retry loop held `default`
+             * for an hour on 2026-10-10. So in production every queue has a
+             * worker of its own (gocast-queue, -realtime, -analysis).
              */
             'block_for' => (int) env('REDIS_QUEUE_BLOCK_FOR', 5),
             'after_commit' => false,
@@ -120,6 +128,24 @@ return [
             ],
         ],
 
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Backlog Alerts
+    |--------------------------------------------------------------------------
+    |
+    | `queue:check-backlog` (every minute) alerts the admin's Telegram when the
+    | oldest pending job on a queue has waited longer than this many seconds.
+    | Generous for `analysis`, where a batch of uploads is minutes of honest
+    | work; tight for the rest, where a wait is a user staring at a screen.
+    |
+    */
+
+    'backlog_alert_seconds' => [
+        'realtime' => (int) env('QUEUE_ALERT_REALTIME_SECONDS', 60),
+        'default' => (int) env('QUEUE_ALERT_DEFAULT_SECONDS', 300),
+        'analysis' => (int) env('QUEUE_ALERT_ANALYSIS_SECONDS', 3600),
     ],
 
     /*

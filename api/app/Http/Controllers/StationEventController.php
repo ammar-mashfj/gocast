@@ -193,6 +193,11 @@ class StationEventController extends Controller
         // worker for as long as Ably takes to answer, and twelve of those is
         // the whole API — including harbor-auth, which gates ingest. A
         // broadcasting outage must not become an ingest outage.
+        //
+        // Every event is broadcast, repeats included. Skipping a repeat of the
+        // last cached event would also swallow a real change whenever an event
+        // in between was lost, and the repeats are cheap now that `realtime`
+        // has a worker of its own (gocast-realtime.service).
         if (in_array($validated['event'], self::BROADCAST_EVENTS, true)) {
             event(StationStateChanged::for($station, $validated['event']));
         }

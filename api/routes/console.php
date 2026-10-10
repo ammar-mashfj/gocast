@@ -136,3 +136,11 @@ Schedule::command('notifications:prune')
     ->dailyAt('05:00')
     ->withoutOverlapping()
     ->runInBackground();
+
+// Queue health. Every minute, because the thing it watches is minutes of users
+// waiting: on 2026-10-10 `default` stalled for an hour and nothing said so.
+// Sends straight to Telegram rather than through the queue it is checking.
+Schedule::command('queue:check-backlog')
+    ->everyMinute()
+    ->withoutOverlapping(5)
+    ->runInBackground();

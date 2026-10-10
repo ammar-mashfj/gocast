@@ -68,7 +68,7 @@ This doc covers the deployment kit under `infra/`, `backup.sh`, the scheduler, p
 | `infra/native/docker-compose.native.yml` | The two permanent containers plus the `gocast-network` definition. |
 | `infra/native/nginx/*.conf` | Four vhost templates with `__TOKEN__` placeholders (port-80 only; certbot adds TLS). |
 | `infra/native/php/` | php-fpm pool `gocast.pool.conf` and `99-gocast.ini`. |
-| `infra/native/systemd/` | `gocast-queue`, `gocast-scheduler`, `gocast-client` units. |
+| `infra/native/systemd/` | `gocast-queue`, `gocast-realtime`, `gocast-analysis`, `gocast-scheduler`, `gocast-client` units. |
 | `infra/native/icecast/icecast.xml.tpl` | Icecast config, rendered with `envsubst`. |
 | `infra/native/station-router/` | Dockerfile (nginx 1.29.8 + njs), `nginx.conf`, `ingest.js`. |
 | `infra/native/env/` | `domains.env.example`, `api.env.example`. `domains.env` (real values) is gitignored and present on disk. |
@@ -88,7 +88,7 @@ Defaults come from `domains.env.example` and `api.env.example`. "Bind" is what t
 | nginx internal vhost | host nginx | `INTERNAL_API_PORT` 8081 | all IPv4 interfaces (`listen __INTERNAL_API_PORT__;`, no `[::]` line). Serves only `/api/internal/*` and `/up`; every other path is 404; `client_max_body_size 2M`, `fastcgi_read_timeout 30s` | Station containers via `host.docker.internal` (`LIQUIDSOAP_API_URL`); the deploy health gate | `gocast-api.conf` |
 | Laravel API | php-fpm pool `gocast` | unix socket `/run/php/php8.4-fpm-gocast.sock` | socket, mode 0660, owner `www-data` | both nginx server blocks | `gocast.pool.conf` |
 | Next.js client | `gocast-client.service`, `node server.js` (standalone) | `CLIENT_PORT` 3000 | `HOSTNAME=127.0.0.1` | `gocast.fm` vhost upstream | `gocast-client.service` |
-| Queue worker | `gocast-queue.service` | none | n/a | Redis | see below |
+| Queue workers | `gocast-queue`, `gocast-realtime`, `gocast-analysis` | none | n/a | Redis | see below |
 | Scheduler | `gocast-scheduler.service` (`schedule:work`) | none | n/a | Redis, MySQL, Docker proxy | see below |
 | MySQL | apt | 3306 | loopback (`DB_HOST=127.0.0.1`) | Laravel | `api.env.example` |
 | Redis | apt | 6379 | loopback | Laravel: cache, sessions, queue, listener counts | `api.env.example` |
@@ -200,11 +200,13 @@ Pool `[gocast]`: user/group `RUN_USER`; `pm = dynamic`, `max_children 12`, `star
 
 | Unit | Command | Notable |
 |---|---|---|
-| `gocast-queue` | `php artisan queue:work --queue=realtime,default --tries=3 --timeout=60 --max-time=3600` | `Requires=redis-server`; `Restart=always`, `RestartSec=5`, `TimeoutStopSec=90`; hardened with `NoNewPrivileges`, `PrivateTmp`, kernel/cgroup protections. ONE worker. |
+| `gocast-queue` | `php artisan queue:work --queue=default --tries=3 --timeout=60 --max-time=3600` | `Requires=redis-server`; `Restart=always`, `RestartSec=5`, `TimeoutStopSec=90`; hardened with `NoNewPrivileges`, `PrivateTmp`, kernel/cgroup protections. Emails, verification codes, stop checks. |
+| `gocast-analysis` | `php artisan queue:work --queue=analysis --tries=3 --timeout=60 --max-time=3600` | Track analysis (`AnalyzeTrack`, which sets its own `$timeout`). Same restart, hardening and `DOCKER_HOST` as `gocast-queue`. |
+| `gocast-realtime` | `php artisan queue:work --queue=realtime --tries=3 --timeout=30 --max-time=3600` | Dashboard pushes only. Same restart and hardening as `gocast-queue`, `TimeoutStopSec=30`. No worker serves two queues (see realtime-events trap 17). |
 | `gocast-scheduler` | `php artisan schedule:work` | `Requires=redis-server`, `After=docker.service`; `RestartSec=10`, `TimeoutStopSec=70`. |
 | `gocast-client` | `/usr/bin/node server.js` in `client/.next/standalone` | `PORT`, `HOSTNAME=127.0.0.1`, `NODE_ENV=production`; `ProtectSystem=strict`, `ProtectHome=true`, writable only `.next/cache` under standalone. Node must be at `/usr/bin/node`. |
 
-The `realtime` queue exists only for `StationStateChanged` broadcasts (`broadcastQueue()`); a worker started without `--queue=realtime,default` never delivers them. `queue.redis.retry_after` is 90 (`REDIS_QUEUE_BLOCK_FOR` 5).
+The `realtime` queue exists only for `StationStateChanged` broadcasts (`broadcastQueue()`); without the `gocast-realtime` worker they are never delivered. `analysis` holds only `AnalyzeTrack`; without the `gocast-analysis` worker uploads are never measured. Unlike the other units, `deploy-native.sh` installs these three itself (`install_worker_units`, only when the rendered text differs), because the code decides which queue a job goes on. Its rollback re-renders them from the rolled-back tree and removes any unit that tree does not have. `queue.redis.retry_after` is 90 (`REDIS_QUEUE_BLOCK_FOR` 5).
 
 ## Deploy: `deploy-native.sh`
 

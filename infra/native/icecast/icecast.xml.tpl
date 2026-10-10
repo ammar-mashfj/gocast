@@ -27,8 +27,10 @@
     <limits>
         <clients>500</clients>
         <!-- Raised from the stock 2: one SOURCE is held per running
-             station container, not per live broadcaster. -->
-        <sources>50</sources>
+             station container, not per live broadcaster. ICECAST_MAX_SOURCES
+             in api/.env (default 150); stations:sync-listeners warns at 80%.
+             It was 50 until 2026-10-10, when the 51st station was refused. -->
+        <sources>${ICECAST_MAX_SOURCES}</sources>
         <queue-size>524288</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>

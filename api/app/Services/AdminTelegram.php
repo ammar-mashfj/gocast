@@ -7,6 +7,9 @@ use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\User;
 use App\Models\WaitlistEntry;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Operator alerts to a single admin Telegram chat: new registrations, access
@@ -163,6 +166,51 @@ class AdminTelegram
         $text = preg_replace("/\s*\n\s*\n\s*/", "\n\n", $text) ?? $text;
 
         return trim($text);
+    }
+
+    /**
+     * An infrastructure alert, sent NOW rather than queued.
+     *
+     * Every other alert here goes through SendAdminTelegramAlert on the queue,
+     * which is exactly what cannot carry "the queue is stuck". So this posts
+     * from the calling process (a scheduled command, never a request) and
+     * swallows any failure, Telegram's or the cache's: the check that called it
+     * must still finish.
+     *
+     * Throttled per `$key` to one message per `$quietMinutes`, because the
+     * checks that call this run every minute for as long as the problem lasts.
+     * A send that fails gives the slot back, so the next minute tries again
+     * instead of the alert going quiet for the whole window.
+     */
+    public function opsAlert(string $key, string $html, int $quietMinutes = 15): void
+    {
+        if (blank(config('services.telegram.bot_token')) || blank(config('services.telegram.admin_chat_id'))) {
+            return;
+        }
+
+        $throttleKey = 'ops-alert:'.$key;
+        $claimed = false;
+
+        try {
+            if (! Cache::add($throttleKey, true, now()->addMinutes($quietMinutes))) {
+                return;
+            }
+            $claimed = true;
+
+            // handle() directly, not dispatchSync(): that still goes through
+            // the queue manager, and this path must not depend on the queue.
+            (new SendAdminTelegramAlert($html))->handle();
+        } catch (Throwable $e) {
+            Log::warning('Could not send ops alert to Telegram', ['key' => $key, 'error' => $e->getMessage()]);
+
+            if ($claimed) {
+                try {
+                    Cache::forget($throttleKey);
+                } catch (Throwable) {
+                    // The cache is what failed; the slot expires on its own.
+                }
+            }
+        }
     }
 
     private function send(string $html): void

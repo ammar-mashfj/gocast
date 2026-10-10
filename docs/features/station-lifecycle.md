@@ -259,7 +259,7 @@ A separate manual command, `stations:relaunch [--slug=] [--include-trashed]`, is
 
 ## Events and realtime
 
-`StationStateChanged` (`api/app/Events/`) is a signal, not a payload. Broadcast on private channel `user.{userId}` as `.station.state` with `{slug, event, at}`; queue `realtime` (the production worker must run `--queue=realtime,default` or nothing is delivered); `ShouldDispatchAfterCommit`. `at` is stamped at dispatch. Producers:
+`StationStateChanged` (`api/app/Events/`) is a signal, not a payload. Broadcast on private channel `user.{userId}` as `.station.state` with `{slug, event, at}`; queue `realtime` (served by its own worker, `gocast-realtime.service`, or nothing is delivered); `ShouldDispatchAfterCommit`. `at` is stamped at dispatch. Producers:
 
 | Producer | `event` values |
 |---|---|
