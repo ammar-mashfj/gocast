@@ -27,8 +27,9 @@
      Every colour token below reads a `--ds-*` variable first and falls back
      to the marketing value: `@theme inline` bakes the value into each
      utility, so a token that isn't a variable can't be overridden per
-     surface. The dashboard sets the `--ds-*` variables (see the
-     `[data-surface="dashboard"]` block below); marketing sets none. */
+     surface. The `--ds-*` variables are set by the scope in dashboard.css
+     (`data-surface="dashboard"` or `"marketing"`), which every surface now
+     carries; the fallbacks here are what renders outside it. */
   --color-violet-full: var(--ds-violet-full, #8b5cf6);
   --color-violet-muted: var(--ds-violet-muted, #a78bfa);
   --color-violet: var(--ds-violet, #c4b5fd);

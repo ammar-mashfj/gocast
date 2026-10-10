@@ -1,18 +1,10 @@
 "use client"
 
 import { Suspense, useEffect, useState, type FormEvent } from "react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Button } from "@/components/ds/Button"
+import { PasswordField, TextField } from "@/components/ds/Field"
+import { Notice } from "@/components/ds/Notice"
+import { AuthCard, AuthFooter, AuthLink, CheckboxRow, OrRule } from "@/components/auth/AuthCard"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -20,9 +12,7 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import { saveAuth, getUser } from "@/actions/auth"
 import { signInWithGoogle } from "@/lib/google-auth"
-import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
-import { TrustCues } from "@/components/common/TrustCues"
-import { PasswordInput } from "@/components/common/PasswordInput"
+import { VerifyEmailDialog } from "@/components/dashboard/account/VerifyEmailDialog"
 
 /**
  * What `GET /api/invites/{code}` says about the code in the URL. `checking`
@@ -102,36 +92,30 @@ function InviteBanner({ invite }: { invite: InviteState }) {
 
   if (invite.status === "valid") {
     return (
-      <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm">
-        <p className="font-medium">You&apos;re invited to GoCast {invite.plan}</p>
-        <p className="text-muted-foreground">
-          {invite.durationDays
-            ? `Sign up and your account is on ${invite.plan} for ${invite.durationDays} days, free.`
-            : `Sign up and your account is on ${invite.plan}, free.`}
-        </p>
-      </div>
+      <Notice tone="onair" label="Invited" title={`You're invited to GoCast ${invite.plan}`}>
+        {invite.durationDays
+          ? `Sign up and your account is on ${invite.plan} for ${invite.durationDays} days, free.`
+          : `Sign up and your account is on ${invite.plan}, free.`}
+      </Notice>
     )
   }
 
   if (invite.status === "unchecked") {
     return (
-      <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm">
-        <p className="font-medium">You have an invite link</p>
-        <p className="text-muted-foreground">
-          We couldn&apos;t check it just now. Sign up anyway and it&apos;s applied if it&apos;s still valid.
-        </p>
-      </div>
+      <Notice tone="onair" label="Invite" title="You have an invite link">
+        We couldn&apos;t check it just now. Sign up anyway and it&apos;s applied if it&apos;s still valid.
+      </Notice>
     )
   }
 
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+    <Notice tone="neutral" label="Invite" className="bg-surface-raised">
       {invite.status === "closed" && invite.reason === "used"
         ? "This invite link has already been used. You can still create a free account."
         : invite.status === "closed"
           ? "This invite link has expired. You can still create a free account."
           : "That invite link isn't valid. You can still create a free account."}
-    </div>
+    </Notice>
   )
 }
 
@@ -145,12 +129,11 @@ export default function RegisterPage() {
   )
 }
 
-/** Form field → input id, for putting a server error where it belongs. */
+/** Form field → input `name`, for putting a server error where it belongs. */
 const FIELD_IDS: Record<string, string> = {
   name: "name",
   email: "email",
   password: "password",
-  passwordConfirmation: "password-confirmation",
 }
 
 function RegisterForm() {
@@ -169,15 +152,14 @@ function RegisterForm() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [passwordConfirmation, setPasswordConfirmation] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [verifyEmail, setVerifyEmail] = useState("")
   const [googleLoading, setGoogleLoading] = useState(false)
-  // One switch for both fields: someone checking what they typed wants to
-  // compare the two, and a mismatch was the loop Clarity kept recording.
-  const [showPassword, setShowPassword] = useState(false)
+  // Consent is explicit: the submit refuses until the box is ticked, and
+  // says so under the box rather than in a toast.
+  const [agreed, setAgreed] = useState(false)
 
   // If the visitor already has a session cookie, don't let them register on
   // top of it. Verified → send them to the dashboard; unverified → surface
@@ -204,12 +186,15 @@ function RegisterForm() {
     if (!password) newErrors.password = "Password is required."
     else if (password.length < 8)
       newErrors.password = "Password must be at least 8 characters."
-    if (password !== passwordConfirmation)
-      newErrors.passwordConfirmation = "Passwords do not match."
+    if (!agreed) newErrors.terms = "Please agree to the Terms and Privacy Policy to continue."
     return newErrors
   }
 
   async function handleGoogle() {
+    if (!agreed) {
+      setErrors((current) => ({ ...current, terms: "Please agree to the Terms and Privacy Policy to continue." }))
+      return
+    }
     setGoogleLoading(true)
     try {
       const result = await signInWithGoogle(inviteUsable && inviteCode ? { invite: inviteCode } : {})
@@ -267,7 +252,9 @@ function RegisterForm() {
         name,
         email,
         password,
-        password_confirmation: passwordConfirmation,
+        // No confirm field: Show on the one field is how you check what you
+        // typed. The API's `confirmed` rule still wants the pair.
+        password_confirmation: password,
         ...(inviteUsable && inviteCode ? { invite_code: inviteCode } : {}),
       })
       if (response.status === 200 || response.status === 201) {
@@ -293,14 +280,14 @@ function RegisterForm() {
         // toast, even when a field error arrives alongside them.
         const unmapped: string[] = []
         for (const [key, messages] of Object.entries(serverErrors)) {
-          const field = key === "password_confirmation" ? "passwordConfirmation" : key
+          const field = key === "password_confirmation" ? "password" : key
           if (!messages[0]) continue
           if (field in FIELD_IDS) fieldErrors[field] = messages[0]
           else unmapped.push(messages[0])
         }
         if (Object.keys(fieldErrors).length > 0) {
           setErrors(fieldErrors)
-          document.getElementById(FIELD_IDS[Object.keys(fieldErrors)[0]])?.focus()
+          document.querySelector<HTMLInputElement>(`input[name="${FIELD_IDS[Object.keys(fieldErrors)[0]]}"]`)?.focus()
           for (const message of unmapped) toast.error(message)
         } else {
           toast.error(unmapped[0] || errData?.message || "Registration failed")
@@ -314,185 +301,107 @@ function RegisterForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle className="text-lg">Sign up</CardTitle>
-        <CardDescription className="text-sm">
-          {inviteUsable
-            ? "Create your account to claim your invite."
-            : "Get started with your free GoCast account."}
-        </CardDescription>
-      </CardHeader>
+    <AuthCard
+      title="Create your station"
+      lead={inviteUsable ? "Create your account to claim your invite." : "Free, from a browser tab. About a minute."}
+    >
+      {invite && <InviteBanner invite={invite} />}
 
-      <CardContent>
-        {invite && (
-          <div className="mb-4">
-            <InviteBanner invite={invite} />
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="name">
-              Name
-            </Label>
-            <Input
-              id="name"
-              type="text"
-              placeholder="Your name"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-                clearError("name")
-              }}
-              aria-invalid={!!errors.name}
-            />
-            {errors.name && (
-              <p className="text-xs text-destructive">{errors.name}</p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">
-              Email
-            </Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value)
-                clearError("email")
-              }}
-              aria-invalid={!!errors.email}
-            />
-            {errors.email && (
-              <p className="text-xs text-destructive">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5" noValidate>
+        <TextField
+          label="Name"
+          name="name"
+          type="text"
+          placeholder="Your name"
+          autoComplete="name"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            clearError("name")
+          }}
+          error={errors.name}
+        />
+        <TextField
+          label="Email"
+          name="email"
+          type="email"
+          placeholder="you@example.com"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value)
+            clearError("email")
+          }}
+          error={
+            errors.email && (
+              <>
                 {errors.email}
                 {/* The usual reason: they already signed up, maybe with Google. */}
                 {/taken/i.test(errors.email) && (
                   <>
                     {" "}
-                    <Link href="/auth/login" className="font-medium text-foreground underline underline-offset-2">
-                      Sign in instead
-                    </Link>
+                    <AuthLink href="/auth/login">Sign in instead</AuthLink>
                   </>
                 )}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password">
-              Password
-            </Label>
-            <PasswordInput
-              id="password"
-              shown={showPassword}
-              onShownChange={setShowPassword}
-              placeholder="********"
-              autoComplete="new-password"
-              aria-describedby="password-hint"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value)
-                clearError("password")
-              }}
-              aria-invalid={!!errors.password}
-            />
-            {/* The one rule, said before submit rather than after. */}
-            <p
-              id="password-hint"
-              className={errors.password ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
-            >
-              {errors.password ?? "At least 8 characters."}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password-confirmation">
-              Confirm password
-            </Label>
-            <PasswordInput
-              id="password-confirmation"
-              shown={showPassword}
-              onShownChange={setShowPassword}
-              autoComplete="new-password"
-              placeholder="********"
-              value={passwordConfirmation}
-              onChange={(e) => {
-                setPasswordConfirmation(e.target.value)
-                clearError("passwordConfirmation")
-              }}
-              aria-invalid={!!errors.passwordConfirmation}
-            />
-            {errors.passwordConfirmation && (
-              <p className="text-xs text-destructive">
-                {errors.passwordConfirmation}
-              </p>
-            )}
-          </div>
-
-          <Button
-            type="submit"
-            // Held while the invite lookup is in flight, so a fast submit
-            // can't create a free account before the page knows there was a
-            // plan to apply.
-            disabled={loading || inviteChecking}
-            className="mt-1 w-full"
-          >
-            {loading ? "Signing up…" : "Sign up"}
-          </Button>
-        </form>
-
-        <div className="relative my-4 flex items-center">
-          <div className="flex-1 border-t border-border" />
-          <span className="px-3 text-sm text-muted-foreground">or</span>
-          <div className="flex-1 border-t border-border" />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={handleGoogle}
-          disabled={googleLoading}
+              </>
+            )
+          }
+        />
+        <PasswordField
+          label="Password"
+          name="password"
+          placeholder="Choose a password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            clearError("password")
+          }}
+          error={errors.password}
+          // The one rule, said before submit rather than after.
+          hint="At least 8 characters."
+        />
+        <CheckboxRow
+          checked={agreed}
+          onCheckedChange={(next) => {
+            setAgreed(next)
+            if (next) clearError("terms")
+          }}
+          error={errors.terms}
         >
-          <IconBrandGoogleFilled />
-          {googleLoading ? "Signing up…" : "Continue with Google"}
+          I agree to the{" "}
+          <AuthLink href="/terms">Terms</AuthLink> and{" "}
+          <AuthLink href="/privacy">Privacy Policy</AuthLink>.
+        </CheckboxRow>
+        <Button
+          type="submit"
+          size="lg"
+          full
+          // Held while the invite lookup is in flight, so a fast submit
+          // can't create a free account before the page knows there was a
+          // plan to apply.
+          disabled={loading || inviteChecking}
+        >
+          {loading ? "Creating your account…" : "Create a free station"}
         </Button>
+      </form>
 
-        <TrustCues variant="stacked" className="mt-5" />
-      </CardContent>
+      <OrRule />
 
-      <CardFooter className="flex-col gap-3">
-        <p className="text-xs text-muted-foreground text-center leading-relaxed">
-          By creating an account, you agree to our{" "}
-          <Link href="/terms" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Terms of Service
-          </Link>{" "}
-          and{" "}
-          <Link href="/privacy" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Privacy Policy
-          </Link>.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link
-            href="/auth/login"
-            className="text-violet-muted underline-offset-4 hover:underline text-sm"
-          >
-            Sign in
-          </Link>
-        </p>
-      </CardFooter>
+      <Button type="button" variant="ghost" size="lg" full onClick={handleGoogle} disabled={googleLoading}>
+        <IconBrandGoogleFilled />
+        {googleLoading ? "Signing up…" : "Continue with Google"}
+      </Button>
+
+      <AuthFooter>
+        Already have an account? <AuthLink href="/auth/login">Sign in</AuthLink>
+      </AuthFooter>
 
       <VerifyEmailDialog
         open={verifyOpen}
         email={verifyEmail}
         onCancel={() => setVerifyOpen(false)}
       />
-    </Card>
+    </AuthCard>
   )
 }

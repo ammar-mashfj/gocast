@@ -82,17 +82,17 @@ export default function StudioPage() {
       <h1 className="sr-only">Studio — {stationName}</h1>
 
       <div className="flex min-w-0 flex-col gap-3.5">
-        {micDisabled ? <MusicOnlyPad /> : <PushToTalk />}
-        <div className="flex flex-wrap justify-between gap-3 text-body-sm text-text-faint">
-          <span>
-            {micDisabled
-              ? "Music only — the mic stays closed."
-              : touch
-                ? "Hold the pad to talk."
-                : "Hold the pad or Space to talk. Press L to keep it open."}
-          </span>
-          <span>Listeners hear you about 15–20 s late.</span>
-        </div>
+        {micDisabled ? (
+          <MusicOnlyPad />
+        ) : (
+          <>
+            <PushToTalk />
+            <div className="flex flex-wrap justify-between gap-3 text-body-sm text-text-faint">
+              <span>{touch ? "Hold the pad to talk." : "Hold the pad or Space to talk. Press L to keep it open."}</span>
+              <span>Listeners hear you about 15–20 s late.</span>
+            </div>
+          </>
+        )}
         <MicLatchButton />
         <StudioControls />
       </div>

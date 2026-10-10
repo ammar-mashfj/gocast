@@ -39,7 +39,7 @@ export default function Body() {
         alt="The top card of a station's Overview while it is off air: Off air, Nothing's playing right now, with Go live now and Start AutoDJ buttons, and Listening now beside it."
         width={2480}
         height={448}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>What Each Status Means</h2>

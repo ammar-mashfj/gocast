@@ -247,6 +247,8 @@ test.describe("@screenshots", () => {
     await shot(page, "autodj-rotation", padded(page, await cardBox(page.getByText("Coming up").first(), 500, 150), 0))
 
     // ---- tune-in QR -------------------------------------------------------
+    // Inside Share… since the link card became one line.
+    await page.getByRole("button", { name: "Share…" }).click()
     await page.getByRole("button", { name: "Tune-in code" }).click()
     const qr = page.getByRole("dialog")
     await expect(qr).toBeVisible()

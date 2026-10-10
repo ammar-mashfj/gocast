@@ -38,7 +38,7 @@ export default function Body() {
         alt="A station player page: large artwork, the station name and description, Follow and Share buttons, social links, and a player bar along the bottom showing what is on air."
         width={3360}
         height={2010}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>When You Are Off Air</h2>

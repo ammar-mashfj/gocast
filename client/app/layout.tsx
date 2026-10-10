@@ -35,8 +35,14 @@ const body = Onest({
   variable: '--font-body',
   display: 'swap',
 });
+/* `opsz` is the axis that makes Bricolage a display face: without it every
+   size renders from the 14px master, so a 30px heading is visibly heavier
+   and wider than the design, which loads the font with opsz 12..96. The
+   browser picks the optical size from the font size (font-optical-sizing:
+   auto); nothing else has to change. */
 const display = Bricolage_Grotesque({
   subsets: ['latin'],
+  axes: ['opsz'],
   variable: '--font-display-face',
   display: 'swap',
 });

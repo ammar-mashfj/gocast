@@ -39,7 +39,7 @@ export default function Body() {
         alt="The AutoDJ page: All tracks and two playlists down the left; on the right three tracks with their title, playlists and length, and a note that they have no artist, with a Fix tags button."
         width={2552}
         height={1054}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>Tags Matter</h2>

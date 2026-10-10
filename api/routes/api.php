@@ -26,6 +26,7 @@ use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
 use App\Http\Controllers\StationPowerController;
 use App\Http\Controllers\StationScheduleController;
+use App\Http\Controllers\StationSlugController;
 use App\Http\Controllers\StationStatusController;
 use App\Http\Controllers\StreamKeyController;
 use App\Http\Controllers\StreamSessionController;
@@ -126,6 +127,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Productive routes — require a verified email. EnsureEmailIsVerified responds
     // with a 403 JSON ("Your email address is not verified.") for API clients.
     Route::middleware('verified')->group(function () {
+        // Before the resource: GET /stations/{station} would otherwise try
+        // to bind "slug-preview" as a station and answer 404.
+        Route::get('/stations/slug-preview', StationSlugController::class)
+            ->middleware('throttle:slug-preview');
         Route::apiResource('stations', StationController::class);
         Route::apiResource('stations.sessions', StreamSessionController::class)
             ->only(['index', 'store', 'destroy']);

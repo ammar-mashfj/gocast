@@ -11,6 +11,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     theme: {
       text: [
+        "marquee", "section", "standfirst", "section-lead", "card-title",
         "hero", "page", "display", "title-lg", "title", "title-sm", "heading",
         "lead", "body", "body-sm", "caption", "micro",
         "meter-sm", "meter", "meter-lg", "meter-xl",

@@ -7,11 +7,12 @@
    1. A type scale, radii and surface colours as Tailwind theme tokens, so
       dashboard code writes `text-display` / `rounded-card` / `bg-surface-
       raised` instead of re-deriving a size, weight and tracking each time.
-      They are new names, so marketing (which never uses them) is untouched.
+      They are new names, so nothing outside the scope changes.
       Each one is registered with tailwind-merge in lib/utils.ts; a token
       missing there gets silently dropped next to a colour class.
-   2. The dashboard scope: the block that re-points the shared colour
-      variables while a `data-surface="dashboard"` element is on the page. */
+   2. The scope: the block that re-points the shared colour variables while
+      a `data-surface="dashboard"` or `data-surface="marketing"` element is
+      on the page. */
 
 @theme {
   /* Display: Bricolage 800, tight. The two largest scale down on phones. */
@@ -19,6 +20,32 @@
   --text-hero--line-height: 0.95;
   --text-hero--letter-spacing: -0.045em;
   --text-hero--font-weight: 800;
+  /* The homepage's two sizes above the dashboard scale: the hero line and
+     the closing question (`marquee`), and every section heading (`section`).
+     Marketing only; nothing in the dashboard is this large. */
+  --text-marquee: clamp(2.75rem, 1.4rem + 5.6vw, 6.5rem);        /* 44–104 */
+  --text-marquee--line-height: 0.92;
+  --text-marquee--letter-spacing: -0.045em;
+  --text-marquee--font-weight: 800;
+  --text-section: clamp(2.125rem, 1.35rem + 3.2vw, 4rem);        /* 34–64 */
+  --text-section--line-height: 1;
+  --text-section--letter-spacing: -0.04em;
+  --text-section--font-weight: 800;
+  /* Their leads, fluid too: `standfirst` under the hero line and the closing
+     question, `section-lead` under a section heading. The dashboard's fixed
+     `lead` (17px) reads small next to type this large. */
+  --text-standfirst: clamp(1.0625rem, 1.5vw, 1.25rem);            /* 17–20 */
+  --text-standfirst--line-height: 1.45;
+  --text-standfirst--font-weight: 400;
+  --text-section-lead: clamp(1rem, 1.4vw, 1.125rem);              /* 16–18 */
+  --text-section-lead--line-height: 1.45;
+  --text-section-lead--font-weight: 400;
+  /* The title inside a homepage card (the three steps): the comp's fluid
+     24–30px, capped at 26 so the cards stay compact next to a 3-line body. */
+  --text-card-title: clamp(1.5rem, 1.8vw, 1.625rem);              /* 24–26 */
+  --text-card-title--line-height: 1.05;
+  --text-card-title--letter-spacing: -0.035em;
+  --text-card-title--font-weight: 800;
   --text-page: clamp(2rem, 1.55rem + 1.5vw, 2.625rem);           /* 42: page title */
   --text-page--line-height: 1;
   --text-page--letter-spacing: -0.04em;
@@ -144,8 +171,8 @@
   text-transform: uppercase;
 }
 
-/* Surfaces: the warm ladder, by role. Marketing values are the closest
-   existing neutrals, never used there. */
+/* Surfaces: the warm ladder, by role. Outside the scope (help, blog) they
+   fall back to the closest existing neutrals. */
 @theme inline {
   --color-surface-inset: var(--ds-surface-inset, var(--background));   /* wells inside a card */
   --color-surface-raised: var(--ds-surface-raised, var(--muted));      /* hover, selected row */
@@ -174,7 +201,9 @@
    tracked in docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md. The dashboard layout
    marks its wrapper `data-surface="dashboard"`; `:has()` lifts the scope to
    <html>, so dialogs, popovers and toasts portalled to <body> wear it too.
-   Marketing never matches and keeps the block above.
+   The homepage (app/(home)/layout.tsx), the (marketing) group (help, blog,
+   legal) and app/auth mark themselves `data-surface="marketing"` and wear
+   the same system; the block above is the fallback outside the scope.
 
    One meaning per colour:
      red    #FF5A4E — you are live / the mic is open. Also the confirm button
@@ -185,7 +214,7 @@
      green  #5FD39A — a check passed, something saved
      warm greys     — everything else, including off air
    Text on a red or amber fill is dark ink, never white. */
-.dark:has([data-surface="dashboard"]) {
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) {
   /* Warm near-black ladder: hierarchy comes from lightness steps, not
      borders or shadows. */
   --background: #0E0D0C;
@@ -293,12 +322,12 @@
 
 /* Anchored sections land below the sticky top bar and status band, whose
    height DashboardShell publishes. */
-.dark:has([data-surface="dashboard"]) {
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) {
   scroll-padding-top: var(--chrome-h, 0px);
 }
 
 @media (min-width: 40rem) {
-  .dark:has([data-surface="dashboard"]) {
+  .dark:has([data-surface="dashboard"], [data-surface="marketing"]) {
     --page-gutter: 2.25rem;
   }
 }
@@ -316,7 +345,7 @@
     --toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
 }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast] {
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast] {
   --normal-bg: var(--ds-surface-strong);
   --normal-border: transparent;
   --normal-text: var(--foreground);
@@ -327,19 +356,38 @@
   font-size: 0.875rem;
   font-weight: 600;
 }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast] [data-icon] {
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast] [data-icon] {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 9999px;
   background: var(--muted-foreground);
 }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast] [data-icon] > * {
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast] [data-icon] > * {
   display: none;
 }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="success"] [data-icon] { background: var(--ds-ok); }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="error"] [data-icon] { background: var(--ds-error); }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="warning"] [data-icon] { background: var(--ds-fault); }
-.dark:has([data-surface="dashboard"]) [data-sonner-toast][data-type="loading"] [data-icon] { animation: pulse 1.2s ease-in-out infinite; }
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast][data-type="success"] [data-icon] { background: var(--ds-ok); }
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast][data-type="error"] [data-icon] { background: var(--ds-error); }
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast][data-type="warning"] [data-icon] { background: var(--ds-fault); }
+.dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast][data-type="loading"] [data-icon] { animation: pulse 1.2s ease-in-out infinite; }
+
+/* ── Autofill ─────────────────────────────────────────────────────────────
+   Chrome paints an autofilled input in its own pale blue, which on the warm
+   control surface reads as a different control. The only override it
+   honours is an inset shadow the size of the box plus the text-fill colour,
+   so the box stays the control colour with the ink on top. The long
+   transition is the other half of the trick: Chrome animates the fill in,
+   so a transition that never finishes never shows it. */
+[data-slot="ds-field"] input:-webkit-autofill,
+[data-slot="ds-field"] input:-webkit-autofill:hover,
+[data-slot="ds-field"] input:-webkit-autofill:focus,
+input[data-slot="ds-input"]:-webkit-autofill,
+input[data-slot="ds-input"]:-webkit-autofill:hover,
+input[data-slot="ds-input"]:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  box-shadow: 0 0 0 1000px var(--color-surface-control) inset;
+  transition: background-color 9999s ease-out 0s;
+}
 
 /* ── A solid live surface ─────────────────────────────────────────────────
    The design system's live hero (mobile's Overview while someone is on air):

@@ -1,15 +1,20 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
+import { useRef, useSyncExternalStore } from "react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { shareOrCopy, taggedStationUrl } from "@/lib/share"
 import { cn } from "@/lib/utils"
+import { ProTag } from "@/components/ds/Tag"
 
 /**
  * "Share…" from the overview's link card: the prototype's grid of places to
  * send the link — Copy link, WhatsApp, Email, X — plus the system share
  * sheet where the device has one (phones, mostly), for everything else.
+ * Under those, the other two shapes the link comes in: the tune-in code (QR)
+ * and the embed. Picking one closes this dialog and the card opens that one;
+ * the close must not hand focus back to the Share button in between, or the
+ * next dialog opens with nothing focused (the same hand-off as UpdatesMenu).
  *
  * Every target carries the owner share tag, so the visits it brings are
  * attributed (lib/share.ts).
@@ -20,16 +25,29 @@ export function ShareDialog({
   appUrl,
   slug,
   stationName,
+  onPick,
+  embedLocked = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   appUrl: string
   slug: string
   stationName: string
+  /** Opens the tune-in code or the embed instead; this dialog closes first. */
+  onPick?: (what: "qr" | "embed") => void
+  /** Embed is Pro: shows the tag, and the pick is the card's to route. */
+  embedLocked?: boolean
 }) {
   const url = taggedStationUrl(appUrl, slug, "owner")
   const message = `Listen to ${stationName} on GoCast`
   const canNativeShare = useCanNativeShare()
+  const handingOff = useRef(false)
+
+  function pick(what: "qr" | "embed") {
+    handingOff.current = true
+    onOpenChange(false)
+    onPick?.(what)
+  }
 
   async function copy() {
     try {
@@ -49,7 +67,15 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm">
+      <DialogContent
+        size="sm"
+        onCloseAutoFocus={(event) => {
+          if (handingOff.current) {
+            handingOff.current = false
+            event.preventDefault()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Share {stationName}</DialogTitle>
           <DialogDescription>Listeners open it in any browser. No app, no account.</DialogDescription>
@@ -75,6 +101,20 @@ export function ShareDialog({
             </button>
           )}
         </div>
+        {onPick && (
+          <div className="flex flex-col gap-2 border-t border-line pt-4">
+            <p className="text-caption text-text-faint">Other ways to hand it out</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => pick("qr")} className={target}>
+                Tune-in code
+              </button>
+              <button type="button" onClick={() => pick("embed")} className={cn(target, "gap-2")}>
+                Embed
+                {embedLocked && <ProTag />}
+              </button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

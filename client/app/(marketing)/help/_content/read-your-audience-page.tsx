@@ -37,7 +37,7 @@ export default function Body() {
         alt="The Audience page: Listening time, Daily listeners, Peak at once and Average listen across the top, and below them a bar per day of listening time over the last thirty days, today's in brighter violet."
         width={2480}
         height={854}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>The Breakdowns</h2>
@@ -60,7 +60,7 @@ export default function Body() {
         alt="The Countries and Devices cards: each country with its two-letter code, listening time and share, a footnote naming how many listens could be placed, and the share of mobile, tablet and desktop."
         width={2480}
         height={726}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>What It Does Not Tell You</h2>

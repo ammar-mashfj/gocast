@@ -7,6 +7,7 @@ import { Card, CardHeader } from "@/components/ds/Card"
 import { Notice } from "@/components/ds/Notice"
 import { Select } from "@/components/ds/Select"
 import { MicMeter } from "@/components/studio/MicMeter"
+import { MicPermissionLink } from "./MicPermissionLink"
 
 /**
  * Pick the microphone and hear-check it before the show — the only time it
@@ -22,6 +23,7 @@ export function MicCheckCard({ mic, onMusicOnly }: { mic: ReturnType<typeof useM
           <>
             <Button size="lg" onClick={() => void mic.open()}>Try again</Button>
             <Button size="lg" variant="ghost" onClick={onMusicOnly}>Go live with music only</Button>
+            <MicPermissionLink />
           </>
         }
       >

@@ -3,6 +3,8 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { IconArrowLeft, IconSparkles } from "@tabler/icons-react"
 import { Prose } from "@/components/content/Prose"
+import { Button } from "@/components/ds/Button"
+import { ProTag } from "@/components/ds/Tag"
 import { env } from "@/lib/env"
 import { DEFAULT_OG_IMAGE } from "@/lib/seo"
 import {
@@ -97,90 +99,81 @@ export default async function HelpArticlePage({ params }: { params: RouteParams 
   }
 
   return (
-    <main className="px-4 md:px-10 pt-10 md:pt-16 pb-16 md:pb-24">
+    <main className="mx-auto w-full max-w-page px-gutter pt-10 pb-16 sm:pt-14 sm:pb-24">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
-      <div className="max-w-3xl mx-auto">
-        <Link
-          href="/help"
-          className="inline-flex items-center gap-1.5 text-sm text-text-muted no-underline hover:text-white transition-colors mb-10"
-        >
-          <IconArrowLeft size={15} aria-hidden /> All help articles
-        </Link>
+      <Link
+        href="/help"
+        className="mb-10 inline-flex items-center gap-1.5 text-body-sm font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+      >
+        <IconArrowLeft size={14} aria-hidden /> All help articles
+      </Link>
 
-        <header className="mb-10 md:mb-12">
-          {group && (
-            <p className="text-[11px] tracking-[0.18em] uppercase text-text-faint mb-4">
-              {group.title}
-            </p>
-          )}
-          <h1 className="font-display text-3xl md:text-4xl lg:text-5xl font-semibold tracking-tighter leading-tight">
-            {title}
-          </h1>
-          <p className="text-base md:text-lg text-text-muted mt-4 leading-relaxed">
-            {description}
-          </p>
-          {pro && (
-            <p className="mt-6 inline-flex items-center gap-2 rounded-lg border border-violet-full/25 bg-violet-full/[0.07] px-3.5 py-2 text-sm text-zinc-300">
-              <IconSparkles size={15} className="text-violet-full shrink-0" aria-hidden />
-              <span>
-                This one needs Pro.{" "}
-                <Link href="/help/free-and-pro" className="text-violet-full no-underline hover:underline">
-                  What that includes
-                </Link>
-                .
-              </span>
-            </p>
-          )}
-        </header>
 
-        <Prose>
-          <Body />
-        </Prose>
-
-        {related.length > 0 && (
-          <nav aria-label="Related articles" className="mt-14 border-t border-white/[0.06] pt-8">
-            <h2 className="font-display text-[11px] tracking-[0.18em] uppercase text-text-faint mb-5">
-              Read next
-            </h2>
-            <ul className="flex flex-col gap-3 list-none p-0 m-0">
-              {related.map((r) => (
-                <li key={r.slug}>
-                  <Link
-                    href={`/help/${r.slug}`}
-                    className="group block rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-4 no-underline transition-colors hover:border-white/[0.12] hover:bg-white/[0.04]"
-                  >
-                    <span className="block text-sm font-medium text-white">{r.title}</span>
-                    <span className="mt-1 block text-base text-text-secondary tracking-[0.01em]">{r.description}</span>
+      {/* Title and body at reading measure on the left; from lg a sticky rail
+          on the right, level with the title, carries the related articles and
+          the way to reach a person. */}
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 max-w-3xl">
+          <header className="mb-10 flex flex-col gap-4 sm:mb-12">
+            {group && (
+              <div className="flex items-center gap-2.5">
+                <span className="eyebrow text-text-faint">{group.title}</span>
+                {pro && <ProTag />}
+              </div>
+            )}
+            <h1 className="font-display text-section text-balance">{title}</h1>
+            <p className="text-section-lead text-muted-foreground text-pretty">{description}</p>
+            {pro && (
+              <p className="inline-flex items-center gap-2 self-start rounded-chip bg-on-air-tint px-3.5 py-2 text-body-sm font-medium text-on-air-text">
+                <IconSparkles size={15} className="shrink-0" aria-hidden />
+                <span>
+                  This one needs Pro.{" "}
+                  <Link href="/help/free-and-pro" className="font-semibold text-foreground no-underline hover:underline">
+                    What that includes
                   </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        )}
+                  .
+                </span>
+              </p>
+            )}
+          </header>
+          <Prose>
+            <Body />
+          </Prose>
+        </div>
 
-        {/*
-          The blog's footer sells a signup. This reader already has an account —
-          they are here because something did not work — so the only useful
-          offer at the bottom of a help page is a person to ask.
-        */}
-        <aside className="mt-10 bg-white/[0.02] border border-white/[0.06] rounded-xl px-6 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <p className="text-base md:text-lg font-medium text-white">
-              Still stuck?
-            </p>
-            <p className="text-sm text-text-muted mt-1">
-              Tell us what happened and we will look at your station.
-            </p>
+        <aside className="flex flex-col gap-4 self-start lg:sticky lg:top-24">
+          {related.length > 0 && (
+            <nav aria-label="Related articles" className="flex flex-col gap-3 rounded-card bg-card p-5">
+              <h2 className="eyebrow text-text-faint">Read next</h2>
+              <ul className="flex flex-col">
+                {related.map((r) => (
+                  <li key={r.slug} className="border-t border-line first:border-t-0">
+                    <Link href={`/help/${r.slug}`} className="flex flex-col gap-1 py-3 no-underline">
+                      <span className="text-body font-semibold text-foreground transition-colors hover:text-on-air-text">{r.title}</span>
+                      <span className="text-body-sm text-muted-foreground">{r.description}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+          {/*
+            The blog's rail sells a signup. This reader already has an account —
+            they are here because something did not work — so the only useful
+            offer beside a help page is a person to ask.
+          */}
+          <div className="flex flex-col gap-4 rounded-card bg-card p-5">
+            <div className="flex flex-col gap-1">
+              <p className="font-display text-title-sm">Still stuck?</p>
+              <p className="text-body-sm text-muted-foreground">Tell us what happened and we will look at your station.</p>
+            </div>
+            <Button asChild variant="ghost" size="lg" full>
+              <a href="mailto:hello@gocast.fm" className="no-underline">Email hello@gocast.fm</a>
+            </Button>
           </div>
-          <a
-            href="mailto:hello@gocast.fm"
-            className="inline-flex items-center justify-center gap-2 bg-white/[0.06] border border-white/[0.08] text-white px-5 py-2.5 rounded-lg text-sm font-medium no-underline hover:bg-white/[0.1] transition-colors whitespace-nowrap"
-          >
-            Email hello@gocast.fm
-          </a>
         </aside>
       </div>
     </main>

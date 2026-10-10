@@ -21,6 +21,7 @@ export function ChoiceCards<T extends string>({
   value,
   onChange,
   size = "md",
+  eyebrow = true,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -29,6 +30,8 @@ export function ChoiceCards<T extends string>({
   onChange: (value: T) => void
   /** md: the 22px title of a main choice; sm: a quieter secondary one. */
   size?: "sm" | "md"
+  /** The "Tap to choose" / "Selected" line; off where the page has no height to spare. */
+  eyebrow?: boolean
   "aria-label": string
   className?: string
 }) {
@@ -50,10 +53,12 @@ export function ChoiceCards<T extends string>({
             size === "md" ? "rounded-panel p-5" : "rounded-well p-4",
           )}
         >
-          <span className="eyebrow text-muted-foreground group-data-[state=checked]:text-text-faint">
-            <span className="group-data-[state=checked]:hidden">Tap to choose</span>
-            <span className="hidden group-data-[state=checked]:inline">Selected</span>
-          </span>
+          {eyebrow && (
+            <span className="eyebrow text-muted-foreground group-data-[state=checked]:text-text-faint">
+              <span className="group-data-[state=checked]:hidden">Tap to choose</span>
+              <span className="hidden group-data-[state=checked]:inline">Selected</span>
+            </span>
+          )}
           <span className={cn("font-display", size === "md" ? "text-title-sm" : "text-base font-bold")}>{o.title}</span>
           {o.description && (
             <span className="text-sm text-muted-foreground group-data-[state=checked]:text-text-faint">{o.description}</span>

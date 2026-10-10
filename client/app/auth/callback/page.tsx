@@ -4,17 +4,15 @@ import { Suspense, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { IconLoader2 } from "@tabler/icons-react"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ds/Card"
 import { saveAuth } from "@/actions/auth"
 import { env } from "@/lib/env"
 
 function CallbackFallback() {
   return (
-    <Card className="w-full max-w-sm">
-      <CardContent className="flex flex-col items-center text-center py-10 gap-3">
-        <IconLoader2 size={24} className="text-violet-muted animate-spin" />
-        <p className="text-sm text-muted-foreground">Signing you in…</p>
-      </CardContent>
+    <Card className="w-full max-w-sm items-center gap-3 py-10 text-center sm:p-7 sm:py-10">
+      <IconLoader2 size={24} className="animate-spin text-on-air-text" />
+      <p className="text-body text-muted-foreground">Signing you in…</p>
     </Card>
   )
 }

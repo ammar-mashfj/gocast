@@ -8,8 +8,8 @@ const CUES = [
 
 interface TrustCuesProps {
   /**
-   * Visual density. `compact` renders a single-line strip of icon+label (no
-   * hint copy) — good under CTAs where vertical space is tight. `stacked`
+   * Visual density. `compact` renders a single-line strip of mono labels (no
+   * icons, no hint copy) — good beside CTAs where it must not compete. `stacked`
    * renders three rows with icon, label, and hint — good inside auth cards.
    */
   variant?: "compact" | "stacked"
@@ -27,7 +27,7 @@ export function TrustCues({ variant = "compact", className = "" }: TrustCuesProp
       <ul className={`flex flex-col gap-2 ${className}`} role="list">
         {CUES.map(({ icon: Icon, label, hint }) => (
           <li key={label} className="flex items-start gap-2.5 text-xs text-muted-foreground">
-            <Icon size={14} className="mt-0.5 shrink-0 text-emerald-400/80" />
+            <Icon size={14} className="mt-0.5 shrink-0 text-ok/80" />
             <span>
               <span className="text-foreground">{label}.</span>{" "}
               <span>{hint}.</span>
@@ -38,16 +38,16 @@ export function TrustCues({ variant = "compact", className = "" }: TrustCuesProp
     )
   }
 
+  // No icons here: on the homepage this sits on the primary button's row, and
+  // three green glyphs next to the one filled button read as a second thing
+  // to look at. Mono and tracked, it is the page's eyebrow voice instead.
   return (
     <ul
       role="list"
-      className={`flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-text-muted ${className}`}
+      className={`flex flex-wrap items-center justify-center gap-x-4.5 gap-y-2 font-mono text-xs font-medium tracking-[0.04em] text-text-faint ${className}`}
     >
-      {CUES.map(({ icon: Icon, label }) => (
-        <li key={label} className="flex items-center gap-1.5">
-          <Icon size={13} className="text-emerald-400/80" />
-          <span>{label}</span>
-        </li>
+      {CUES.map(({ label }) => (
+        <li key={label}>{label}</li>
       ))}
     </ul>
   )

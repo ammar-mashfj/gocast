@@ -108,17 +108,18 @@ export default async function DashboardLayout({
     <RealtimeProvider userId={user.id}>
       <BroadcastProvider>
         <AccountProvider account={account}>
-          {/* Inside AccountProvider: the dialog prefills from the account. */}
-          <ProRequestProvider>
-            <StationProvider station={station}>
+          <StationProvider station={station}>
+            {/* Inside AccountProvider and StationProvider: the dialog prefills
+                from the account, and won't open at all without a station. */}
+            <ProRequestProvider>
               <StationStatusProvider>
                 <SidebarProvider data-surface="dashboard">
                   <AppSidebar user={user} />
                   <DashboardShell>{children}</DashboardShell>
                 </SidebarProvider>
               </StationStatusProvider>
-            </StationProvider>
-          </ProRequestProvider>
+            </ProRequestProvider>
+          </StationProvider>
         </AccountProvider>
       </BroadcastProvider>
     </RealtimeProvider>

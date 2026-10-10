@@ -15,7 +15,7 @@ export default function Body() {
         alt="The AutoDJ page: All tracks and the playlists Main rotation and Morning Soul down the left, and on the right the track list, with a note that three tracks have no artist and a Fix tags button."
         width={2552}
         height={1054}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>The Rules Worth Knowing</h2>

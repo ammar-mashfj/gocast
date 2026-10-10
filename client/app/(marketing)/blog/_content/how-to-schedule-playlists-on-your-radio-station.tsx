@@ -35,7 +35,7 @@ export default function Body() {
         alt="Six scheduled slots: Breakfast, Drive time, a News at Six bulletin on weekdays from 6pm, a Podcast replay on Wednesday evenings, After hours on Friday and Saturday nights, and Weekend brunch."
         width={1558}
         height={778}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         Underneath, the same week is drawn out so you can see the shape of it
@@ -47,7 +47,7 @@ export default function Body() {
         alt="A week grid from midnight to midnight, with coloured bars showing when each playlist plays: music through the day, a short news block every weekday evening, a podcast on Wednesday, and a late-night slot that wraps past midnight into the following day."
         width={1558}
         height={309}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         Look at Friday and Saturday night in that picture. A slot that runs
@@ -67,7 +67,7 @@ export default function Body() {
         alt="The music library with a playlist rail on the left listing Main rotation, Morning Coffee, Afternoon Drive, News Bulletin, The Long Way Round, Late Night and Weekend Sessions, and the tracks of the selected playlist on the right."
         width={1562}
         height={673}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         A few things worth knowing about how they behave:
@@ -139,7 +139,7 @@ export default function Body() {
         alt="An On now bar reading: News Bulletin, until 18:30, then Main rotation."
         width={1565}
         height={88}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         The same line shows on your station page, above the tracks that are
@@ -151,7 +151,7 @@ export default function Body() {
         alt="The AutoDJ rotation card on the station page, showing News Bulletin playing until 18:30 then Main rotation, with the two bulletins queued underneath."
         width={1186}
         height={169}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>How the Switch Actually Happens</h2>

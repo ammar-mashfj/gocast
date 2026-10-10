@@ -51,7 +51,7 @@ sources:
   - client/app/auth/register/page.tsx
   - client/app/auth/forgot/page.tsx
   - client/app/auth/callback/page.tsx
-  - client/components/auth/VerifyEmailDialog.tsx
+  - client/components/auth/AuthCard.tsx
   - client/lib/session.ts
   - client/lib/cookies.ts
   - client/lib/google-auth.ts
@@ -276,7 +276,7 @@ On success: `signInGoogleUser`, then `200 {data: UserResource (with plan), token
 
 ### Web UI
 
-There is **no standalone verify page**. The flow is `client/hooks/useEmailVerification.ts`, drawn by two dialogs: `components/auth/VerifyEmailDialog.tsx` (marketing kit) on the login and register pages, and `components/dashboard/account/VerifyEmailDialog.tsx` (dashboard ds kit) on the Account page. Neither can be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
+There is **no standalone verify page**. The flow is `client/hooks/useEmailVerification.ts`, drawn by one ds-kit dialog, `components/dashboard/account/VerifyEmailDialog.tsx`, on the login and register pages and on the Account page (the separate marketing-kit copy was removed on 2026-10-09 when the auth pages moved onto the design system: `app/auth/layout.tsx` marks itself `data-surface="marketing"`, the forms use `ds/TextField`, `ds/PasswordField` and `ds/Button`, and `components/auth/AuthCard.tsx` is the shared card shell). Sign-up and password reset have **no confirm-password field** since then: the single field has Show/Hide, and the client sends `password_confirmation: password` to satisfy the API's `confirmed` rule. Sign-up also requires a ticked "I agree to the Terms and Privacy Policy" checkbox (client-side only; Google sign-up is gated by the same box). Neither can be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued). "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
 
 The login and register pages open the dialog when the `user` cookie shows an unverified account, so a person returning with a dangling unverified session lands on the modal, not on a form.
 
@@ -344,7 +344,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 
 ### Login, register and Account UIs
 - `/auth/login`: email and password, "Forgot password?", "Continue with Google". On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).
-- `/auth/register`: name, email, password, confirm, Google button. Reads `?invite=` and calls `GET /invites/{code}` on load to show a banner (`valid`, `closed used/expired`, `invalid`, or `unchecked` when the lookup failed for a non-404 reason). The submit button is disabled while checking. `invite_code` is only sent when the state is `valid` or `unchecked`. The Google button passes the code on the popup URL only in those states. Field errors from the API are placed under their inputs, and an email "taken" error offers "Sign in instead". Password 8-char rule is client-validated too.
+- `/auth/register`: name, email, password (Show/Hide, no confirm field), a required Terms checkbox, Google button. Reads `?invite=` and calls `GET /invites/{code}` on load to show a banner (`valid`, `closed used/expired`, `invalid`, or `unchecked` when the lookup failed for a non-404 reason). The submit button is disabled while checking. `invite_code` is only sent when the state is `valid` or `unchecked`. The Google button passes the code on the popup URL only in those states. Field errors from the API are placed under their inputs, and an email "taken" error offers "Sign in instead". Password 8-char rule is client-validated too.
 - `/auth/layout.tsx`: `robots: noindex, follow`, logo, dark background.
 - `Account` page (`/dashboard/settings`, "Account", `components/dashboard/account/`): plan card, profile (Save disabled until something changed), password ("Password": current + new, or "Set a password": new only; one new-password field with Show/Hide, `password_confirmation` sent equal to it), and "Delete account…" with a typed-email `ConfirmDialog`. It seeds its forms from the `user` cookie after mount, not from the API.
 

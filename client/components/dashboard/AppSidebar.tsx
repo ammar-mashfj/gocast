@@ -11,6 +11,7 @@ import { useProRequest } from "@/contexts/ProRequestContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useSignOut } from "@/hooks/useSignOut"
 import { airState } from "@/lib/airState"
+import { toast } from "sonner"
 import { AUTODJ_GROUP, AUTODJ_ITEMS, NAV_ITEMS, activeNav, inAutoDj, type NavItem } from "@/lib/dashboardNav"
 import { cn } from "@/lib/utils"
 import { User } from "@/interfaces/User"
@@ -107,6 +108,15 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
 
   const lockFor = (lock: NavItem["lock"]) => (lock === "autodj" ? autoDjLocked : lock === "audience" ? audienceLocked : false)
 
+  // With no station every item would land back on /dashboard, the create
+  // page, so the click would look like nothing happened. Say why instead.
+  const blocked = !station
+  const explain = (e: React.MouseEvent) => {
+    if (!blocked) return
+    e.preventDefault()
+    toast("Create your station first. Everything here belongs to it.", { id: "no-station" })
+  }
+
   return (
     <nav aria-label="Station" className="flex flex-col gap-0.5">
       {NAV_ITEMS.map((item) => {
@@ -118,6 +128,7 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
               <Link
                 id="nav-autodj"
                 href={hrefFor(item)}
+                onClick={explain}
                 className={cn(
                   "flex h-10.5 items-center justify-between gap-2 rounded-item px-3 text-body transition-colors hover:bg-surface-raised hover:text-foreground",
                   inAutoDj(active) ? "font-bold text-foreground" : "text-muted-foreground",
@@ -128,7 +139,7 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
                 {lockFor(AUTODJ_GROUP.lock) && <ProTag />}
               </Link>
               {AUTODJ_ITEMS.map((child) => (
-                <NavLink key={child.key} href={hrefFor(child)} active={child.key === active} nested>
+                <NavLink key={child.key} href={hrefFor(child)} active={child.key === active} onClick={explain} nested>
                   {child.label}
                 </NavLink>
               ))}
@@ -137,7 +148,7 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
         }
         const live = item.key === "studio" && (broadcastingHere || air.tone === "live" || air.tone === "mic")
         return (
-          <NavLink key={item.key} href={hrefFor(item)} active={item.key === active}>
+          <NavLink key={item.key} href={hrefFor(item)} active={item.key === active} onClick={explain}>
             <span>{item.label}</span>
             {live && <StatusLamp tone="live" size="sm" pulse>Live</StatusLamp>}
             {lockFor(item.lock) && <ProTag />}
@@ -148,10 +159,24 @@ function Nav({ pathname, station }: { pathname: string; station: CurrentStation 
   )
 }
 
-function NavLink({ href, active, nested, children }: { href: string; active: boolean; nested?: boolean; children: React.ReactNode }) {
+function NavLink({
+  href,
+  active,
+  nested,
+  onClick,
+  children,
+}: {
+  href: string
+  active: boolean
+  nested?: boolean
+  /** May preventDefault: the no-station case answers with a toast instead of navigating. */
+  onClick?: (e: React.MouseEvent) => void
+  children: React.ReactNode
+}) {
   return (
     <Link
       href={href}
+      onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center justify-between gap-2 rounded-item px-3 transition-colors",

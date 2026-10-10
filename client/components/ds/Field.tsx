@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils"
 
 interface FieldShellProps {
   label: string
-  error?: string | null
+  error?: React.ReactNode
   hint?: React.ReactNode
   /** Right-hand slot inside the box: a "Show" toggle, a unit. */
   trailing?: React.ReactNode
@@ -30,6 +30,7 @@ function FieldShell({ label, error, hint, trailing, className, children }: Field
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <div
+        data-slot="ds-field"
         className={cn(
           "flex items-center gap-2.5 rounded-button border-stroke bg-surface-control px-4 py-3 transition-colors",
           "focus-within:border-line-strong",
@@ -58,7 +59,7 @@ const control =
 
 export interface TextFieldProps extends Omit<React.ComponentProps<"input">, "id"> {
   label: string
-  error?: string | null
+  error?: React.ReactNode
   hint?: React.ReactNode
   trailing?: React.ReactNode
 }
@@ -78,8 +79,19 @@ export function TextField({ label, error, hint, trailing, className, ...props }:
  * real button, aria-pressed), so you can check what you typed instead of
  * typing it twice.
  */
-export function PasswordField(props: Omit<TextFieldProps, "type" | "trailing">) {
-  const [shown, setShown] = React.useState(false)
+export function PasswordField({
+  shown: shownProp,
+  onShownChange,
+  ...props
+}: Omit<TextFieldProps, "type" | "trailing"> & {
+  /** Drive visibility from outside, for a new + confirm pair that should
+      show and hide together. Leave both off and the field keeps its own. */
+  shown?: boolean
+  onShownChange?: (shown: boolean) => void
+}) {
+  const [ownShown, setOwnShown] = React.useState(false)
+  const shown = shownProp ?? ownShown
+  const setShown = (next: boolean) => (onShownChange ? onShownChange(next) : setOwnShown(next))
   return (
     <TextField
       {...props}
@@ -89,7 +101,7 @@ export function PasswordField(props: Omit<TextFieldProps, "type" | "trailing">) 
           type="button"
           aria-pressed={shown}
           aria-label={shown ? `Hide ${props.label.toLowerCase()}` : `Show ${props.label.toLowerCase()}`}
-          onClick={() => setShown((s) => !s)}
+          onClick={() => setShown(!shown)}
           className="shrink-0 cursor-pointer rounded-item px-2 py-1 text-body-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           {shown ? "Hide" : "Show"}
@@ -101,13 +113,15 @@ export function PasswordField(props: Omit<TextFieldProps, "type" | "trailing">) 
 
 export interface TextAreaFieldProps extends Omit<React.ComponentProps<"textarea">, "id"> {
   label: string
-  error?: string | null
+  error?: React.ReactNode
   hint?: React.ReactNode
+  /** Top-right of the box: a character count. */
+  trailing?: React.ReactNode
 }
 
-export function TextAreaField({ label, error, hint, className, rows = 3, ...props }: TextAreaFieldProps) {
+export function TextAreaField({ label, error, hint, trailing, className, rows = 3, ...props }: TextAreaFieldProps) {
   return (
-    <FieldShell label={label} error={error} hint={hint} className={className}>
+    <FieldShell label={label} error={error} hint={hint} trailing={trailing && <div className="self-start">{trailing}</div>} className={className}>
       {({ id, describedBy }) => (
         <textarea
           id={id}
@@ -126,6 +140,7 @@ export function TextAreaField({ label, error, hint, className, rows = 3, ...prop
 export function Input({ className, ...props }: React.ComponentProps<"input">) {
   return (
     <input
+      data-slot="ds-input"
       className={cn(
         "h-11 w-full min-w-0 rounded-control bg-surface-control px-3.5 text-sm font-medium text-foreground outline-none",
         "placeholder:text-text-faint focus-visible:ring-2 focus-visible:ring-ring aria-invalid:ring-2 aria-invalid:ring-live disabled:opacity-60",

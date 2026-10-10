@@ -286,12 +286,12 @@ function TransportButton({
   )
 }
 
-/** A music-only show: the pad's place, dimmed, saying why there is no mic. */
+/** A music-only show: in the pad's place, a plain card saying why there is no mic. */
 export function MusicOnlyPad() {
   return (
-    <div className="flex flex-col gap-1.5 rounded-card bg-card/50 p-5">
-      <span className="text-display text-text-faint">Music only</span>
-      <span className="text-sm font-medium text-text-faint">You picked a music-only show. The mic stays closed.</span>
+    <div className="flex flex-col gap-1 rounded-card bg-card p-5">
+      <span className="font-display text-body font-bold">Music only</span>
+      <span className="text-sm text-muted-foreground">Your running order is on air. The mic stays closed for this show.</span>
     </div>
   )
 }

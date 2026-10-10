@@ -17,13 +17,15 @@ import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
 import { StatusLamp } from "@/components/ds/StatusLamp"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { NowPlayingWell } from "./NowPlayingWell"
+import { OverviewHeader } from "./OverviewHeader"
 
 /**
  * The overview's hero, as the prototype draws it: two panels on one rounded
  * surface whose fill is the station's state — plain off air, violet while
  * AutoDJ plays, solid red while someone is live, amber when listeners hear
- * nothing. Left: the state, what it means, what's playing, and the controls
- * that change it. Right: how many are listening.
+ * nothing. Left: who the station is (OverviewHeader), then the state, what it
+ * means, what's playing, and the controls that change it. Right: how many
+ * are listening.
  *
  * What it says comes from `stationHero` (lib/stationHero.ts); this component
  * only gathers the inputs and draws the answer.
@@ -37,7 +39,7 @@ const SURFACE: Record<HeroTone, { panel: string; seam: string }> = {
 
 const LAMP = { off: "off", onair: "onair", live: "live", caution: "warn" } as const
 
-export function OverviewHero({ station }: { station: Station }) {
+export function OverviewHero({ station, lastLive }: { station: Station; lastLive: string | null }) {
   const { status, loading } = useStationStatus(station.slug)
   const autoDjLocked = useAutoDjLocked()
   const { state: broadcastState, stationSlug } = useBroadcast()
@@ -63,6 +65,8 @@ export function OverviewHero({ station }: { station: Station }) {
   return (
     <section aria-label="On air now" className={cn("flex flex-wrap gap-0.5 overflow-hidden rounded-hero", surface.seam)}>
       <div className={cn("flex min-w-0 flex-[2_1_26rem] flex-col gap-4.5 p-6 sm:p-7", surface.panel)}>
+        <OverviewHeader station={station} lastLive={lastLive} />
+
         <div className="flex flex-wrap items-center gap-2">
           <StatusLamp tone={LAMP[hero.tone]} variant={hero.tone === "live" ? "bare" : "soft"} pulse={hero.tone === "live"}>
             {hero.label}

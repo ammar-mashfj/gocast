@@ -10,7 +10,8 @@ import { TabBar } from "./TabBar"
  * Everything right of the sidebar: the sticky chrome (top bar + status band)
  * and the page body.
  *
- * The body is padded to the page gutter and capped at `max-w-page`.
+ * The body is padded to the page gutter and capped at `max-w-page`. The deep
+ * bottom padding is room for the phone tab bar and goes with it (sm:hidden).
  *
  * The chrome's height changes with the band (its message wraps on narrow
  * screens), so it is measured and published as `--chrome-h` on <html>, for
@@ -39,7 +40,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <TopBar />
         <StationBand />
       </div>
-      <div className="flex-1 px-gutter pt-8 pb-30">
+      <div className="flex-1 px-gutter pt-5 pb-30 sm:pb-5">
         <div className="mx-auto w-full max-w-page">{children}</div>
       </div>
       <TabBar />

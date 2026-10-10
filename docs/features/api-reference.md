@@ -1,6 +1,6 @@
 ---
 feature: API reference (HTTP routes, middleware, scheduled commands)
-verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
+verified: 2026-10-09 against 4b02335 plus uncommitted work (slug preview on the create page)
 sources:
   - api/routes/api.php
   - api/routes/admin.php
@@ -67,6 +67,7 @@ sources:
   - api/app/Http/Requests/StorePlaylistRequest.php
   - api/app/Http/Requests/StoreProAccessRequest.php
   - api/app/Http/Requests/StoreStationRequest.php
+  - api/app/Http/Controllers/StationSlugController.php
   - api/app/Http/Requests/StoreTrackRequest.php
   - api/app/Http/Requests/StoreWaitlistRequest.php
   - api/app/Http/Requests/UpdatePasswordRequest.php
@@ -139,7 +140,7 @@ sources:
   - api/app/Http/Controllers/UplinkCheckController.php
   - api/app/Http/Controllers/StudioDropController.php
   - api/app/Services/BroadcastOrigin.php
-fingerprint: 3b2eed5d33c18d14
+fingerprint: 428980f173216dc3
 ---
 
 # API reference
@@ -191,6 +192,7 @@ Every HTTP route the Laravel app in `api/` exposes, what guards it, what it acce
 | `listener-start` | 30/min | IP | `POST /public/stations/{slug}/listen` |
 | `listener-beat` | 20/min | route param `token` (not IP, on purpose) | `beat` and `end` |
 | `notification-poll` | 30/min | user id | `GET /notifications/unread-count` |
+| `slug-preview` | 120/min | user id | `GET /stations/slug-preview` |
 
 Inline limiters use Laravel's `throttle:max,minutes,prefix`. Every numeric throttle in `api/routes/api.php` names its own prefix (the third argument, shown in the tables below, e.g. `throttle:20,1,station-start`), so each route keeps its own counter. Without a prefix Laravel keys the counter on the user id (or domain+IP) alone, and every unnamed `throttle:N,M` route shared one count: a go-live's uplink probes, check report and broadcast token used up the station-start limit and returned 429. A new inline throttle must carry a prefix too. Beware `throttle:6,60,stream-key`: six per **sixty minutes**.
 
@@ -280,7 +282,8 @@ All below sit inside `auth:sanctum` + `verified`. Unless stated, the owner check
 | Method | Path | Extra | Controller |
 |---|---|---|---|
 | GET | `/stations` | | `StationController@index` |
-| POST | `/stations` | | `@store` |
+| GET | `/stations/slug-preview?name=` | `throttle:slug-preview`; registered before the resource | `StationSlugController` → `{data:{name, slug}}`, the link `Station::slugFor` would mint now (null for an empty name) |
+| POST | `/stations` | the slug is always derived from the name; a `slug` in the body is ignored | `@store` |
 | GET | `/stations/{station}` | | `@show` |
 | PUT/PATCH | `/stations/{station}` | | `@update` |
 | DELETE | `/stations/{station}` | | `@destroy` |

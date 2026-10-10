@@ -13,13 +13,13 @@ import { TextAreaField, TextField } from "@/components/ds/Field"
 import { ArtworkDrop } from "./ArtworkDrop"
 
 /**
- * The station's profile: artwork, name, genre, description. One form for
- * both jobs — creating the station (on /dashboard, right on the page) and
- * editing it (in StationFormDialog) — so the two can't drift apart.
+ * The station's profile: artwork, name, genre, description, edited in
+ * StationFormDialog. Saves and calls `onDone`. The link is shown, never
+ * edited: the API ignores a slug on update, so it never changes.
  *
- * Without `station` it creates and then opens the new station; with one it
- * saves and calls `onDone`. The link is shown, never edited: the API ignores
- * a slug on update, so it never changes.
+ * Making the station is CreateStation, a page of its own: it has the link
+ * (choosable only then) and the listener preview, which have no place in an
+ * edit dialog.
  *
  * `actions` wraps the submit button, so the dialog can put it in its footer.
  */
@@ -29,19 +29,18 @@ export function StationForm({
   actions = (button) => <div>{button}</div>,
   className,
 }: {
-  station?: Station
+  station: Station
   onDone?: () => void
   actions?: (submit: React.ReactNode) => React.ReactNode
   className?: string
 }) {
   const router = useRouter()
-  const editing = !!station
 
-  const [name, setName] = useState(station?.name ?? "")
-  const [genre, setGenre] = useState(station?.genre ?? "")
-  const [description, setDescription] = useState(station?.description ?? "")
-  const [artworkUrl, setArtworkUrl] = useState(station?.artwork_url ?? "")
-  const [preview, setPreview] = useState(station?.artwork_url ?? "")
+  const [name, setName] = useState(station.name)
+  const [genre, setGenre] = useState(station.genre ?? "")
+  const [description, setDescription] = useState(station.description ?? "")
+  const [artworkUrl, setArtworkUrl] = useState(station.artwork_url ?? "")
+  const [preview, setPreview] = useState(station.artwork_url ?? "")
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string[]>>({})
@@ -78,25 +77,12 @@ export function StationForm({
       artwork_url: artworkUrl || null,
     }
     try {
-      if (editing) {
-        await api.put(`/stations/${station.slug}`, payload)
-        toast.success("Station updated")
-        onDone?.()
-        router.refresh()
-      } else {
-        const res = await api.post("/stations", payload)
-        const created: Station | undefined = res.data?.data
-        toast.success("Station created — ready to go live?")
-        onDone?.()
-        if (created?.slug) router.push(`/dashboard/stations/${created.slug}`)
-        else router.refresh()
-      }
+      await api.put(`/stations/${station.slug}`, payload)
+      toast.success("Station updated")
+      onDone?.()
+      router.refresh()
     } catch (err) {
-      if (err instanceof AxiosError && err.response?.status === 403) {
-        // An account has one station (lib/station-server.ts); a second
-        // wouldn't even show up in the dashboard. Not something a plan sells.
-        toast.error("Each account has one station, and yours already exists.")
-      } else if (err instanceof AxiosError && err.response?.data?.errors) {
+      if (err instanceof AxiosError && err.response?.data?.errors) {
         setErrors(err.response.data.errors)
       } else {
         toast.error((err instanceof AxiosError && err.response?.data?.message) || "Something went wrong. Nothing was saved.")
@@ -128,7 +114,6 @@ export function StationForm({
         required
         maxLength={100}
         error={errors.name?.[0]}
-        autoFocus={!editing}
       />
       <TextField
         label="Genre"
@@ -137,7 +122,6 @@ export function StationForm({
         placeholder="Jazz, lo-fi, talk"
         maxLength={255}
         error={errors.genre?.[0]}
-        hint={editing ? undefined : "Optional, like everything below the name."}
       />
       <TextAreaField
         label="Description"
@@ -146,14 +130,12 @@ export function StationForm({
         placeholder="Two lines telling listeners what you play."
         error={errors.description?.[0]}
       />
-      {editing && (
-        <span className="font-mono text-caption text-text-faint">
-          {host}/station/{station.slug} · the link never changes
-        </span>
-      )}
+      <span className="font-mono text-caption text-text-faint">
+        {host}/station/{station.slug} · the link never changes
+      </span>
       {actions(
         <Button size="lg" type="submit" disabled={saving || uploading || name.trim() === ""}>
-          {saving ? (editing ? "Saving…" : "Creating…") : editing ? "Save changes" : "Create station"}
+          {saving ? "Saving…" : "Save changes"}
         </Button>,
       )}
     </form>

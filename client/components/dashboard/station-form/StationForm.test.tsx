@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { render, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 import type { Station } from "@/interfaces/Station"
 import { artworkProblem } from "./ArtworkDrop"
 import { StationForm } from "./StationForm"
 
-const push = vi.fn()
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }))
-const post = vi.fn()
-vi.mock("@/lib/axios", () => ({ default: { post: (...a: unknown[]) => post(...a), put: vi.fn() } }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
+vi.mock("@/lib/axios", () => ({ default: { post: vi.fn(), put: vi.fn() } }))
 
 const file = (type: string, bytes: number) => new File([new Uint8Array(bytes)], "art", { type })
 
@@ -25,20 +22,7 @@ describe("artworkProblem", () => {
 })
 
 describe("StationForm", () => {
-  it("creates the station and opens it", async () => {
-    post.mockResolvedValue({ data: { data: { slug: "night-shift" } } })
-    render(<StationForm />)
-
-    const create = screen.getByRole("button", { name: "Create station" })
-    expect(create).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("Name"), "  Night Shift ")
-    await userEvent.click(create)
-
-    expect(post).toHaveBeenCalledWith("/stations", { name: "Night Shift", genre: null, description: null, artwork_url: null })
-    expect(push).toHaveBeenCalledWith("/dashboard/stations/night-shift")
-  })
-
-  it("shows the link when editing, and never sends it", () => {
+  it("shows the link, and never sends it", () => {
     render(<StationForm station={{ slug: "jazz", name: "Jazz", genre: null, description: null, artwork_url: null } as Station} />)
     expect(screen.getByText(/\/station\/jazz · the link never changes/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled()

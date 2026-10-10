@@ -6,9 +6,9 @@ import { StationForm } from "./station-form/StationForm"
 
 /**
  * Edit the station's profile in a dialog (Profile → Edit, the overview's
- * header and checklist). The form is StationForm, the same one the create
- * page shows; it mounts with the dialog, so a cancelled edit doesn't come
- * back next time it opens.
+ * header and checklist). The form is StationForm; it mounts with the dialog,
+ * so a cancelled edit doesn't come back next time it opens. Creating a
+ * station is CreateStation, a page of its own.
  */
 export function StationFormDialog({ open, onClose, station }: { open: boolean; onClose: () => void; station: Station }) {
   return (

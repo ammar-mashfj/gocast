@@ -92,7 +92,19 @@ const SHOTS: Record<Account, Shot[]> = {
     { name: "free-account", path: "/dashboard/settings" },
     { name: "free-request-pro", path: "/dashboard/settings", open: click("Request Pro", { last: true }), expects: "dialog" },
   ],
-  new: [{ name: "create-station", path: "/dashboard" }],
+  new: [
+    { name: "create-station", path: "/dashboard" },
+    {
+      name: "create-station-filled",
+      path: "/dashboard",
+      open: async (page) => {
+        await page.getByLabel("Station name").fill("Night Owl Radio")
+        await page.getByRole("button", { name: "Jazz" }).click()
+        await page.getByLabel("Description").fill("Late-night soul, jazz and slow-burn electronica for the insomniacs.")
+        await expect(page.getByText("night-owl-radio", { exact: true }).first()).toBeVisible({ timeout: 10_000 })
+      },
+    },
+  ],
 }
 
 function click(name: string | RegExp, opts: { last?: boolean } = {}) {

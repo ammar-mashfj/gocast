@@ -20,7 +20,7 @@ export default function Body() {
         alt="The Right now and Your next show cards at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15 — and the next of your own show times."
         width={2480}
         height={214}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>Building One</h2>
@@ -65,7 +65,7 @@ export default function Body() {
         alt="The week, Monday to Sunday from midnight to midnight: Breakfast every weekday morning, Drive time every weekday afternoon, and After hours starting at the right edge of Friday and carrying on at the left edge of Saturday, where it crosses midnight."
         width={2480}
         height={1252}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>How Precisely a Slot Starts</h2>

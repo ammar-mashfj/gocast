@@ -1,6 +1,6 @@
 ---
 feature: Marketing site, help centre and blog
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-07 against 4b02335 plus uncommitted work (feat/dashboard-design); homepage sections re-read after the rebuild, help and blog sections not re-verified
 sources:
   - client/app/layout.tsx
   - client/app/sitemap.ts
@@ -17,7 +17,6 @@ sources:
   - client/tests/e2e/help-screenshots.spec.ts
   - client/playwright.config.ts
   - client/app/(marketing)/layout.tsx
-  - client/app/(marketing)/page.tsx
   - client/app/(marketing)/blog/page.tsx
   - client/app/(marketing)/blog/[slug]/page.tsx
   - client/app/(marketing)/help/page.tsx
@@ -56,31 +55,28 @@ sources:
   - client/components/common/TrustCues.tsx
   - client/components/content/Prose.tsx
   - client/components/content/ZoomableImage.tsx
-  - client/components/homepage/CapabilityStrip.tsx
+  - client/app/(home)/layout.tsx
+  - client/app/(home)/page.tsx
+  - client/app/dashboard.css
   - client/components/homepage/CtaSection.tsx
-  - client/components/homepage/Equalizer.tsx
-  - client/components/homepage/FeaturesSection.tsx
   - client/components/homepage/Footer.tsx
-  - client/components/homepage/heroSection/HeroPlayerMock.tsx
-  - client/components/homepage/heroSection/heroSection.module.css
+  - client/components/homepage/heroSection/HeroLevelMeter.tsx
   - client/components/homepage/heroSection/HeroSection.tsx
   - client/components/homepage/heroSection/HeroStationPlayer.tsx
   - client/components/homepage/heroSection/official.ts
-  - client/components/homepage/heroSection/uptime.ts
   - client/components/homepage/HowItWorks.tsx
   - client/components/homepage/ListenerLibrary.tsx
-  - client/components/homepage/LiveNow.module.css
-  - client/components/homepage/LiveNow.tsx
   - client/components/homepage/navbar/MobileMenu.tsx
   - client/components/homepage/navbar/Navbar.tsx
   - client/components/homepage/navbar/UserMenu.tsx
-  - client/components/homepage/PlanBadge.tsx
   - client/components/homepage/PricingSection.tsx
   - client/components/homepage/ProgrammeSection.tsx
-  - client/components/homepage/StudioMock.tsx
+  - client/components/homepage/Section.tsx
+  - client/components/homepage/StudioDeck.tsx
   - client/components/homepage/StudioSection.tsx
   - client/components/homepage/WaitlistButton.tsx
-  - client/components/homepage/WeekGridMock.tsx
+  - client/components/homepage/WeekGrid.tsx
+  - client/components/homepage/Wordmark.tsx
   - api/app/Http/Controllers/WaitlistController.php
   - api/app/Http/Requests/StoreWaitlistRequest.php
   - api/app/Http/Requests/StoreProAccessRequest.php
@@ -125,7 +121,7 @@ sources:
   - client/hooks/useAccessRequest.ts
   - client/components/dashboard/station-form/StationForm.tsx
   - client/app/dashboard/stations/[slug]/live/page.tsx
-fingerprint: 42cb4f15e7181610
+fingerprint: 34e976a225b304d8
 ---
 
 # Marketing site, help centre and blog
@@ -138,36 +134,33 @@ The public, signed-out face of GoCast: the homepage, `/help` (17 task articles),
 
 | URL | File | Notes |
 |---|---|---|
-| `/` | `client/app/(marketing)/page.tsx` | There is **no** `client/app/page.tsx`; the homepage lives in the `(marketing)` group. Calls `isAuthenticated()` and passes `isAuthed` to the hero and CTA. Canonical pinned to `/`. |
+| `/` | `client/app/(home)/page.tsx` | There is **no** `client/app/page.tsx`; the homepage has its own `(home)` group with its own layout (below). Calls `isAuthenticated()` and passes `isAuthed` to the hero and CTA. Canonical pinned to `/`. |
 | `/blog`, `/blog/[slug]` | `(marketing)/blog/` | Index sorted by `date` descending. |
 | `/help`, `/help/[slug]` | `(marketing)/help/` | Index grouped by category. |
 | `/privacy`, `/terms` | `(marketing)/privacy`, `terms` | Static prose, "Last updated" typed in the page. |
 | `/discover` | `(marketing)/discover/page.tsx` | **Dead.** `next.config.ts` redirects `/discover` to `/` (307) and the page itself also `redirect("/")`. `DiscoverFilters.tsx` and `loading.tsx` remain. |
 | `/roadmap` | none | Permanent (308) redirect to `/` in `next.config.ts`. |
 
-`(marketing)/layout.tsx` wraps every page in a dark shell, max width 1200px: `Navbar`, children, `Footer`. Auth, dashboard, station and embed pages are outside the group and have their own chrome.
+`(marketing)/layout.tsx` wraps blog, help, legal and discover: `Navbar`, children, `Footer`, no width cap (each page caps its own measure). `(home)/layout.tsx` wraps the homepage alone the same way (sections run edge to edge and cap their own content at `max-w-page`, 1240px). **Both** mark themselves `data-surface="marketing"` (the marketing group since 2026-10-09): that is the selector `app/dashboard.css` scopes the **GoCast Design System** to (`.dark:has([data-surface="dashboard"], [data-surface="marketing"])`), so every public page, its navbar, footer and toasts wear the dashboard's warm palette, Bricolage body and Plex Mono. The older marketing palette survives only as the fallback values of the `globals.css` tokens, which is why terms and privacy (still written in those classes) take the warm palette without being touched; the blog index, blog article, help index, help article, `Prose` and `ZoomableImage` were rewritten on the ds tokens and laid out across the full `max-w-page` width, left-aligned to the navbar: the indexes are two-column rows from `lg` (date / category on the left, entries on the right), the article pages keep the body at the `max-w-3xl` reading measure with a sticky right rail from `lg` ("More from the blog" + sign-up card on the blog, "Read next" + "Still stuck?" on help); the old `md:-ml-14` side-bleed wrapper on article screenshots was removed since the column no longer centres (help articles show a `ProTag` beside the eyebrow and an on-air-tint "needs Pro" chip; "Read next" and the "Still stuck?" card are ds cards). `dashboard.css` also carries the two homepage-only type tokens `text-marquee` (hero line, closing question) and `text-section` (section headings), registered in `lib/utils.ts`. Auth, dashboard, station and embed pages are outside both groups and have their own chrome.
 
-`Navbar` (server component) calls `getSession()`. Links: How it works (`/#features`), Pricing (`/#pricing`), Blog, Help. Signed out it shows Sign in and Sign up; signed in it shows `UserMenu` (first name, Dashboard, Sign out via `useSignOut`). `MobileMenu` is a right-hand sheet below the `sm` breakpoint. `Footer`: Help, Blog, Terms, Privacy, contact `hello@gocast.fm` (questions) and `business@gocast.fm` (press), and X/Facebook/Instagram links. No link to `/discover`.
+`Navbar` (server component, sticky) calls `getSession()`. The logo is the text `Wordmark` (Go / Cast in violet / .fm faint; `/logo.svg` is still referenced by the JSON-LD only). Links: How it works (`/#features`), Pricing (`/#pricing`), Blog, Help, shown from `md`. Signed out it shows Sign in and a `ds/Button` Sign up from `md`; signed in it shows `UserMenu` (first name, Dashboard, Sign out via `useSignOut`). Below `md`, `MobileMenu` is a subtle "Menu"/"Close" button that opens an in-page panel absolutely positioned under the sticky header: the four links as 56px display-type rows, Sign in, and a full-width Sign up (or "Open dashboard" when signed in); it closes on a link, Escape, a tap outside, or the viewport crossing `md`. The old right-hand sheet is gone, so the homepage no longer uses `components/ui`. `Footer`: Help, Blog, Terms, Privacy, contact `hello@gocast.fm` (questions) and `business@gocast.fm` (press), and X/Facebook/Instagram links. No link to `/discover`.
 
 ## Homepage sections (in order)
 
-`HeroSection`, `HowItWorks` (`id="features"`), `StudioSection`, `ProgrammeSection`, `ListenerLibrary`, `LiveNow` (`id="live"`), `CapabilityStrip`, `PricingSection` (`id="pricing"`), `CtaSection`.
+`HeroSection` (`id="top"`), `HowItWorks` (`id="features"`), `StudioSection` (`id="studio"`, card-coloured band), `ProgrammeSection` (`id="autodj"`, includes the "Also included in Pro" cards), `ListenerLibrary`, `PricingSection` (`id="pricing"`, card-coloured band), `CtaSection`. Rebuilt 2026-10-07 on the design system from the Claude Design comp "GoCast Homepage v3" (project "GoCast Homepage Redesign"), keeping the registration flow, the Pro card without a button, per-playlist colours, the signed-in states and the listener row; the comp's in-page station-creation sheet, Pro button and "you, live" grid lane were not taken. `Section` / `SectionIntro` / `Points` (`Section.tsx`) are the shared band, intro and three-claims layouts.
 
 - **HeroSection** (async server component). Headline "Your voice. On air in 60 seconds." Fetches `GET {apiUrl}/public/stations/gocast-official-station` with `next: { revalidate: 30 }` and `publicApiHeaders()`; on any failure returns `null` and the player renders off-air. CTA: `/auth/register` "Create a free station", or `/dashboard` "Open dashboard" when authed; `TrustCues` only when signed out.
-- **HeroStationPlayer** (client). Plays the real official station: `OFFICIAL_SLUG = 'gocast-official-station'` (`official.ts`), HLS URL constant `https://stream.gocast.fm/gocast-official-station/aac.m3u8` (used unless `station.hls_url` is present), artwork `/official-station-512.png` from `/public`. Silent until clicked. hls.js config: `backBufferLength: 30`, `liveSyncDurationCount: 2`, `pLoader: createPlaylistLoader`. Ladder: manifest 404 marks the station failed/off air; other network errors go to `createNetworkRecovery`; media errors `recoverMediaError`; anything else falls to Icecast (`env.icecastUrl + station.icecast_mount`, only when the API answered). Safari uses native HLS. Polling via `usePublicStationFeed` and listener counting via `useListenerSession` are both gated on `playing`, so bounce visitors cost no polling. Badge states: Off air (`failed` or API says not on air), Live, On air; unknown counts as On air (optimistic, by design).
-- `uptime.ts` (`formatUptime`, "Nd on air") is exported but **not imported anywhere** in the files in scope; dead.
+- **HeroStationPlayer** (client). A `rounded-hero` card: `StatusLamp` (Off air / Live / On air), "Player page" link, square artwork, an "Official" tag, the station name, and a transport well whose line shows the polled track while playing ("Listen in" at rest, "Connecting…", "Nothing on air right now"), and a 24-segment level meter (`HeroLevelMeter`: green/amber/red like the studio meter, simulated level, static under reduced motion) only while playing. No listener count on the hero (dropped 2026-10-09; the poll still fetches it). Plays the real official station: `OFFICIAL_SLUG = 'gocast-official-station'` (`official.ts`), HLS URL constant `https://stream.gocast.fm/gocast-official-station/aac.m3u8` (used unless `station.hls_url` is present), artwork `/official-station-512.png` from `/public`. Silent until clicked. hls.js config: `backBufferLength: 30`, `liveSyncDurationCount: 2`, `pLoader: createPlaylistLoader`. Ladder: manifest 404 marks the station failed/off air; other network errors go to `createNetworkRecovery`; media errors `recoverMediaError`; anything else falls to Icecast (`env.icecastUrl + station.icecast_mount`, only when the API answered). Safari uses native HLS. Polling via `usePublicStationFeed` and listener counting via `useListenerSession` are both gated on `playing`, so bounce visitors cost no polling. Badge states: Off air (`failed` or API says not on air), Live, On air; unknown counts as On air (optimistic, by design).
 - **HowItWorks**: three static steps (Create your station, Go on air, Share your link) with times "15 seconds", "1 click", "Instant".
-- **StudioSection + StudioMock**: static mock of the on-air deck, shortcut row Space, K, N, P, R, and three bullet points. Badge Free.
-- **ProgrammeSection + WeekGridMock**: static mock week grid (fixed slots Morning Coffee, Drivetime, Weekend Brunch, Late Night; the last wraps midnight and is split into two segments), three bullets, badge Pro.
+- **StudioSection + StudioDeck** (client): a **working mock** of the on-air deck for a fictional station "Late Shift" with five fictional tracks. A 100 ms timer walks the running order (repeat off / all / one), the pad opens a pretend mic (pointer with capture, Enter, or Space), the listener count drifts every 2.4 s and lifts the peak, and the status lamp reads Live / On mic / Silence with a show clock. Keyboard shortcuts K / N / P / R and Space apply **only while at least half the deck is on screen** (IntersectionObserver, threshold 0.5) and never while typing; scrolling the deck away releases the mic. The timer also stops off screen. The shortcut row is hidden below md (no keyboard on a phone) and the pad's hint there says to keep a finger down instead of "hold Space". "Copy link" and the Space hint only raise a sonner toast (nothing is copied: the link is fictional); the QR tile is decorative (`--artwork-placeholder` stripes). No audio, no fetch. Tag Free.
+- **ProgrammeSection + WeekGrid** (client): the Schedule page's week grid, Monday first, with fixed slots Morning Coffee, Drivetime, Weekend Brunch, Late Night (the last wraps midnight and is split into two segments, as the API resolves it). Each playlist wears a `lib/playlistSwatches` violet by index, as on the real page. The chips above it filter (others fade to 15%); the lamp says "On air · {playlist}" and the today marker is drawn from **this browser's clock**, read after mount so SSR and client agree (before mount: "On air", no marker). There is no "your show times" lane: the web Schedule is AutoDJ-only. Below md the grid, chips and legend are replaced by `WeekDayList` (a seven-day strip with dates from the browser clock, then the picked day's rows with explicit "All Tracks" gap rows, midnight-wrap notes and a "Now" mark), mirroring the dashboard's `DayList`; the slots live in `weekMock.ts`, shared by both. Three bullets, `ProTag`, then four "Also included in Pro" cards (stream URL, own domain/embed, own gear, listener history; see contradictions).
 - **ListenerLibrary**: client-only, reads `getSaved()` / `getHistory()` from `lib/listenerLibrary` (localStorage). Renders nothing until hydrated and nothing when both lists are empty; up to 4 saved and 4 recent (recent excludes saved).
-- **LiveNow** (server): `GET /public/featured`, revalidate 30. Returns `null` when the list is empty, so the section vanishes. The API returns at most `Station::FEATURED_RAIL_SIZE = 4` stations that are featured and running, live-broadcast first (`PublicStationController::featured`). Badge "Live" if `is_live`, else "On air". Features are set by admins (`featured` scope; see [admin-panel](admin-panel.md)).
-- **CapabilityStrip**: four Pro items (stream URL, own domain/embed, own gear, listener history). See contradictions.
-- **PricingSection**: Free card (8 bullets, `/auth/register`), Pro card ("Free in beta, then $15/mo", `PRO_PRICE_USD` from `interfaces/Plan.ts`, no button, prose says request from the dashboard), Custom card with `WaitlistButton`. Footer text "Pricing last updated 21 September 2026" is a typed constant `LAST_UPDATED`.
+- **PricingSection**: Free card (raised, 8 bullets, `/auth/register`), Pro card (`pro-tint`, "Free in beta, then $15/mo", `PRO_PRICE_USD` from `interfaces/Plan.ts`, **no button**, prose says request from the dashboard), Custom card (`on-air-tint`, tag "Made to order", four bullets: unlimited listeners, a white-label player, a full website around the player with pages/widgets/templates, "something we haven't built yet", then an "Add-on · Custom design" well — the website and the design are built to order, not shipped features; added 2026-10-09) with `WaitlistButton` styled as a ghost `ds/Button`. Footer text "Pricing last updated 21 September 2026" is a typed constant `LAST_UPDATED`. The homepage no longer has a featured-stations rail: `LiveNow` was removed on 2026-10-07 (the `GET /public/featured` endpoint and `Station::FEATURED_RAIL_SIZE` still exist on the API, unused by the client).
 - **CtaSection**: `/auth/register` "Start broadcasting free", or `/dashboard/stations` "Open dashboard" when authed (the hero sends authed users to `/dashboard`; the two differ).
 
-### Dead components in scope
+### Removed 2026-10-07
 
-`FeaturesSection.tsx`, `heroSection/HeroPlayerMock.tsx` and `homepage/Equalizer.tsx` are not imported by any file (checked by grep). `FeaturesSection` is the old nine-card grid whose claims (TuneIn/Sonos, own domain) are still copied into `CapabilityStrip`. `LiveNow.tsx` has its own private `Equalizer` and CSS module.
+`FeaturesSection`, `HeroPlayerMock`, `Equalizer`, `uptime.ts`, `StudioMock`, `WeekGridMock`, `CapabilityStrip`, `LiveNow` (+ its CSS module) and `PlanBadge` were deleted with the rebuild; `components/homepage` has no dead files. The Pro tags now come from `ds/Tag`.
 
 ## The request form (waitlist)
 
@@ -260,9 +253,9 @@ Both are static JSX with a typed "Last updated" line: privacy **September 26, 20
 ## Shared components
 
 - `Prose` (`components/content/Prose.tsx`): the Tailwind `prose prose-invert` wrapper (max 68ch) used by both blog and help; renders an `<article>`.
-- `TrustCues` (`components/common/TrustCues.tsx`): "Browser-based", "Private until shared", "Free forever"; `compact` in hero and CTA, `stacked` on the register page.
+- `TrustCues` (`components/common/TrustCues.tsx`): "Browser-based", "Private until shared", "Free forever"; `compact` (mono, faint, no icons) beside the hero and closing-CTA buttons, `stacked` (with icons and hints) on the register page.
 - `PasswordInput`: show/hide eye, used by auth pages and dashboard settings.
-- `PlanBadge`: Free/Pro pill for section eyebrows.
+- `Wordmark` (`components/homepage/Wordmark.tsx`): the text logo used by `Navbar` and `Footer` on every marketing page.
 
 ## Claims the code contradicts
 
@@ -298,9 +291,12 @@ Checked against code on 2026-09-29.
 - Help bodies must not contain a bare `</strong> word` across a wrapped line: use `{" "}` (see the existing `<strong>...</strong>{" "}` pattern).
 - Pricing numbers are duplicated: `PricingSection` (`FREE_FEATURES`, `PRO_FEATURES`, `LAST_UPDATED`), `free-and-pro` table, four blog posts, FAQ arrays in `articles.ts` (which are emitted as `FAQPage` JSON-LD, so they must match the visible body), and the DB `plans` rows (100/1,000 listeners, 90 days, 3 GB is `LIQUIDSOAP_STATION_STORAGE_BYTES`). Only `PRO_PRICE_USD` is shared in code.
 - `PRO_AVAILABLE = false` in `interfaces/Plan.ts` means there is no checkout. All "upgrade" paths are request forms.
+- Every public page gets the design-system palette only through `data-surface="marketing"` on its route-group layout; removing the attribute silently drops the page back to the older palette with the design-system classes still in place, which looks broken rather than failing.
+- Terms and privacy still use the older palette's class names (`text-white`, `bg-white/[0.02]`, `text-text-muted`…); they look right only because those tokens fall back through `--ds-*`. Anything hard-coded there (`zinc-*`, `#08080d`) will not follow the palette.
 - The hero depends on a real station `gocast-official-station` existing and streaming from `stream.gocast.fm`; if the API is down the card falls back to a plausible "On air" state until play fails (documented optimistic default).
 - `/discover` redirect exists in two places (config and page); removing only one leaves it redirected.
-- Dead code listed above (`FeaturesSection`, `HeroPlayerMock`, `Equalizer`, `uptime.ts`, `discover/*`).
+- Dead code: `discover/*` (see routing). The homepage itself has none since 2026-10-07.
+- The studio deck hijacks Space while it is at least half on screen (the page no longer scrolls on Space there); the hint under the deck says so. `components/homepage` is **not** under the dashboard lint guardrails (`eslint.config.mjs` `DASHBOARD_FILES`), so token discipline there is by convention.
 - `help-screenshots.spec.ts` signs in as the local keeper account `shell@gocast.test`; it needs that account and its station, so it only runs against a dev database that has them.
 
 ## Tests

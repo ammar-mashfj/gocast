@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/ds/PageHeader"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CheckList } from "@/components/dashboard/golive/CheckList"
 import { MicCheckCard } from "@/components/dashboard/golive/MicCheckCard"
+import { MicPermissionLink } from "@/components/dashboard/golive/MicPermissionLink"
 import { RunningOrderCard } from "@/components/dashboard/golive/RunningOrderCard"
 
 type Mode = "mic" | "music"
@@ -167,6 +168,7 @@ export default function GoLivePage() {
               <>
                 <Button size="lg" onClick={() => { chooseMode("music"); begin(true) }}>Go live with music only</Button>
                 <Button size="lg" variant="ghost" onClick={() => begin(false)}>Try again</Button>
+                <MicPermissionLink />
               </>
             }
           >
@@ -198,29 +200,39 @@ export default function GoLivePage() {
   }
 
   const autoDjOnAir = station.is_on_air && !station.is_live
+  // From xl: the heading across the top, the setup on the left, the music on
+  // the right, the button underneath. The two columns end level; the page
+  // grows to the window's height and no further, so a long list scrolls
+  // inside its card instead of the page. One column (heading, setup, music,
+  // button) below that.
   return (
-    <div className="mx-auto flex w-full max-w-190 flex-col gap-5.5">
+    <div className="mx-auto grid w-full max-w-190 gap-5.5 xl:max-w-page xl:grid-cols-2 xl:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] xl:grid-rows-[auto_1fr_auto] xl:items-start">
       <PageHeader
+        className="xl:col-span-2"
         title="Ready when you are."
         description={autoDjOnAir ? "AutoDJ hands over when you start, and takes back when you end." : "Nothing goes out until you press the button."}
       />
 
-      <section className="flex flex-col gap-2.5" aria-labelledby="mode-label">
-        <h2 id="mode-label" className="font-display text-body font-bold">What goes out</h2>
-        <ChoiceCards
-          aria-label="What goes out"
-          value={mode}
-          onChange={chooseMode}
-          options={[
-            { value: "mic", title: "Mic + music", description: "Talk over your tracks. The music dips while you hold to talk." },
-            { value: "music", title: "Music only", description: "Play your running order. We won’t ask for the microphone." },
-          ]}
-        />
-      </section>
+      <div className="flex min-w-0 flex-col gap-5.5">
+        <section className="flex flex-col gap-2.5" aria-labelledby="mode-label">
+          <h2 id="mode-label" className="font-display text-body font-bold">What goes out</h2>
+          <ChoiceCards
+            aria-label="What goes out"
+            eyebrow={false}
+            value={mode}
+            onChange={chooseMode}
+            options={[
+              { value: "mic", title: "Mic + music", description: "Talk over your tracks. The music dips while you hold to talk." },
+              { value: "music", title: "Music only", description: "Play your running order. We won’t ask for the microphone." },
+            ]}
+          />
+        </section>
 
-      {mode === "mic" && <MicCheckCard mic={mic} onMusicOnly={() => chooseMode("music")} />}
+        {mode === "mic" && <MicCheckCard mic={mic} onMusicOnly={() => chooseMode("music")} />}
+      </div>
 
       <RunningOrderCard
+        className="xl:col-start-2 xl:row-start-2 xl:min-h-0 xl:self-stretch"
         queue={queue}
         resumeFromStart={resumeFromStart}
         onResumeFromStartChange={(next) => {
@@ -231,15 +243,16 @@ export default function GoLivePage() {
         }}
       />
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex w-full min-w-0 flex-col gap-2.5 xl:col-span-2 xl:mx-auto xl:max-w-160">
         <Button size="xl" full dot="live" onClick={() => begin()}>
           Go live on {station.name}
         </Button>
-        <div className="flex flex-wrap justify-between gap-3 text-body-sm text-text-faint">
+        <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1 text-body-sm text-text-faint">
           <span>
             Listeners tune in at <span className="font-mono text-muted-foreground">{playerUrl.replace(/^https?:\/\//, "")}</span>{" "}
             <CopyLink url={taggedStationUrl(env.appUrl, station.slug, "owner")} />
           </span>
+          <span aria-hidden>·</span>
           <Link href={`/dashboard/stations/${station.slug}`} className="text-muted-foreground hover:text-foreground">
             Not now
           </Link>

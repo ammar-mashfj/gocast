@@ -1,10 +1,11 @@
-import { WeekGridMock } from "./WeekGridMock"
-import { PlanBadge } from "./PlanBadge"
+import { ProTag } from "@/components/ds/Tag"
+import { Points, Section, SectionIntro } from "./Section"
+import { WeekGrid } from "./WeekGrid"
 
 const POINTS = [
   {
     title: "Playlists, not one big folder",
-    body: "Group your library however a radio station thinks — by show, by mood, by hour of the day.",
+    body: "Group your library the way a radio station thinks — by show, by mood, by hour of the day.",
   },
   {
     title: "Sequential or shuffled",
@@ -12,53 +13,62 @@ const POINTS = [
   },
   {
     title: "Nothing to babysit",
-    body: "Slots switch at the next track boundary, in your station's timezone. Gaps fall back to your default rotation.",
+    body: "Slots switch at the next track boundary, in your station’s timezone. Gaps fall back to your default rotation.",
   },
-]
+] as const
 
 /**
- * The proof behind the "when you're not" feature cards. Those cards claim the
- * station runs a week on its own; this section shows the screen that does it,
- * because a claim about scheduling is not believable without seeing the grid.
+ * The rest of Pro, as a checklist under the one Pro screen worth showing.
+ * It used to be a strip of its own above pricing; here it reads as "and the
+ * plan that gives you the schedule also gives you these".
+ */
+const PRO_EXTRAS = [
+  {
+    title: "A stream URL of your own",
+    body: "A public Icecast URL that works in TuneIn, Sonos, VLC and every directory that takes one.",
+  },
+  {
+    title: "Your site, your domain",
+    body: "Embed the player with one line of HTML, or point a DNS record at your station.",
+  },
+  {
+    title: "Broadcast from your own gear",
+    body: "BUTT, Mixxx, or any Icecast source client connects straight to your station.",
+  },
+  {
+    title: "Know who is listening",
+    body: "Ninety days of listener history, by day and by country. Live count and all-time peak stay free on every plan.",
+  },
+] as const
+
+/**
+ * The proof behind "the station runs a week on its own": the Schedule screen
+ * itself, because a claim about scheduling is not believable without seeing
+ * the grid.
  */
 export default function ProgrammeSection() {
   return (
-    <section className="px-4 md:px-10 py-12 md:py-24">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-14 items-center max-w-6xl mx-auto">
-        <div className="order-2 md:order-1">
-          <WeekGridMock />
-        </div>
-
-        <div className="order-1 md:order-2">
-          <div className="text-xs tracking-[0.25em] uppercase text-violet-muted mb-4">
-            AutoDJ scheduling <PlanBadge plan="pro" />
-          </div>
-          <h2 className="font-display text-2xl md:text-3xl lg:text-4xl font-semibold -tracking-wide leading-tight mb-4 text-balance">
-            Your week, on air.
-          </h2>
-          <p className="text-base text-text-secondary tracking-[0.01em] leading-relaxed mb-8 max-w-[46ch]">
-            Set it once and the station follows it — whether you are at the
-            microphone, asleep, or on holiday. Go live at any point and your
-            voice takes over; hang up and the schedule picks straight back up.
-          </p>
-
-          <ul role="list" className="flex flex-col gap-5">
-            {POINTS.map((point) => (
-              <li key={point.title} className="flex gap-3.5">
-                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-violet-muted" aria-hidden="true" />
-                <span>
-                  <span className="block text-base font-semibold text-white">
-                    {point.title}
-                  </span>
-                  <span className="block text-base text-text-secondary leading-[1.7] text-pretty tracking-[0.01em] mt-1.5">
-                    {point.body}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+    <Section id="autodj">
+      <SectionIntro
+        split
+        eyebrow="AutoDJ scheduling"
+        tag={<ProTag />}
+        title="Your week, on air."
+        lead="Set it once and the station follows it — at the mic, asleep, or on holiday. Go live at any point and your voice takes over; end the show and the schedule picks straight back up."
+      />
+      <WeekGrid />
+      <Points points={POINTS} />
+      <div className="flex flex-col gap-4 pt-2 sm:pt-6">
+        <h3 className="font-display text-title">Also included in Pro</h3>
+        <ul role="list" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {PRO_EXTRAS.map((x) => (
+            <li key={x.title} className="flex flex-col gap-2.5 rounded-card bg-card p-5.5">
+              <span className="font-display text-heading">{x.title}</span>
+              <span className="text-body-sm text-muted-foreground">{x.body}</span>
+            </li>
+          ))}
+        </ul>
       </div>
-    </section>
+    </Section>
   )
 }

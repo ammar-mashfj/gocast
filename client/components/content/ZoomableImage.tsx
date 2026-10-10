@@ -62,7 +62,7 @@ export function ZoomableImage({
           preload={preload}
           // Spelled out rather than left to `prose-img`, because the header
           // image is rendered outside the prose block.
-          className="my-0 w-full rounded-xl border border-white/[0.06]"
+          className="my-0 w-full rounded-well"
         />
         <span
           aria-hidden

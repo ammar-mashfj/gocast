@@ -3,19 +3,19 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { IconMenu2 } from "@tabler/icons-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { useCurrentStation } from "@/contexts/StationContext"
 import { useMounted } from "@/hooks/useMounted"
 import { pageLabel } from "@/lib/dashboardNav"
 import { formatStationClock } from "@/lib/format"
 import { Button } from "@/components/ds/Button"
+import { SetupMenu } from "./SetupMenu"
 import { UpdatesMenu } from "./UpdatesMenu"
 
 /**
  * The dashboard's top bar: sidebar toggle, "Station › Page", the time where
- * the station is, and Updates. The status band sits directly under it and
- * scrolls with it (DashboardShell).
+ * the station is, the setup chip while anything is left, and Updates. The
+ * status band sits directly under it and scrolls with it (DashboardShell).
  */
 export function TopBar() {
   const { toggleSidebar } = useSidebar()
@@ -25,8 +25,11 @@ export function TopBar() {
 
   return (
     <header className="flex h-15 items-center gap-3.5 px-gutter">
-      <Button variant="quiet" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar" className="-ml-2">
-        <IconMenu2 />
+      {/* The comp's glyph: two full bars and a short third, left-aligned. */}
+      <Button variant="quiet" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar" className="-ml-2 flex-col gap-1">
+        <span aria-hidden className="h-0.5 w-4 rounded-full bg-muted-foreground" />
+        <span aria-hidden className="h-0.5 w-4 rounded-full bg-muted-foreground" />
+        <span aria-hidden className="mr-1.5 h-0.5 w-2.5 rounded-full bg-muted-foreground" />
       </Button>
 
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-body">
@@ -49,6 +52,7 @@ export function TopBar() {
 
       <div className="ml-auto flex items-center gap-3.5">
         {station?.timezone && <StationClock timeZone={station.timezone} />}
+        <SetupMenu />
         <UpdatesMenu />
       </div>
     </header>

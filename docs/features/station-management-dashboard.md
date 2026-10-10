@@ -1,6 +1,6 @@
 ---
 feature: Station management dashboard (shell, overview, station CRUD, settings)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-09 against 4b02335 plus uncommitted work (feat/dashboard-design: the create page)
 sources:
   - client/app/dashboard/layout.tsx
   - client/app/dashboard/page.tsx
@@ -92,7 +92,9 @@ sources:
   - client/components/dashboard/share/ShareDialog.tsx
   - client/components/dashboard/shows/ShowsList.tsx
   - client/components/dashboard/station-form/StationForm.tsx
+  - client/components/dashboard/station-form/CreateStation.tsx
   - client/components/dashboard/station-form/ArtworkDrop.tsx
+  - api/app/Http/Controllers/StationSlugController.php
   - client/components/dashboard/account/PlanCard.tsx
   - client/components/dashboard/account/ProfileForm.tsx
   - client/components/dashboard/account/PasswordForm.tsx
@@ -115,7 +117,7 @@ sources:
   - client/hooks/useEmailVerification.ts
   - client/lib/navigation.ts
   - client/lib/clipboard.ts
-fingerprint: 63ba63b84c9428a2
+fingerprint: 810f2016894417bc
 ---
 
 # Station management dashboard
@@ -136,7 +138,7 @@ All under `client/app/dashboard/`. Every route is inside `layout.tsx` and `error
 
 | URL | File | What it is |
 |---|---|---|
-| `/dashboard` | `page.tsx` | Resolves the station. Has one: `redirect` to `/dashboard/stations/{slug}`. Has none: the create page ("Create your station" with `StationForm` right on the page). A failed `/stations` fetch throws to `error.tsx`. |
+| `/dashboard` | `page.tsx` | Resolves the station. Has one: `redirect` to `/dashboard/stations/{slug}`. Has none: the create page (`CreateStation`, "Let’s set up your station."). A failed `/stations` fetch throws to `error.tsx`. |
 | `/dashboard/stations` | `stations/page.tsx` | Dead URL kept for old bookmarks. Always `redirect("/dashboard")`. |
 | `/dashboard/library` | `library/page.tsx` | Forwarder. Station: redirect to `.../library`; none: `/dashboard`. Exists only because the sidebar's slugless AutoDJ fallback points here. |
 | `/dashboard/station/{...path}` | `station/[[...path]]/page.tsx` | Slug-free deep link (singular "station"). Looks up the viewer's own station and redirects. Allowlist `STATION_PAGES = studio, live, library, audience, settings`; anything else (including `schedule`, multi-segment paths and typos) lands on the station Overview. No station: `/dashboard`. Built for announcement buttons (one payload for every account). |
@@ -159,7 +161,7 @@ A server component. In order:
 3. Two parallel fetches, each with its own failure fallback (logged, never fatal):
    - `GET /user` into `Account { email, plan }`. A 401 redirects to `/auth/login?expired=1` (the one place an expired session is caught for every dashboard route, the client-rendered studio included). On any other failure `plan` is `null`, and every plan hook then answers "unlocked/unknown", never "Free".
    - `getMyStation()` (React `cache()`d, one `/stations` request per render) into `CurrentStation { slug, name, artwork_url, genre, description, timezone }`. On failure `null`.
-4. Renders providers outermost to innermost: `RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider` > `ProRequestProvider` > `StationProvider` > `StationStatusProvider` > `SidebarProvider data-surface="dashboard"`, then `AppSidebar` and `DashboardShell` (`components/dashboard/shell/`), which holds the sticky chrome (`TopBar` over `StationBand`), the page body (`px-gutter`, capped at `max-w-page`) and the phone `TabBar`.
+4. Renders providers outermost to innermost: `RealtimeProvider(userId)` > `BroadcastProvider` > `AccountProvider` > `StationProvider` > `ProRequestProvider` (inside StationProvider since 2026-10-09: `open()` toasts "Create your station first, then tell us about it to request Pro." and does not open the dialog while there is no station) > `StationStatusProvider` > `SidebarProvider data-surface="dashboard"`, then `AppSidebar` and `DashboardShell` (`components/dashboard/shell/`), which holds the sticky chrome (`TopBar` over `StationBand`), the page body (`px-gutter`, capped at `max-w-page`) and the phone `TabBar`.
 5. Metadata: title default "Dashboard", template `%s — GoCast`, `robots: noindex, nofollow`.
 
 `data-surface="dashboard"` is what scopes the dashboard design system: `app/dashboard.css` lifts it to `<html>` with `.dark:has([data-surface="dashboard"])`, so dialogs and menus portalled outside the tree still get the dashboard tokens. `DashboardShell` measures the chrome and publishes its height as `--chrome-h` on `<html>`, which the dashboard scope uses as `scroll-padding-top`, so `#links` / `#show-times` anchors land below the sticky bar.
@@ -290,21 +292,23 @@ Otherwise the header reads "{n} shows · {airtime} live in total." from the API'
 
 ### Create
 
-Only surface: `/dashboard` when the account has no station, which renders `StationForm` with no `station` in a card. Sidebar and tab links go there while none exists.
+Only surface: `/dashboard` when the account has no station, which renders `CreateStation` (the "Create station" screen of the GoCast Web design project, 2026-10-09). While none exists the phone tab bar is not drawn, and every sidebar item keeps its `/dashboard` href but answers a click with a toast instead of navigating ("Create your station first. Everything here belongs to it.", one toast id so repeats don't stack). Covered by `tests/e2e/create-station.spec.ts`.
 
 `POST /stations` (`StationController::store`, route inside the `verified` group):
 1. `StoreStationRequest::authorize()`: `user->stations()->count() < user->plan->max_stations` (counts non-deleted stations only, so deleting frees a slot). Failure is a 403 with no station-specific message. A user whose `plan` relation were null would 500 here (`plan_id` defaults to 1 with an FK, so not reachable in normal data).
-2. Rules: `name` required string max 100; `description` nullable string (no max); `genre` nullable string max 255; `artwork_url` nullable string `url:http,https` max 2048.
+2. Rules: `name` required string max 100; `description` nullable string (no max); `genre` nullable string max 255; `artwork_url` nullable string `url:http,https` max 2048. A `slug` in the body is ignored: the link is built from the name, and only the name (decided 2026-10-09 against the comp's editable link).
 3. `$user->stations()->create($validated)`, refreshed, returned as 201 with `StationResource`.
 
+`GET /stations/slug-preview?name=` (`StationSlugController`, `throttle:slug-preview` 120/min per user, registered before the resource so it isn't bound as a station): `{data: {name, slug}}`, where `slug` is what `Station::slugFor(name)` would mint right now (null for an empty name), i.e. the same method creating uses, numbered suffix included. A race between preview and create is resolved by the create minting again.
+
 What the `creating`/`created` hooks in `Station::booted` and `StationObserver::creating` do:
-- `slug` = `Str::slug(name)` (empty result, e.g. emoji-only, becomes `station`), truncated to 55 chars, then `-2`, `-3`, ... until free. The uniqueness check uses `withTrashed()`, so a deleted station's slug is not reused until the row is force-deleted. Column is `varchar(60)` unique. **The slug is immutable**: it is not in `UpdateStationRequest`, and no hook regenerates it. Renaming changes the name only; the URL stays.
+- `slug` = `Station::slugFor(name)`: `Str::slug` (empty result, e.g. emoji-only, becomes `station`), truncated to 55 chars, then `-2`, `-3`, ... until free. The uniqueness check uses `withTrashed()`, so a deleted station's slug is not reused until the row is force-deleted. Column is `varchar(60)` unique. **The slug is immutable**: it is not in `UpdateStationRequest`, and no hook regenerates it. Renaming changes the name only; the URL stays.
 - `icecast_mount` = `/stream/{slug}`; `icecast_password` = `Str::random(32)`; `stream_key` = 32 chars `[A-Za-z0-9]` (`generateStreamKey`, stored with the `encrypted` cast); `desired_state` = `stopped`; jingle defaults (`jingles_enabled` false, `jingle_mode` interval, 1800 s, every 5 tracks).
 - `container_index` = `max(container_index, including trashed) + 1`, never recycled (unique).
 - After create, a default playlist is created (`Playlist::DEFAULT_NAME`, `is_default`, sequential, position 0).
 - **Nothing starts.** A new station has no container and is `state: "offline"` until the owner presses Start AutoDJ or Go live.
 
-Client (`StationForm`): success shows "Station created — ready to go live?" and `router.push` to the new slug. See form details below.
+Client (`CreateStation`): success toasts "{name} is ready. It’s off air for now." and `router.push` to the new slug. See below.
 
 ### Edit
 
@@ -331,19 +335,36 @@ Observer effects on update (`StationObserver::updated`): jingle columns need not
 
 Audit: `LogsActivity` on `Station` logs only `name, slug, description, genre, featured, desired_state`, dirty only. Artwork, timezone and social links are not in the activity log.
 
-### The create/edit form (`station-form/StationForm.tsx`)
+### The create page (`station-form/CreateStation.tsx`)
 
-One form for both jobs. With no `station` it creates (rendered right on `/dashboard`); with one it edits (inside `StationFormDialog`, title "Edit station", which mounts the form only while open, so a cancelled edit doesn't reappear next time). Opened from Station settings → Profile → Edit, the overview header (artwork or "Edit profile") and the checklist.
+`PageHeader` "Let’s set up your station." / "A name is all it takes. Everything else can wait.", then a two-column grid (`auto-fit, minmax(24rem, 1fr)`: one column under about 820px, the preview falls below the form). Left, the form; right, a sticky "WHAT LISTENERS SEE" card.
+
+| Field | Control | Behaviour |
+|---|---|---|
+| Station name | `TextField`, required, `maxLength=100`, autofocus | Drives the link |
+| Your link | A read-only field box: `{host}/station/` faint, then the slug (or "your-link" faint until there is one). Under it: "Built from the name. If the name is already someone’s, a number is added." | 400 ms after typing stops, `GET /stations/slug-preview?name=` and the answer replaces the slug; a stale reply is dropped, a failed one leaves the last value. Create never waits for it: the server mints the slug again on create and the overview shows the real one. |
+| Genre | Toggle chips (Talk, Jazz, Pop, Rock, Hip-hop, Gospel, Country, Lo-fi, Sports, News, the most common genres on existing stations) plus "Something else…", which opens a `TextField` | Stored as free text, same column as before |
+| Description | `TextAreaField`, 160 chars, counter top-right | |
+| Artwork | `ArtworkDrop` (as below) | |
+| Create | `Button` xl, full width, "Create {name}" (or "Create station" with no name) | Disabled until there is a name, and while saving or uploading. Under it: "Your station starts off air. Nobody can tune in until you go live or start AutoDJ." |
+
+The preview card: the artwork (stripes until one is chosen), the name in display type ("Your station", faint, until typed), the genre `Tag` and an off-air `StatusLamp`, the description, and the link in an inset well with a disabled play disc. Caption: "The name, genre, description and artwork can change any time. The link can’t, so people who saved it always find you."
+
+Submit sends `{name, genre, description, artwork_url}` (trimmed, empties as `null`); no slug. 422 errors land on their fields. 403: "Each account has one station, and yours already exists."; otherwise the server message or "Something went wrong. Nothing was saved." Covered by `CreateStation.test.tsx` and, visually, the `new` account shots in `dashboard-visual.spec.ts` (`create-station`, `-filled`).
+
+### The edit form (`station-form/StationForm.tsx`)
+
+Edit only (it no longer creates), inside `StationFormDialog`, title "Edit station", which mounts the form only while open, so a cancelled edit doesn't reappear next time. Opened from Station settings → Profile → Edit, the overview header (artwork or "Edit profile") and the checklist.
 
 | Field | Control | Client | Server |
 |---|---|---|---|
 | Artwork | `ArtworkDrop`: a dashed drop zone; drop an image or click the tile (or "Choose", hidden below `sm`); preview + Remove once set | `artworkProblem` refuses anything but PNG/JPEG/WebP and over 5 MB before uploading (toast) | Upload: jpg, jpeg, png, webp, gif, max 5120 KB (`UploadRequest`), `throttle:uploads` |
-| Name | ds `TextField`, required, `maxLength=100`, autofocus when creating | Create/Save disabled until there is a name | required, max 100 |
+| Name | ds `TextField`, required, `maxLength=100` | Save disabled until there is a name | required, max 100 |
 | Genre | `TextField`, `maxLength=255` | | max 255 |
 | Description | `TextAreaField` | | no limit |
-| Link | Edit only: "{host}/station/{slug} · the link never changes" (host from `NEXT_PUBLIC_APP_URL`) | | slug immutable |
+| Link | "{host}/station/{slug} · the link never changes" (host from `NEXT_PUBLIC_APP_URL`) | | slug immutable |
 
-Server validation errors land on their fields (`errors.name/genre/description`). Artwork: choosing a file shows a local object-URL preview (revoked when replaced) and `POST /upload/images`; the response `data.url` becomes `artwork_url`; an upload failure toasts and restores the previous artwork. Submit sends trimmed values, empty strings as `null`. Create: toast "Station created — ready to go live?" and `router.push` to the new station. Edit: "Station updated", close, `router.refresh()`. Any 403 toasts "Each account has one station, and yours already exists."; other errors toast the server message or "Something went wrong. Nothing was saved." Covered by `StationForm.test.tsx`.
+Server validation errors land on their fields (`errors.name/genre/description`). Artwork: choosing a file shows a local object-URL preview (revoked when replaced) and `POST /upload/images`; the response `data.url` becomes `artwork_url`; an upload failure toasts and restores the previous artwork. Submit sends trimmed values, empty strings as `null`: "Station updated", close, `router.refresh()`. Errors toast the server message or "Something went wrong. Nothing was saved." Covered by `StationForm.test.tsx`.
 
 ### Delete
 

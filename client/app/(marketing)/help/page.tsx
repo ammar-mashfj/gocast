@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { DEFAULT_OG_IMAGE } from "@/lib/seo"
-import { IconSparkles } from "@tabler/icons-react"
+import { ProTag } from "@/components/ds/Tag"
 import { CATEGORIES, articlesInCategory } from "./_content/articles"
 
 export const metadata: Metadata = {
@@ -32,86 +32,71 @@ export const metadata: Metadata = {
  * list stops being scannable, not before.
  */
 export default function HelpIndexPage() {
+  // Edge to edge: from lg each category is a row with its name and blurb in
+  // a left column and the articles on the right.
   return (
-    <main className="px-4 md:px-10 pt-10 md:pt-16 pb-16 md:pb-24">
-      <div className="max-w-3xl mx-auto">
-        <header className="mb-12 md:mb-16">
-          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight">
-            Help
-          </h1>
-          <p className="text-base md:text-lg text-text-muted mt-5 leading-relaxed max-w-2xl">
-            Short answers to the things people actually ask. If none of these
-            cover it,{" "}
-            <a
-              href="mailto:support@gocast.fm"
-              className="text-violet-full no-underline hover:underline"
+    <main className="mx-auto w-full max-w-page px-gutter pt-12 pb-16 sm:pt-16 sm:pb-24">
+      <header className="flex max-w-3xl flex-col gap-3.5">
+        <h1 className="font-display text-section">Help</h1>
+        <p className="text-section-lead text-muted-foreground text-pretty">
+          Short answers to the things people actually ask. If none of these cover it,{" "}
+          <a href="mailto:support@gocast.fm" className="font-semibold text-on-air-text no-underline hover:text-foreground">
+            email us
+          </a>{" "}
+          — a real person reads it.
+        </p>
+      </header>
+
+      <div className="mt-12 flex flex-col sm:mt-16">
+        {CATEGORIES.map((category) => {
+          const articles = articlesInCategory(category.id)
+          if (articles.length === 0) return null
+
+          return (
+            <section
+              key={category.id}
+              aria-labelledby={`cat-${category.id}`}
+              className="grid gap-5 border-t border-line py-10 lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-12 lg:py-12"
             >
-              email us
-            </a>{" "}
-            — a real person reads it.
-          </p>
-        </header>
-
-        <div className="flex flex-col gap-12 md:gap-14">
-          {CATEGORIES.map((category) => {
-            const articles = articlesInCategory(category.id)
-            if (articles.length === 0) return null
-
-            return (
-              <section key={category.id} aria-labelledby={`cat-${category.id}`}>
-                <h2
-                  id={`cat-${category.id}`}
-                  className="font-display text-xl md:text-2xl font-semibold tracking-tight text-white"
-                >
+              <div className="flex flex-col gap-1.5 lg:sticky lg:top-24 lg:self-start">
+                <h2 id={`cat-${category.id}`} className="font-display text-title">
                   {category.title}
                 </h2>
-                <p className="text-base text-text-secondary tracking-[0.01em] mt-1.5">{category.blurb}</p>
+                <p className="text-body text-muted-foreground text-pretty">{category.blurb}</p>
+              </div>
 
-                <ul className="mt-5 flex flex-col gap-2.5 list-none p-0 m-0">
-                  {articles.map((article) => (
-                    <li key={article.slug}>
-                      <Link
-                        href={`/help/${article.slug}`}
-                        className="group block rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-4 no-underline transition-colors hover:border-white/[0.12] hover:bg-white/[0.04]"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="text-sm md:text-base font-medium text-white">
-                            {article.title}
-                          </span>
-                          {article.pro && (
-                            <IconSparkles
-                              size={14}
-                              className="text-violet-full shrink-0"
-                              aria-label="Requires Pro"
-                            />
-                          )}
-                        </span>
-                        <span className="mt-1 block text-base text-text-secondary tracking-[0.01em] leading-relaxed text-pretty">
-                          {article.description}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )
-          })}
-        </div>
-
-        <aside className="mt-14 bg-white/[0.02] border border-white/[0.06] rounded-xl px-6 md:px-8 py-6 md:py-7">
-          <p className="text-base md:text-lg font-medium text-white">
-            Looking for the longer reads?
-          </p>
-          <p className="text-sm text-text-muted mt-1">
-            The{" "}
-            <Link href="/blog" className="text-violet-full no-underline hover:underline">
-              blog
-            </Link>{" "}
-            covers what internet radio costs, how the licensing works, and how
-            the whole thing fits together — the background these pages assume.
-          </p>
-        </aside>
+              <ul className="flex flex-col gap-2.5">
+                {articles.map((article) => (
+                  <li key={article.slug}>
+                    <Link
+                      href={`/help/${article.slug}`}
+                      className="flex flex-col gap-1 rounded-well bg-card px-5 py-4 no-underline transition-colors hover:bg-surface-raised"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <span className="text-body font-semibold text-foreground">{article.title}</span>
+                        {article.pro && <ProTag />}
+                      </span>
+                      <span className="text-body-sm text-muted-foreground text-pretty">{article.description}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        })}
       </div>
+
+      <aside className="mt-4 flex flex-col gap-1 rounded-card bg-card p-6 sm:p-7">
+        <p className="font-display text-title-sm">Looking for the longer reads?</p>
+        <p className="text-body-sm text-muted-foreground">
+          The{" "}
+          <Link href="/blog" className="font-semibold text-on-air-text no-underline hover:text-foreground">
+            blog
+          </Link>{" "}
+          covers what internet radio costs, how the licensing works, and how the whole thing fits together — the
+          background these pages assume.
+        </p>
+      </aside>
     </main>
   )
 }

@@ -17,16 +17,19 @@ export default function Body() {
           chat. It can be changed later.
         </li>
         <li>
-          <strong>An address.</strong>{" "}Built from the name &mdash; &ldquo;Night
-          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>.
+          <strong>A link.</strong>{" "}Built from the name &mdash; &ldquo;Night
+          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>
+          &mdash; and shown while you type, so you see it before you create
+          the station. If somebody already has that name, a number is added.
           It never changes, even if you rename the station later, so every
           link you’ve shared keeps working.
         </li>
         <li>
-          <strong>Artwork and a description.</strong>{" "}Both optional at creation
-          and both worth doing before you share anything, because they are what
-          a stranger sees first. Two lines saying what you play does more work
-          than any other text on the page.
+          <strong>A genre, artwork and a description.</strong>{" "}All optional at
+          creation and all worth doing before you share anything, because they
+          are what a stranger sees first. The preview beside the form is what a
+          listener will see. One line saying what you play does more work than
+          any other text on the page.
         </li>
       </ul>
 
@@ -35,7 +38,7 @@ export default function Body() {
         alt="A station's header on its Overview: artwork, the name Night Shift Radio, a genre tag, a one-line description, and when it started and was last live."
         width={1996}
         height={280}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>Creating It Does Not Start It</h2>

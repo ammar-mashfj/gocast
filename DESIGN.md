@@ -199,7 +199,7 @@ The previous homepage world, "The Broadcast Day" (2026-09-25), is retired. Its D
 **Key Characteristics:**
 - Near-black ground (#08080d) with opaque #101018 panels and 1px white hairlines at 6–13% opacity.
 - One brand accent (violet). Emerald, red and amber appear only as live, fault and Pro semantics.
-- Bricolage Grotesque headlines and page titles. Onest for everything read. JetBrains Mono for links, times, durations, keys and data.
+- Bricolage Grotesque headlines and page titles, loaded with its optical-size axis (`axes: ['opsz']` in `app/layout.tsx`, 2026-10-09): without it every size renders from the small-text master and headings come out heavier and wider than the Claude Design comps, which load the font with opsz 12–96. Onest for everything read. JetBrains Mono for links, times, durations, keys and data.
 - Off air looks unlit, not hatched: faint text, 3–7% white fills, meters held low.
 - One motion curve (exponential ease-out), 200–500ms, only on a change of state.
 
@@ -388,6 +388,8 @@ These are from "The Broadcast Day" (2026-09-25), which the user rejected because
 
 Everything above is the marketing site, help, blog and public player. `/dashboard` is built on the **GoCast Design System**, the Claude Design project shared with the mobile app, and this chapter describes it as shipped (2026-10-01). Where an earlier section says something different about the dashboard, this chapter wins.
 
+**The homepage wears it too (2026-10-07).** `app/(home)/layout.tsx` marks the homepage `data-surface="marketing"`, which `app/dashboard.css` scopes alongside the dashboard, so `/` takes this chapter's palette, type and components (`components/ds`) rather than the marketing chapter above. **Since 2026-10-09 the whole `(marketing)` group (help, blog, terms, privacy) and `app/auth` carry the same attribute**, so every public page is on this chapter; the marketing chapter above now describes only the fallback values the older class names resolve to outside the scope. The blog and help pages and `Prose` were rewritten on the ds tokens; terms and privacy still use the older class names and take the palette through the token fallbacks. Four fluid sizes exist for it alone: `text-marquee` (44–104px) for the hero line and the closing question with `text-standfirst` (17–20px) under them, and `text-section` (34–64px) for section headings with `text-section-lead` (16–18px) under those, plus `text-card-title` (24–26px) for the title inside a homepage card; the dashboard's fixed `lead` reads small next to type that large. The compact trust cues beside the homepage's primary buttons are mono, faint and icon-free, so they sit in the eyebrow voice rather than competing with the button. Marketing eyebrows there are the dashboard's mono `eyebrow`, section bands alternate the ground and the card colour instead of hairline rules, and the one filled button per view rule relaxes to one per section. The homepage is not under the dashboard lint guardrails.
+
 **Where it lives:**
 - **Spec:** the prototype artifact, unpacked in `docs/design/dashboard-prototype/`. Every decision taken against it is in `docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md`.
 - **Tokens:** `client/app/dashboard.css`, scoped to `.dark:has([data-surface="dashboard"])`. Every token is registered with tailwind-merge in `client/lib/utils.ts`.
@@ -509,7 +511,7 @@ Two more type styles:
   - the shell (`components/dashboard/shell`);
   - the overview cards (`components/dashboard/overview`);
   - go-live (`components/dashboard/golive`);
-  - the station form and the artwork drop zone (`components/dashboard/station-form`);
+  - the create page, the edit form and the artwork drop zone (`components/dashboard/station-form`): the create page's listener preview is a `rounded-hero` card, and its link box is a read-only field (built from the name, never typed);
   - the studio (`components/studio`): Now playing with talk-up cues at 20s and 10s, the push-to-talk pad, the dBFS mic meter, the running order, and End show leading to the "That's a wrap." screen.
 
 ### Rules
