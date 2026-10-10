@@ -534,7 +534,7 @@ class LiquidsoapSupervisor
         }
 
         $result = $this->docker([
-            'docker', 'ps', '-a', '--filter', "name={$name}",
+            'docker', 'ps', '-a', '--filter', "name=^{$name}$",
             '--format', '{{.Names}}',
         ]);
 
