@@ -2,9 +2,9 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { IconCheck, IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { copyText } from "@/lib/clipboard"
+import { Button } from "@/components/ds/Button"
+import { Disclosure } from "@/components/ds/Disclosure"
 import { StationEncoder } from "@/interfaces/Station"
 
 interface EncoderConnectionProps {
@@ -31,12 +31,9 @@ interface EncoderConnectionProps {
  * The five values a DJ types into BUTT, Mixxx or RadioDJ, plus where each one
  * goes in the software people actually use.
  *
- * Shared by the two places that show them: the settings card, which is the
- * canonical home and the only place the key can be rotated, and the go-live
- * dialog, which is where somebody is standing when they DECIDE to broadcast
- * this way. Duplicating the values across those two would guarantee they
- * eventually disagree, and a wrong port here is a support ticket that reads
- * exactly like a wrong password.
+ * Station settings is its only home today, and the only place the key can be
+ * rotated. Kept as its own component so the five values stay in one place if
+ * another screen needs them again (the go-live page used to).
  *
  * Presentational only — no fetching, no rotation, no plan check. Every caller
  * has already decided this account may see a credential.
@@ -50,11 +47,11 @@ export function EncoderConnection({
   const [copied, setCopied] = useState<string | null>(null)
 
   async function copy(label: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value)
+    // The values now show in full, so a failed copy can point at them.
+    if (await copyText(value)) {
       setCopied(label)
       setTimeout(() => setCopied((c) => (c === label ? null : c)), 1600)
-    } catch {
+    } else {
       toast.error("Couldn't copy — select the value and copy it manually")
     }
   }
@@ -124,104 +121,66 @@ export function EncoderConnection({
   ]
 
   return (
-    <>
-      {fields.map((field) => {
-        const hidden = field.secret && !revealed
-        return (
-          <div
-            key={field.label}
-            className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4"
-          >
-            <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">
-              {field.label}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1">
-                <code className="text-xs break-all">
-                  {hidden ? "•".repeat(24) : field.value}
-                </code>
+    <div className="flex flex-col gap-4">
+      <dl className="flex flex-col gap-1.5">
+        {fields.map((field) => {
+          const hidden = field.secret && !revealed
+          const copyable = !(unreadableKey && field.label === "Password")
+          return (
+            <div key={field.label} className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
+              <div className="flex items-center gap-3">
+                <dt className="w-20 shrink-0 eyebrow-sm text-text-faint">{field.label}</dt>
+                <dd className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">
+                  {hidden ? "•".repeat(16) : field.value}
+                </dd>
                 {field.secret && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0 shrink-0"
-                    onClick={onToggleReveal}
-                    aria-label={revealed ? "Hide stream key" : "Show stream key"}
-                  >
-                    {revealed ? <IconEyeOff size={13} /> : <IconEye size={13} />}
+                  <Button size="sm" variant="quiet" onClick={onToggleReveal} aria-label={revealed ? "Hide stream key" : "Show stream key"}>
+                    {revealed ? "Hide" : "Show"}
                   </Button>
                 )}
-                {!(unreadableKey && field.label === "Password") && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0 shrink-0"
-                    onClick={() => copy(field.label, field.value)}
-                    aria-label={`Copy ${field.label.toLowerCase()}`}
-                  >
-                    {copied === field.label ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                {copyable && (
+                  <Button size="sm" variant="subtle" onClick={() => copy(field.label, field.value)} aria-label={`Copy ${field.label.toLowerCase()}`}>
+                    {copied === field.label ? "Copied" : "Copy"}
                   </Button>
                 )}
               </div>
-              {field.hint && (
-                <div className="text-xs text-muted-foreground mt-0.5">{field.hint}</div>
-              )}
+              {field.hint && <p className="text-caption text-text-faint sm:pl-23">{field.hint}</p>}
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </dl>
 
-      {/* Per-client field names. Collapsed, because someone who has done
-          this before wants the five values above and nothing else. */}
-      <details className="border-t border-border pt-4 group">
-        <summary className="text-xs text-muted-foreground cursor-pointer select-none marker:content-['']">
-          <span className="group-open:hidden">Where these go in BUTT, Mixxx and ffmpeg →</span>
-          <span className="hidden group-open:inline">Hide setup steps</span>
-        </summary>
-        <div className="mt-3 flex flex-col gap-4">
+      {/* Per-client field names. Folded, because someone who has done this
+          before wants the five values above and nothing else. */}
+      <Disclosure title="Where these go in BUTT, Mixxx and ffmpeg">
+        <div className="flex flex-col gap-4">
           {clients.map((client) => (
-            <div key={client.name}>
-              <div className="text-xs font-medium">{client.name}</div>
-              <ol className="mt-1 flex flex-col gap-1 list-none p-0 m-0">
+            <div key={client.name} className="flex flex-col gap-1.5">
+              <span className="text-body-sm font-semibold text-foreground">{client.name}</span>
+              <ol className="flex flex-col gap-1">
                 {client.steps.map((step, i) => (
-                  <li key={i} className="text-xs leading-relaxed text-muted-foreground">
+                  <li key={i} className="text-body-sm text-muted-foreground">
                     {step.map((seg, j) =>
                       typeof seg === "string" ? (
                         seg
                       ) : "value" in seg ? (
                         <code key={j} className="font-mono break-all text-foreground">{seg.value}</code>
                       ) : (
-                        <span key={j} className="font-medium text-foreground">{seg.ui}</span>
+                        <span key={j} className="font-semibold text-foreground">{seg.ui}</span>
                       ),
                     )}
                   </li>
                 ))}
               </ol>
               {client.command && (
-                <pre className="mt-1.5 overflow-x-auto rounded-md bg-background/60 px-2.5 py-2 font-mono text-xs leading-relaxed text-foreground whitespace-pre">
+                <pre className="overflow-x-auto rounded-control bg-surface-inset px-3 py-2.5 font-mono text-caption whitespace-pre text-foreground">
                   {client.command}
                 </pre>
               )}
             </div>
           ))}
         </div>
-      </details>
-
-      {/* A worded link rather than the usual `?`, and this is the one place
-          that earns the exception: somebody reading this panel a second time
-          is reading it because a connection FAILED, and "Not connecting?" is
-          the question they already have. A bare question mark beside a list of
-          credentials reads as "what is a mount?" instead.
-
-          New tab for the same reason every help link is — see HelpLink. */}
-      <Link
-        href="/help/my-encoder-wont-connect"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
-      >
-        Not connecting? Five things cause nearly all of it →
-      </Link>
-    </>
+      </Disclosure>
+    </div>
   )
 }

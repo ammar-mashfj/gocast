@@ -58,12 +58,12 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
 
   return (
     <div className="relative flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-sm font-medium">Listening time</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 className="font-display text-heading">Listening time per day</h2>
         {/* The hovered day replaces the range caption rather than floating
             over the bars: at 90 bars a positioned tooltip spends most of its
             life covering the data it describes. */}
-        <div className="text-xs text-muted-foreground tabular-nums">
+        <div className="font-mono text-body-sm text-muted-foreground tabular-nums">
           {day ? (
             <span className="text-foreground">
               {label(day.day)} — {formatAirtime(day.listener_minutes * 60)}
@@ -79,7 +79,7 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
       </div>
 
       <div
-        className="flex items-end gap-px h-28"
+        className={cn("flex h-50 items-end border-b border-line", daily.length > 60 ? "gap-0.5" : daily.length > 20 ? "gap-1" : "gap-2.5")}
         onMouseLeave={() => setHovered(null)}
         role="img"
         aria-label={`Listening time per day over the last ${rangeDays} days. Full figures in the table below.`}
@@ -95,17 +95,19 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
           >
             <div
               className={cn(
-                "w-full rounded-t-sm transition-colors",
+                cn("w-full transition-colors", daily.length > 60 ? "rounded-t-xs" : "rounded-t-tag"),
+                // The mobile Audience chart: past days AutoDJ's dim violet,
+                // the day under the pointer (or the latest) lit violet.
                 d.listener_minutes > 0
-                  ? hovered === i
-                    ? "bg-white/70"
-                    : "bg-white/45"
-                  : "bg-muted",
+                  ? hovered === i || (hovered === null && i === daily.length - 1)
+                    ? "bg-on-air"
+                    : "bg-on-air-dim"
+                  : "bg-surface-control",
               )}
               style={{
                 height:
                   d.listener_minutes > 0
-                    ? `${Math.max(MIN_BAR_PX, Math.round((d.listener_minutes / peak) * 112))}px`
+                    ? `${Math.max(MIN_BAR_PX, Math.round((d.listener_minutes / peak) * 196))}px`
                     : `${MIN_BAR_PX}px`,
               }}
             />
@@ -113,13 +115,16 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
         ))}
       </div>
 
-      <div className="flex justify-between text-[11px] text-muted-foreground">
+      <div className="flex justify-between font-mono text-micro tracking-wider text-text-faint uppercase">
         <span>{label(daily[0].day)}</span>
+        {/* The date, not "Today": the buckets are UTC days, and for anyone
+            whose midnight isn't UTC's that bar is yesterday for part of
+            every day. */}
         <span>{label(daily[daily.length - 1].day)}</span>
       </div>
 
       {!hasData && (
-        <p className="text-xs text-muted-foreground">{empty}</p>
+        <p className="text-body-sm text-muted-foreground">{empty}</p>
       )}
 
       {/* Identity is never colour-alone, and a bar chart is not readable by a

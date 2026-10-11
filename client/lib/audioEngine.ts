@@ -41,12 +41,19 @@ const MIC_BOOST = 3
 const SAMPLE_RATE = 44100
 
 /**
- * Ingest bitrate, stereo. Liquidsoap re-encodes to the station's Icecast
- * output (%mp3 128k today), so this only needs enough headroom that the
- * transcode isn't the weak link — 192 is comfortably above it without
- * wasting the broadcaster's upstream.
+ * Ingest bitrates, stereo, best first. Liquidsoap re-encodes to the station's
+ * Icecast output (%mp3 128k today), so anything above 128 only spends the
+ * broadcaster's upload: 192 used to be the default and was the difference
+ * between a slow line holding and dropping (kerygma, 2026-09-30).
+ *
+ * The lower two exist for slow uploads. The studio starts at whatever the
+ * go-live connection check allows and steps down (and back up) mid-show; see
+ * uplinkProbe.ts and BroadcastManager. All three stay at SAMPLE_RATE: the
+ * vendored lamejs is patched not to resample (see encoder-worker.js).
  */
-const MP3_BITRATE = 192
+export const BITRATE_TIERS = [128, 96, 64] as const
+export type Bitrate = (typeof BITRATE_TIERS)[number]
+export const DEFAULT_BITRATE: Bitrate = 128
 
 /**
  * Client-side cap on total queued audio bytes. The browser will already
@@ -122,6 +129,9 @@ export interface AddFilesResult {
  */
 const METADATA_TIMEOUT_MS = 4000
 
+/** How long a track has to air before the wrap screen counts it as played. */
+const TRACK_PLAYED_AFTER_S = 30
+
 /** Resolves at once if the tab is showing, otherwise when it is next shown. */
 function whenTabVisible(): Promise<void> {
   if (typeof document === 'undefined' || document.visibilityState === 'visible') return Promise.resolve()
@@ -135,7 +145,7 @@ function whenTabVisible(): Promise<void> {
   })
 }
 
-function readDurationFromFile(file: File): Promise<number> {
+export function readDurationFromFile(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const audio = new Audio()
@@ -173,7 +183,7 @@ function readDurationFromFile(file: File): Promise<number> {
  * artist is '', not a placeholder: the player already hides an empty one.
  * The parser loads on first use, so it costs nothing until files are added.
  */
-async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
+export async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
   const base = file.name.replace(/\.[^.]+$/, '')
   const dash = base.match(/^(.+?)\s+[-–—]\s+(.+)$/)
   const fallback = dash && !/^\d+$/.test(dash[1].trim())
@@ -224,6 +234,7 @@ export class AudioEngine {
   private micPrefs: MicPrefs = loadMicPrefs()
   private workletNode: AudioWorkletNode
   private encoderWorker: Worker
+  private bitrate: Bitrate = DEFAULT_BITRATE
 
   /**
    * Speaker monitor. Tapped off `fileGain` — post-duck, so the broadcaster
@@ -237,8 +248,11 @@ export class AudioEngine {
   private monitorVolume = MONITOR_DEFAULT_VOLUME
 
   private micSource: MediaStreamAudioSourceNode | null = null
+  /** Head of the voice chain, so a new mic can be wired into it. */
+  private micVoiceIn: BiquadFilterNode | null = null
   private isTalking = false
   private micLatched = false
+  private tracksPlayed = 0
   private repeatMode: RepeatMode = 'all'
 
   // File playback — each track is streamed through an HTMLAudioElement so the
@@ -367,6 +381,7 @@ export class AudioEngine {
       comp.release.value = 0.15
 
       this.micSource.connect(highpass)
+      this.micVoiceIn = highpass
       highpass.connect(presence)
       presence.connect(comp)
       comp.connect(this.micWet)
@@ -435,6 +450,7 @@ export class AudioEngine {
    * @param station Slug of the station this show is for. The saved queue and
    *   playback position are kept per station, so two stations run from one
    *   browser no longer share a running order.
+   * @param bitrate MP3 bitrate to encode at; see {@link setBitrate} to change it mid-show.
    * @param signal Aborts a build that is taking too long. A browser that has
    *   just killed one engine can hang building the next, and the context made
    *   here has to be closed by someone; on abort or any failure part-way,
@@ -444,6 +460,7 @@ export class AudioEngine {
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     station: string,
+    bitrate: Bitrate = DEFAULT_BITRATE,
     signal?: AbortSignal,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
@@ -491,12 +508,14 @@ export class AudioEngine {
       const channel = new MessageChannel()
       workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
       encoder.postMessage(
-        { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+        { type: 'init', sampleRate: SAMPLE_RATE, bitrate, port: channel.port2 },
         [channel.port2],
       )
       await unlessAborted(ready)
 
-      return new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+      const engine = new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+      engine.bitrate = bitrate
+      return engine
     } catch (err) {
       worker?.terminate()
       if (ctx.state !== 'closed') void ctx.close().catch(() => {})
@@ -506,10 +525,27 @@ export class AudioEngine {
 
   /**
    * Encoder settings, for the webcast hello frame — harbor is told what it is
-   * about to receive rather than having to sniff it.
+   * about to receive rather than having to sniff it. Harbor only reads this
+   * at connect; a later {@link setBitrate} needs no new hello, because every
+   * MP3 frame carries its own bitrate.
    */
-  static encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
-    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: MP3_BITRATE, encoder: 'libmp3lame' }
+  encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
+    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: this.bitrate, encoder: 'libmp3lame' }
+  }
+
+  getBitrate(): Bitrate {
+    return this.bitrate
+  }
+
+  /**
+   * Re-encode at a new bitrate from the next frame on. The worker flushes the
+   * old encoder's tail first, so no audio is lost, but the seam carries a few
+   * tens of ms of silence (see encoder-worker.js).
+   */
+  setBitrate(bitrate: Bitrate): void {
+    if (bitrate === this.bitrate) return
+    this.bitrate = bitrate
+    this.encoderWorker.postMessage({ type: 'bitrate', bitrate })
   }
 
   /**
@@ -1134,6 +1170,19 @@ export class AudioEngine {
     await this.playIndex(prevIdx >= 0 ? prevIdx : this.queue.length - 1)
   }
 
+  /**
+   * Tracks that aired in this engine's life — one show, since each go-live
+   * builds a new engine: played for TRACK_PLAYED_AFTER_S, or to the end.
+   */
+  getTracksPlayed(): number {
+    return this.tracksPlayed
+  }
+
+  /** Carry the count over from the engine this one replaces mid-show. */
+  carryTracksPlayed(count: number) {
+    this.tracksPlayed += count
+  }
+
   getElapsed(): number {
     if (this.currentIndex < 0) return 0
     if (!this.currentAudio) {
@@ -1183,9 +1232,23 @@ export class AudioEngine {
       this.dropTracks(new Set([track.id]), 'unplayable', true)
     })
 
+    // The wrap screen's "Tracks": one that aired for TRACK_PLAYED_AFTER_S
+    // from where it started, or to its end. A skip straight past it, or
+    // stepping back and forth, isn't a track the audience heard.
+    let counted = false
+    const countPlayed = () => {
+      if (counted) return
+      counted = true
+      this.tracksPlayed++
+    }
+    audio.addEventListener('timeupdate', () => {
+      if (this.currentAudio === audio && audio.currentTime - offset >= TRACK_PLAYED_AFTER_S) countPlayed()
+    })
+
     audio.addEventListener('ended', () => {
       // Ignore ended events from a superseded element (track switch in flight).
       if (this.currentAudio !== audio) return
+      countPlayed()
       // Auto-advance is the only place repeat applies; an explicit skip always
       // moves. Re-cueing the same index rebuilds the element from the same
       // File, which is the identical path a 1-track queue already took when
@@ -1257,6 +1320,19 @@ export class AudioEngine {
   /** Resume the AudioContext if the browser stopped it (see isSuspended). Safe to call repeatedly. */
   async resume(): Promise<void> {
     if (this.isSuspended()) await this.ctx.resume()
+  }
+
+  /**
+   * Feed the mic chain from a different microphone. Only an engine built
+   * with a mic has a chain to feed; music-only ignores this. The caller owns
+   * both streams, including stopping the old one.
+   */
+  setMicStream(stream: MediaStream): void {
+    if (!this.micSource || !this.micVoiceIn) return
+    this.micSource.disconnect()
+    this.micSource = this.ctx.createMediaStreamSource(stream)
+    this.micSource.connect(this.micDry)
+    this.micSource.connect(this.micVoiceIn)
   }
 
   /**

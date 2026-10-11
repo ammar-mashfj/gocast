@@ -1,7 +1,7 @@
 "use client"
 
-import { useId, useState } from "react"
-import { toast } from "sonner"
+import { useId } from "react"
+import { useAccessRequest } from "@/hooks/useAccessRequest"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import api from "@/lib/axios"
 
 /**
  * Defaults describe the Pro request. The Custom card on the pricing page
@@ -57,18 +56,13 @@ interface Props {
 }
 
 /**
- * The access request form, used by two surfaces that are no longer the same
- * shape:
+ * The access request form, on the marketing kit: the Custom card on the
+ * public pricing section (anonymous, POSTs /waitlist and collects an email)
+ * and the homepage's Pro waitlist. The dashboard draws the same form with
+ * the ds kit (components/dashboard/ProRequestDialog).
  *
- * - Pro, from inside the dashboard. Authenticated; POSTs /waitlist/pro, which
- *   takes the email and the plan off the session.
- * - Custom, from the public pricing section. Anonymous; POSTs /waitlist and
- *   collects an email, because that enquiry comes from people evaluating the
- *   product before they have an account.
- *
- * One component rather than two because the qualifying questions must not
- * drift: `social` is REQUIRED server-side on both paths, so a simpler second
- * form would have been rejected by the API on submit.
+ * The form's rules live in useAccessRequest, which both share, so the two
+ * can't drift.
  *
  * There is still no checkout behind any of this: Pro has no Stripe
  * integration, and access is granted by hand from these entries.
@@ -85,77 +79,12 @@ export function ProAccessDialog({
   submitLabel = PRO_COPY.submitLabel,
 }: Props) {
   const fieldId = useId()
-
-  // Pro goes to the authenticated endpoint, which derives both the email and
-  // the plan from the session. Custom stays public — that enquiry genuinely
-  // comes from people who have not signed up — so it still collects an email.
-  const authed = plan === "pro"
-
-  const [email, setEmail] = useState("")
-  const [social, setSocial] = useState("")
-  const [message, setMessage] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [submitted, setSubmitted] = useState(false)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-
-    if (!authed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Please enter a valid email address.")
-      return
-    }
-
-    // A bare "@handle" is not lookupable without knowing the platform, so
-    // nudge toward something with a domain in it.
-    if (!social.includes(".")) {
-      setError("Please paste a full link to a public page so we can find you.")
-      return
-    }
-
-    setSubmitting(true)
-    try {
-      // Neither `email` nor `plan` is sent on the Pro path: the server reads
-      // both off the session, and sending them would only invite the belief
-      // that they are honoured.
-      await api.post(
-        authed ? "/waitlist/pro" : "/waitlist",
-        authed
-          ? { social: social.trim(), message: message.trim() }
-          : { email, plan, social: social.trim(), message: message.trim() },
-      )
-      setSubmitted(true)
-      onSubmitted?.()
-      toast.success("Request received — thanks.")
-    } catch (err: unknown) {
-      const status =
-        typeof err === "object" && err && "response" in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined
-      if (status === 401) {
-        setError("Your session has expired. Please sign in again.")
-      } else if (status === 429) {
-        setError("Too many attempts. Please try again later.")
-      } else if (status === 422) {
-        setError("Please check the details and try again.")
-      } else {
-        setError("Something went wrong. Please try again.")
-      }
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const { authed, email, setEmail, social, setSocial, message, setMessage, submitting, error, submitted, submit: handleSubmit, reset } =
+    useAccessRequest({ plan, onSubmitted })
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next)
-    if (!next) {
-      setEmail("")
-      setSocial("")
-      setMessage("")
-      setError(null)
-      setSubmitted(false)
-    }
+    if (!next) reset()
   }
 
   return (

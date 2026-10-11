@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { IconArrowLeft } from "@tabler/icons-react"
+import { Button } from "@/components/ds/Button"
 import { ZoomableImage } from "@/components/content/ZoomableImage"
 import { Prose } from "@/components/content/Prose"
 import { notFound } from "next/navigation"
@@ -89,8 +91,12 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
       }
     : null
 
+  const more = ARTICLES.filter((a) => a.slug !== slug)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 3)
+
   return (
-    <main className="px-4 md:px-10 pt-10 md:pt-16 pb-16 md:pb-24">
+    <main className="mx-auto w-full max-w-page px-gutter pt-10 pb-16 sm:pt-14 sm:pb-24">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
@@ -101,62 +107,77 @@ export default async function ArticlePage({ params }: { params: RouteParams }) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd).replace(/</g, "\\u003c") }}
         />
       )}
-      <div className="max-w-3xl mx-auto">
-        <Link
-          href="/blog"
-          className="inline-block text-sm text-text-muted no-underline hover:text-white transition-colors mb-10"
-        >
-          &larr; All articles
-        </Link>
+      <Link
+        href="/blog"
+        className="mb-10 inline-flex items-center gap-1.5 text-body-sm font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+      >
+        <IconArrowLeft size={14} aria-hidden="true" />
+        All articles
+      </Link>
 
-        <header className="mb-10 md:mb-14">
-          <p className="text-[11px] tracking-[0.18em] uppercase text-text-faint mb-5">
-            <time dateTime={date}>{DATE_FMT.format(new Date(date))}</time>
-            {updated && (
-              <>
-                <span className="mx-2 text-white/20">·</span>
-                Updated{" "}
-                <time dateTime={updated}>{DATE_FMT.format(new Date(updated))}</time>
-              </>
-            )}
-            <span className="mx-2 text-white/20">·</span>
-            {readingTime}
-          </p>
-          <h1 className="font-display text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight">
-            {title}
-          </h1>
-        </header>
 
-        {image && (
-          <ZoomableImage
-            src={image}
-            alt={title}
-            width={1200}
-            height={630}
-            preload
-            className="mt-0 mb-10 md:mb-14"
-          />
-        )}
-
-        <Prose>
-          <Body />
-        </Prose>
-
-        <aside className="mt-10 bg-white/[0.02] border border-white/[0.06] rounded-xl px-6 md:px-8 py-6 md:py-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <p className="text-base md:text-lg font-medium text-white">
-              Ready to start your station?
+      {/* Title and body at reading measure on the left; from lg a sticky rail
+          on the right, level with the title, carries the rest of the blog and
+          the sign-up, so the width is used without the lines getting long. */}
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 max-w-3xl">
+          <header className="mb-10 flex flex-col gap-5 sm:mb-14">
+            <p className="flex flex-wrap items-center gap-2.5 font-mono text-caption font-semibold tracking-wider text-text-faint uppercase">
+              <time dateTime={date}>{DATE_FMT.format(new Date(date))}</time>
+              {updated && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>
+                    Updated <time dateTime={updated}>{DATE_FMT.format(new Date(updated))}</time>
+                  </span>
+                </>
+              )}
+              <span aria-hidden>·</span>
+              {readingTime}
             </p>
-            <p className="text-sm text-text-muted mt-1">
-              Free forever. Live in 60 seconds.
-            </p>
+            <h1 className="font-display text-section text-balance">{title}</h1>
+          </header>
+          {image && (
+            <ZoomableImage
+              src={image}
+              alt={title}
+              width={1200}
+              height={630}
+              preload
+              className="mt-0 mb-10 sm:mb-14"
+            />
+          )}
+
+          <Prose>
+            <Body />
+          </Prose>
+        </div>
+
+        <aside className="flex flex-col gap-4 self-start lg:sticky lg:top-24">
+          {more.length > 0 && (
+            <nav aria-label="More from the blog" className="flex flex-col gap-3 rounded-card bg-card p-5">
+              <h2 className="eyebrow text-text-faint">More from the blog</h2>
+              <ul className="flex flex-col">
+                {more.map((a) => (
+                  <li key={a.slug} className="border-t border-line first:border-t-0">
+                    <Link href={`/blog/${a.slug}`} className="flex flex-col gap-1 py-3 no-underline">
+                      <span className="text-body font-semibold text-foreground transition-colors hover:text-on-air-text">{a.title}</span>
+                      <span className="font-mono text-caption text-text-faint">{a.readingTime}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+          <div className="flex flex-col gap-4 rounded-card bg-card p-5">
+            <div className="flex flex-col gap-1">
+              <p className="font-display text-title-sm">Ready to start your station?</p>
+              <p className="text-body-sm text-muted-foreground">Free forever. Live in 60 seconds.</p>
+            </div>
+            <Button asChild size="lg" full>
+              <Link href="/auth/register" className="no-underline">Create a free station</Link>
+            </Button>
           </div>
-          <Link
-            href="/auth/register"
-            className="inline-flex items-center justify-center gap-2 bg-violet-full text-white px-5 py-2.5 rounded-lg text-sm font-medium no-underline shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:-translate-y-px hover:shadow-[0_8px_30px_rgba(139,92,246,0.4)] transition-all whitespace-nowrap"
-          >
-            Sign up free <span aria-hidden>→</span>
-          </Link>
         </aside>
       </div>
     </main>

@@ -173,7 +173,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Broadcasting with nothing but a microphone and a tab — the permission prompt, the handover, and the one thing that will cut you off.",
     category: "going-live",
-    updated: "2026-09-21",
+    updated: "2026-10-01",
     Body: GoLiveBrowserBody,
     related: ["using-the-studio", "nobody-can-hear-my-station"],
   },
@@ -204,9 +204,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
     slug: "upload-your-music",
     title: "Upload your music",
     description:
-      "File formats, size limits, how much fits in 3 GB, and where an upload lands.",
+      "File formats, size limits, how much fits in 3 GB, where an upload lands, and jingles.",
     category: "autodj",
-    updated: "2026-09-21",
+    updated: "2026-10-05",
     pro: true,
     Body: UploadMusicBody,
     related: ["playlists-and-the-rotation", "free-and-pro"],
@@ -228,7 +228,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Giving a playlist a slot on the week, slots that cross midnight, and how precisely a slot starts.",
     category: "autodj",
-    updated: "2026-09-21",
+    updated: "2026-10-05",
     pro: true,
     Body: ScheduleBody,
     related: ["playlists-and-the-rotation", "turning-your-station-on-and-off"],

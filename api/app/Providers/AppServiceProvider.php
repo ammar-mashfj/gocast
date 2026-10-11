@@ -109,6 +109,14 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by($request->user()->id);
         });
 
+        // The create page's "what link does this name get?" preview, fired
+        // as the owner types (debounced client-side). Per user, like the
+        // bell. Generous: a slow typist retyping a name a few times is well
+        // inside it, and a 429 here would leave the preview blank.
+        RateLimiter::for('slug-preview', function (Request $request) {
+            return Limit::perMinute(120)->by($request->user()->id);
+        });
+
         Relation::enforceMorphMap([
             'admin' => Admin::class,
             'user' => User::class,

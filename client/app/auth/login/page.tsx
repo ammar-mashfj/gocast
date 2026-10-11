@@ -1,27 +1,17 @@
 "use client"
 
 import { Suspense, useEffect, useState, type FormEvent } from "react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { PasswordInput } from "@/components/common/PasswordInput"
-import { Label } from "@/components/ui/label"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Button } from "@/components/ds/Button"
+import { PasswordField, TextField } from "@/components/ds/Field"
+import { AuthCard, AuthFooter, AuthLink, OrRule } from "@/components/auth/AuthCard"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
 import { saveAuth, getUser } from "@/actions/auth"
 import { signInWithGoogle } from "@/lib/google-auth"
-import { VerifyEmailDialog } from "@/components/auth/VerifyEmailDialog"
+import { VerifyEmailDialog } from "@/components/dashboard/account/VerifyEmailDialog"
 
 
 function ExpiredToast() {
@@ -134,111 +124,50 @@ function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle className="text-lg">Sign in</CardTitle>
-        <CardDescription className="text-sm">
-          Enter your credentials to access your account.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="email">
-              Email
-            </Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={!!errors.email}
-            />
-            {errors.email && (
-              <p className="text-xs text-destructive">{errors.email}</p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <Link
-                href="/auth/forgot"
-                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Forgot password?
-              </Link>
-            </div>
-            <PasswordInput
-              id="password"
-              placeholder="********"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={!!errors.password}
-            />
-            {errors.password && (
-              <p className="text-xs text-destructive">{errors.password}</p>
-            )}
-          </div>
-
-          <Button
-            type="submit"
-            disabled={loading}
-            className="mt-1 w-full"
-          >
-            {loading ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-
-        <div className="relative my-4 flex items-center">
-          <div className="flex-1 border-t border-border" />
-          <span className="px-3 text-sm text-muted-foreground">Or</span>
-          <div className="flex-1 border-t border-border" />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={handleGoogle}
-          disabled={googleLoading}
-        >
-          <IconBrandGoogleFilled />
-          {googleLoading ? "Signing in…" : "Continue with Google"}
+    <AuthCard title="Sign in" lead="Welcome back. Your station is where you left it.">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5" noValidate>
+        <TextField
+          label="Email"
+          type="email"
+          placeholder="you@example.com"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          error={errors.email}
+        />
+        <PasswordField
+          label="Password"
+          placeholder="Your password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          error={errors.password}
+        />
+        <AuthLink href="/auth/forgot" className="self-end text-body-sm">
+          Forgot password?
+        </AuthLink>
+        <Button type="submit" size="lg" full disabled={loading}>
+          {loading ? "Signing in…" : "Sign in"}
         </Button>
-      </CardContent>
+      </form>
 
-      <CardFooter className="flex-col gap-3">
-        <p className="text-xs text-muted-foreground text-center leading-relaxed">
-          By signing in with Google, you agree to our{" "}
-          <Link href="/terms" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Terms of Service
-          </Link>{" "}
-          and{" "}
-          <Link href="/privacy" className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Privacy Policy
-          </Link>.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/auth/register"
-            className="text-violet-muted underline-offset-4 hover:underline text-sm"
-          >
-            Sign up
-          </Link>
-        </p>
-      </CardFooter>
+      <OrRule />
+
+      <Button type="button" variant="ghost" size="lg" full onClick={handleGoogle} disabled={googleLoading}>
+        <IconBrandGoogleFilled />
+        {googleLoading ? "Signing in…" : "Continue with Google"}
+      </Button>
+
+      <AuthFooter>
+        Don&apos;t have an account? <AuthLink href="/auth/register">Create one free</AuthLink>
+      </AuthFooter>
 
       <VerifyEmailDialog
         open={verifyOpen}
         email={verifyEmail}
         onCancel={() => setVerifyOpen(false)}
       />
-    </Card>
+    </AuthCard>
   )
 }
 

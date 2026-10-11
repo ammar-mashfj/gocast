@@ -20,13 +20,38 @@ class StreamSessionController extends Controller
 {
     use AuthorizesRequests;
 
-    public function index(Station $station): JsonResponse
+    /**
+     * The station's broadcasts, newest first, 20 a page.
+     *
+     * `?finished=1` leaves out the show on air right now, so the Your shows
+     * page can page through past shows without one page coming up short.
+     *
+     * `summary` covers every finished show, not just this page: the page's
+     * "12 shows · 16h 25m live in total" used to be added up from the 20 rows
+     * it had, and had to say "your latest 20" to stay honest.
+     */
+    public function index(Request $request, Station $station): JsonResponse
     {
         $this->authorize('view', $station);
 
-        return response()->json(
-            $station->streamSessions()->latest('started_at')->paginate(20)
-        );
+        $page = $station->streamSessions()
+            ->when($request->boolean('finished'), fn ($q) => $q->whereNotNull('ended_at'))
+            ->latest('started_at')
+            ->paginate(20);
+
+        $summary = $station->streamSessions()
+            ->whereNotNull('ended_at')
+            ->selectRaw('COUNT(*) as shows')
+            ->selectRaw('COALESCE(SUM(GREATEST(TIMESTAMPDIFF(SECOND, started_at, ended_at), 0)), 0) as live_seconds')
+            ->first();
+
+        return response()->json([
+            ...$page->toArray(),
+            'summary' => [
+                'shows' => (int) $summary->shows,
+                'live_seconds' => (int) $summary->live_seconds,
+            ],
+        ]);
     }
 
     /**

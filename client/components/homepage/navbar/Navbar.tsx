@@ -1,8 +1,9 @@
 import Link from "next/link"
-import Image from "next/image"
 import { getSession } from "@/lib/session"
-import UserMenu from "./UserMenu"
+import { Button } from "@/components/ds/Button"
+import { Wordmark } from "@/components/homepage/Wordmark"
 import MobileMenu from "./MobileMenu"
+import UserMenu from "./UserMenu"
 
 const NAV_LINKS = [
   { label: "How it works", href: "/#features" },
@@ -11,45 +12,54 @@ const NAV_LINKS = [
   { label: "Help", href: "/help" },
 ] as const
 
+/**
+ * Shared by the homepage and the rest of the marketing site. Everything here
+ * is a token, so it wears the design system on the homepage and the older
+ * palette elsewhere without a branch. Sticky, because the homepage is long
+ * and its anchors (How it works, Pricing) are the way around it.
+ */
 export default async function Navbar() {
   const session = await getSession()
   const user = session?.user ?? null
 
   return (
-    <nav className="flex items-center justify-between px-4 md:px-10 py-4 md:py-5 relative z-10">
-      <Link href="/" className="-tracking-wide no-underline">
-        <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="w-20 h-auto md:w-[100px]" priority />
-      </Link>
-      <div className="flex items-center gap-4 md:gap-8">
-        {NAV_LINKS.map((link) => (
-          <a
-            key={link.label}
-            href={link.href}
-            className="hidden sm:inline text-white text-base no-underline tracking-wide hover:text-white/80 transition-colors"
-          >
-            {link.label}
-          </a>
-        ))}
-        {user ? (
-          <UserMenu name={user.name} />
-        ) : (
-          <div className="hidden sm:flex items-center gap-2 md:gap-3">
-            <Link
-              href="/auth/login"
-              className="text-text-muted text-sm md:text-base tracking-wide hover:text-white transition-colors"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/auth/register"
-              className="bg-violet-full/15 border border-violet-border/50 text-white text-sm md:text-sm tracking-wide px-3 md:px-4 py-1.5 rounded-lg hover:bg-violet-full/25 hover:border-violet-border transition-all no-underline"
-            >
-              Sign up
-            </Link>
+    <header className="sticky top-0 z-20 border-b border-line bg-background">
+      <nav className="mx-auto flex min-h-17 w-full max-w-page items-center justify-between gap-6 px-gutter py-2.5">
+        <div className="flex items-center gap-10">
+          <Link href="/" className="no-underline" aria-label="GoCast home">
+            <Wordmark />
+          </Link>
+          <div className="hidden items-center gap-7 md:flex">
+            {NAV_LINKS.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                className="text-sm font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+              >
+                {link.label}
+              </a>
+            ))}
           </div>
-        )}
-        <MobileMenu links={NAV_LINKS} authed={!!user} />
-      </div>
-    </nav>
+        </div>
+        <div className="flex items-center gap-3">
+          {user ? (
+            <UserMenu name={user.name} />
+          ) : (
+            <div className="hidden items-center gap-4 md:flex">
+              <Link
+                href="/auth/login"
+                className="text-sm font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+              >
+                Sign in
+              </Link>
+              <Button asChild size="md">
+                <Link href="/auth/register" className="no-underline">Sign up</Link>
+              </Button>
+            </div>
+          )}
+          <MobileMenu links={NAV_LINKS} authed={!!user} />
+        </div>
+      </nav>
+    </header>
   )
 }

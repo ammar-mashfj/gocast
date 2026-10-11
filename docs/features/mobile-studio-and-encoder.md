@@ -1,6 +1,6 @@
 ---
 feature: Mobile studio and native encoder (broadcasting from the phone)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
 sources:
   - mobile/src/app/live/[slug].tsx
   - mobile/src/app/studio/[slug].tsx
@@ -54,7 +54,7 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/resources/views/liquidsoap/station.blade.php
   - infra/native/station-router/nginx.conf
-fingerprint: 874fd645305019fd
+fingerprint: 03038713232ed6ae
 ---
 
 # Mobile studio and native encoder
@@ -74,10 +74,10 @@ Where the app shell, sign-in and the station screens live: [mobile-app-shell-and
 2. **Countdown.** `launch()` sets `launchedAt` and calls `broadcast.start(slug, name, {skipMic, resumeFromStart})`. A full-screen coral 3-2-1 (`COUNT_FROM` 3, `COUNT_STEP_MS` 800) runs while the connection comes up. It is theatre only: `router.replace('/studio/[slug]')` happens once `phase === 'live'` **and** the countdown has finished, so a fast connect still waits 2.4 s, and a slow one shows "CONNECTING" with the active step's label. Cancel, or hardware Back, calls `broadcast.stop()` (no station release, see below). A stop that lands while `start()` is still running makes the next `throwIfStopped()` check throw `StartCancelled`, and `abandonStart()` tears down whatever came up after `stop()` ran (notification, engine, socket) without reporting an error. A `phase === 'error'` returns to pre-flight, which shows the reason.
 3. **`start` in `mobile/src/broadcast/BroadcastContext.tsx`.** The show does not live in React state: `snapshot`, `manager`, the in-flight `starting` promise and the last plan value (`autoDjLocked`) are module-level, and the provider reads them with `useSyncExternalStore`, so a remount of the whole tree (a swipe out of Recents, see Keeping the show alive) finds the running show instead of orphaning it. `start` first waits out any start still in flight (Cancel then a quick Go live) and returns if a manager exists afterwards (a double tap); otherwise it stops any previous manager, resets session stats, builds a `BroadcastManager`, and calls `manager.start`. The provider sits above the navigator in `_layout.tsx`, so leaving the studio screen does not end the show; `LiveStrip` ("Back to studio") is shown on the station screens.
 4. **`BroadcastManager.start`** (`mobile/src/broadcast/broadcastManager.ts`) runs four steps, reported to the UI as `steps` (`station`, `mic` (skipped for music only), `engine`, `stream`):
-   1. *Station.* `ensureStationOnAir()`: `POST /stations/{slug}/start` (throttle 20/min in `api/routes/api.php`, answers 202; idempotent when already running, `StationLifecycleService::start`). A 422 (`station_limit_reached`, the plan's running-station cap) or a 403 (the `update` policy, i.e. not the owner) surfaces the API's message; anything else, including a 503 `station_start_failed`, becomes "Could not bring the station on air". `start` never raises the AutoDJ-unavailable 403. Then polls `GET /stations/{slug}/status` (throttle 120/min) every 1000 ms until `data.ready`, up to 20 s. **If the deadline passes it returns normally, not with an error**; the flow carries on and opens the socket anyway.
+   1. *Station.* `ensureStationOnAir()`: `POST /stations/{slug}/start` (throttle `station-start`, 20/min, in `api/routes/api.php`; every numeric throttle there has its own named limiter, so these calls no longer share one per-user count; answers 202; idempotent when already running, `StationLifecycleService::start`). A 422 (`station_limit_reached`, the plan's running-station cap) or a 403 (the `update` policy, i.e. not the owner) surfaces the API's message; anything else, including a 503 `station_start_failed`, becomes "Could not bring the station on air". `start` never raises the AutoDJ-unavailable 403. Then polls `GET /stations/{slug}/status` (throttle `station-status`, 120/min) every 1000 ms until `data.ready`, up to 20 s. **If the deadline passes it returns normally, not with an error**; the flow carries on and opens the socket anyway.
    2. *Mic.* `AudioManager.requestRecordingPermissions()`; anything but `'Granted'` throws `MicPermissionError` ("Microphone access denied ...").
    3. *Engine.* `startForegroundService(withMic)`, then `AudioEngine.create(withMic, onPcm)`, subscribe for metadata, `engine.restoreQueue()`.
-   4. *Stream.* `connectWebcast()`: `POST /auth/broadcast-token` `{station_slug}` (throttle 30/min, requires a verified account and station ownership; 403 becomes "You do not own this station", any other failure "Not signed in"), which returns `{token, expires_in: 60, ingest_url}`. Then `openSocket`.
+   4. *Stream.* `connectWebcast()`: `POST /auth/broadcast-token` `{station_slug}` (throttle `broadcast-token`, 30/min, requires a verified account and station ownership; 403 becomes "You do not own this station", any other failure "Not signed in"; the controller also records the phone's IP and country via `BroadcastOrigin::remember` for the admin stations list), which returns `{token, expires_in: 60, ingest_url}`. Then `openSocket`.
 5. **Playback starts last.** After the socket is up, `engine.resumePlayback({fromStart})` runs (fire and forget) and state becomes `live`. Playback therefore does not begin until the connection exists; nothing plays on air during connect.
 
 ### The socket
@@ -237,6 +237,7 @@ The iOS pod (`GocastEncoder.podspec`) exists so the module links. On iOS the fir
 19. **Notification End show skips the wrap-up.** It stops the show (releasing the station only on no-AutoDJ plans, from a plan value mirrored before the screens went away) and never shows the summary; the show's stats are lost. Force-stopping the app from Settings, or the OS killing the process, still leaves the station on until harbor's `timeout` (default 10 s) and the sweeper act. Whether a swipe out of Recents really keeps the show going (`androidFSStopWithTask: false`) can only be settled on a device.
 20. **Mic-only "silence" definition.** The lamp says Silence when the mic is closed and no track is playing; it does not measure output level, so a playing-but-silent file reads as Live.
 21. **Every skipped file is reported as "running order is full".** `addFiles` sets `overLimit` whenever anything was skipped, so an unreadable file gets the size message and the "couldn't be read" wording never shows.
+22. **The web studio's newer safeguards are not ported.** Nothing in `mobile/src` calls `/broadcast/uplink-probe` or `/stations/{slug}/uplink-checks` (the web's go-live connection check that picks 128/96/64 kbps or refuses a slow line), posts `/stations/{slug}/studio-drops`, or runs a frame watchdog that rebuilds a dead audio engine; the phone always sends 128 kbps and only rebuilds the socket.
 
 ## Tests
 

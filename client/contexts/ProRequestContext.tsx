@@ -1,8 +1,10 @@
 "use client"
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
-import { ProAccessDialog } from "@/components/ProAccessDialog"
+import { toast } from "sonner"
+import { ProRequestDialog } from "@/components/dashboard/ProRequestDialog"
 import { useAccount } from "@/contexts/AccountContext"
+import { useCurrentStation } from "@/contexts/StationContext"
 
 /**
  * The "Request Pro access" dialog, mounted once for the whole dashboard.
@@ -24,7 +26,9 @@ import { useAccount } from "@/contexts/AccountContext"
  *
  * These dashboard affordances are now the ONLY way to request Pro — the
  * pricing page's button was removed, because a request from someone with no
- * station is not something anyone can act on. If they all end up hidden at
+ * station is not something anyone can act on. For the same reason `open`
+ * refuses with a toast while the account has no station (the sidebar's
+ * plan card shows on the create page too). If they all end up hidden at
  * once (see useAutoDjLocked's unknown-plan fallback), there is no other path
  * in.
  */
@@ -40,12 +44,22 @@ const ProRequestContext = createContext<ProRequestValue>({
 
 export function ProRequestProvider({ children }: { children: React.ReactNode }) {
   const account = useAccount()
+  const station = useCurrentStation()
   const [isOpen, setIsOpen] = useState(false)
   const [requested, setRequested] = useState(false)
 
   const value = useMemo<ProRequestValue>(
-    () => ({ open: () => setIsOpen(true), requested }),
-    [requested],
+    () => ({
+      open: () => {
+        if (!station) {
+          toast("Create your station first, then tell us about it to request Pro.", { id: "no-station" })
+          return
+        }
+        setIsOpen(true)
+      },
+      requested,
+    }),
+    [requested, station],
   )
 
   const markRequested = useCallback(() => setRequested(true), [])
@@ -53,10 +67,9 @@ export function ProRequestProvider({ children }: { children: React.ReactNode }) 
   return (
     <ProRequestContext.Provider value={value}>
       {children}
-      <ProAccessDialog
+      <ProRequestDialog
         open={isOpen}
         onOpenChange={setIsOpen}
-        plan="pro"
         accountEmail={account?.email}
         onSubmitted={markRequested}
       />

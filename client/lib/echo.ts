@@ -107,7 +107,33 @@ export function getEcho(): EchoClient | null {
     },
   })
 
+  patchNullHandshakeAction(client)
+
   return client
+}
+
+/**
+ * Give pusher-js a callback for the handshake action it cannot name.
+ *
+ * A `pusher:error` during the handshake whose code is below 4000 (bar
+ * 1002–1004), or missing, maps to action `null`, and pusher-js then calls
+ * `handshakeCallbacks[null]` — "this.handshakeCallbacks[n.action] is not a
+ * function" in Sentry. The throw lands after the connecting runner is aborted
+ * and before a retry is scheduled, so the tab's socket is dead until reload.
+ * pusher-js's own close-event path already treats a null action as
+ * `backoff`; this applies the same default to the message path. Indexing by
+ * null coerces to the string "null", hence the key.
+ */
+function patchNullHandshakeAction(echo: EchoClient) {
+  const manager = echo.connector?.pusher?.connection as unknown as
+    | { handshakeCallbacks?: Record<string, (handshake: unknown) => void> }
+    | undefined
+  const callbacks = manager?.handshakeCallbacks
+
+  if (callbacks?.backoff) {
+    callbacks.null ??= callbacks.backoff
+    callbacks.undefined ??= callbacks.backoff
+  }
 }
 
 /**

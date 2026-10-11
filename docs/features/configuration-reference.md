@@ -1,6 +1,6 @@
 ---
 feature: Configuration reference (every env var and config key)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
 sources:
   - api/config/activitylog.php
   - api/config/analytics.php
@@ -75,7 +75,7 @@ sources:
   - mobile/src/lib/auth.tsx
   - mobile/src/broadcast/broadcastManager.ts
   - mobile/scripts/ingest-proxy.mjs
-fingerprint: 69fdb2202c439477
+fingerprint: 8cb9b4322890f607
 ---
 
 # Configuration reference
@@ -120,7 +120,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `SESSION_DOMAIN` | none (null) | `.gocast.fm` | Sessions **and** the auth cookie's domain: `AuthController::authCookie()`/`forgetAuthCookie()` (`AuthController.php:157,170`) and `GoogleAuthController.php:308`. Wrong or unset in prod means the cookie is host-only on `api.` and the web app on `gocast.fm` never sees it. | required / unset / - |
 | `SESSION_PATH`, `SESSION_ENCRYPT`, `SESSION_EXPIRE_ON_CLOSE`, `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE`, `SESSION_PARTITIONED_COOKIE`, `SESSION_CONNECTION`, `SESSION_STORE`, `SESSION_TABLE`, `SESSION_COOKIE` | `/`, false, false, null, true, `lax`, false, null, null, `sessions`, `{app-slug}-session` | first two listed | Stock session settings (vendor). The auth cookie itself is built with `secure = $request->isSecure()`, `httpOnly = true`, `sameSite = lax` in code, not from these. | default ok |
 | `CACHE_STORE` | `database` | `redis` | Default cache (vendor and app `Cache::`). `CACHE_PREFIX`, `DB_CACHE_*`, `REDIS_CACHE_*`, `MEMCACHED_*`, `DYNAMODB_*` are stock store options. The scheduler's `onOneServer`/locks and reconciler strike counters use this. | required / any / forced `array` |
-| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `DB_QUEUE*`, `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
+| `QUEUE_CONNECTION` | `database` | `redis` | Queue backend. Uploads, track analysis, email and Telegram alerts are queued. `REDIS_QUEUE_RETRY_AFTER` defaults to **1800** s (not the stock 90): it must stay above the longest job timeout, `AnalyzeTrack` scaling up to `TrackAnalyzer::MAX_TIMEOUT_SECONDS` + 30 for a long mix. `DB_QUEUE*`, other `REDIS_QUEUE*`, `BEANSTALKD_*`, `SQS_*`, `QUEUE_FAILED_DRIVER` are stock options (`retry_after` 90, redis `block_for` 5). | required / any / forced `sync` |
 | `DB_CONNECTION` | `sqlite` | `mysql` | Default DB. Tests force `mysql`, not sqlite. | required `mysql` / `mysql` / forced `mysql` |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `127.0.0.1`, `3306`, `laravel`, `root`, empty | `127.0.0.1`, `3306`, `gocast`, `gocast`, blank | MySQL connection. Tests force `DB_DATABASE=gocast_test` and clear `DB_URL`. | required / required / partly forced |
 | `DB_URL`, `DB_SOCKET`, `DB_CHARSET` (`utf8mb4`), `DB_COLLATION` (`utf8mb4_unicode_ci`), `DB_FOREIGN_KEYS`, `DB_SSLMODE`, `MYSQL_ATTR_SSL_CA`, `DB_ENCRYPT`, `DB_TRUST_SERVER_CERTIFICATE` | see config | not listed | Stock DB options; `DB_ENCRYPT` and `DB_TRUST_SERVER_CERTIFICATE` are inside commented lines in `database.php` (dead). | default ok |
@@ -137,7 +137,7 @@ Stock Laravel keys with their defaults from `api/config/*.php`. Values shown in 
 | `FILESYSTEM_DISK` | `local` | `local` | Default disk. Uploads go to the `public` disk (`storage/app/public`, symlinked by deploy); `s3` is defined but nothing stores to it. | default ok |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_URL`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | none | listed, blank | S3/SES/SQS/DynamoDB options. **Nothing in `app/` uses the `s3` disk, SES or SQS**; these are template residue (see Gaps). | unused |
 | `ACTIVITYLOG_ENABLED` (true), `ACTIVITYLOG_BUFFER_ENABLED` (false) | see left | not listed | Spatie activity log (vendor); the app calls `activity()` from the admin controllers (`AccountController`, `InviteController`, `AnnouncementController`). `clean_after_days` is a literal 365. | default ok |
-| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. | optional / unset / -  |
+| `SENTRY_LARAVEL_DSN` (falls back to `SENTRY_DSN`) | none | blank | Sentry DSN (`sentry.dsn`, vendor). Empty disables. `bootstrap/app.php` wires `Sentry\Laravel\Integration`. Tests force it blank (`phpunit.xml` and `TestCase`), because a live DSN in `api/.env` turned every failure-asserting test into a real Sentry issue. | optional / unset / forced blank |
 | `SENTRY_SEND_DEFAULT_PII` | `false` | `false` | `sentry.send_default_pii`. | default ok |
 | `SENTRY_TRACES_SAMPLE_RATE` | null | `0` | Performance tracing rate. Anything above 0 in dev adds visible latency to every API call. | default ok / `0` |
 | `SENTRY_SAMPLE_RATE` (1.0), `SENTRY_PROFILES_SAMPLE_RATE`, `SENTRY_RELEASE`, `SENTRY_ENVIRONMENT`, `SENTRY_ORG_ID`, `SENTRY_STRICT_TRACE_CONTINUATION`, `SENTRY_ENABLE_LOGS`, `SENTRY_LOG_FLUSH_THRESHOLD`, `SENTRY_LOG_LEVEL`/`SENTRY_LOGS_LEVEL`, `SENTRY_SPOTLIGHT` (commented out) and the 30-odd `SENTRY_BREADCRUMBS_*` / `SENTRY_TRACE_*` toggles | see `sentry.php` | not listed | Stock sentry-laravel options, all default. `ignore_transactions` is a literal `['/up']`. | default ok |
@@ -176,7 +176,7 @@ From `api/config/services.php`. The "reader" is the app file that consumes the k
 | `ANALYTICS_MIN_LISTEN_SECONDS` | `60` | Sessions shorter than this are not counted as listeners in rollups/reports. | `RollupListenerStats.php:69`, `Models/ListenerSession.php:72`, `Services/AudienceReport.php:304` | |
 | `ANALYTICS_RETENTION_DAYS` | `90` | How long raw session rows are kept. | `PruneListenerSessions.php:35`, `RollupListenerStats.php:134`, `AudienceReport.php:114` | |
 | `ANALYTICS_GEOIP_DATABASE` | `/var/gocast/system/GeoLite2-Country.mmdb` | Path to a MaxMind country database. Missing file or missing `geoip2` package degrades to "no country", not an error. | `Services/GeoResolver.php:125` | optional |
-| `ANALYTICS_COUNTRY_HEADER` | `CF-IPCountry` | CDN header carrying the country code (checked first; `XX` and `T1` are treated as unknown). Empty disables header lookup. | `GeoResolver.php:46` | Geo needs Cloudflare or the mmdb |
+| `ANALYTICS_COUNTRY_HEADER` | `CF-IPCountry` | CDN header carrying the country code (checked first; `XX` and `T1` are treated as unknown). Empty disables header lookup. | `GeoResolver.php:46` | Geo needs Cloudflare (prod is behind it) or the mmdb |
 | `STATION_EVENT_RETENTION_DAYS` | `30` | Prune window for `station_events`; `0` disables pruning. | `PruneStationEvents.php:33` | |
 | `STATION_EVENT_MAX_PER_MINUTE` | `60` | Per-station, per-minute cap (a `Cache` counter, key `station-event-rate:{id}:{YmdHi}`, TTL 120 s), applied **only to container-sourced events**; other sources are never capped. `0` disables. | `Models/StationEvent.php:255` | |
 | `NOTIFICATION_RETENTION_DAYS` | `90` | Prune window for bell notifications; `0` disables. The announcement and inactive-nudge duplicate guards read these rows, so pruning them re-arms those. | `PruneNotifications.php:38`, `resources/views/admin/announcements.blade.php:177,224` | |
@@ -261,7 +261,7 @@ Every key is read by app code (grep of `config('liquidsoap.*')` finds a reader f
 |---|---|---|---|
 | `LIQUIDSOAP_ANALYSIS_ENABLED` | `true` | Master switch for loudness/cue analysis; `tracks:analyze` refuses to run when off. | `TrackImporter.php:154`, `AnalyzeTracksCommand.php:37` |
 | `LIQUIDSOAP_ANALYSIS_FFMPEG` | empty | Path to a local ffmpeg. Empty runs ffmpeg in a `docker run --rm --network none` one-shot of `LIQUIDSOAP_IMAGE`. | `TrackAnalyzer.php:90` |
-| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | Seconds per file; floored at 5. | `TrackAnalyzer.php:285` |
+| `LIQUIDSOAP_ANALYSIS_TIMEOUT` | `120` | The **floor** of the per-file analysis timeout (itself floored at 5); the real limit scales to one eighth of the track's length, capped at 1500 s (`TrackAnalyzer::timeoutFor`). | `TrackAnalyzer.php:310` |
 | `LIQUIDSOAP_LOUDNESS_TARGET` | `-14.0` | Target LUFS. | `Services/TrackAnalysis.php:62` |
 | `LIQUIDSOAP_LOUDNESS_CEILING` | `-1.0` | True-peak ceiling dB. | `TrackAnalysis.php:63` |
 | `LIQUIDSOAP_LOUDNESS_MAX_GAIN` | `12.0` | Maximum gain applied dB. | `TrackAnalysis.php:64` |
@@ -283,9 +283,9 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 
 ## Test environment (API)
 
-`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
+`api/phpunit.xml` forces (with `force="true"`, so they beat anything in `api/.env`): `APP_ENV=testing`, `APP_MAINTENANCE_DRIVER=file`, `BCRYPT_ROUNDS=4`, `BROADCAST_CONNECTION=null`, `CACHE_STORE=array`, `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, `DB_URL=` (blank), `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, `SESSION_DRIVER=array`, `PULSE_ENABLED=false`, `TELESCOPE_ENABLED=false`, `NIGHTWATCH_ENABLED=false`, `TELEGRAM_BOT_TOKEN=` (blank), `SENTRY_LARAVEL_DSN=` (blank), `LIQUIDSOAP_TELNET_RESOLVE=name`, `LIQUIDSOAP_LIQ_DIR/PLAYLISTS_DIR/HLS_DIR=/tmp/gocast-test/...`.
 
-- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands.
+- `Tests\TestCase::createApplication()` also does `putenv('APP_ENV=testing')` and sets `$_ENV`/`$_SERVER` before boot, because a process-level `APP_ENV=local` (from a compose `env_file`) is otherwise cached by Laravel's environment detection before phpunit's override lands. It blanks `SENTRY_LARAVEL_DSN` the same way (`putenv`, `$_ENV`, `$_SERVER`).
 - Why it matters: `LiquidsoapSupervisor::inTestMode()` is `app()->runningUnitTests()`. If it returns false, `Station::factory()->create()` spawns real containers on the host daemon.
 - Not forced, so inherited from `api/.env`: `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_*` (a real Redis is used by the tests that touch `Redis::`), `APP_KEY`, `INTERNAL_API_KEY`, `LIQUIDSOAP_SYSTEM_DIR` (defaults to the real `/var/gocast/system`), and everything else. Tests override individual config with `config([...])` about 90 times across 46 files.
 - `PULSE_ENABLED`, `TELESCOPE_ENABLED` and `NIGHTWATCH_ENABLED` are forced but no Pulse/Telescope/Nightwatch config exists in `api/config` (harmless leftovers).
@@ -296,27 +296,28 @@ Because nothing is passed by env, **changing any `LIQUIDSOAP_*` value that appea
 
 | Variable | Default | Meaning | Reader | Prod / Dev |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:3`, `next.config.ts` | required (build-time) / required |
+| `NEXT_PUBLIC_API_URL` | `""` | Laravel API base including `/api`. Used by the axios client (`withCredentials: true`), server fetches, Google auth, and the `next/image` remote pattern hostname (`next.config.ts:84`, fallback host `api.gocast.fm` when unparsable). | `lib/env.ts` (`env.apiUrl`), `lib/api-server.ts:4`, `next.config.ts` | required (build-time) / required |
 | `NEXT_PUBLIC_APP_URL` | `""` | Public web origin: canonical links, OG tags, sitemap, robots, embed snippet, share links, station player links. | `lib/env.ts` (`env.appUrl`), about 18 files (sitemap, robots, layout, dashboard pages, `lib/embed.ts`) | required / required |
 | `NEXT_PUBLIC_ICECAST_URL` | `""` | Icecast listener base for the direct-stream fallback in the player, embed and homepage hero. | `env.icecastUrl` in `PlayerView`, `EmbedPlayer`, `HeroStationPlayer` | required / required |
 | `NEXT_PUBLIC_PUSHER_KEY` | `""` | Ably app key (`APP_ID.KEY_ID`, the part before the colon). **Empty is the client-side kill switch**: `lib/echo.ts` returns null and every hook polls. | `lib/echo.ts` via `env.broadcastKey` | optional / optional |
 | `NEXT_PUBLIC_PUSHER_HOST` | `""` | Pusher-protocol host (`main.pusher.ably.net`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_PUSHER_PORT` | `443` | Port (`Number(...)`). | `lib/echo.ts` | with key |
 | `NEXT_PUBLIC_BROADCAST_AUTH_URL` | `""` | Where Echo signs private subscriptions (`{api-host}/broadcasting/auth`, a sibling of `/api`). | `lib/echo.ts` | with key |
-| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
+| `NEXT_PUBLIC_SENTRY_DSN` | none | Browser/server/edge Sentry DSN. Sentry initialises only when `NODE_ENV === "production"` **and** this is set. Sample rates are literals: traces 0.2, replay session 0.02, replay on error 0.5, `sendDefaultPii` false. The browser client also has literal filters: `denyUrls` `app://`, `ignoreErrors` for in-app-browser bridge noise (`/\b\w*browser is not defined/` and two others), and `allowUrls: [/\/_next\//]` so only errors thrown from the Next bundle are kept (stackless events such as rejected promises still pass; errors from inline scripts are dropped). | `instrumentation-client.ts:40`, `sentry.server.config.ts:11`, `sentry.edge.config.ts:9` | optional / ignored |
 | `SENTRY_AUTH_TOKEN` | none | Build-time source-map upload token, read by `@sentry/nextjs`'s build plugin (org `gocast`, project `javascript-nextjs` are literals in `next.config.ts`). Passed by `deploy-native.sh:build_client`. | plugin (vendor) | optional (build) |
 | `RENDER_API_KEY` | none | Server-only. Sent as `X-Render-Key` on the Next server's own public-API fetches so they skip the 60/min limit. Must equal the API's. In prod it comes from `/etc/gocast/client.env` through the systemd unit's `EnvironmentFile=-`. | `lib/public-api.ts:16` | recommended / optional |
-| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:3` | unused in prod / optional |
+| `INTERNAL_API_URL` | none | Server-side override of the API base (`typeof window === "undefined"`), for a container that cannot reach the public URL. **Not declared in `.env.example`, `client.env` docs, or any deploy file**; only the code reads it. | `lib/env.ts:16`, `lib/api-server.ts:4` | unused in prod / optional |
 | `INTERNAL_ICECAST_URL` | `http://127.0.0.1:8888` | Dev-only rewrite target for `/stream-proxy/*` (avoids Icecast's missing CORS preflight). Undeclared in `.env.example` (present in the dev `.env.local`). | `next.config.ts:120` | ignored / optional |
 | `LIQUIDSOAP_HLS_DIR` | `/var/gocast/hls` | Dev-only: directory the `/hls-proxy/*` route serves (`NODE_ENV === "development"` only; 404 otherwise). Only `.m3u8`, `.aac`, `.ts`, `.m4s`, `.mp4` are served. | `app/hls-proxy/[...path]/route.ts:25` | ignored / optional |
 | `ANALYZE` | none | `"true"` enables the bundle analyzer. | `next.config.ts:5` | - |
 | `CI` | none | Also makes the Sentry build plugin verbose (`silent: !process.env.CI`, `next.config.ts:184`); Sentry traffic is tunnelled through `/monitoring`. | `next.config.ts` | build |
-| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:195-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
+| `NODE_ENV` | set by Next | Gates analytics scripts (Umami, GA, Clarity, JSON-LD), Sentry, image optimisation (`unoptimized` in dev), dev rewrites, dev retry/timeout in `getStation`/embed fetches. | `app/layout.tsx:191-227`, `next.config.ts`, `getStation.ts:25`, `embed/[slug]/page.tsx:23` | production / development |
 | `NEXT_RUNTIME` | set by Next | Picks the Sentry server or edge config. | `instrumentation.ts` | - |
 | `NEXT_TELEMETRY_DISABLED`, `PORT`, `HOSTNAME` | set in the systemd unit / deploy | Next runtime settings (`PORT=__CLIENT_PORT__`, `HOSTNAME=127.0.0.1`). | `gocast-client.service` | native only |
 | `E2E_BASE_URL`, `E2E_API_URL`, `CI` | `http://localhost:3000`, `http://localhost:8000`, unset | Playwright base URLs and CI mode. | `playwright.config.ts` | test only |
+| `E2E_CAPTURE` | unset | Lifts `grepInvert: /@(screenshots\|visual)/`, so the capture specs run; set by `npm run test:visual` and `test:help-shots`. | `playwright.config.ts` | test only |
 
-Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:195-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
+Hardcoded (no env): the Umami website id, the GA measurement id (`G-44FJYHJWQR`) and the Clarity project id are literals in `app/layout.tsx:191-215`; they load only in production builds. `tests/e2e` reads no `process.env`.
 
 ## Mobile app (`mobile/`)
 

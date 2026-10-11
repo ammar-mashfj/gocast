@@ -227,7 +227,7 @@ Awaiting his choice. The web's "When you're live" lane gained one sentence: "Not
 still go live yourself." (`client/app/dashboard/stations/[slug]/schedule/SchedulePlanner.tsx`).
 
 **Other copy/data decisions:** "Free during beta" removed from the Pro upsell; audience countries card is
-hidden while empty (geo needs Cloudflare); AIRTIME shows hours with the remainder in minutes; the peak tile
+hidden while empty (geo comes from the Cloudflare header, so it is empty on local dev, not in prod); AIRTIME shows hours with the remainder in minutes; the peak tile
 names the day it happened; "1 track" vs "N tracks" via `trackCount()` in `lib/station.ts`.
 
 ## 4. Fixed: taps that "did nothing" (React Compiler)

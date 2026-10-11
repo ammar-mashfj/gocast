@@ -136,7 +136,7 @@ class Station extends Model
     {
         static::creating(function (Station $station) {
             if (empty($station->slug)) {
-                $station->slug = static::generateUniqueSlug($station->name);
+                $station->slug = static::slugFor($station->name);
             }
             $station->icecast_mount ??= '/stream/'.$station->slug;
             $station->icecast_password ??= Str::random(32);
@@ -174,18 +174,27 @@ class Station extends Model
         });
     }
 
+    public const SLUG_MAX = 55;
+
     /**
-     * Slugify the given name and append -2, -3, ... until the slug is free.
+     * The link a name gets: Str::slug, then -2, -3, ... until free. Names
+     * that produce an empty slug (e.g. emoji-only) fall back to "station".
      *
-     * Names that produce an empty slug (e.g. emoji-only) fall back to "station".
+     * Public because the create page previews it (StationSlugController)
+     * through this same method, so what the page shows is what creating
+     * mints — short of a race between the preview and the create, which the
+     * create resolves on its own.
+     *
+     * A deleted station's link counts as taken: anyone who saved it would
+     * otherwise land on a stranger.
      */
-    protected static function generateUniqueSlug(string $name): string
+    public static function slugFor(string $name): string
     {
         $base = Str::slug($name);
         if ($base === '') {
             $base = 'station';
         }
-        $base = Str::limit($base, 55, '');
+        $base = Str::limit($base, self::SLUG_MAX, '');
 
         $slug = $base;
         $suffix = 2;

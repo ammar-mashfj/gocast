@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+</head>
+<body>
+<x-dc>
+<helmet>
+
+
+
+
+
+
+
+</helmet>
+
+<div style="min-height:100vh;background:#050505;display:flex;flex-direction:column">
+  <div style="height:56px;flex:none;display:flex;align-items:center;justify-content:center;gap:14px;padding:0 16px;border-bottom:1px solid rgba(244,241,236,.06)">
+    <span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">PREVIEW</span>
+    <div style="width:280px;max-width:60vw"><x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Segmented" options="{{ deviceOpts }}" value="{{ deviceLabel }}" on-change="{{ setDevice }}" size="s" hint-size="280px,36px"></x-import></div>
+    <span style="font:500 11px var(--font-mono);letter-spacing:.08em;color:#6F6A63;white-space:nowrap">{{ frameLabel }}</span>
+  </div>
+  <div style="flex:1;display:flex;justify-content:center;align-items:flex-start;padding:{{ frame.pad }}">
+  <div ref="{{ frameRef }}" style="position:relative;width:{{ frame.w }};height:{{ frame.h }};max-width:100%;overflow-y:auto;overflow-x:hidden;transform:translateZ(0);border-radius:{{ frame.r }};box-shadow:{{ frame.shadow }};background:#0E0D0C">
+  <input type="file" ref="{{ fileRef }}" multiple="multiple" accept="audio/*" sc-camel-on-change="{{ onFiles }}" style="display:none">
+<div style="display:flex;min-height:100%;background:#0E0D0C;color:#F4F1EC">
+
+  <!-- SIDEBAR (desktop) -->
+  <sc-if value="{{ showSidebar }}" hint-placeholder-val="{{ true }}">
+    <aside style="width:248px;flex:none;position:sticky;top:0;height:{{ frame.h }};display:flex;flex-direction:column;gap:18px;padding:20px 14px 16px;border-right:1px solid rgba(244,241,236,.06);background:#0E0D0C">
+      <div style="display:flex;align-items:baseline;padding:4px 8px;font:700 22px/1 var(--font-display);letter-spacing:-0.03em"><span style="color:#F4F1EC">Go</span><span style="color:#9B7BFF">Cast</span><span style="color:#6F6A63">.fm</span></div>
+      <div sc-camel-on-click="{{ goOverview }}" style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:18px;background:#181614;cursor:pointer" style-hover="background:#1D1A17">
+        <div style="width:40px;height:40px;border-radius:12px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 6px,#221F1C 6px 12px)"></div>
+        <div style="display:flex;flex-direction:column;gap:5px;min-width:0">
+          <span style="font:700 15px/1.1 var(--font-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ station.name }}</span>
+          <span style="display:flex;align-items:center;gap:6px;font:600 10px/1 var(--font-mono);letter-spacing:.1em;color:{{ band.sideColor }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ band.dot }}"></span>{{ band.lampText }}</span>
+        </div>
+      </div>
+      <nav style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ nav }}" as="n" hint-placeholder-count="8">
+          <div sc-camel-on-click="{{ n.go }}" style="display:flex;align-items:center;justify-content:space-between;height:42px;padding:0 12px;border-radius:12px;cursor:pointer;font:{{ n.font }};color:{{ n.color }};background:{{ n.bg }}" style-hover="background:#1D1A17;color:#F4F1EC">
+            <span>{{ n.label }}</span>
+            <sc-if value="{{ n.hasDot }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px;font:600 10px/1 var(--font-mono);letter-spacing:.1em;color:{{ n.dotColor }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ n.dotColor }}"></span>{{ n.dotText }}</span></sc-if>
+          </div>
+        </sc-for>
+      </nav>
+      <div style="flex:1"></div>
+      <div style="position:relative">
+        <sc-if value="{{ accountMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:0;right:0;bottom:62px;background:#221F1C;border-radius:18px;padding:6px;box-shadow:0 20px 40px -10px rgba(0,0,0,.6);display:flex;flex-direction:column;z-index:30">
+            <div sc-camel-on-click="{{ goAccount }}" style="padding:11px 12px;border-radius:12px;font:500 14px var(--font-body);cursor:pointer" style-hover="background:#2A2723">Account and plan</div>
+            <div sc-camel-on-click="{{ toastHelp }}" style="padding:11px 12px;border-radius:12px;font:500 14px var(--font-body);cursor:pointer" style-hover="background:#2A2723">Help</div>
+            <div style="height:1px;background:rgba(244,241,236,.06);margin:4px 8px"></div>
+            <div sc-camel-on-click="{{ toastSignOut }}" style="padding:11px 12px;border-radius:12px;font:500 14px var(--font-body);color:#A39D94;cursor:pointer" style-hover="background:#2A2723">Sign out</div>
+          </div>
+        </sc-if>
+        <div sc-camel-on-click="{{ toggleAccountMenu }}" style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:16px;cursor:pointer" style-hover="background:#181614">
+          <div style="width:38px;height:38px;border-radius:50%;background:#2A2723;display:flex;align-items:center;justify-content:center;font:700 14px var(--font-display);flex:none">MO</div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+            <span style="display:flex;align-items:center;gap:7px;font:600 14px var(--font-body)">Maya Okafor <span style="font:600 10px/1 var(--font-mono);letter-spacing:.08em;background:#FFB547;color:#1A1206;padding:3px 6px;border-radius:6px">PRO</span></span>
+            <span style="font:500 12px var(--font-body);color:#6F6A63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">maya@nightshift.fm</span>
+          </div>
+          <span style="color:#6F6A63;font:600 14px var(--font-mono)">⌃</span>
+        </div>
+      </div>
+    </aside>
+  </sc-if>
+
+  <!-- MAIN -->
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <!-- top bar -->
+    <div style="position:sticky;top:0;z-index:20;background:#0E0D0C">
+      <div style="height:60px;display:flex;align-items:center;gap:14px;padding:0 {{ padX }}">
+        <div sc-camel-on-click="{{ toggleSidebar }}" style="width:40px;height:40px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;flex:none" style-hover="background:#181614" title="Toggle sidebar">
+          <span style="width:16px;height:2px;border-radius:2px;background:#A39D94"></span><span style="width:16px;height:2px;border-radius:2px;background:#A39D94"></span><span style="width:10px;height:2px;border-radius:2px;background:#A39D94;align-self:center;margin-right:6px"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font:500 15px var(--font-body);min-width:0;white-space:nowrap;overflow:hidden">
+          <span sc-camel-on-click="{{ goOverview }}" style="color:#A39D94;cursor:pointer;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ station.name }}</span>
+          <sc-if value="{{ hasCrumb }}" hint-placeholder-val="{{ false }}"><span style="color:#6F6A63">›</span><span style="color:#F4F1EC">{{ crumb }}</span></sc-if>
+        </div>
+        <div style="flex:1"></div>
+        <sc-if value="{{ notPhone }}" hint-placeholder-val="{{ true }}"><span style="font:500 12px var(--font-mono);letter-spacing:.08em;color:#6F6A63;white-space:nowrap">{{ clockText }}</span></sc-if>
+        <sc-if value="{{ notesClosed }}" hint-placeholder-val="{{ false }}">
+          <div sc-camel-on-click="{{ openNotes }}" style="height:36px;padding:0 12px;border-radius:12px;display:flex;align-items:center;gap:7px;background:#181614;font:600 13px var(--font-body);cursor:pointer;white-space:nowrap" style-hover="background:#221F1C"><span style="width:7px;height:7px;border-radius:50%;background:#FFB547"></span>{{ notesBtnLabel }}</div>
+        </sc-if>
+        <div style="position:relative">
+          <div sc-camel-on-click="{{ toggleNotif }}" style="height:36px;padding:0 12px;border-radius:12px;display:flex;align-items:center;gap:8px;background:#181614;font:600 13px var(--font-body);cursor:pointer" style-hover="background:#221F1C">Updates<sc-if value="{{ hasUnread }}" hint-placeholder-val="{{ true }}"><span style="min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#F4F1EC;color:#0E0D0C;font:700 11px/18px var(--font-mono);text-align:center">{{ unread }}</span></sc-if></div>
+          <sc-if value="{{ notifOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;right:0;top:46px;width:340px;max-width:86vw;background:#221F1C;border-radius:22px;box-shadow:0 20px 40px -10px rgba(0,0,0,.6);padding:8px;z-index:40">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px 8px"><span style="font:700 15px var(--font-display)">Updates</span><span sc-camel-on-click="{{ markRead }}" style="font:600 12px var(--font-body);color:#A39D94;cursor:pointer">Mark all read</span></div>
+              <sc-for list="{{ notifs }}" as="m" hint-placeholder-count="2">
+                <div style="display:flex;gap:12px;padding:12px;border-radius:14px" style-hover="background:#2A2723">
+                  <span style="width:8px;height:8px;border-radius:50%;margin-top:6px;flex:none;background:{{ m.dot }}"></span>
+                  <div style="display:flex;flex-direction:column;gap:4px"><span style="font:600 14px/1.3 var(--font-body)">{{ m.title }}</span><span style="font:500 13px/1.4 var(--font-body);color:#A39D94">{{ m.body }}</span><span style="font:500 11px var(--font-mono);color:#6F6A63;letter-spacing:.06em">{{ m.when }}</span></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <!-- status band -->
+      <div style="min-height:52px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px {{ padX }};background:{{ band.bg }};color:{{ band.ink }};transition:background 120ms">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatusLamp" state="{{ band.lamp }}" variant="{{ band.lampVariant }}" label="{{ band.lampText }}" hint-size="120px,30px"></x-import>
+        <span style="font:600 14px/1.3 var(--font-body);flex:1;min-width:200px">{{ band.text }}</span>
+        <sc-if value="{{ band.showTimer }}" hint-placeholder-val="{{ false }}"><span style="font:700 16px var(--font-mono);letter-spacing:-0.01em">{{ liveClock }}</span></sc-if>
+        <span style="font:600 12px var(--font-mono);letter-spacing:.08em">{{ band.listen }}</span>
+        <sc-if value="{{ band.hasAction }}" hint-placeholder-val="{{ true }}">
+          <div sc-camel-on-click="{{ band.action }}" style="height:34px;padding:0 14px;border-radius:12px;display:flex;align-items:center;font:700 13px var(--font-body);cursor:pointer;background:{{ band.btnBg }};color:{{ band.btnInk }};white-space:nowrap">{{ band.actionLabel }}</div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="flex:1;padding:32px {{ padX }} 120px;width:100%;max-width:1240px;margin:0 auto">
+
+<!-- ================= OVERVIEW ================= -->
+<sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Overview" style="display:flex;flex-direction:column;gap:20px">
+  <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+    <div sc-camel-on-click="{{ openEdit }}" style="width:104px;height:104px;border-radius:26px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 9px,#221F1C 9px 18px);display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px;cursor:pointer;font:600 10px var(--font-mono);letter-spacing:.1em;color:#6F6A63">ADD ART</div>
+    <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">{{ station.name }}</h1><span style="font:600 12px var(--font-body);background:#221F1C;color:#A39D94;padding:5px 10px;border-radius:10px">{{ station.genre }}</span></div>
+      <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94;text-wrap:pretty">{{ station.desc }}</p>
+      <span style="font:500 13px var(--font-body);color:#6F6A63">Since Oct 2025 · Last live yesterday, 21:04</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="ghost" sc-camel-on-click="{{ openPlayer }}" hint-size="130px,40px">Player page ↗</x-import>
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="ghost" sc-camel-on-click="{{ openEdit }}" hint-size="120px,40px">Edit profile</x-import>
+    </div>
+  </div>
+
+  <!-- hero -->
+  <div style="display:flex;flex-wrap:wrap;gap:2px;border-radius:30px;overflow:hidden;background:{{ hero.gap }}">
+    <div style="flex:2 1 420px;min-width:0;padding:28px;display:flex;flex-direction:column;gap:18px;background:{{ hero.bg }};color:{{ hero.ink }}">
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatusLamp" state="{{ band.lamp }}" variant="{{ hero.lampVariant }}" label="{{ band.lampText }}" hint-size="120px,30px"></x-import>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font:800 34px/1.02 var(--font-display);letter-spacing:-0.035em;text-wrap:balance">{{ hero.title }}</span>
+        <span style="font:500 15px/1.45 var(--font-body);color:{{ hero.sub }};max-width:560px;text-wrap:pretty">{{ hero.text }}</span>
+      </div>
+      <sc-if value="{{ isAuto }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:14px;background:rgba(0,0,0,.25);border-radius:18px;padding:12px">
+          <div style="width:48px;height:48px;border-radius:12px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 6px,#221F1C 6px 12px)"></div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between;gap:10px"><span style="font:700 16px var(--font-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ now.title }} <span style="font:500 13px var(--font-body);color:#A39D94">· {{ now.artist }}</span></span><span style="font:600 13px var(--font-mono);color:#C9B8FF">{{ now.left }}</span></div>
+            <div style="height:4px;border-radius:2px;background:rgba(244,241,236,.08);overflow:hidden"><div style="height:100%;width:{{ now.pct }};background:#9B7BFF"></div></div>
+            <span style="font:500 12px var(--font-body);color:#6F6A63">Next: {{ now.next }}</span>
+          </div>
+        </div>
+      </sc-if>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:auto">
+        <sc-if value="{{ isOff }}" hint-placeholder-val="{{ true }}">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" full="{{ false }}" dot="{{ true }}" dot-color="#FF5A4E" sc-camel-on-click="{{ goLive }}" hint-size="140px,52px">Go live now</x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="onair" size="m" full="{{ false }}" sc-camel-on-click="{{ startAuto }}" hint-size="160px,52px">Start AutoDJ</x-import>
+        </sc-if>
+        <sc-if value="{{ isAuto }}" hint-placeholder-val="{{ false }}">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" full="{{ false }}" dot="{{ true }}" dot-color="#FF5A4E" sc-camel-on-click="{{ goLive }}" hint-size="140px,52px">Go live now</x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="m" full="{{ false }}" sc-camel-on-click="{{ stopAuto }}" hint-size="140px,52px">Stop AutoDJ</x-import>
+        </sc-if>
+        <sc-if value="{{ isLive }}" hint-placeholder-val="{{ false }}">
+          <div sc-camel-on-click="{{ goStudio }}" style="height:52px;padding:0 22px;border-radius:16px;background:#1A0806;color:#FF5A4E;display:flex;align-items:center;font:700 16px var(--font-body);cursor:pointer">Open the studio</div>
+        </sc-if>
+      </div>
+    </div>
+    <div style="flex:1 1 260px;min-width:0;padding:28px;display:flex;flex-direction:column;gap:10px;background:{{ hero.bg2 }};color:{{ hero.ink }}">
+      <span style="font:600 11px/1 var(--font-mono);letter-spacing:.1em;color:{{ hero.sub }}">LISTENING NOW</span>
+      <span style="font:700 64px/1 var(--font-mono);letter-spacing:-0.04em">{{ listenNow }}</span>
+      <span style="font:500 14px/1.4 var(--font-body);color:{{ hero.sub }}">{{ hero.listenText }}</span>
+      <div style="flex:1"></div>
+      <span sc-camel-on-click="{{ goAudience }}" style="font:600 13px var(--font-body);cursor:pointer;color:{{ hero.ink }}">See your audience →</span>
+    </div>
+  </div>
+
+  <!-- link + next up -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px">
+    <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 18px var(--font-display);letter-spacing:-0.01em">Your link</span><span style="font:500 13px var(--font-body);color:#6F6A63">No app, no account</span></div>
+      <div style="display:flex;align-items:center;gap:8px;background:#0E0D0C;border-radius:16px;padding:6px 6px 6px 16px">
+        <span style="flex:1;min-width:0;font:500 15px var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ link }}</span>
+        <div sc-camel-on-click="{{ copyLink }}" style="height:40px;padding:0 16px;border-radius:12px;background:#F4F1EC;color:#0E0D0C;display:flex;align-items:center;font:700 14px var(--font-body);cursor:pointer;flex:none">{{ copyLabel }}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ openQr }}" hint-size="130px,40px">Tune-in code</x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ openEmbed }}" hint-size="100px,40px">Embed</x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ openShare }}" hint-size="100px,40px">Share…</x-import>
+      </div>
+    </div>
+    <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:6px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font:700 18px var(--font-display);letter-spacing:-0.01em">Coming up</span><span sc-camel-on-click="{{ goSchedule }}" style="font:600 13px var(--font-body);color:#A39D94;cursor:pointer">Schedule →</span></div>
+      <sc-for list="{{ upcoming }}" as="u" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-top:1px solid rgba(244,241,236,.06)">
+          <span style="width:76px;flex:none;font:600 13px var(--font-mono);color:#A39D94">{{ u.when }}</span>
+          <span style="width:4px;height:30px;border-radius:2px;flex:none;background:{{ u.color }}"></span>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font:600 15px var(--font-body)">{{ u.title }}</span><span style="font:500 12px var(--font-body);color:#6F6A63">{{ u.meta }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- setup -->
+  <sc-if value="{{ setupLeft }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span style="font:700 18px var(--font-display)">Two things left to set up</span><span style="font:600 12px var(--font-mono);color:#A39D94;letter-spacing:.06em">4 OF 6</span></div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px"><span style="height:5px;border-radius:3px;background:#5FD39A"></span><span style="height:5px;border-radius:3px;background:#5FD39A"></span><span style="height:5px;border-radius:3px;background:#5FD39A"></span><span style="height:5px;border-radius:3px;background:#5FD39A"></span><span style="height:5px;border-radius:3px;background:#2A2723"></span><span style="height:5px;border-radius:3px;background:#2A2723"></span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px">
+        <div sc-camel-on-click="{{ openEdit }}" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;border-radius:18px;background:#1D1A17;cursor:pointer" style-hover="background:#221F1C"><div style="display:flex;flex-direction:column;gap:4px"><span style="font:600 15px var(--font-body)">Add station artwork</span><span style="font:500 13px var(--font-body);color:#A39D94">Shows on your player page and wherever your link is shared.</span></div><span style="color:#A39D94">›</span></div>
+        <div sc-camel-on-click="{{ goSettings }}" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;border-radius:18px;background:#1D1A17;cursor:pointer" style-hover="background:#221F1C"><div style="display:flex;flex-direction:column;gap:4px"><span style="font:600 15px var(--font-body)">Add your social links</span><span style="font:500 13px var(--font-body);color:#A39D94">So listeners can follow you between shows.</span></div><span style="color:#A39D94">›</span></div>
+      </div>
+      <span sc-camel-on-click="{{ dismissSetup }}" style="align-self:flex-start;font:600 13px var(--font-body);color:#6F6A63;cursor:pointer">Hide for now</span>
+    </div>
+  </sc-if>
+
+  <!-- activity + recent -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px">
+    <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:18px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 18px var(--font-display)">Your live shows</span><span style="font:500 13px var(--font-body);color:#6F6A63">Last 14 days</span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px">
+        <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">ON AIR</span><span style="font:800 30px/1 var(--font-display);letter-spacing:-0.03em">10h 16m</span><span style="font:500 12px var(--font-body);color:#5FD39A">+4h 7m vs the 14 days before</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">SHOWS</span><span style="font:800 30px/1 var(--font-display);letter-spacing:-0.03em">7</span><span style="font:500 12px var(--font-body);color:#A39D94">about 1h 28m each</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">PEAK</span><span style="font:800 30px/1 var(--font-display);letter-spacing:-0.03em">23</span><span style="font:500 12px var(--font-body);color:#A39D94">listening at once, Sep 20</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:flex-end;gap:5px;height:110px">
+          <sc-for list="{{ activity }}" as="a" hint-placeholder-count="14">
+            <div title="{{ a.tip }}" style="flex:1;height:{{ a.h }};min-height:3px;border-radius:5px;background:{{ a.bg }}"></div>
+          </sc-for>
+        </div>
+        <div style="display:flex;justify-content:space-between;font:500 11px var(--font-mono);color:#6F6A63;letter-spacing:.06em"><span>SEP 18</span><span>SEP 25</span><span>TODAY</span></div>
+      </div>
+      <span style="font:500 13px/1.45 var(--font-body);color:#6F6A63">Only time you were live counts here. AutoDJ hours show up in Audience.</span>
+    </div>
+    <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:6px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font:700 18px var(--font-display)">Recent shows</span><span sc-camel-on-click="{{ goBroadcasts }}" style="font:600 13px var(--font-body);color:#A39D94;cursor:pointer">All shows →</span></div>
+      <sc-for list="{{ recent }}" as="b" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 80px 40px;gap:12px;align-items:center;padding:12px 0;border-top:1px solid rgba(244,241,236,.06)">
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font:600 14px var(--font-body)">{{ b.day }} · {{ b.time }}</span><span style="font:500 12px var(--font-body);color:#6F6A63">{{ b.src }}</span></div>
+          <span style="font:500 13px var(--font-mono);color:#A39D94">{{ b.dur }}</span>
+          <span style="font:600 14px var(--font-mono);text-align:right">{{ b.peak }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= STUDIO ================= -->
+<sc-if value="{{ isStudio }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Studio" style="display:flex;flex-direction:column;gap:22px">
+
+  <sc-if value="{{ st.preflight }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:760px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+      <h1 style="margin:0;font:800 44px/1 var(--font-display);letter-spacing:-0.04em;text-wrap:balance">Ready when you are.</h1>
+      <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94">AutoDJ hands over when you start, and takes back when you end.</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span style="font:700 15px var(--font-display)">What goes out</span>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px">
+          <div sc-camel-on-click="{{ setMic }}" style="padding:20px;border-radius:22px;cursor:pointer;display:flex;flex-direction:column;gap:6px;background:{{ modeMic.bg }};color:{{ modeMic.ink }}"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:{{ modeMic.sub }}">{{ modeMic.tag }}</span><span style="font:800 22px var(--font-display);letter-spacing:-0.02em">Mic + music</span><span style="font:500 14px var(--font-body);color:{{ modeMic.sub }}">Talk over your tracks. The music dips while you hold to talk.</span></div>
+          <div sc-camel-on-click="{{ setMusic }}" style="padding:20px;border-radius:22px;cursor:pointer;display:flex;flex-direction:column;gap:6px;background:{{ modeMusic.bg }};color:{{ modeMusic.ink }}"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:{{ modeMusic.sub }}">{{ modeMusic.tag }}</span><span style="font:800 22px var(--font-display);letter-spacing:-0.02em">Music only</span><span style="font:500 14px var(--font-body);color:{{ modeMusic.sub }}">Play your running order. We won’t ask for the microphone.</span></div>
+        </div>
+      </div>
+      <div style="background:#181614;border-radius:26px;padding:22px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font:700 15px var(--font-display)">Your running order</span><span style="font:500 12px var(--font-mono);color:#6F6A63">{{ queueMeta }}</span></div>
+        <div sc-camel-on-drag-over="{{ onDragOver }}" sc-camel-on-drag-leave="{{ onDragLeave }}" sc-camel-on-drop="{{ onDrop }}" style="display:flex;flex-direction:column;border-radius:16px;outline:{{ dropOutline }};outline-offset:6px">
+          <sc-for list="{{ queue }}" as="q" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(244,241,236,.06)"><span style="width:20px;font:500 12px var(--font-mono);color:#6F6A63">{{ q.n }}</span><span style="flex:1;min-width:0;font:600 14px var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.title }} <span style="color:#6F6A63;font-weight:500">· {{ q.artist }}</span></span><span style="font:500 12px var(--font-mono);color:#A39D94">{{ q.len }}</span><span sc-camel-on-click="{{ q.remove }}" style="font:600 12px var(--font-body);color:#6F6A63;cursor:pointer" style-hover="color:#F4F1EC">Remove</span></div>
+          </sc-for>
+          <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:22px;border-radius:16px;border:1.5px dashed rgba(244,241,236,.14);text-align:center;font:500 14px var(--font-body);color:#A39D94">Nothing to play yet. Add files, or drop them here.</div></sc-if>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="primary" sc-camel-on-click="{{ pickFiles }}" hint-size="120px,40px">+ Add files</x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ openLibrary }}" hint-size="150px,40px">From your library</x-import>
+        </div>
+        <span style="font:500 13px var(--font-body);color:#6F6A63">Or drop audio files onto the list. MP3, M4A, AAC, FLAC, OGG or WAV.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="xl" dot="{{ true }}" dot-color="#FF5A4E" sc-camel-on-click="{{ runChecks }}" hint-size="100%,64px">Go live on {{ station.name }}</x-import>
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:500 13px var(--font-body);color:#6F6A63"><span>Listeners tune in at <span style="font-family:var(--font-mono);color:#A39D94">{{ link }}</span></span><span sc-camel-on-click="{{ goOverview }}" style="cursor:pointer;color:#A39D94">Not now</span></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ st.checking }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:760px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+      <h1 style="margin:0;font:800 44px/1 var(--font-display);letter-spacing:-0.04em">{{ checkTitle }}</h1>
+      <sc-if value="{{ st.failed }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:14px;align-items:flex-start;background:#33260F;color:#FFD48A;border-radius:22px;padding:18px">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatusLamp" state="silence" label="NOT LIVE" hint-size="100px,30px"></x-import>
+          <span style="font:500 15px/1.45 var(--font-body)">We couldn’t reach GoCast from this browser. Check you’re online, then try again. Nobody heard anything.</span>
+        </div>
+      </sc-if>
+      <div style="background:#181614;border-radius:26px;padding:8px 22px">
+        <sc-for list="{{ checks }}" as="c" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:14px;padding:16px 0;border-top:{{ c.border }}">
+            <span style="width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:700 13px var(--font-mono);background:{{ c.bg }};color:{{ c.ink }}">{{ c.glyph }}</span>
+            <span style="flex:1;font:600 15px var(--font-body);color:{{ c.color }}">{{ c.label }}</span>
+            <span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:{{ c.color }}">{{ c.state }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ st.failed }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" full="{{ false }}" sc-camel-on-click="{{ retryChecks }}" hint-size="130px,52px">Try again</x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="m" full="{{ false }}" sc-camel-on-click="{{ backPreflight }}" hint-size="130px,52px">Back</x-import>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ st.live }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:20px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div style="min-height:340px;display:flex;flex-direction:column">{{ talkPad }}</div>
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:500 13px var(--font-body);color:#6F6A63">
+          <span>{{ padHint }}</span>
+          <span>Listeners hear you ~15 s late.</span>
+        </div>
+        <sc-if value="{{ isMicMode }}" hint-placeholder-val="{{ true }}">
+          <sc-if value="{{ notLatched }}" hint-placeholder-val="{{ true }}">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="l" sc-camel-on-click="{{ latchMic }}" hint-size="100%,58px">Keep mic open</x-import>
+          </sc-if>
+          <sc-if value="{{ latched }}" hint-placeholder-val="{{ false }}">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="live" size="l" dot="{{ true }}" sc-camel-on-click="{{ unlatchMic }}" hint-size="100%,58px">Close mic</x-import>
+          </sc-if>
+        </sc-if>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.NowPlaying" title="{{ liveNow.title }}" artist="{{ liveNow.artist }}" time-left="{{ liveNow.left }}" progress="{{ liveNow.progress }}" next="{{ liveNow.next }}" queue-count="{{ liveNow.count }}" playing="{{ liveNow.playing }}" on-play="{{ togglePlay }}" on-skip="{{ skipTrack }}" hint-size="100%,178px"></x-import>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="On air" value="{{ liveClockShort }}" hint-size="100%,86px"></x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Listening" value="{{ listenNow }}" sub="{{ peakText }}" hint-size="100%,86px"></x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Audio lost" value="0 s" value-color="#5FD39A" hint-size="100%,86px"></x-import>
+        </div>
+        <div style="background:#181614;border-radius:22px;padding:18px;display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px"><span style="font:700 15px var(--font-display)">Up next</span><span style="font:500 12px var(--font-mono);color:#6F6A63">{{ queueMeta }}</span></div>
+          <div sc-camel-on-drag-over="{{ onDragOver }}" sc-camel-on-drag-leave="{{ onDragLeave }}" sc-camel-on-drop="{{ onDrop }}" style="display:flex;flex-direction:column;border-radius:14px;outline:{{ dropOutline }};outline-offset:6px">
+            <sc-for list="{{ liveQueue }}" as="q" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid rgba(244,241,236,.06)"><span style="flex:1;min-width:0;font:600 14px var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.title }} <span style="color:#6F6A63;font-weight:500">· {{ q.artist }}</span></span><span style="font:500 12px var(--font-mono);color:#A39D94">{{ q.len }}</span><span sc-camel-on-click="{{ q.remove }}" style="font:600 12px var(--font-body);color:#6F6A63;cursor:pointer" style-hover="color:#F4F1EC">Remove</span></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ pickFiles }}" hint-size="120px,40px">+ Add files</x-import>
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ openLibrary }}" hint-size="150px,40px">From your library</x-import>
+          </div>
+        </div>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="l" sc-camel-on-click="{{ askEnd }}" hint-size="100%,58px">End show</x-import>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ st.wrap }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:760px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:22px">
+      <span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">SHOW ENDED · AUTODJ HAS THE STATION</span>
+      <h1 style="margin:0;font:800 56px/0.95 var(--font-display);letter-spacing:-0.045em">That’s a wrap.</h1>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="On air" value="{{ wrap.dur }}" hint-size="100%,86px"></x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Peak" value="{{ wrap.peak }}" sub="listening at once" hint-size="100%,86px"></x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Tracks" value="{{ wrap.tracks }}" hint-size="100%,86px"></x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Audio lost" value="0 s" value-color="#5FD39A" hint-size="100%,86px"></x-import>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" full="{{ false }}" sc-camel-on-click="{{ goOverview }}" hint-size="160px,52px">Back to station</x-import>
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="m" full="{{ false }}" sc-camel-on-click="{{ goBroadcasts }}" hint-size="160px,52px">See all shows</x-import>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ================= AUTODJ ================= -->
+<sc-if value="{{ isAutodj }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="AutoDJ" style="display:flex;flex-direction:column;gap:22px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:640px">
+      <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">AutoDJ</h1>
+      <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94;text-wrap:pretty">Plays your music whenever you’re not live, so the station keeps going when you step away.</p>
+      <span style="font:500 13px var(--font-mono);color:#6F6A63">12 TRACKS · 50M 18S · 37 MB OF 3 GB</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="ghost" sc-camel-on-click="{{ openJingles }}" hint-size="100px,40px">Jingles</x-import>
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="primary" sc-camel-on-click="{{ addTracks }}" hint-size="120px,40px">+ Add tracks</x-import>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-radius:22px;padding:16px 18px;background:{{ autoStrip.bg }}">
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatusLamp" state="{{ autoStrip.lamp }}" variant="soft" label="{{ autoStrip.label }}" hint-size="120px,20px"></x-import>
+    <span style="flex:1;min-width:220px;font:500 14px/1.4 var(--font-body);color:#A39D94">{{ autoStrip.text }}</span>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Switch" checked="{{ isAuto }}" tone="onair" on-change="{{ toggleAuto }}" disabled="{{ isLive }}" hint-size="40px,24px"></x-import>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+    <div style="display:flex;flex-direction:column;gap:4px;flex:1 1 220px;max-width:{{ plColMax }};min-width:0">
+      <span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63;padding:4px 12px 8px">LIBRARY</span>
+      <div sc-camel-on-click="{{ selAll }}" style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:14px;cursor:pointer;background:{{ allItem.bg }};color:{{ allItem.color }}" style-hover="background:#1D1A17"><span style="font:600 15px var(--font-body)">All tracks</span><span style="font:500 12px var(--font-mono);color:#6F6A63">12</span></div>
+      <span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63;padding:18px 12px 8px">PLAYLISTS</span>
+      <sc-for list="{{ plList }}" as="p" hint-placeholder-count="3">
+        <div sc-camel-on-click="{{ p.sel }}" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px;border-radius:14px;cursor:pointer;background:{{ p.bg }};color:{{ p.color }}" style-hover="background:#1D1A17">
+          <span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="width:10px;height:10px;border-radius:3px;flex:none;background:{{ p.swatch }}"></span><span style="font:600 15px var(--font-body)">{{ p.name }}</span></span>
+          <span style="font:500 12px var(--font-mono);color:#6F6A63;white-space:nowrap">{{ p.meta }}</span>
+        </div>
+      </sc-for>
+      <div sc-camel-on-click="{{ openNewPl }}" style="padding:12px;font:600 14px var(--font-body);color:#A39D94;cursor:pointer" style-hover="color:#F4F1EC">+ New playlist</div>
+    </div>
+
+    <div style="flex:4 1 460px;min-width:0;background:#181614;border-radius:26px;overflow:hidden">
+      <div style="padding:20px 22px 14px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:4px"><span style="display:flex;align-items:center;gap:8px;font:800 22px var(--font-display);letter-spacing:-0.02em">{{ plHead.name }}<sc-if value="{{ plHead.isDefault }}" hint-placeholder-val="{{ true }}"><span style="font:600 11px var(--font-body);background:#221F1C;color:#A39D94;padding:4px 8px;border-radius:8px;letter-spacing:0">Plays when nothing’s scheduled</span></sc-if></span><span style="font:500 13px var(--font-body);color:#A39D94">{{ plHead.meta }}</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:#0E0D0C;border-radius:14px;padding:0 14px;height:44px">
+          <span style="color:#6F6A63;font:500 13px var(--font-mono)">⌕</span>
+          <input value="{{ query }}" sc-camel-on-change="{{ onQuery }}" placeholder="Search title or artist" style="flex:1;background:transparent;border:0;outline:none;color:#F4F1EC;font:500 15px var(--font-body)">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:{{ trackCols }};gap:12px;padding:10px {{ rowPad }};font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63;border-top:1px solid rgba(244,241,236,.06)"><span>#</span><span>TITLE</span><span style="display:{{ chipDisp }}">{{ colThird }}</span><span style="text-align:right">LENGTH</span><span></span></div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+        <div style="display:grid;grid-template-columns:{{ trackCols }};gap:12px;align-items:center;padding:11px {{ rowPad }};border-top:1px solid rgba(244,241,236,.06);background:{{ r.bg }}" style-hover="background:#1D1A17">
+          <span style="font:600 13px var(--font-mono);color:{{ r.numColor }}">{{ r.num }}</span>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font:600 15px var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ r.titleColor }}">{{ r.title }}</span><span style="font:500 13px var(--font-body);color:#A39D94">{{ r.artist }}</span></div>
+          <div style="display:{{ chipDisp }};gap:5px;flex-wrap:wrap;min-width:0">
+            <sc-for list="{{ r.chips }}" as="c" hint-placeholder-count="1"><span style="font:600 11px var(--font-body);padding:4px 8px;border-radius:8px;background:#221F1C;color:#A39D94;white-space:nowrap">{{ c }}</span></sc-for>
+          </div>
+          <span style="font:500 13px var(--font-mono);color:#A39D94;text-align:right">{{ r.len }}</span>
+          <span sc-camel-on-click="{{ r.remove }}" style="font:600 12px var(--font-body);color:#6F6A63;text-align:right;cursor:pointer" style-hover="color:#F4F1EC">{{ r.removeLabel }}</span>
+        </div>
+      </sc-for>
+      <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}"><div style="padding:32px 22px;font:500 15px var(--font-body);color:#A39D94;border-top:1px solid rgba(244,241,236,.06)">Nothing matches “{{ query }}”.</div></sc-if>
+      <div style="padding:16px 22px;border-top:1px solid rgba(244,241,236,.06);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:500 13px var(--font-body);color:#6F6A63"><span>{{ rowsCount }}</span><span>Drop MP3, M4A, AAC, FLAC, OGG or WAV here — up to 300 MB each.</span></div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= SCHEDULE ================= -->
+<sc-if value="{{ isSchedule }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Schedule" style="display:flex;flex-direction:column;gap:22px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">Schedule</h1>
+      <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94">What AutoDJ plays when you’re not live. Going live always takes over.</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:7px;font:600 11px var(--font-mono);letter-spacing:.1em;color:{{ save.color }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ save.color }}"></span>{{ save.label }}</span>
+      <span style="font:500 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">EUROPE/LONDON</span>
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="ghost" sc-camel-on-click="{{ newSlot }}" hint-size="110px,40px">+ Add slot</x-import>
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="primary" disabled="{{ save.clean }}" sc-camel-on-click="{{ saveSched }}" hint-size="80px,40px">Save</x-import>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:20px">
+    <div style="background:#181614;border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:6px"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">RIGHT NOW</span><span style="font:700 19px/1.25 var(--font-display)">{{ nowSlot.title }}</span><span style="font:500 14px var(--font-body);color:#A39D94">{{ nowSlot.sub }}</span></div>
+    <div style="background:#181614;border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:6px"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">YOUR NEXT SHOW</span><span style="font:700 19px/1.25 var(--font-display)">{{ nextShow.title }}</span><span style="font:500 14px var(--font-body);color:#A39D94">{{ nextShow.sub }}</span></div>
+  </div>
+
+  <div style="background:#181614;border-radius:26px;padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font:700 18px var(--font-display)">This week</span><span style="font:500 13px var(--font-body);color:#6F6A63">Click an empty hour to add a slot. Click a slot to change it.</span></div>
+    <sc-if value="{{ isPhone }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+        <sc-for list="{{ week }}" as="d" hint-placeholder-count="7">
+          <div sc-camel-on-click="{{ d.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0 9px;border-radius:16px;cursor:pointer;background:{{ d.pickBg }};color:{{ d.pickInk }}">
+            <span style="font:600 10px var(--font-mono);letter-spacing:.06em">{{ d.label }}</span>
+            <span style="font:800 18px/1 var(--font-display)">{{ d.num }}</span>
+            <span style="display:flex;gap:3px;height:6px"><sc-for list="{{ d.dots }}" as="c" hint-placeholder-count="1"><span style="width:6px;height:6px;border-radius:50%;background:{{ c }}"></span></sc-for></span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <sc-for list="{{ dayList }}" as="x" hint-placeholder-count="2">
+          <div sc-camel-on-click="{{ x.edit }}" style="display:flex;gap:14px;padding:12px 4px;cursor:pointer;border-top:1px solid rgba(244,241,236,.06)">
+            <span style="width:4px;border-radius:2px;flex:none;background:{{ x.color }}"></span>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span style="font:500 12px var(--font-mono);color:#A39D94">{{ x.time }}</span><span style="font:700 17px var(--font-display)">{{ x.name }}</span><span style="font:500 13px var(--font-body);color:#6F6A63">{{ x.meta }}</span></div>
+          </div>
+        </sc-for>
+        <sc-if value="{{ dayEmpty }}" hint-placeholder-val="{{ false }}"><span style="padding:14px 4px;font:500 14px var(--font-body);color:#A39D94">Main rotation all day.</span></sc-if>
+      </div>
+      <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="m" sc-camel-on-click="{{ addOnDay }}" hint-size="100%,52px">+ Add slot on {{ dayName }}</x-import>
+    </sc-if>
+    <sc-if value="{{ notPhone }}" hint-placeholder-val="{{ true }}">
+    <div style="overflow-x:auto;margin:0 -4px;padding:0 4px">
+      <div style="min-width:680px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:grid;grid-template-columns:70px 1fr;gap:10px"><span></span><div style="position:relative;height:16px"><sc-for list="{{ hours }}" as="h" hint-placeholder-count="9"><span style="position:absolute;top:0;left:{{ h.left }};transform:translateX(-50%);font:500 11px var(--font-mono);color:#6F6A63">{{ h.label }}</span></sc-for></div></div>
+        <sc-for list="{{ week }}" as="d" hint-placeholder-count="7">
+          <div style="display:grid;grid-template-columns:70px 1fr;gap:10px;align-items:center">
+            <div style="display:flex;flex-direction:column;gap:2px"><span style="font:600 12px var(--font-mono);letter-spacing:.08em;color:{{ d.labelColor }}">{{ d.label }}</span><span style="font:500 11px var(--font-mono);color:#6F6A63">{{ d.date }}</span></div>
+            <div sc-camel-on-click="{{ d.add }}" style="position:relative;height:58px;border-radius:14px;cursor:copy;background:repeating-linear-gradient(90deg,rgba(244,241,236,.045) 0 1px,transparent 1px 4.1667%),{{ d.bg }}">
+              <sc-for list="{{ d.shows }}" as="s" hint-placeholder-count="0">
+                <div title="{{ s.tip }}" style="position:absolute;top:5px;bottom:5px;left:{{ s.left }};width:{{ s.width }};border:1.5px dashed rgba(244,241,236,.4);border-radius:10px;display:flex;align-items:center;justify-content:center;font:600 10px var(--font-mono);letter-spacing:.08em;color:#A39D94;overflow:hidden;pointer-events:none;z-index:2">YOU</div>
+              </sc-for>
+              <sc-for list="{{ d.slots }}" as="s" hint-placeholder-count="1">
+                <div sc-camel-on-click="{{ s.edit }}" title="{{ s.tip }}" style="position:absolute;top:5px;bottom:5px;left:{{ s.left }};width:{{ s.width }};border-radius:10px;padding:6px 9px;display:flex;flex-direction:column;justify-content:center;gap:2px;overflow:hidden;cursor:pointer;background:{{ s.bg }};color:{{ s.ink }};z-index:1" style-hover="filter:brightness(1.08)">
+                  <span style="font:700 13px/1.1 var(--font-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</span>
+                  <span style="font:500 11px/1 var(--font-mono);white-space:nowrap;overflow:hidden">{{ s.time }}</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{ d.isToday }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:-3px;bottom:-3px;left:{{ nowLeft }};width:2px;border-radius:1px;background:#F4F1EC;z-index:3;pointer-events:none"></div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font:500 13px var(--font-body);color:#A39D94;padding-top:4px">
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:12px;height:12px;border-radius:4px;background:#0E0D0C;border:1px solid rgba(244,241,236,.14)"></span>Main rotation fills the gaps</span>
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:12px;height:12px;border-radius:4px;background:#C9B8FF"></span>Morning Soul</span>
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:12px;height:12px;border-radius:4px;background:#9B7BFF"></span>Late Night Jazz</span>
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:12px;height:12px;border-radius:4px;border:1.5px dashed rgba(244,241,236,.4)"></span>Your show times · <span sc-camel-on-click="{{ goSettings }}" style="color:#C9B8FF;cursor:pointer">edit</span></span>
+    </div>
+    <span style="font:500 13px/1.45 var(--font-body);color:#6F6A63">Slots switch at the next song break, so one can start a minute or two late.</span>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= AUDIENCE ================= -->
+<sc-if value="{{ isAudience }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Audience" style="display:flex;flex-direction:column;gap:20px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">{{ aud.headline }}</h1>
+      <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94">Everyone who pressed play — on your player page and on the direct stream.</p>
+    </div>
+    <div style="width:220px"><x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Segmented" options="{{ rangeOpts }}" value="{{ range }}" on-change="{{ setRange }}" hint-size="220px,48px"></x-import></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Listening time" value="{{ aud.time }}" sub="{{ aud.timeSub }}" hint-size="100%,92px"></x-import>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Daily listeners" value="{{ aud.daily }}" sub="counted once a day" hint-size="100%,92px"></x-import>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Peak at once" value="{{ aud.peak }}" sub="23 is your all-time best" hint-size="100%,92px"></x-import>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.StatTile" label="Average listen" value="{{ aud.avg }}" sub="{{ aud.avgSub }}" hint-size="100%,92px"></x-import>
+  </div>
+  <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font:700 18px var(--font-display)">Listening time per day</span><span style="font:500 13px var(--font-mono);color:#A39D94">{{ hoverDay }}</span></div>
+    <div style="display:flex;align-items:flex-end;gap:{{ aud.gap }};height:200px;border-bottom:1px solid rgba(244,241,236,.06)">
+      <sc-for list="{{ aud.bars }}" as="b" hint-placeholder-count="30">
+        <div sc-camel-on-mouse-enter="{{ b.hover }}" style="flex:1;height:{{ b.h }};min-height:2px;border-radius:{{ aud.radius }};background:{{ b.bg }};cursor:default" style-hover="background:#F4F1EC"></div>
+      </sc-for>
+    </div>
+    <div style="display:flex;justify-content:space-between;font:500 11px var(--font-mono);letter-spacing:.06em;color:#6F6A63"><span>{{ aud.from }}</span><span>TODAY</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:20px">
+    <sc-for list="{{ aud.breakdowns }}" as="g" hint-placeholder-count="4">
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px;min-width:0">
+        <span style="font:700 18px var(--font-display)">{{ g.title }}</span>
+        <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;gap:12px;font:500 14px var(--font-body)"><span style="display:flex;align-items:center;gap:8px"><sc-if value="{{ r.hasCode }}" hint-placeholder-val="{{ false }}"><span style="font:600 10px var(--font-mono);letter-spacing:.06em;background:#221F1C;color:#A39D94;padding:3px 5px;border-radius:5px">{{ r.code }}</span></sc-if>{{ r.name }}</span><span style="font:500 13px var(--font-mono);color:#A39D94">{{ r.val }}</span></div>
+            <div style="height:6px;border-radius:3px;background:#221F1C;overflow:hidden"><div style="height:100%;width:{{ r.w }};border-radius:3px;background:#A39D94"></div></div>
+          </div>
+        </sc-for>
+        <span style="font:500 13px/1.45 var(--font-body);color:#6F6A63">{{ g.foot }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="background:#181614;border-radius:22px;padding:18px 22px;display:flex;flex-direction:column;gap:10px">
+    <div sc-camel-on-click="{{ toggleHow }}" style="display:flex;justify-content:space-between;cursor:pointer;font:600 15px var(--font-body)"><span>How we count listeners</span><span style="color:#6F6A63;font-family:var(--font-mono)">{{ howGlyph }}</span></div>
+    <sc-if value="{{ howOpen }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font:500 14px/1.55 var(--font-body);color:#A39D94;max-width:760px">Listening time and peak count everyone, including people on the direct stream who never open your player page. Daily listeners, average listen and the breakdowns count player-page listens only. Days run in UTC. Listener records are deleted after 90 days, so the breakdowns never go further back than that.</p></sc-if>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= BROADCASTS ================= -->
+<sc-if value="{{ isBroadcasts }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Broadcasts" style="display:flex;flex-direction:column;gap:20px">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">Your shows</h1>
+    <p style="margin:0;font:400 17px/1.45 var(--font-body);color:#A39D94">10 shows · 16h 25m live in total. Shows are getting shorter, and fewer people stay for the whole thing.</p>
+  </div>
+  <div style="background:#181614;border-radius:26px;overflow:hidden">
+    <div style="display:grid;grid-template-columns:{{ bcCols }};gap:16px;padding:14px {{ rowPad }};font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63"><span>STARTED</span><span style="display:{{ chipDisp }}">FROM</span><span>ON AIR</span><span style="text-align:right">PEAK</span></div>
+    <sc-for list="{{ shows }}" as="b" hint-placeholder-count="10">
+      <div sc-camel-on-click="{{ b.toggle }}" style="border-top:1px solid rgba(244,241,236,.06);cursor:pointer;background:{{ b.bg }}" style-hover="background:#1D1A17">
+        <div style="display:grid;grid-template-columns:{{ bcCols }};gap:16px;align-items:center;padding:14px {{ rowPad }}">
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span style="font:600 15px var(--font-body)">{{ b.day }}</span><span style="font:500 12px var(--font-mono);color:#6F6A63">{{ b.time }}</span></div>
+          <span style="font:500 14px var(--font-body);color:#A39D94;display:{{ chipDisp }}">{{ b.src }}</span>
+          <div style="display:flex;align-items:center;gap:12px;min-width:0"><div style="flex:1;height:6px;border-radius:3px;background:#221F1C;overflow:hidden"><div style="height:100%;width:{{ b.w }};background:#F4F1EC;border-radius:3px"></div></div><span style="width:64px;font:500 13px var(--font-mono);color:#A39D94">{{ b.dur }}</span></div>
+          <span style="font:700 16px var(--font-mono);text-align:right">{{ b.peak }}</span>
+        </div>
+        <sc-if value="{{ b.open }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:0 22px 18px">
+            <div style="background:#0E0D0C;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:6px"><span style="font:600 10px var(--font-mono);letter-spacing:.1em;color:#6F6A63">PEAK AT</span><span style="font:600 16px var(--font-mono)">{{ b.peakAt }}</span></div>
+            <div style="background:#0E0D0C;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:6px"><span style="font:600 10px var(--font-mono);letter-spacing:.1em;color:#6F6A63">TRACKS PLAYED</span><span style="font:600 16px var(--font-mono)">{{ b.tracks }}</span></div>
+            <div style="background:#0E0D0C;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:6px"><span style="font:600 10px var(--font-mono);letter-spacing:.1em;color:#6F6A63">AUDIO LOST</span><span style="font:600 16px var(--font-mono);color:#5FD39A">0 s</span></div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= SETTINGS ================= -->
+<sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Settings" style="display:flex;flex-direction:column;gap:20px">
+  <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">Station settings</h1>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font:700 18px var(--font-display)">Profile</span><span sc-camel-on-click="{{ openEdit }}" style="font:600 13px var(--font-body);color:#C9B8FF;cursor:pointer">Edit</span></div>
+        <div style="display:flex;gap:14px;align-items:center"><div style="width:60px;height:60px;border-radius:16px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 6px,#221F1C 6px 12px)"></div><div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span style="font:700 16px var(--font-display)">{{ station.name }} <span style="font:600 11px var(--font-body);background:#221F1C;color:#A39D94;padding:3px 7px;border-radius:7px">{{ station.genre }}</span></span><span style="font:500 14px/1.4 var(--font-body);color:#A39D94">{{ station.desc }}</span></div></div>
+      </div>
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px">
+        <span style="font:700 18px var(--font-display)">Links on your player page</span>
+        <sc-for list="{{ links }}" as="l" hint-placeholder-count="0">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;background:#0E0D0C"><span style="flex:1;font:500 14px var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.url }}</span><span sc-camel-on-click="{{ l.remove }}" style="font:600 12px var(--font-body);color:#6F6A63;cursor:pointer">Remove</span></div>
+        </sc-for>
+        <sc-if value="{{ noLinks }}" hint-placeholder-val="{{ true }}"><span style="font:500 14px/1.45 var(--font-body);color:#A39D94">Nothing here yet. Add the places listeners can follow you — socials, a homepage, wherever your music lives.</span></sc-if>
+        <div style="display:flex;gap:8px">
+          <input value="{{ linkDraft }}" sc-camel-on-change="{{ onLinkDraft }}" sc-camel-on-key-down="{{ onLinkKey }}" placeholder="instagram.com/nightshiftradio" style="flex:1;min-width:0;height:44px;border-radius:14px;border:0;background:#221F1C;color:#F4F1EC;padding:0 14px;font:500 14px var(--font-body);outline:none">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="subtle" sc-camel-on-click="{{ addLink }}" style="height:44px" hint-size="80px,40px">Add</x-import>
+        </div>
+      </div>
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px">
+        <span style="font:700 18px var(--font-display)">When you’re usually live</span>
+        <span style="font:500 14px/1.45 var(--font-body);color:#A39D94">Shown on your player page so listeners know when to come back. Nothing starts on its own — you still go live from the studio.</span>
+        <sc-for list="{{ showTimes }}" as="s" hint-placeholder-count="2">
+          <div style="display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:18px;background:#1D1A17">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font:600 15px var(--font-body)">{{ s.name }}</span><span style="font:600 14px var(--font-mono);color:#A39D94">{{ s.time }}</span></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ s.days }}" as="d" hint-placeholder-count="7"><span sc-camel-on-click="{{ d.toggle }}" style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:600 12px var(--font-body);cursor:pointer;background:{{ d.bg }};color:{{ d.ink }}">{{ d.label }}</span></sc-for>
+            </div>
+          </div>
+        </sc-for>
+        <span style="font:500 13px var(--font-body);color:#6F6A63">Times are Europe/London. Listeners see them in their own time zone.</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:4px">
+        <span style="font:700 18px var(--font-display);margin-bottom:8px">Where listeners find you</span>
+        <sc-for list="{{ streamRows }}" as="r" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:12px 0;border-top:1px solid rgba(244,241,236,.06)">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span style="font:600 11px var(--font-mono);letter-spacing:.1em;color:#6F6A63">{{ r.k }}</span><span sc-camel-on-click="{{ r.copy }}" style="font:600 12px var(--font-body);color:#A39D94;cursor:pointer">Copy</span></div>
+            <span style="font:500 14px var(--font-mono);word-break:break-all">{{ r.v }}</span>
+            <span style="font:500 13px var(--font-body);color:#6F6A63">{{ r.note }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px">
+        <div sc-camel-on-click="{{ toggleAdv }}" style="display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer"><div style="display:flex;flex-direction:column;gap:4px"><span style="font:700 18px var(--font-display)">Use your own DJ software</span><span style="font:500 13px var(--font-body);color:#A39D94">Optional. Skip this if you go live from the browser.</span></div><span style="font:600 14px var(--font-mono);color:#6F6A63">{{ advGlyph }}</span></div>
+        <sc-if value="{{ advOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <span style="font:500 14px/1.5 var(--font-body);color:#A39D94;margin-bottom:8px">Pick <b style="color:#F4F1EC">Icecast 2</b> as the server type and fill in these five values. Works with BUTT, Mixxx, RadioDJ, Audio Hijack and ffmpeg.</span>
+            <sc-for list="{{ encRows }}" as="r" hint-placeholder-count="5">
+              <div style="display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid rgba(244,241,236,.06)"><span style="font:500 13px var(--font-body);color:#A39D94">{{ r.k }}</span><span style="font:500 14px var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.v }}</span><span sc-camel-on-click="{{ r.copy }}" style="font:600 12px var(--font-body);color:#A39D94;cursor:pointer">{{ r.action }}</span></div>
+            </sc-for>
+            <div style="display:flex;flex-direction:column;gap:2px;margin-top:10px">
+              <sc-for list="{{ tips }}" as="t" hint-placeholder-count="4">
+                <div sc-camel-on-click="{{ t.toggle }}" style="padding:12px 14px;border-radius:14px;background:#1D1A17;cursor:pointer;display:flex;flex-direction:column;gap:6px;margin-top:6px"><div style="display:flex;justify-content:space-between;gap:10px"><span style="font:600 14px var(--font-body)">{{ t.q }}</span><span style="font:600 13px var(--font-mono);color:#6F6A63">{{ t.glyph }}</span></div><sc-if value="{{ t.open }}" hint-placeholder-val="{{ false }}"><span style="font:500 13px/1.5 var(--font-body);color:#A39D94">{{ t.a }}</span></sc-if></div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="border-radius:26px;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;border:1.5px solid rgba(244,241,236,.14)">
+        <div style="display:flex;flex-direction:column;gap:4px"><span style="font:700 16px var(--font-display)">Delete this station</span><span style="font:500 13px var(--font-body);color:#A39D94">The link stops working and every track is removed.</span></div>
+        <span sc-camel-on-click="{{ openDelStation }}" style="height:40px;padding:0 16px;border-radius:14px;display:flex;align-items:center;font:700 14px var(--font-body);color:#FF8177;background:rgba(244,241,236,.06);cursor:pointer">Delete station…</span>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ================= ACCOUNT ================= -->
+<sc-if value="{{ isAccount }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Account" style="display:flex;flex-direction:column;gap:20px;max-width:820px">
+  <h1 style="margin:0;font:800 42px/1 var(--font-display);letter-spacing:-0.04em">Account</h1>
+  <div style="background:#33260F;border-radius:26px;padding:24px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="display:flex;align-items:center;gap:10px"><span style="font:600 11px/1 var(--font-mono);letter-spacing:.08em;background:#FFB547;color:#1A1206;padding:5px 8px;border-radius:7px">PRO</span><span style="font:800 24px var(--font-display);letter-spacing:-0.03em;color:#FFD48A">You’re on Pro</span></span><span style="font:500 14px/1.45 var(--font-body);color:#FFD48A">Up to 1,000 listeners at once, AutoDJ, embeds and 3 GB of music. Renews Nov 1.</span></div>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="pro" sc-camel-on-click="{{ toastBilling }}" hint-size="140px,40px">Manage billing</x-import>
+  </div>
+  <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px">
+    <span style="font:700 18px var(--font-display)">Profile</span>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Name" value="{{ acct.name }}" on-change="{{ onAcctName }}" hint-size="100%,72px"></x-import>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Email" value="{{ acct.email }}" on-change="{{ onAcctEmail }}" hint-size="100%,72px"></x-import>
+    <div style="display:flex"><x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="primary" disabled="{{ acct.clean }}" sc-camel-on-click="{{ saveAcct }}" hint-size="130px,40px">Save changes</x-import></div>
+  </div>
+  <div style="background:#181614;border-radius:26px;padding:24px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:4px"><span style="font:700 18px var(--font-display)">Password</span><span style="font:500 13px var(--font-body);color:#A39D94">Changing it signs you out everywhere else.</span></div>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Current password" type="password" value="" hint-size="100%,72px"></x-import>
+    <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="New password" type="password" value="" hint-size="100%,72px"></x-import>
+    <div style="display:flex"><x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" dc-props="{{ btnS }}" variant="ghost" sc-camel-on-click="{{ toastPw }}" hint-size="150px,40px">Update password</x-import></div>
+  </div>
+  <div style="border-radius:26px;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;border:1.5px solid rgba(244,241,236,.14)">
+    <div style="display:flex;flex-direction:column;gap:4px"><span style="font:700 16px var(--font-display)">Delete your account</span><span style="font:500 13px var(--font-body);color:#A39D94">Removes your stations, music and show history for good.</span></div>
+    <span sc-camel-on-click="{{ openDelAcct }}" style="height:40px;padding:0 16px;border-radius:14px;display:flex;align-items:center;font:700 14px var(--font-body);color:#FF8177;background:rgba(244,241,236,.06);cursor:pointer">Delete account…</span>
+  </div>
+</div>
+</sc-if>
+
+    </div>
+    <sc-if value="{{ isPhone }}" hint-placeholder-val="{{ false }}">
+      <div style="position:fixed;left:0;right:0;bottom:0;z-index:45">
+        <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TabBar" tabs="{{ tabs }}" value="{{ tabValue }}" on-change="{{ onTab }}" hint-size="100%,60px"></x-import>
+      </div>
+    </sc-if>
+  </main>
+
+  <!-- drawer on narrow -->
+  <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+    <div sc-camel-on-click="{{ closeDrawer }}" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:60"></div>
+    <aside style="position:fixed;left:0;top:0;bottom:0;width:280px;max-width:84vw;background:#0E0D0C;z-index:61;display:flex;flex-direction:column;gap:18px;padding:20px 14px">
+      <div style="display:flex;align-items:baseline;padding:4px 8px;font:700 22px/1 var(--font-display);letter-spacing:-0.03em"><span>Go</span><span style="color:#9B7BFF">Cast</span><span style="color:#6F6A63">.fm</span></div>
+      <nav style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ nav }}" as="n" hint-placeholder-count="8">
+          <div sc-camel-on-click="{{ n.go }}" style="display:flex;align-items:center;justify-content:space-between;height:48px;padding:0 12px;border-radius:12px;cursor:pointer;font:{{ n.font }};color:{{ n.color }};background:{{ n.bg }}"><span>{{ n.label }}</span><sc-if value="{{ n.hasDot }}" hint-placeholder-val="{{ false }}"><span style="width:8px;height:8px;border-radius:50%;background:{{ n.dotColor }}"></span></sc-if></div>
+        </sc-for>
+      </nav>
+    </aside>
+  </sc-if>
+
+  <!-- notes panel -->
+  <sc-if value="{{ notesVisible }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;right:20px;bottom:20px;width:340px;max-width:calc(100vw - 40px);max-height:{{ notesMaxH }};overflow-y:auto;overflow-x:hidden;background:#221F1C;border-radius:24px;box-shadow:0 20px 40px -10px rgba(0,0,0,.6);padding:18px;z-index:50;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;align-items:center;gap:8px;font:600 11px var(--font-mono);letter-spacing:.1em;color:#FFB547"><span style="width:7px;height:7px;border-radius:50%;background:#FFB547"></span>WHAT CHANGED · {{ crumbUpper }}</span><span sc-camel-on-click="{{ closeNotes }}" style="font:600 13px var(--font-body);color:#A39D94;cursor:pointer">Hide</span></div>
+      <sc-for list="{{ notes }}" as="t" hint-placeholder-count="4">
+        <div style="display:flex;gap:10px"><span style="font:600 12px var(--font-mono);color:#6F6A63;width:18px;flex:none;padding-top:2px">{{ t.n }}</span><span style="font:500 13px/1.45 var(--font-body);color:#F4F1EC;text-wrap:pretty">{{ t.text }}</span></div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- toast -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#2A2723;color:#F4F1EC;border-radius:16px;padding:14px 18px;box-shadow:0 20px 40px -10px rgba(0,0,0,.6);z-index:90;display:flex;align-items:center;gap:10px;font:600 14px var(--font-body);white-space:nowrap"><span style="width:8px;height:8px;border-radius:50%;background:#5FD39A"></span>{{ toast }}</div>
+  </sc-if>
+
+  <!-- countdown -->
+  <sc-if value="{{ st.countdown }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;z-index:100;background:#FF5A4E;color:#1A0806;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px">
+      <span style="font:600 14px var(--font-mono);letter-spacing:.1em">GOING LIVE ON {{ stationUpper }}</span>
+      <span style="font:700 240px/1 var(--font-mono);letter-spacing:-0.06em">{{ count }}</span>
+      <span sc-camel-on-click="{{ cancelCountdown }}" style="font:700 15px var(--font-body);cursor:pointer;padding:12px 20px;border-radius:14px;background:rgba(26,8,6,.12)">Cancel</span>
+    </div>
+  </sc-if>
+
+  <!-- MODALS -->
+  <sc-if value="{{ hasModal }}" hint-placeholder-val="{{ false }}">
+    <div sc-camel-on-click="{{ closeModal }}" style="position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto">
+      <div sc-camel-on-click="{{ stop }}" style="width:100%;max-width:{{ modalW }};background:#1B1916;border-radius:30px;box-shadow:0 20px 40px -10px rgba(0,0,0,.6);padding:26px;display:flex;flex-direction:column;gap:18px;max-height:calc(100vh - 40px);overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font:800 24px/1.1 var(--font-display);letter-spacing:-0.03em">{{ modal.title }}</span><span style="font:500 14px/1.45 var(--font-body);color:#A39D94;text-wrap:pretty">{{ modal.sub }}</span></div>
+          <span sc-camel-on-click="{{ closeModal }}" style="width:36px;height:36px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center;background:rgba(244,241,236,.08);cursor:pointer;font:500 18px var(--font-body);color:#A39D94">×</span>
+        </div>
+
+        <sc-if value="{{ m.edit }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:14px;align-items:center;padding:14px;border-radius:18px;background:#0E0D0C;border:1.5px dashed rgba(244,241,236,.14)"><div style="width:56px;height:56px;border-radius:14px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 6px,#221F1C 6px 12px)"></div><div style="display:flex;flex-direction:column;gap:3px"><span style="font:600 14px var(--font-body)">Drop artwork here</span><span style="font:500 12px var(--font-body);color:#6F6A63">Square, up to 2 MB. Shown on your player page.</span></div></div>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Name" value="{{ draft.name }}" on-change="{{ onDraftName }}" hint-size="100%,72px"></x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Genre" value="{{ draft.genre }}" on-change="{{ onDraftGenre }}" hint-size="100%,72px"></x-import>
+          <label style="display:flex;flex-direction:column;gap:6px;background:#181614;border-radius:16px;padding:12px 16px"><span style="font:600 12px var(--font-body);color:#A39D94">Description</span><textarea value="{{ draft.desc }}" sc-camel-on-change="{{ onDraftDesc }}" rows="3" style="background:transparent;border:0;outline:none;resize:none;color:#F4F1EC;font:500 16px/1.45 var(--font-body);padding:0"></textarea></label>
+          <span style="font:500 12px var(--font-mono);color:#6F6A63">gocast.fm/night-shift-radio · the link never changes</span>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" sc-camel-on-click="{{ saveEdit }}" hint-size="100%,52px">Save changes</x-import>
+        </sc-if>
+
+        <sc-if value="{{ m.qr }}" hint-placeholder-val="{{ false }}">
+          <div style="align-self:center;width:240px;height:240px;border-radius:24px;background:#F4F1EC;padding:22px;display:grid;grid-template-columns:repeat(21,1fr);gap:0">
+            <sc-for list="{{ qr }}" as="c" hint-placeholder-count="0"><span style="aspect-ratio:1;background:{{ c }}"></span></sc-for>
+          </div>
+          <span style="align-self:center;font:500 13px var(--font-mono);color:#A39D94">{{ link }}</span>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" sc-camel-on-click="{{ toastDownload }}" hint-size="100%,52px">Download PNG</x-import>
+        </sc-if>
+
+        <sc-if value="{{ m.embed }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:18px;background:#0E0D0C"><div style="width:52px;height:52px;border-radius:12px;flex:none;background:repeating-linear-gradient(135deg,#2A2723 0 6px,#221F1C 6px 12px)"></div><div style="flex:1;display:flex;flex-direction:column;gap:4px"><span style="font:700 15px var(--font-display)">{{ station.name }}</span><span style="font:600 10px var(--font-mono);letter-spacing:.1em;color:{{ band.sideColor }}">{{ band.lampText }}</span></div><span style="width:44px;height:44px;border-radius:50%;background:#F4F1EC;color:#0E0D0C;display:flex;align-items:center;justify-content:center;font:700 14px var(--font-body)">▶</span></div>
+          <pre style="margin:0;padding:16px;border-radius:18px;background:#0E0D0C;font:500 12.5px/1.6 var(--font-mono);color:#A39D94;white-space:pre-wrap;word-break:break-all">{{ embedCode }}</pre>
+          <span style="font:500 13px/1.45 var(--font-body);color:#6F6A63">Stretches to fit its container. Listeners on your site count toward your audience like any other.</span>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" sc-camel-on-click="{{ copyEmbed }}" hint-size="100%,52px">Copy code</x-import>
+        </sc-if>
+
+        <sc-if value="{{ m.share }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+            <sc-for list="{{ shareTargets }}" as="s" hint-placeholder-count="4"><div sc-camel-on-click="{{ s.go }}" style="height:52px;border-radius:16px;background:#221F1C;display:flex;align-items:center;justify-content:center;font:700 15px var(--font-body);cursor:pointer" style-hover="background:#2A2723">{{ s.label }}</div></sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ m.newPl }}" hint-placeholder-val="{{ false }}">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Playlist name" value="{{ plDraft }}" on-change="{{ onPlDraft }}" placeholder="e.g. Morning Calm" hint-size="100%,72px"></x-import>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" disabled="{{ plDraftEmpty }}" sc-camel-on-click="{{ createPl }}" hint-size="100%,52px">Create playlist</x-import>
+        </sc-if>
+
+        <sc-if value="{{ m.jingles }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:18px;background:#181614"><div style="display:flex;flex-direction:column;gap:3px"><span style="font:600 15px var(--font-body)">Play jingles</span><span style="font:500 12px var(--font-body);color:#6F6A63">Changes apply live — you stay on air.</span></div><x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Switch" checked="{{ jinglesOn }}" tone="onair" on-change="{{ toggleJingles }}" hint-size="40px,24px"></x-import></div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 13px var(--font-body);color:#A39D94">At most once every</span>
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Segmented" options="{{ jingleOpts }}" value="{{ jingleEvery }}" on-change="{{ setJingleEvery }}" hint-size="100%,48px"></x-import>
+            <span style="font:500 13px/1.45 var(--font-body);color:#6F6A63">{{ jingleNote }}</span>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{ jingles }}" as="j" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid rgba(244,241,236,.06)"><div style="flex:1;display:flex;flex-direction:column;gap:3px"><span style="font:600 14px var(--font-body)">{{ j.name }}</span><span style="font:500 12px var(--font-mono);color:#6F6A63">{{ j.file }}</span></div><span style="font:500 12px var(--font-mono);color:#A39D94">{{ j.len }}</span><span sc-camel-on-click="{{ j.remove }}" style="font:600 12px var(--font-body);color:#6F6A63;cursor:pointer">Remove</span></div>
+            </sc-for>
+            <div sc-camel-on-click="{{ toastUpload }}" style="margin-top:8px;padding:18px;border-radius:18px;border:1.5px dashed rgba(244,241,236,.14);text-align:center;font:600 14px var(--font-body);color:#A39D94;cursor:pointer">Drop a clip here, or browse</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ m.slot }}" hint-placeholder-val="{{ false }}">
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="Name" value="{{ slot.name }}" on-change="{{ onSlotName }}" placeholder="e.g. Breakfast" hint-size="100%,72px"></x-import>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font:600 13px var(--font-body);color:#A39D94">Plays</span>
+            <sc-for list="{{ slotPls }}" as="p" hint-placeholder-count="2">
+              <div sc-camel-on-click="{{ p.sel }}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;cursor:pointer;background:{{ p.bg }}"><span style="width:12px;height:12px;border-radius:4px;background:{{ p.swatch }}"></span><span style="flex:1;font:600 15px var(--font-body)">{{ p.name }}</span><span style="font:500 12px var(--font-mono);color:#6F6A63">{{ p.meta }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 13px var(--font-body);color:#A39D94">From</span><div style="display:flex;align-items:center;height:52px;border-radius:16px;background:#0E0D0C"><span sc-camel-on-click="{{ fromDown }}" style="width:46px;text-align:center;cursor:pointer;font:600 18px var(--font-mono);color:#A39D94">−</span><span style="flex:1;text-align:center;font:600 18px var(--font-mono)">{{ slot.fromText }}</span><span sc-camel-on-click="{{ fromUp }}" style="width:46px;text-align:center;cursor:pointer;font:600 18px var(--font-mono);color:#A39D94">+</span></div></div>
+            <div style="display:flex;flex-direction:column;gap:6px"><span style="font:600 13px var(--font-body);color:#A39D94">To</span><div style="display:flex;align-items:center;height:52px;border-radius:16px;background:#0E0D0C"><span sc-camel-on-click="{{ toDown }}" style="width:46px;text-align:center;cursor:pointer;font:600 18px var(--font-mono);color:#A39D94">−</span><span style="flex:1;text-align:center;font:600 18px var(--font-mono)">{{ slot.toText }}</span><span sc-camel-on-click="{{ toUp }}" style="width:46px;text-align:center;cursor:pointer;font:600 18px var(--font-mono);color:#A39D94">+</span></div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span style="font:600 13px var(--font-body);color:#A39D94">Every</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{ slotDays }}" as="d" hint-placeholder-count="7"><span sc-camel-on-click="{{ d.toggle }}" style="width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:600 13px var(--font-body);cursor:pointer;background:{{ d.bg }};color:{{ d.ink }}">{{ d.label }}</span></sc-for></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" disabled="{{ slot.invalid }}" sc-camel-on-click="{{ doneSlot }}" style="flex:1" hint-size="100%,52px">Done</x-import>
+            <sc-if value="{{ slot.isEdit }}" hint-placeholder-val="{{ false }}"><span sc-camel-on-click="{{ deleteSlot }}" style="padding:0 14px;font:700 14px var(--font-body);color:#FF8177;cursor:pointer;white-space:nowrap">{{ slot.deleteLabel }}</span></sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ m.endShow }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:10px">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="ghost" size="m" sc-camel-on-click="{{ closeModal }}" style="flex:1" hint-size="100%,52px">Keep going</x-import>
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" sc-camel-on-click="{{ endShow }}" style="flex:1" hint-size="100%,52px">End show</x-import>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ m.del }}" hint-placeholder-val="{{ false }}">
+          <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font:500 14px/1.45 var(--font-body);color:#F4F1EC">
+            <sc-for list="{{ delList }}" as="x" hint-placeholder-count="3"><li>{{ x }}</li></sc-for>
+          </ul>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.TextField" label="{{ delLabel }}" value="{{ delTyped }}" on-change="{{ onDelTyped }}" error="{{ false }}" hint-size="100%,72px"></x-import>
+          <div style="display:flex;gap:10px">
+            <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="subtle" size="m" sc-camel-on-click="{{ closeModal }}" style="flex:1" hint-size="100%,52px">{{ delKeep }}</x-import>
+            <div sc-camel-on-click="{{ doDelete }}" style="flex:1;height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;font:700 16px var(--font-body);background:{{ delBtn.bg }};color:{{ delBtn.ink }};cursor:{{ delBtn.cursor }}">Delete forever</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ m.library }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{ libRows }}" as="l" hint-placeholder-count="12">
+              <div sc-camel-on-click="{{ l.toggle }}" style="display:flex;align-items:center;gap:12px;padding:11px 6px;border-top:1px solid rgba(244,241,236,.06);cursor:pointer;border-radius:10px" style-hover="background:#221F1C">
+                <span style="width:22px;height:22px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;font:700 12px var(--font-mono);background:{{ l.boxBg }};color:#0E0D0C">{{ l.mark }}</span>
+                <span style="flex:1;min-width:0;font:600 14px var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.title }} <span style="color:#6F6A63;font-weight:500">· {{ l.artist }}</span></span>
+                <span style="font:500 12px var(--font-mono);color:#A39D94">{{ l.len }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <x-import component-from-global-scope="GoCastDesignSystem_78b1a8.Button" variant="primary" size="m" disabled="{{ libNone }}" sc-camel-on-click="{{ addFromLib }}" hint-size="100%,52px">{{ libLabel }}</x-import>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+</div>
+  </div>
+  </div>
+</div>
+</x-dc>
+
+
+
+<div id="__claude_design_branding"><a href="https://claude.com/product/design" target="_blank" rel="noopener noreferrer"><svg width="14" height="14" viewBox="0 0 20 21" fill="none" aria-hidden="true"><path fill="currentColor" d="M9.99902 0C15.5258 0.000170936 19.999 4.50643 19.999 10.0547C19.999 11.7656 19.5863 12.9976 18.7861 13.8203C17.9924 14.6362 16.9465 14.9138 15.9854 15.0078C15.05 15.0993 14.0097 15.0262 13.2549 15.0186C12.8524 15.0145 12.5177 15.0267 12.2441 15.0703C11.9682 15.1144 11.8143 15.1813 11.7305 15.2432C11.4745 15.4322 11.3353 15.7121 11.2656 16.1602C11.2303 16.3875 11.2168 16.6362 11.209 16.9131C11.2017 17.1715 11.1986 17.4893 11.1807 17.7705C11.1469 18.2975 11.0495 19.0865 10.4199 19.5908C9.7846 20.0996 8.88652 20.1057 7.85449 19.877C7.36399 19.7682 6.88652 19.6232 6.42578 19.4453C2.66989 17.9949 0.000187748 14.3414 0 10.0547C0 4.50643 4.47223 0.000171048 9.99902 0ZM9.99902 1.60547C5.36781 1.60564 1.60547 5.38391 1.60547 10.0547C1.60566 13.6582 3.84823 16.7296 7.00391 17.9482C7.39027 18.0974 7.79085 18.2184 8.20215 18.3096C9.1375 18.5169 9.384 18.3633 9.41602 18.3379C9.4524 18.3087 9.54558 18.1915 9.5791 17.668C9.5947 17.4239 9.59473 17.1786 9.60352 16.8672C9.61179 16.5742 9.62831 16.2435 9.67969 15.9131C9.78359 15.2455 10.0474 14.4906 10.7764 13.9521C11.1479 13.6778 11.5842 13.5493 11.9912 13.4844C12.4007 13.4191 12.8434 13.4088 13.2705 13.4131C14.1753 13.4222 15.0071 13.4905 15.8291 13.4102C16.6257 13.3322 17.2249 13.1235 17.6357 12.7012C18.0401 12.2855 18.3935 11.5261 18.3936 10.0547C18.3936 5.38391 14.6302 1.60564 9.99902 1.60547ZM5.11621 9.86719C5.86386 9.91468 6.45486 10.5348 6.45508 11.2939C6.45506 12.0838 5.81519 12.7245 5.02539 12.7246C4.28481 12.7246 3.67573 12.1617 3.60254 11.4404L3.59473 11.2939L3.60156 11.1533C3.66942 10.4596 4.23282 9.91186 4.93359 9.86719H5.11621ZM14.9814 7.19141C15.729 7.23889 16.3199 7.85919 16.3203 8.61816C16.3203 9.40801 15.6804 10.0487 14.8906 10.0488C14.1501 10.0487 13.5409 9.48586 13.4678 8.76465L13.46 8.61816L13.4668 8.47754C13.5348 7.78403 14.0983 7.23618 14.7988 7.19141H14.9814ZM6.4541 4.93457C7.20161 4.9822 7.79275 5.60231 7.79297 6.36133C7.79288 7.151 7.15291 7.7917 6.36328 7.79199C5.62274 7.79199 5.01369 7.22903 4.94043 6.50781L4.93262 6.36133L4.93945 6.2207C5.00731 5.52698 5.5707 4.97922 6.27148 4.93457H6.4541ZM11.3867 3.59668C12.1343 3.64419 12.7253 4.26436 12.7256 5.02344C12.7256 5.81326 12.0857 6.45393 11.2959 6.4541C10.5553 6.4541 9.94622 5.89123 9.87305 5.16992L9.86523 5.02344L9.87207 4.88281C9.93996 4.18912 10.5033 3.64133 11.2041 3.59668H11.3867Z"></path></svg><span>Made with Claude Design</span></a><button type="button" aria-label="Dismiss" onclick="this.parentElement.remove()"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button></div></body></html>

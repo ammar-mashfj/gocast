@@ -23,7 +23,7 @@ export default function Body() {
         </li>
         <li>
           <strong>Your show times</strong>, if you have set any under{" "}
-          <strong>Show times</strong>{" "}in Station settings &mdash; &ldquo;Mon&ndash;Fri at 7pm&rdquo; and the like.
+          <strong>When you’re usually live</strong>{" "}in Station settings &mdash; &ldquo;Mon&ndash;Fri at 7pm&rdquo; and the like.
           These are advertising, not automation: they tell listeners when to
           come back and change nothing about what your station plays.
         </li>
@@ -38,7 +38,7 @@ export default function Body() {
         alt="A station player page: large artwork, the station name and description, Follow and Share buttons, social links, and a player bar along the bottom showing what is on air."
         width={3360}
         height={2010}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>When You Are Off Air</h2>

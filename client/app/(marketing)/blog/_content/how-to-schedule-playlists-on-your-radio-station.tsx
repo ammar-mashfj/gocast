@@ -35,7 +35,7 @@ export default function Body() {
         alt="Six scheduled slots: Breakfast, Drive time, a News at Six bulletin on weekdays from 6pm, a Podcast replay on Wednesday evenings, After hours on Friday and Saturday nights, and Weekend brunch."
         width={1558}
         height={778}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         Underneath, the same week is drawn out so you can see the shape of it
@@ -47,7 +47,7 @@ export default function Body() {
         alt="A week grid from midnight to midnight, with coloured bars showing when each playlist plays: music through the day, a short news block every weekday evening, a podcast on Wednesday, and a late-night slot that wraps past midnight into the following day."
         width={1558}
         height={309}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         Look at Friday and Saturday night in that picture. A slot that runs
@@ -67,7 +67,7 @@ export default function Body() {
         alt="The music library with a playlist rail on the left listing Main rotation, Morning Coffee, Afternoon Drive, News Bulletin, The Long Way Round, Late Night and Weekend Sessions, and the tracks of the selected playlist on the right."
         width={1562}
         height={673}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         A few things worth knowing about how they behave:
@@ -139,7 +139,7 @@ export default function Body() {
         alt="An On now bar reading: News Bulletin, until 18:30, then Main rotation."
         width={1565}
         height={88}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
       <p>
         The same line shows on your station page, above the tracks that are
@@ -151,7 +151,7 @@ export default function Body() {
         alt="The AutoDJ rotation card on the station page, showing News Bulletin playing until 18:30 then Main rotation, with the two bulletins queued underneath."
         width={1186}
         height={169}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>How the Switch Actually Happens</h2>
@@ -161,12 +161,18 @@ export default function Body() {
         company.
       </p>
       <p>
-        <strong>Slots change at the next track boundary, never mid-song.</strong>{" "}
+        <strong>By default, slots change at the next track boundary, never mid-song.</strong>{" "}
         If your drive-time slot starts at 16:00 and a six-minute track started
         at 15:58, drive time starts when that track ends. In practice a slot
-        can begin a couple of minutes after the time written next to it. If you
-        need something to hit the top of the hour exactly, that&#39;s a live
-        broadcast, not a slot.
+        can begin a couple of minutes after the time written next to it.
+      </p>
+      <p>
+        <strong>Or switch on &ldquo;Start exactly on time&rdquo;.</strong>{" "}
+        Then the slot starts on the dot. As 16:00 gets close, AutoDJ picks a
+        song from a shuffled playlist that ends in time, and if none does, it
+        fades out the song that is playing right at 16:00. With only a few
+        seconds left it starts the slot up to 20 seconds early rather than play
+        a fragment.
       </p>
       <p>
         <strong>Going live still beats everything.</strong> A slot decides what
@@ -245,10 +251,9 @@ export default function Body() {
         week.
       </p>
       <p>
-        And to be straight about the edges: there are no per-slot jingle rules
-        yet (jingle settings are station-wide), no one-off dated shows, and no
-        way to make a slot start hard on the minute. Those are on the list
-        rather than in the product.
+        And to be straight about the edges: jingle settings are station-wide
+        rather than per slot, and there are no one-off dated shows yet. Those
+        are on the list rather than in the product.
       </p>
 
       <h2>Who Gets It</h2>
@@ -292,10 +297,11 @@ export default function Body() {
 
       <h3>Does the schedule start exactly on time?</h3>
       <p>
-        Close to it. A slot takes over at the next track boundary rather than
-        cutting a song in half, so it can start a couple of minutes late. For
-        something that has to begin on the minute, go live &mdash; that takes
-        over instantly.
+        Your choice, slot by slot. A slot normally takes over at the next track
+        boundary rather than cutting a song in half, so it can start a couple
+        of minutes late. Switch on <strong>Start exactly on time</strong>{" "}and
+        it starts on the dot: AutoDJ picks a song that ends in time, or fades
+        out the one playing.
       </p>
 
       <h3>What happens if I go live during a scheduled slot?</h3>

@@ -29,6 +29,22 @@ export function notificationLevelClass(level: string): string {
 }
 
 /**
+ * The dot that leads an Updates row (the prototype's feed): lit by level
+ * while unread, a faint step once read. Same colour rule as the icons above.
+ */
+const LEVEL_DOTS: Record<NotificationLevel, string> = {
+  info: "bg-foreground",
+  success: "bg-on-air-text",
+  warning: "bg-foreground",
+  error: "bg-error",
+}
+
+export function notificationDotClass(level: string, unread: boolean): string {
+  if (!unread) return "bg-surface-strong"
+  return LEVEL_DOTS[level as NotificationLevel] ?? LEVEL_DOTS.info
+}
+
+/**
  * The badge number, as the backend says it should be rendered.
  *
  * The ceiling comes from the API (`capped_at`) rather than from a constant
