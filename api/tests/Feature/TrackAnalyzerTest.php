@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\AnalyzeTrack;
 use App\Services\TrackAnalyzer;
 use Illuminate\Support\Facades\Process;
 
@@ -247,7 +248,13 @@ it('gives the queue job a timeout the process timeout fits inside', function () 
     // the only one in force, and it SIGKILLed the worker under any long mix.
     config()->set('liquidsoap.analysis_timeout_seconds', 120);
 
-    expect((new App\Jobs\AnalyzeTrack('track', 4620.4))->timeout)->toBe(608)
-        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBe(150)
-        ->and((new App\Jobs\AnalyzeTrack('track'))->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
+    expect((new AnalyzeTrack('track', 4620.4))->timeout)->toBe(608)
+        ->and((new AnalyzeTrack('track'))->timeout)->toBe(150)
+        ->and((new AnalyzeTrack('track'))->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
+});
+
+it('runs track analysis on its own queue', function () {
+    // Served by its own worker, --queue=analysis (gocast-analysis.service). On
+    // `default`, a batch of uploads held verification codes back for ~15 minutes.
+    expect((new AnalyzeTrack('track'))->queue)->toBe('analysis');
 });

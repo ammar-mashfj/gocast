@@ -1,0 +1,47 @@
+[Unit]
+Description=GoCast realtime queue worker (dashboard pushes)
+# Redis backs the queue. MySQL is not needed: StationStateChanged carries
+# scalars and never touches the database.
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+WorkingDirectory=__APP_ROOT__/api
+
+# ONLY `realtime`: StationStateChanged broadcasts to Ably, one short HTTP call
+# each (~30-100 ms measured on prod). Kept apart from `default` on purpose —
+# see the --queue comment in gocast-queue.service for the 2026-10-10 stall a
+# shared worker caused. Alone, this worker can block on `realtime` as long as
+# it likes; nothing waits behind it.
+#
+# Drop this unit and every dashboard push waits forever (the dashboard falls
+# back to its 10s status poll, so nothing breaks — it just stops being live).
+#
+# --max-time recycles it hourly for the same reason as gocast-queue: a code
+# deploy is invisible to a long-lived worker until it restarts.
+ExecStart=/usr/bin/php artisan queue:work --queue=realtime --tries=3 --timeout=30 --max-time=3600
+
+# Graceful `queue:restart` exits 0; without Restart=always the deploy would
+# leave pushes dead.
+Restart=always
+RestartSec=5
+
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-realtime
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

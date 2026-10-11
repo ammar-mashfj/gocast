@@ -88,15 +88,16 @@ class StationStateChanged implements ShouldBroadcast, ShouldDispatchAfterCommit
     }
 
     /**
-     * Its own queue, ahead of `default`.
+     * Its own queue, with its own worker.
      *
-     * Production runs ONE worker (infra/native/systemd/gocast-queue.service),
-     * and the default queue carries uploads and track analysis — jobs that
-     * take tens of seconds. A push that exists to beat a ten-second poll
-     * cannot sit behind one of those. The worker is started with
-     * `--queue=realtime,default`, so it drains this queue before it looks at
-     * the other; a worker started WITHOUT that flag never consumes this
-     * queue and every broadcast waits forever.
+     * A push that exists to beat a ten-second poll cannot sit behind an email
+     * or a track analysis, so it never shares their queue. It does not share
+     * their WORKER either (infra/native/systemd/gocast-realtime.service runs
+     * `--queue=realtime` alone): with `block_for` set, a worker serving
+     * `realtime,default` only reaches `default` after 5s of quiet here, and
+     * on 2026-10-10 a retry loop kept it from ever being quiet that long.
+     * Rename this and that unit's flag together, or every broadcast waits
+     * forever.
      */
     public function broadcastQueue(): string
     {

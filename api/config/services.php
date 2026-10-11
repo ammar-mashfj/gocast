@@ -72,6 +72,11 @@ return [
         // service by name, which is correct in both dev and prod — this is not
         // the public listener URL (NEXT_PUBLIC_ICECAST_URL).
         'url' => env('ICECAST_INTERNAL_URL', 'http://127.0.0.1:8000'),
+
+        // Icecast's <limits><sources>. One per running station, not per live
+        // broadcaster. setup-native.sh renders it into icecast.xml from this
+        // same variable, and stations:sync-listeners warns at 80% of it.
+        'max_sources' => (int) env('ICECAST_MAX_SOURCES', 150),
     ],
 
 ];

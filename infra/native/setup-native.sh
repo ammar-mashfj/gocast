@@ -180,7 +180,7 @@ done
 echo "  ✓ pool + ini for php${PHP_VERSION} (fpm, cli)"
 
 echo "==> systemd units"
-for unit in gocast-queue gocast-scheduler gocast-client; do
+for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client; do
   render "$NATIVE/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
   echo "  ✓ ${unit}.service"
 done
@@ -208,13 +208,14 @@ if [[ -z "${ICECAST_SOURCE_PASSWORD:-}" ]]; then
   echo "    (see api/.env.example) and re-run."
 else
   # Same envsubst call the container entrypoint uses, restricted to exactly
-  # these four names so any literal '$' elsewhere in the XML survives.
+  # these names so any literal '$' elsewhere in the XML survives.
   render "$NATIVE/icecast/icecast.xml.tpl" \
     | ICECAST_SOURCE_PASSWORD="$ICECAST_SOURCE_PASSWORD" \
       ICECAST_RELAY_PASSWORD="${ICECAST_RELAY_PASSWORD:-$ICECAST_SOURCE_PASSWORD}" \
       ICECAST_ADMIN_USER="${ICECAST_ADMIN_USER:-admin}" \
       ICECAST_ADMIN_PASSWORD="${ICECAST_ADMIN_PASSWORD:?set in api/.env}" \
-      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_RELAY_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD}' \
+      ICECAST_MAX_SOURCES="${ICECAST_MAX_SOURCES:-150}" \
+      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_RELAY_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD} ${ICECAST_MAX_SOURCES}' \
     > /etc/icecast2/icecast.xml
   chown root:icecast /etc/icecast2/icecast.xml
   chmod 0640 /etc/icecast2/icecast.xml

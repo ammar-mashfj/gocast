@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Station;
+use App\Services\AdminTelegram;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -42,7 +43,15 @@ class SyncListenerCounts extends Command
      */
     public const REDIS_TTL_SECONDS = 300;
 
-    public function handle(): int
+    /**
+     * Share of Icecast's `<sources>` limit at which the admin is warned. Every
+     * running station holds one source, and the one past the limit is refused
+     * outright: on 2026-10-10 the limit was 50 and the 51st station retried
+     * against it every five seconds for an hour.
+     */
+    public const SOURCE_WARN_RATIO = 0.8;
+
+    public function handle(AdminTelegram $telegram): int
     {
         $baseUrl = rtrim((string) config('services.icecast.url'), '/');
         $adminUser = (string) config('services.icecast.admin_user');
@@ -97,7 +106,34 @@ class SyncListenerCounts extends Command
 
         $this->info("Synced {$synced} stations, {$totalListeners} listeners total.");
 
+        // After the counts, not before: the alert can wait up to 10s on
+        // Telegram, and the listener numbers must not wait with it.
+        $this->warnNearSourceLimit($telegram, count($countsByMount));
+
         return self::SUCCESS;
+    }
+
+    /**
+     * One mount per connected source, so the mount count IS the number of
+     * sources Icecast is holding against its limit.
+     */
+    private function warnNearSourceLimit(AdminTelegram $telegram, int $sources): void
+    {
+        $limit = (int) config('services.icecast.max_sources');
+
+        if ($limit <= 0 || $sources < (int) ceil($limit * self::SOURCE_WARN_RATIO)) {
+            return;
+        }
+
+        $this->warn("Icecast is holding {$sources} of {$limit} sources.");
+
+        $telegram->opsAlert(
+            'icecast-sources',
+            "⚠️ <b>Icecast near its source limit</b>\n"
+            ."{$sources} of {$limit} sources in use. The station past the limit is refused.\n"
+            .'Raise ICECAST_MAX_SOURCES in api/.env and re-run setup-native.sh.',
+            quietMinutes: 60,
+        );
     }
 
     /**

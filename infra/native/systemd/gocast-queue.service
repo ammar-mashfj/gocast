@@ -28,14 +28,15 @@ Environment=DOCKER_HOST=__DOCKER_HOST__
 # restart; deploy-native.sh restarts this unit explicitly, and the hourly
 # bound is the backstop for when someone deploys by hand.
 #
-# --queue=realtime,default: station lifecycle broadcasts (StationStateChanged)
-# go on `realtime` so they are never stuck behind a track-analysis job on
-# `default`. The worker drains the first queue before it looks at the second.
-# Drop `realtime` from this list and every broadcast waits forever. With
-# `block_for` set (config/queue.php) the worker blocks up to 5s on `realtime`
-# before checking `default`, so ordinary jobs pick up at most that much
-# latency — accepted, because nothing on `default` is latency-sensitive.
-ExecStart=/usr/bin/php artisan queue:work --queue=realtime,default --tries=3 --timeout=60 --max-time=3600
+# --queue=default: emails, verification codes, stop checks. `realtime` and
+# `analysis` each have a unit of their own (gocast-realtime.service,
+# gocast-analysis.service), and no worker serves two queues. With `block_for`
+# set (config/queue.php) a worker given `a,b` blocks on `a` and only looks at
+# `b` after 5s with nothing arriving on `a`. On 2026-10-10 this worker ran
+# --queue=realtime,default: one Icecast retry loop kept `realtime` from ever
+# going quiet that long, and `default` waited an hour on a worker that was
+# idle 97% of the time.
+ExecStart=/usr/bin/php artisan queue:work --queue=default --tries=3 --timeout=60 --max-time=3600
 
 # `queue:restart` sets a flag the worker checks between jobs and then exits
 # 0. Without Restart=always that graceful exit would stop the service for

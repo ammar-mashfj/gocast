@@ -116,3 +116,48 @@ it('authenticates to the admin API with the configured credentials', function ()
             && $request->hasHeader('Authorization', 'Basic '.base64_encode('admin:secret'));
     });
 });
+
+it('warns the admin once Icecast holds 80% of its source limit', function (int $sources, bool $alerted) {
+    config([
+        'services.icecast.max_sources' => 10,
+        'services.telegram.bot_token' => 'bot-token',
+        'services.telegram.admin_chat_id' => '42',
+    ]);
+
+    $mounts = [];
+    foreach (range(1, $sources) as $i) {
+        $mounts["/stream/s{$i}"] = 0;
+    }
+
+    Http::fake([
+        'icecast:8000/admin/stats' => Http::response(icecastStats($mounts)),
+        'api.telegram.org/*' => Http::response(['ok' => true]),
+    ]);
+
+    artisan('stations:sync-listeners')->assertSuccessful();
+
+    Http::assertSentCount($alerted ? 2 : 1);
+})->with([
+    'below the threshold' => [7, false],
+    'at the threshold' => [8, true],
+]);
+
+it('does not repeat the source-limit warning every minute', function () {
+    config([
+        'services.icecast.max_sources' => 10,
+        'services.telegram.bot_token' => 'bot-token',
+        'services.telegram.admin_chat_id' => '42',
+    ]);
+
+    Http::fake([
+        'icecast:8000/admin/stats' => Http::response(icecastStats(array_fill_keys(
+            array_map(fn (int $i) => "/stream/s{$i}", range(1, 9)), 0,
+        ))),
+        'api.telegram.org/*' => Http::response(['ok' => true]),
+    ]);
+
+    artisan('stations:sync-listeners')->assertSuccessful();
+    artisan('stations:sync-listeners')->assertSuccessful();
+
+    Http::assertSentCount(3); // two stats polls, one alert
+});

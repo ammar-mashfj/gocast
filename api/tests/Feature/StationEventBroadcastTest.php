@@ -2,6 +2,7 @@
 
 use App\Events\StationStateChanged;
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
@@ -81,6 +82,19 @@ it('broadcasts nothing for a station that does not exist', function () {
     Event::assertNotDispatched(StationStateChanged::class);
 });
 
+it('broadcasts every retry of a refused source, repeats included', function () {
+    // A repeat is not skipped: if the event in between was lost (the container
+    // posts fire-and-forget), skipping it would hide a real change.
+    foreach (['icecast_error', 'icecast_error', 'icecast_connected', 'icecast_error'] as $event) {
+        postBroadcastEvent(['slug' => 'broadcasting-station', 'event' => $event])->assertOk();
+    }
+
+    expect(Event::dispatched(StationStateChanged::class)->map(fn (array $args) => $args[0]->event)->all())
+        ->toBe(['icecast_error', 'icecast_error', 'icecast_connected', 'icecast_error']);
+
+    expect(StationEvent::query()->where('type', 'icecast_error')->count())->toBe(3);
+});
+
 it('carries a signal, not a status', function () {
     postBroadcastEvent(['slug' => 'broadcasting-station', 'event' => 'live_connected'])->assertOk();
 
@@ -112,9 +126,8 @@ it('queues ahead of uploads and track analysis', function () {
     postBroadcastEvent(['slug' => 'broadcasting-station', 'event' => 'live_connected'])->assertOk();
 
     Event::assertDispatched(StationStateChanged::class, function (StationStateChanged $e) {
-        // One worker in production, and `default` carries jobs that run for
-        // tens of seconds. The worker is started with --queue=realtime,default
-        // (infra/native/systemd/gocast-queue.service); rename this and that
+        // Served by its own worker, --queue=realtime
+        // (infra/native/systemd/gocast-realtime.service); rename this and that
         // flag together or broadcasts wait forever.
         expect($e->broadcastQueue())->toBe('realtime');
 
