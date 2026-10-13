@@ -37,6 +37,8 @@ export function RunningOrderCard({
   const input = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [clearing, setClearing] = useState(false)
+  // Clearing IndexedDB takes a moment; the dialog holds until it's done.
+  const [clearPending, setClearPending] = useState(false)
   const { tracks, savedSpot } = queue
 
   if (queue.unavailable) {
@@ -147,9 +149,15 @@ export function RunningOrderCard({
         <ConfirmDialog
           open={clearing}
           onOpenChange={setClearing}
+          busy={clearPending}
           onConfirm={async () => {
-            await queue.clear()
-            setClearing(false)
+            setClearPending(true)
+            try {
+              await queue.clear()
+            } finally {
+              setClearPending(false)
+              setClearing(false)
+            }
           }}
           title="Clear your running order?"
           description="The files are removed from this browser, and the saved spot with them. The files on your computer aren’t touched."

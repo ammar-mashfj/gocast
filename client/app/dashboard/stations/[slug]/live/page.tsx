@@ -110,7 +110,9 @@ export default function GoLivePage() {
   // Cancel. Leaving the page instead (the unmount above) hands nothing back:
   // the sweep takes a station nobody connected to off air by itself.
   function back() {
-    if (state === "ready" || state === "connecting") {
+    // 'error' too: a check that failed after `POST /start` (mic denied, engine
+    // error) still turned the station on, and Back must hand it back.
+    if (state === "ready" || state === "connecting" || state === "error") {
       void stop({ releaseStation: autoDjLocked ? "if-started-here" : false })
     }
     setPressed(false)
@@ -256,6 +258,16 @@ export default function GoLivePage() {
           <Link href={`/dashboard/stations/${station.slug}`} className="text-muted-foreground hover:text-foreground">
             Not now
           </Link>
+          {/* The other way on air: BUTT or Mixxx connect to the station
+              itself. Its address, key and "Put it on air" are in settings. */}
+          {station.encoder && (
+            <>
+              <span aria-hidden>·</span>
+              <Link href={`/dashboard/stations/${station.slug}/settings#encoder`} className="text-muted-foreground hover:text-foreground">
+                Using DJ software instead?
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>

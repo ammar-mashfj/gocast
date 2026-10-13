@@ -45,11 +45,14 @@ export function useMicPreview(enabled: boolean) {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     try {
       let next: MediaStream
+      const saved = deviceId ? undefined : savedMicDeviceId()
       try {
-        next = await openMic(deviceId ?? savedMicDeviceId())
+        next = await openMic(deviceId ?? saved)
       } catch (err) {
-        // A remembered device that's gone (unplugged): fall back to the default.
-        if (!deviceId && err instanceof DOMException && err.name !== "NotAllowedError") next = await openMic()
+        // A remembered device that's gone (unplugged): fall back to the
+        // default. Only when there was one to fall back from: with no saved
+        // device the retry would be the same call, and the same prompt, twice.
+        if (saved && err instanceof DOMException && err.name !== "NotAllowedError") next = await openMic()
         else throw err
       }
       if (superseded()) {
@@ -68,6 +71,10 @@ export function useMicPreview(enabled: boolean) {
     } catch (err) {
       // Released while the prompt was up: release() already said `idle`.
       if (superseded()) return
+      // The old stream was stopped above; holding on to it would leave the
+      // meter dead and the picker on a device that isn't open.
+      streamRef.current = null
+      setStream(null)
       const name = err instanceof DOMException ? err.name : ""
       setState(name === "NotAllowedError" || name === "SecurityError" ? "blocked" : "none")
     }

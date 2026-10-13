@@ -1,6 +1,6 @@
 ---
 feature: Free-tier watermark ("powered by GoCast" clips)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-11 against 3ccc644 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Services/WatermarkClipLibrary.php
   - api/app/Jobs/ReloadWatermarkClips.php
@@ -56,12 +56,12 @@ There is **no station column** for it and it is absent from `UpdateStationReques
 
 ### Where it sits in the audio graph
 
-`api/resources/views/liquidsoap/station.blade.php`, section "Free-tier watermark" (about lines 974 to 1073). It is built only when the rendered var `$watermarkSupported` is true (`config('liquidsoap.watermark_enabled')`, passed by `LiquidsoapSupervisor` at about line 1195). Otherwise the script has `broadcast_source = listener_source`.
+`api/resources/views/liquidsoap/station.blade.php`, section "Free-tier watermark" (about lines 886 to 969). It is built only when the rendered var `$watermarkSupported` is true (`config('liquidsoap.watermark_enabled')`, passed by `LiquidsoapSupervisor::renderLiq()` at about line 1185). Otherwise the script has `broadcast_source = listener_source`.
 
 When supported:
 
 - `watermark = playlist(id="watermark", "/data/system", mode="randomize", reload_mode="never", on_fail=...)`. It points at a **directory**, so several clips rotate at random and an **empty directory** just makes the source unavailable (`on_fail` logs at level 2 "station plays unmarked" and returns an empty list). Station start never depends on a clip existing.
-- Three interactive variables, initial values rendered from config and plan: `watermark_enabled` (bool), `watermark_interval` (float, seconds), `watermark_duck` (float). Their names are the `VAR_WATERMARK_*` constants in `LiquidsoapSupervisor`.
+- Three interactive variables, initial values rendered from config and plan: `watermark_enabled` (bool), `watermark_interval` (float, seconds), `watermark_duck` (float). Their names are the `VAR_WATERMARK_*` constants in `LiquidsoapSupervisor`. One exception to "from plan": `configFingerprint()` (the label `stations:reconcile` compares to decide a container was started on an outdated script, image or docker flags) renders the script with `watermarkEnabled` forced to false (`renderLiq($station, fingerprint: true)`), so an owner's plan change does not read as drift and get the station recreated; the live push below is what carries a plan change.
 - `watermark_due()` = `watermark_enabled() and (live.is_ready() or autodj_mix.is_ready())`. So it never plays into the silence bed (an ID alone into an empty stream would read as a fault).
 - `watermark_arm = source.available(delay(initial=true, watermark_interval, watermark), watermark_due)`. `delay(initial=true, ...)` means the first clip is **not** immediate: it waits one full interval after the container's start, then plays a clip each interval.
 - `broadcast_source = smooth_add(duration=<fade>, p=watermark_duck, normal=listener_source, special=watermark_arm)`. `p` is the fraction of the station audio **kept** during the clip (0.15 = station at 15%, about -16 dB). `duration` is the ramp down and back, in seconds, fixed at render time.
@@ -148,5 +148,5 @@ All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 9
 
 ## History
 
-- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off, should never appear in user-facing copy, and was decided on 2026-10-01 to be removed system-wide (not done yet; everything above is still in the code). The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
+- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off, should never appear in user-facing copy, and was decided on 2026-10-01 to be removed system-wide (not done yet as of 2026-10-11; everything above is still in the code, and the only change since 2026-10-04 is the fingerprint exception noted under "Where it sits in the audio graph"). The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
 - Related features: [Liquidsoap station script](liquidsoap-station-script.md), [Liquidsoap supervisor](liquidsoap-supervisor.md), [Accounts, plans and invites](accounts-plans-invites.md), [Admin panel](admin-panel.md), [AutoDJ](autodj.md).

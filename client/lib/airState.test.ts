@@ -84,6 +84,16 @@ describe("airState — from the poll", () => {
     })
   })
 
+  it("doesn't blame AutoDJ for the silence before this tab goes live", () => {
+    const quiet = status({ source: "silence", now_playing: null })
+    for (const broadcastState of ["ready", "connecting"] as const) {
+      expect(airState(input({ status: quiet, broadcastState, autoDjLocked: true }))).toMatchObject({
+        label: "GOING LIVE",
+        action: null,
+      })
+    }
+  })
+
   it("warns when the station runs but nobody can hear it", () => {
     expect(airState(input({ status: status({ state: "degraded" }) }))).toMatchObject({ tone: "warn", label: "NOT HEARD" })
   })

@@ -89,7 +89,7 @@ export default function PricingSection() {
               pricing page reads as a catch being hidden. It also hands the
               reader the exact reason Pro exists, which is the card next door. */}
           <p className="text-body-sm text-text-faint">
-            One station. Broadcast mic, files or both — it plays while your browser is open, and goes quiet when you close it.
+            Broadcast mic, files or both. It plays while your browser is open, and goes quiet when you close it.
           </p>
           <Button asChild size="lg" full className="mt-auto">
             <Link href="/auth/register" className="no-underline">Start broadcasting free</Link>

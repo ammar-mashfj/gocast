@@ -28,7 +28,9 @@ class StreamSessionController extends Controller
      *
      * `summary` covers every finished show, not just this page: the page's
      * "12 shows · 16h 25m live in total" used to be added up from the 20 rows
-     * it had, and had to say "your latest 20" to stay honest.
+     * it had, and had to say "your latest 20" to stay honest. Only page 1
+     * carries it: it scans the station's whole history, and "Show more" pages
+     * have no use for it.
      */
     public function index(Request $request, Station $station): JsonResponse
     {
@@ -38,6 +40,10 @@ class StreamSessionController extends Controller
             ->when($request->boolean('finished'), fn ($q) => $q->whereNotNull('ended_at'))
             ->latest('started_at')
             ->paginate(20);
+
+        if ($page->currentPage() !== 1) {
+            return response()->json($page->toArray());
+        }
 
         $summary = $station->streamSessions()
             ->whereNotNull('ended_at')

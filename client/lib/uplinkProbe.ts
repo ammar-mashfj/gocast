@@ -21,8 +21,10 @@ import { BITRATE_TIERS, type Bitrate } from './audioEngine'
 /** Big enough to get past TCP slow start on an ordinary line, small enough to finish on a bad one. */
 const PROBE_BYTES = 96 * 1024
 /**
- * Past this the answer is already "too slow": 96 KB in 10s is under 80 kbps,
- * below what even the lowest tier needs.
+ * Past this much transfer time the answer is already "too slow": 96 KB in
+ * 10s is under 80 kbps, below what even the lowest tier needs. The upload's
+ * own timeout adds the measured overhead on top, so a high-latency line gets
+ * the full 10s to move the bytes.
  */
 const PROBE_TIMEOUT_MS = 10000
 /**
@@ -90,12 +92,13 @@ export async function measureUplink(): Promise<number> {
 
   const bits = PROBE_BYTES * 8
   try {
-    const totalMs = await timedPost(randomBody(PROBE_BYTES), PROBE_TIMEOUT_MS)
+    const totalMs = await timedPost(randomBody(PROBE_BYTES), PROBE_TIMEOUT_MS + overheadMs)
     // A fast line can finish inside the overhead's own jitter.
     const transferMs = Math.max(totalMs - overheadMs, 1)
     return Math.round(bits / transferMs)
   } catch (err) {
-    // Out of time is itself the measurement: slower than this.
+    // Out of time is itself the measurement: more than PROBE_TIMEOUT_MS of
+    // transfer, so slower than this.
     if (axios.isAxiosError(err) && (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')) {
       return Math.round(bits / PROBE_TIMEOUT_MS)
     }

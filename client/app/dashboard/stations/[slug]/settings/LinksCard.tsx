@@ -6,7 +6,7 @@ import axios from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import type { SocialLink, Station } from "@/interfaces/Station"
-import { MAX_SOCIAL_LINKS, normalizeSocialUrl, resolveSocialLink } from "@/lib/socialLinks"
+import { MAX_SOCIAL_LINKS, normalizeSocialUrl, resolveSocialLink, suggestSocialLabel } from "@/lib/socialLinks"
 import { Button } from "@/components/ds/Button"
 import { Card, CardHeader } from "@/components/ds/Card"
 import { Input } from "@/components/ds/Field"
@@ -15,10 +15,11 @@ import { Input } from "@/components/ds/Field"
  * Where listeners can find the station off GoCast, shown on the player page.
  *
  * Paste an address and press Add (or Enter): it saves straight away, and so
- * does Remove. There's no name field: the icon and name come from the address
- * (a globe and the site's name for anything we don't recognise). A name saved
- * before this card existed is kept, because every save sends the whole list
- * back as it was.
+ * does Remove. The icon and name come from the address (a globe and the
+ * site's hostname for anything we don't recognise); the optional name field
+ * is for that globe, so a Ko-fi or a personal site reads as "Tip jar" rather
+ * than "ko-fi.com". Names are set when a link is added, and kept as they
+ * were on every save, because every save sends the whole list back.
  *
  * Saved as one full-list PUT: the links have no ids, and their order is the
  * array's order.
@@ -27,7 +28,11 @@ export function LinksCard({ station }: { station: Station }) {
   const router = useRouter()
   const [links, setLinks] = useState<SocialLink[]>(station.social_links ?? [])
   const [draft, setDraft] = useState("")
+  const [name, setName] = useState("")
   const [saving, setSaving] = useState(false)
+  // What the link would be called with no name: the platform, else the host.
+  // Shown as the name field's placeholder, so typing one is only for the globe.
+  const suggested = suggestSocialLabel(normalizeSocialUrl(draft))
 
   const full = links.length >= MAX_SOCIAL_LINKS
 
@@ -62,7 +67,13 @@ export function LinksCard({ station }: { station: Station }) {
       toast.error("That link is already on your player page.")
       return
     }
-    if (await save([...links, { label: null, url }], "Link added")) setDraft("")
+    // A name that only repeats the suggestion is no name: the platform's own
+    // is kept, and a later rename of the platform follows it.
+    const label = name.trim() && name.trim() !== suggested ? name.trim() : null
+    if (await save([...links, { label, url }], "Link added")) {
+      setDraft("")
+      setName("")
+    }
   }
 
   return (
@@ -104,7 +115,7 @@ export function LinksCard({ station }: { station: Station }) {
         <p className="text-body-sm text-text-faint">{MAX_SOCIAL_LINKS} links is the most a player page shows. Remove one to add another.</p>
       ) : (
         <form
-          className="flex gap-2"
+          className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
             e.preventDefault()
             void add()
@@ -118,6 +129,14 @@ export function LinksCard({ station }: { station: Station }) {
             aria-label="Link address"
             maxLength={2048}
             className="min-w-0 flex-1"
+          />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={suggested || "Name (optional)"}
+            aria-label="Link name (optional)"
+            maxLength={30}
+            className="min-w-0 sm:w-40"
           />
           <Button type="submit" variant="subtle" disabled={saving || draft.trim() === ""}>
             {saving ? "Saving…" : "Add"}

@@ -26,7 +26,8 @@ export function ShowsLinks({
   truncated: boolean
   timeZone: string | null
 }) {
-  const r = liveShows(sessions, new Date(), truncated)
+  // The station's days: this renders on the server, whose midnight is UTC.
+  const r = liveShows(sessions, new Date(), truncated, timeZone ?? "UTC")
   const liveHint = r.count === 0 ? "none in the last 14 days" : `${formatAirtime(r.seconds)} in the last 14 days`
 
   const latest = sessions[0]

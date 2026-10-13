@@ -1,9 +1,10 @@
 ---
 feature: AutoDJ (playback, rotation order, handover)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-11 against 3ccc644 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Services/AutoDjScheduler.php
   - api/app/Services/AutoDjProgramme.php
+  - api/app/Services/JingleClock.php
   - api/app/Services/PlaylistFileWriter.php
   - api/app/Services/PlaylistTracks.php
   - api/app/Services/TrackAnalysis.php
@@ -41,6 +42,7 @@ sources:
   - api/database/migrations/2026_09_20_134241_create_playlist_track_table.php
   - api/database/migrations/2026_09_20_134242_backfill_default_playlists.php
   - api/database/migrations/2026_09_20_141103_add_autodj_last_playlist_id_to_stations_table.php
+  - api/database/migrations/2026_10_06_120000_add_hard_starts_and_jingle_clock.php
   - client/hooks/useStationStatus.ts
   - client/hooks/useTrackProgress.ts
   - client/interfaces/StationStatus.ts
@@ -51,13 +53,15 @@ sources:
   - client/app/dashboard/stations/[slug]/(overview)/page.tsx
   - api/tests/Feature/NextTrackControllerTest.php
   - api/tests/Feature/AutoDjShuffleTest.php
+  - api/tests/Feature/AutoDjPlanningTest.php
   - client/components/dashboard/overview/OverviewHero.tsx
   - client/components/dashboard/overview/NowPlayingWell.tsx
   - client/lib/stationHero.ts
   - client/lib/airState.ts
   - client/components/dashboard/overview/ComingUpCard.tsx
   - client/lib/comingUp.ts
-  - client/components/dashboard/overview/SetupChecklist.tsx
+  - client/components/dashboard/shell/SetupMenu.tsx
+  - client/lib/setupItems.ts
   - client/hooks/useStationStatusPoll.ts
 fingerprint: d70bc05fd1cf7577
 ---
@@ -91,17 +95,24 @@ In `station.blade.php` the graph is:
 
 ### What Laravel answers (`AutoDjScheduler::next`)
 
-In order:
+`next($station, ?float $remaining)` takes the seconds left on the container's current track from the `X-Gocast-Remaining` header. Every current script sends it; a container rendered before the header existed sends nothing and gets the **unplanned** path. In order:
 
 1. **Plan gate.** `$station->user?->canUseAutoDj()` (`User::canUseAutoDj`: `plan.autodj_enabled`, no plan row means false). If false, return null. This happens *before* anything moves, on purpose: the container keeps polling every retry delay while unentitled, and moving the cursor or dealing a deck on each poll would destroy the running order the owner gets back on re-subscribing. Tested in `NextTrackControllerTest` ("does not move the cursor while it is refusing", "does not deal a new shuffle deck...", "picks the rotation back up unchanged").
-2. **Resolve the playlist** with `AutoDjProgramme::resolve($station)` (slot playlist, or the default playlist; empty slot playlist falls through to default). Null playlist returns null. See [Schedule](schedule.md).
-3. **`noteSwitch`**: if `stations.autodj_last_playlist_id` differs from this playlist, write the new id with `DB::table` (so no observer or `updated_at` fires) and record a `playlist_changed` `StationEvent` (source system; properties `from_playlist_id`, `to_playlist_id`, `playlist`, `slot_id`, `slot`). The column has no foreign key (`char(26)`); a deleted playlist leaves a dangling id, which only means the next boundary logs a change. Monitoring only.
-4. **Advance** by the playlist's `order`: `advanceShuffled` for `shuffle`, otherwise `advanceSequential`.
-5. Return `PlaylistFileWriter::annotateTrack($track, playlist: $playlist->name)`, or null if the playlist had no tracks.
+2. **Unplanned (no header, `nextUnplanned`)**: resolve the playlist with `AutoDjProgramme::resolve($station)` at *now* (slot playlist, or the default playlist; empty slot playlist falls through to default; null playlist returns null, see [Schedule](schedule.md)), `noteSwitch`, advance, annotate. Music only: no jingles for an old container.
+3. **Planned (`nextPlanned`)**: the answer's start is `now + remaining` (`queueStart`; a second ask within 2 s of the last one, while that answer is still to play, is placed after it, from `stations.autodj_queued_at/start/airtime`), plus `leadSeconds()` (the crossfade window when crossfade is on, `LIQUIDSOAP_PLANNING_LEAD_SECONDS` to override). Then:
+   - `nextBoundary`: the next on-time slot start (`AutoDjProgramme::nextHardStart`, within 6 h, slots with an empty playlist ignored) or set-time jingle not yet played. If it is under `hard_start_early_seconds` (20) away, the answer is planned *at* the boundary instead (it starts a little early).
+   - The programme is resolved at that start, not at now. No playlist returns null; so does "jingles on and the playlist has no tracks" (a station of only IDs plays nothing).
+   - `JingleClock`: a set-time jingle that is due (up to 60 s late) wins; otherwise an every-N-songs or interval jingle that is due and fits before the boundary. Jingles are annotated `jingle="true"`; `pick()` avoids the last-played jingle.
+   - Otherwise `noteSwitch`, then advance with a `budget` (seconds to the boundary, or null): a song that would overrun it is either swapped for one that fits (shuffle only) or **cut** to the budget with a fade (`playFor`). A song of unknown length counts as overrunning only when the boundary is under 30 min away. Fit tolerance is 0.5 s.
+   - `songPlayed` bumps `autodj_songs_since_jingle`; `noteQueued` records what was handed out and when it airs.
+
+**`noteSwitch`**: if `stations.autodj_last_playlist_id` differs from this playlist, write the new id with `DB::table` (so no observer or `updated_at` fires) and record a `playlist_changed` `StationEvent` (source system; properties `from_playlist_id`, `to_playlist_id`, `playlist`, `slot_id`, `slot`). The column has no foreign key (`char(26)`); a deleted playlist leaves a dangling id, which only means the next boundary logs a change. Monitoring only.
+
+Every write on this path (cursor, deck, queued, jingle clock) goes through `DB::table`, never `save()`, so a track boundary is never a station edit and `StationObserver` cannot restart a container from it.
 
 ### Sequential order
 
-`advanceSequential`: takes the first track on the playlist relation whose pivot `position` is greater than `playlists.cursor_position` (or the first track if the cursor is null), wraps to the first track when none is left, then writes `cursor_position = that track's pivot position` with `DB::table('playlists')` and syncs the in-memory model. The cursor is a **position number, not a track id**. The order is exactly the owner's drag order in the library (`playlist_track.position`, 1-based, gap-free).
+`advanceSequential`: takes the first track on the playlist relation whose pivot `position` is greater than `playlists.cursor_position` (or the first track if the cursor is null), wraps to the first track when none is left, then writes `cursor_position = that track's pivot position` with `DB::table('playlists')` and syncs the in-memory model. The cursor is a **position number, not a track id**. The order is exactly the owner's drag order in the library (`playlist_track.position`, 1-based, gap-free). With a budget it never skips ahead: the next track is still the next track, cut to the budget if it does not fit.
 
 ### Shuffle order (deck-based)
 
@@ -110,6 +121,7 @@ In order:
 - Shift ids off the front until one resolves via `$playlist->tracks()->whereKey($id)` (dead ids from deleted, removed, or re-categorised-as-jingle tracks are skipped lazily).
 - If none resolves (no deck yet, first shuffle after a switch, or a deck emptied by deletions) it `deal()`s a fresh permutation of all the playlist's tracks and takes the head. If that head then fails to resolve (delete racing in), it returns null and the next request deals again.
 - **Eager refill**: as soon as the last card is taken (`$deck === []`) it deals the next deck immediately with `avoidHead` = the track just taken, so the seam between two decks never puts the same track back to back. If the head equals `avoidHead` and the deck has more than one entry it swaps the head with a random later slot. A one-track playlist repeats that track (guarded by `count > 1`).
+- With a budget, a head card that would overrun it is left in place and the first card further down that fits (`firstFitting`, one query over the rest of the deck) is taken instead; the cards passed over stay where they are, so they still play this cycle. A card of unknown length is never taken that way. When nothing fits, the head plays, cut to the budget.
 - The remaining deck is written back with `json_encode` through `DB::table` (the model cast is bypassed there, so passing the array would store the string "Array").
 
 Result: every track airs exactly once per cycle. There is no "last played" column and no history; "no repeats" is structural. `dealIn()` splices newly added tracks into the *remaining* deck at random offsets so an upload airs this cycle. It is called by `PlaylistTracks::attach` and `replace` (inside their transaction, under the playlist row lock) and does nothing for a sequential playlist or an empty/null deck.
@@ -122,8 +134,9 @@ Switching a playlist between orders is a plain `PATCH /playlists/{playlist}` `or
 
 | Key | Present when | Read by |
 |---|---|---|
-| `jingle="true"` | jingles only (never from `next()`) | crossfade, now-playing push, listener metadata |
-| `liq_cue_in`, `liq_cue_out` | analysed and `TrackAnalysis::cuePoints` keeps them (skipped if playable length under `cue_min_playable_seconds`, default 5, floor 1; an out within 0.05 s of the end is dropped; an in of 0.05 s or less is dropped) | Liquidsoap request layer |
+| `jingle="true"` | jingles, which `next()` hands out like any track when `JingleClock` says one is due | crossfade, now-playing push, listener metadata |
+| `liq_cue_in`, `liq_cue_out` | analysed and `TrackAnalysis::cuePoints` keeps them (skipped if playable length under `cue_min_playable_seconds`, default 5, floor 1; an out within 0.05 s of the end is dropped; an in of 0.05 s or less is dropped). When the planner cuts a song (`playFor`), `liq_cue_out` is forced to cue-in + `playFor` whether or not the track was analysed | Liquidsoap request layer |
+| `liq_fade_out` | only when the planner cuts a song: `min(2.0, playFor)` seconds (`CUT_FADE_SECONDS`) | the crossfade transition, or `fade.out` when crossfade is off |
 | `liq_amplify="<n> dB"` | analysed, `apply_amplify` true, and gain at least 0.1 dB | the `amplify` operator |
 | `duration` | `duration_seconds > 0`; 3 decimals | crossfade |
 | `title`, `artist` | always title; artist if non-blank after trim | metadata, now-playing |
@@ -141,6 +154,7 @@ Amplify gain = target LUFS (`-14`) minus measured loudness, capped so true peak 
 |---|---|
 | Auth | `internal` middleware, `X-Internal-Key` header |
 | Rate limit | `internal` limiter: 300 per minute per client IP (`AppServiceProvider`) |
+| `X-Gocast-Remaining` | optional header, seconds left on the current track (`autodj.remaining()`, 3 decimals; 0 before anything has played); non-numeric or absent means the unplanned path |
 | Validation | `slug` required string, max 255 |
 | Loads | `Station` with `user.plan`, `defaultPlaylist`, `autodjSlots.playlist` |
 | 404 | empty body, unknown slug |
@@ -177,7 +191,7 @@ Owned by [Station lifecycle](station-lifecycle.md); the AutoDJ-specific parts ar
 ## How AutoDJ interacts with live broadcasts
 
 - **Priority.** `fallback(track_sensitive=false, [live, autodj_mix, bed])`: a connected broadcaster takes over immediately mid-track, not at a boundary. The live arm reads from `input.harbor` with `buffer=5.` then `buffer(buffer=2., max=10.)`, so audio switches after about 5 s of harbor pre-buffer (plus the 2 s `buffer()`; the exact figure needs a live container). During that window `broadcaster` is true but `source` is still `autodj`.
-- **Live to AutoDJ.** When the broadcaster disconnects, harbor's `on_disconnect` sets `live_connected := false` and posts `live_disconnected`. The live arm still plays out its buffered audio (`source` stays `live` until it drains), then the fallback falls to AutoDJ. This tail is why the dashboard shows "Handing back to AutoDJ" and polls at 2 s (`useStationStatus.intervalFor`).
+- **Live to AutoDJ.** When the broadcaster disconnects, harbor's `on_disconnect` sets `live_connected := false` and posts `live_disconnected`. The live arm still plays out its buffered audio (`source` stays `live` until it drains), then the fallback falls to AutoDJ. This tail is why the dashboard shows "Handing back to AutoDJ" and polls at 2 s (`useStationStatusPoll.intervalFor`; `useStationStatus` is now a shim that hands out the dashboard's shared poll).
 - **AutoDJ keeps no timer across a show.** The container does not tell Laravel to pause anything. Nothing in `next()` looks at live state; `next()` runs whenever Liquidsoap asks, live or not. What Liquidsoap does with an unselected `request.dynamic` (does it freeze the current track, or has it already fetched the next one) is upstream runtime behaviour: nothing in the script or Laravel decides it, and it can only be observed against a live container. [Schedule](schedule.md) says the next boundary after a show "resolves at that moment"; that is true of when *Laravel* resolves, but the file that plays first after a show may be one already fetched earlier.
 - **Plan interaction.** On a plan without AutoDJ, the AutoDJ arm is silence: a live show ends and the station is silence until the sweeper stops it (`StationAudioPolicy`, see [Station lifecycle](station-lifecycle.md)). `StationAudioPolicy::hasPlayableRotation` deliberately mirrors `next()`: it treats "entitled and the resolved playlist has tracks" as a rotation, so an unentitled or empty station is idle (stoppable), a playable one that produces no sound is a `Fault`.
 - **Metadata during live.** A broadcaster with no title gets the placeholder `liquidsoap.live_broadcast_text` ("Live Broadcast") via `metadata.map(insert_missing=true, ...)`; that then flows through the same now-playing push. See [Encoder ingest](encoder-ingest.md) and [Broadcasting web studio](broadcasting-web-studio.md).
@@ -201,7 +215,7 @@ Fillable: `name`, `order`, `position`. `is_default` is set only with `forceFill`
 
 `playlist_track`: composite primary key (`playlist_id`, `track_id`), `position` uint, both FKs cascade. Deleting a track or a playlist removes rows silently.
 
-Other AutoDJ fields: `stations.autodj_last_playlist_id` (monitoring), `stations.timezone` (slots), `tracks.kind` (`music` or `jingle`; only music can be in a playlist), the analysis columns on `tracks` (`loudness_lufs`, `true_peak_db`, `cue_in_seconds`, `cue_out_seconds`, `analyzed_at`, `analysis_error`), and `plans.autodj_enabled`.
+Other AutoDJ fields: `stations.autodj_last_playlist_id` (monitoring), `stations.timezone` (slots), `tracks.kind` (`music` or `jingle`; only music can be in a playlist), the analysis columns on `tracks` (`loudness_lufs`, `true_peak_db`, `cue_in_seconds`, `cue_out_seconds`, `analyzed_at`, `analysis_error`), and `plans.autodj_enabled`. The planner's own state, added by `2026_10_06_120000_add_hard_starts_and_jingle_clock` (guarded with `hasColumn` because the shared dev DB already had `start_mode` from another branch): `autodj_slots.start_mode` (`soft`/`hard`), `stations.jingle_times` (json, minutes past the hour), `autodj_last_jingle_at`, `autodj_last_jingle_id`, `autodj_songs_since_jingle`, `autodj_queued_at`, `autodj_queued_start`, `autodj_queued_airtime`. All written with the query builder at track boundaries.
 
 The stations table used to hold the cursor, deck and order (`autodj_order`, `autodj_cursor_position`, `autodj_deck`); `2026_09_20_134242_backfill_default_playlists` moved them into each station's default playlist and `..._134243_drop_autodj_columns_from_stations_table` dropped them.
 
@@ -223,18 +237,18 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 
 ### Web dashboard overview
 
-`(overview)/page.tsx` fetches the station, its sessions and its playlists in parallel. It no longer fetches a playlist's tracks: there is no AutoDJ track-preview card on the overview any more. A failed playlists fetch only affects the checklist; 404 or 403 on the station gives `notFound()`, a 401 goes to `/auth/login?expired=1`.
+`(overview)/page.tsx` fetches the station and its sessions in parallel and renders `OverviewHero`, `YourLinkCard`, `ComingUpCard` and `ShowsLinks`. It fetches no playlists and no tracks: there is no AutoDJ track-preview card and no setup checklist on the overview any more (what is left to set up moved to the top bar, `shell/SetupMenu.tsx`). 404 or 403 on the station gives `notFound()`, a 401 goes to the login page.
 
 - **The hero** (`components/dashboard/overview/OverviewHero.tsx`, decisions in `client/lib/stationHero.ts`) on one shared status poll (`useStationStatus` → `StationStatusProvider`):
   - Labels in priority order: NOT REACHING LISTENERS (`degraded`), STARTING, LIVE, OFF AIR, CHECKING / STATUS UNKNOWN (no status yet / no answer), NO SOUND (`source` silence), ON AIR · AUTODJ. LIVE is keyed on `broadcasterAttached` (this tab's broadcast, or `status.broadcaster`, or `live_source` for old containers), not on `state`, but `degraded` and `starting` outrank it.
   - ON AIR · AUTODJ: "Your station is playing itself." and "AutoDJ is on {playlist}. It hands over when you go live, and takes back when you end." (the playlist from `programme`). That handover is wording, not a mechanism (see "How AutoDJ interacts"). During the live tail: "Your show has ended." / "Listeners are hearing its last few seconds." and "Handing back to AutoDJ soon…" when the plan has AutoDJ and the playlist has tracks.
-  - Buttons: Go live whenever nobody is live (Open studio when this tab is live, "Hear your stream ↗" when someone else is). Off air: **"Start AutoDJ" for plans with AutoDJ; only "Go live" for plans without** (`useAutoDjLocked`). Running: "Stop AutoDJ" while AutoDJ plays (confirm "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ, because it drops listeners), else "Turn station off" without a confirm; hidden while another browser is live. An external-encoder stop the API refuses opens "Cut off this broadcast?", which retries with `force: true`. Start AutoDJ toasts "Your station is starting up" (`useStationPower`; the start is only accepted, the band then says what it lands on), and the listener panel says "Your station is starting. Counting begins once it’s on air." until it is.
+  - Buttons: "Go live now" whenever nobody is live ("Open the studio" when this tab is live, "Hear your stream ↗" when someone else is; while the page says live but the first poll is not in, no lead button at all). Off air: **"Start AutoDJ" for plans with AutoDJ; only "Go live now" for plans without** (`useAutoDjLocked`). Running: "Stop AutoDJ" while AutoDJ plays (confirm "Stop AutoDJ on {name}?", Keep playing / Stop AutoDJ, because it drops listeners), else "Turn station off" without a confirm; hidden while another browser is live. An external-encoder stop the API refuses opens "Cut off this broadcast?", which retries with `force: true`. Start AutoDJ toasts "Your station is starting up" (`useStationPower`; the start is only accepted, the band then says what it lands on), and the listener panel says "Your station is starting. Counting begins once it’s on air." until it is.
   - **`NowPlayingWell`** while AutoDJ plays: title · artist from `status.now_playing` (held across the gaps between tracks; cleared on stop and on any broadcaster change), the time left (violet, mono) and a progress bar written per animation frame by `useTrackProgress` (only with `source` `autodj` and a non-negative `remaining`; snap-back tolerance 2.5 s), and "Up next" from `up_next[0]`. "On air — waiting for track info" when the rotation has tracks but no title yet.
   - There is **no Skip button**; it was removed from the overview.
 - **Status pacing**: 2 s with no status yet, while `starting`, during a live tail, and during live takeover; 30 s when `offline`; otherwise 10 s (30 s while the realtime socket is connected), pulled in to `remaining * 1000 + 750 ms` (min 3 s) near a track end so the title updates just after a boundary; back-off up to 30 s on failures (2 s doubling); no reads while the tab is hidden, one on return. Realtime station signals trigger a refetch, coalesced over 120 ms. One poll serves the hero, the status band and the sidebar lamp.
 - **Status band** (every page): ON AIR · AUTODJ with "AutoDJ is playing {title} by {artist}." and Go live; SILENCE (amber) "AutoDJ is on but has nothing to play. Listeners hear silence." with Add tracks (`client/lib/airState.ts`). Right after this tab ends a show it says SHOW ENDED, "Your show has ended. Checking what’s on air now…", until a status read shows the handover done (at most 15 s), rather than guessing from a status that still describes the show.
 - **Coming up** (`ComingUpCard`, `lib/comingUp.ts`): AutoDJ's next slot change from `programme.next`, in violet, beside your next show times.
-- **Setup checklist**: "Fill AutoDJ's playlist" (not on Free) is done when the **default** playlist's `track_count > 0` (from the playlists fetch).
+- **Setup menu** (top bar, `shell/SetupMenu.tsx`, items in `lib/setupItems.ts`): "Fill AutoDJ’s playlist" (omitted when `useAutoDjLocked`) is done when the **default** playlist's `track_count > 0`, from its own `/playlists` fetch; a failed fetch counts as filled so it never nags about a playlist it could not see. The menu disappears once every item is done.
 - `playlist_length` from `/status` is also read by `client/components/studio/EndBroadcast.tsx` and the mobile studio end sheet (`EndSheet` in `mobile/src/components/studio/Sheets.tsx`, fetched only when the plan has AutoDJ) to warn about an empty rotation (web: "Your show stops for everyone listening. AutoDJ has nothing to play, so they hear silence and the station switches off in a few minutes." versus "Your show stops for everyone listening, and they hear AutoDJ straight away."). The mobile copy says "your library is empty", but the number is the resolved playlist's track count, not the library's.
 
 ### Elsewhere
@@ -254,10 +268,10 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 8. **The overview's playlist name can lag the audio.** The hero's "AutoDJ is on {playlist}" comes from `programme` in the server-rendered station, not the poll; a slot boundary passes without it updating until `router.refresh()`. The now-playing title does follow the poll.
 9. **Skip has an API and no UI.** `POST /stations/{slug}/skip` is live (30 per minute per user) but no client in `client/` or `mobile/` calls it; the overview Skip button was removed on 2026-09-26.
 10. **Free plans can build the whole arrangement.** Playlists, memberships, order and slots are not plan-gated (`PlaylistController` says so on purpose); only upload and playback are. A Free owner can end up with slots that never play. `UpdatePlaylistRequest` and the rest also accept edits on a station whose plan has no AutoDJ.
-11. **Crossfade defaults off** (`LIQUIDSOAP_CROSSFADE_ENABLED=false`) and the comment on the config key says it is expected to work on the pinned 2.4.5 but has not been observed working here. Treat every "crossfade" claim in product copy as unshipped unless the env is set.
+11. **Crossfade defaults off** (`LIQUIDSOAP_CROSSFADE_ENABLED=false`) and the comment on the config key still says it has not been observed working here, while `AutoDjScheduler::leadSeconds` and `PlaylistFileWriter` record measurements taken on 2.4.5 *with* a 5 s crossfade window (the two comments disagree; the config one is the stale one). Treat every "crossfade" claim in product copy as unshipped unless the env is set.
 12. **`LIQ_SOURCE = "playlist_m3u"`** names an m3u that no longer exists. Renaming it without relaunching every container breaks skip (and any other telnet call using the constant).
 13. **Stale comments.** `PlaylistController::destroy`'s comment calls the slot cascade "(Phase 3)"; the cascade exists (`autodj_slots.playlist_id` cascades on delete). The `up_next`/`playlist_length` keys are still copied by `StationStatusService::normalize` although the container no longer reports them; they always come out null/empty there and are overwritten by `StationStatusController`.
-14. **Music uploads send a jingle reload.** `TrackImporter` calls `PlaylistFileWriter::reload` after every mutation; for jingle-enabled stations that restarts the jingle list at index 0 even when only music changed. Harmless because the jingle source is randomised.
+14. **Stale "reload" comments in `TrackImporter`.** `destroyMany`'s docblock still says `destroy()` "rewrites the playlist file and reloads Liquidsoap every time"; nothing does. `PlaylistFileWriter` has no `write` or `reload` any more (`StationLifecycleService::start` calls only `ensureDirectory`), and the importer only reads `stationDir`. Nothing is sent to a container on upload or delete.
 15. **The 204 is indistinguishable from "empty".** Support cannot tell "no plan", "no playlist", and "empty playlist" from the container's side. Check `plans.autodj_enabled`, then the resolved playlist's track count.
 16. **Only observable against a live container:** what Liquidsoap does with the fetched-but-unplayed request when live takes the mount, and whether `prefetch` delays a slot switch by a track.
 
@@ -265,6 +279,7 @@ The stations table used to hold the cursor, deck and order (`autodj_order`, `aut
 
 - `api/tests/Feature/NextTrackControllerTest.php`: ordering and wrap, annotate URI, cursor persistence, no touch to the station row, deleted track skipped, jingles excluded, 204 cases, plan gate (does not move cursor or deck, resumes when the plan returns, `plans:expire` silences), 404, internal key required.
 - `api/tests/Feature/AutoDjShuffleTest.php`: once per cycle, seam repeat, eager refill, deck JSON, deleted tracks, one-track repeat, order switch over the API and validation.
+- `api/tests/Feature/AutoDjPlanningTest.php`: the planned path: start time from the header, old-script fallback, the crossfade lead, back-to-back asks, soft and on-time slots (fit, swap from the deck, cut with fade, in-order never skips, early start, landing on time over a run of asks, unknown length, empty on-time playlist), set-time jingles (on the hour, late grace, half-hour zones, sharing a time with a slot), every-N and interval jingles, alternation, the plan gate, and the container-start clock reset.
 - Neighbours: `AutoDjProgrammeTest.php` (resolution), `PlaylistFileWriterTest.php` (URI building), `PlaylistControllerTest.php`, `NowPlayingControllerTest.php`, `StationStatusTest.php`, `PlaylistBackfillMigrationTest.php`.
 - No tests for cursor behaviour after compaction (gap 3), the 429 case (gap 6), or any client component here. The rendered `.liq` behaviour (prefetch, fallback) is only exercised by hand against a container.
 

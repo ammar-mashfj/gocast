@@ -46,6 +46,20 @@ describe("CreateStation", () => {
     expect(screen.getByRole("button", { name: "Create Jazz" })).toBeEnabled()
   })
 
+  it("drops the previous name's link when the next preview fails", async () => {
+    get.mockResolvedValueOnce(previewOf("night-owl")).mockRejectedValue(new Error("429"))
+    render(<CreateStation />)
+
+    await userEvent.type(screen.getByLabelText("Station name"), "Night Owl")
+    await waitFor(() => expect(screen.getAllByText(/night-owl$/)).toHaveLength(2))
+
+    // Typed on, not cleared: clearing resets the link by itself.
+    await userEvent.type(screen.getByLabelText("Station name"), " Show")
+    await waitFor(() => expect(get).toHaveBeenLastCalledWith("/stations/slug-preview", { params: { name: "Night Owl Show" } }))
+    await waitFor(() => expect(screen.getAllByText(/your-link$/)).toHaveLength(2))
+    expect(screen.queryByText(/night-owl$/)).toBeNull()
+  })
+
   it("does not wait for the preview to allow creating", async () => {
     get.mockReturnValue(new Promise(() => {}))
     render(<CreateStation />)

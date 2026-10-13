@@ -68,11 +68,20 @@ function dayIn(date: Date, tz: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(date)
 }
 
+/** The calendar day after a Y-M-D string, as Y-M-D. */
+function nextDay(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)
+}
+
 export function formatWhen(at: Date, tz: string, now: Date): string {
   const time = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(at)
   const day = dayIn(at, tz)
-  if (day === dayIn(now, tz)) return `Today ${time}`
-  if (day === dayIn(new Date(now.getTime() + 86_400_000), tz)) return `Tomorrow ${time}`
+  const today = dayIn(now, tz)
+  if (day === today) return `Today ${time}`
+  // Counted on the calendar, not as now + 24h: on the night the clocks
+  // change, 24 hours from now is still today, or already the day after.
+  if (day === nextDay(today)) return `Tomorrow ${time}`
   const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short" }).format(at)
   return `${weekday} ${time}`
 }

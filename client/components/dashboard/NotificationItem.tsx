@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format"
 import { resolveNotificationAction, notificationDotClass } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/interfaces/Notification"
+import { NotificationIcon } from "@/components/dashboard/NotificationIcon"
 
 interface NotificationItemProps {
   notification: Notification
@@ -60,6 +61,11 @@ export function NotificationItem({
   const content = (
     <>
       <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", notificationDotClass(notification.level, unread))} />
+      {/* The dot says how urgent; the glyph says what about (the payload's
+          icon key), and fades with the title once read. */}
+      <span aria-hidden className={cn("mt-px shrink-0", unread ? "text-foreground" : "text-text-faint")}>
+        <NotificationIcon name={notification.icon} size={16} />
+      </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className={cn("text-sm leading-snug font-semibold", !unread && "text-muted-foreground")}>
           {notification.title}

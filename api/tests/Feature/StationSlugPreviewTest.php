@@ -46,3 +46,19 @@ it('ignores a slug sent with the create request', function () {
 
     expect($response->json('data.slug'))->toBe('night-owl-radio');
 });
+
+it('never mints a slug that a static /stations route already answers to', function () {
+    $this->getJson('/api/stations/slug-preview?name='.urlencode('Slug Preview'))
+        ->assertOk()
+        ->assertJsonPath('data.slug', 'slug-preview-2');
+
+    $response = $this->postJson('/api/stations', ['name' => 'Slug Preview'])->assertCreated();
+    expect($response->json('data.slug'))->toBe('slug-preview-2');
+
+    $this->getJson('/api/stations/slug-preview-2')->assertOk()->assertJsonPath('data.name', 'Slug Preview');
+});
+
+it('refuses a name that could not be created', function () {
+    $this->getJson('/api/stations/slug-preview?name[]=jazz')->assertUnprocessable();
+    $this->getJson('/api/stations/slug-preview?name='.str_repeat('a', 101))->assertUnprocessable();
+});

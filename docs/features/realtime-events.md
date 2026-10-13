@@ -36,6 +36,7 @@ sources:
   - client/contexts/RealtimeContext.tsx
   - client/contexts/StationContext.tsx
   - client/app/dashboard/layout.tsx
+  - client/app/dashboard/stations/[slug]/settings/EncoderCard.tsx
   - client/hooks/useStationStatus.ts
   - client/hooks/useNotifications.ts
   - client/hooks/useListenerCount.ts
@@ -89,9 +90,9 @@ The scalars matter because `stopped` and `shutdown` fire around deletion, and a 
 | `StationEventController::__invoke` | `shutdown`, `icecast_connected`, `icecast_disconnected`, `icecast_error`, `live_connected`, `live_disconnected` (the `BROADCAST_EVENTS` list) | After a Liquidsoap container POSTs its lifecycle event. Sent **last**, after the cache write, `StationEvent::record`, `last_ready_at` update, and `openSession`/`closeSessions`, so the client's refetch sees the session row |
 | `StationEventController` | `boot` is **not** broadcast | It fires before the audio graph is ready, so the station reads `starting` before and after |
 | `NowPlayingController::broadcastTransition` | `audio_started` / `audio_stopped` | Only when the Redis key `metadata:{station id}` goes from absent to present, or present to absent. A normal track change does **not** dispatch (that would be roughly one message per 3.5 minutes per station) |
-| `StationLifecycleService::start` (about line 118) | `started` (`StationEvent::TYPE_STARTED`) | End of the start block, after the container is up and intent is saved |
-| `StationLifecycleService::stop` (about line 278) | `stopped` (`StationEvent::TYPE_STOPPED`) | End of the stop block. Also fires when `stations:sweep` stops a silent station, so an open dashboard notices |
-| `ReconcileStations` (two sites, about lines 208 and 283) | `reconciled` | The reconciler restarted a missing container, or recreated an unhealthy one. The only producer for a container that died |
+| `StationLifecycleService::start` (about line 116) | `started` (`StationEvent::TYPE_STARTED`) | End of the start block, after the container is up and intent is saved |
+| `StationLifecycleService::stop` (about line 276) | `stopped` (`StationEvent::TYPE_STOPPED`) | End of the stop block. Also fires when `stations:sweep` stops a silent station, so an open dashboard notices |
+| `ReconcileStations` (three sites, about lines 236, 311 and 425) | `reconciled` | The reconciler restarted a missing container, recreated an unhealthy one, or recreated an outdated one (its `gocast.config` label no longer matches, nobody broadcasting). The only producer for a container that died |
 
 The container-to-API path (`POST /internal/...` with `X-Internal-Key`, `throttle:internal` at 300/min per IP) is documented in [Station lifecycle](station-lifecycle.md) and [Liquidsoap station script](liquidsoap-station-script.md). `StationEventController` validates `event` against `StationEvent::CONTAINER_TYPES` (unknown gives 422, unknown station 404) before deciding whether to broadcast.
 
@@ -138,6 +139,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 | Surface | Mechanism | Endpoint | Interval / trigger |
 |---|---|---|---|
 | Web dashboard status band, sidebar lamp, overview hero, library, Schedule "Right now", power hook, end-broadcast dialog | Poll **plus** push (`useStationStatus`; one shared poll per dashboard) | `GET /stations/{slug}/status` (auth, `throttle:120,1,station-status`, its own counter) | See below; plus the after-show re-read below |
+| Station settings encoder card, while open (`ConnectionWatcher` in `settings/EncoderCard.tsx`) | Own poll (`intervalMs`) plus the shared poll's `refresh()` | `GET /stations/{slug}/status` | 2 s while the socket is down (`WATCH_POLL_MS`), the normal pushed pacing otherwise |
 | Web dashboard listener count (overview hero `ListeningNow` and the status band, `useListenerCount`, only while on air), studio and status-band show stats (`useBroadcastStats`, while this tab broadcasts) | Poll only (`usePublicStationFeed`) | `GET /public/stations/{slug}/listeners` (`throttle:public`) | 10 s; `useBroadcastStats` keeps polling in a hidden tab |
 | Web public player page, embed | Poll only (`usePublicStationFeed`) | same | 10 s, paused when the tab is hidden |
 | Web homepage hero player | Poll only | same | 10 s, only while `playing` (and paused when hidden) |
@@ -154,7 +156,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 
 Constants: `POLL_STARTING_MS = 2000`, `POLL_STEADY_MS = 10000`, `POLL_OFFLINE_MS = 30000`, `POLL_PUSHED_MS = 30000`, `SIGNAL_COALESCE_MS = 120`, `POLL_FLOOR_MS = 3000`, `TRACK_END_GRACE_MS = 750`, `POLL_MAX_BACKOFF_MS = 30000`.
 
-Signature `useStationStatus(slug, enabled = true, intervalMs?)` (`client/hooks/useStationStatus.ts`); `enabled=false` runs no loop. It returns `{ status, loading, refresh, showEnding }`; `showEnding` comes from the shared provider and is always `false` on an own loop. The dashboard layout mounts `StationStatusProvider` (`client/contexts/StationStatusContext.tsx`), which runs **one** `useStationStatusPoll` for the account's station; any `useStationStatus(slug)` for that slug without `intervalMs` returns that shared loop instead of starting its own. Call sites: `StationBand`, the sidebar lamp (`AppSidebar`), `OverviewHero`, `useStationPower`, `useLibrary`, `ScheduleNow`, all sharing it, and `EndBroadcast` (only while its dialog is open and AutoDJ is not locked; shares the poll when enabled). A caller passing `intervalMs` or another station's slug runs its own loop; no current caller does.
+Signature `useStationStatus(slug, enabled = true, intervalMs?)` (`client/hooks/useStationStatus.ts`); `enabled=false` runs no loop. It returns `{ status, loading, refresh, showEnding }`; `showEnding` comes from the shared provider and is always `false` on an own loop. The dashboard layout mounts `StationStatusProvider` (`client/contexts/StationStatusContext.tsx`), which runs **one** `useStationStatusPoll` for the account's station; any `useStationStatus(slug)` for that slug without `intervalMs` returns that shared loop instead of starting its own. Call sites: `StationBand`, the sidebar lamp (`AppSidebar`), `OverviewHero`, `useStationPower`, `useLibrary`, `ScheduleNow`, all sharing it, and `EndBroadcast` (only while its dialog is open and AutoDJ is not locked; shares the poll when enabled). A caller passing `intervalMs` or another station's slug runs its own loop; the one such caller is the encoder card's `ConnectionWatcher` (Station settings, `settings/EncoderCard.tsx`, mounted only while the card is open): `useStationStatus(slug, true, WATCH_POLL_MS)` with `WATCH_POLL_MS = 2000` watches `live_source` for the DJ software connecting, and a second, shared `useStationStatus(slug)` gives it `refresh()` to nudge the band and overview the moment it does.
 
 The loop is `await read(); setTimeout(tick, next)`, so requests never overlap. The next delay is chosen by `intervalFor(status, pushed)`, first match wins:
 
@@ -166,7 +168,7 @@ The loop is `await read(); setTimeout(tick, next)`, so requests never overlap. T
 
 Failure handling: a failed request returns a sentinel and the next delay is `min(30 s, 2 s * 2^(failures-1))`. Any success resets the counter. The last known status is kept on failure (the UI does not flash to unknown). `refresh()` flattens failure to null.
 
-`intervalMs` override (fixed cadence, its own loop): unused since the go-live encoder dialog was removed. It applies **only while the socket is down**; when `pushed` is true the normal `intervalFor(next, true)` is used, because `live_connected` is pushed.
+`intervalMs` override (fixed cadence, its own loop): used only by the encoder card's connection watcher above. It applies **only while the socket is down**; when `pushed` is true the normal `intervalFor(next, true)` is used, because `live_connected` is pushed.
 
 Signal handling: `onStationSignal` ignores other slugs, ignores a signal whose `at` string is **strictly older** than `lastSignalAt` (same-second signals are kept on purpose), ignores everything while `document.hidden`, and otherwise waits 120 ms (coalescing bursts) and calls `restart()`, which bumps a `generation` counter, clears the timer and ticks immediately. The generation counter stops an in-flight tick from scheduling a second loop.
 

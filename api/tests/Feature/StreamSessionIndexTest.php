@@ -58,7 +58,9 @@ it('pages through past shows', function () {
         ->getJson('/api/stations/jazz/sessions?finished=1&page=2')
         ->assertOk()
         ->assertJsonCount(2, 'data')
-        ->assertJsonPath('last_page', 2);
+        ->assertJsonPath('last_page', 2)
+        // Only page 1 pays for the whole-history summary.
+        ->assertJsonMissingPath('summary');
 });
 
 it('is the owner\'s only', function () {

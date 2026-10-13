@@ -33,6 +33,18 @@ describe("formatWhen", () => {
     expect(formatWhen(new Date(Date.UTC(2026, 9, 1, 23, 30)), "Asia/Tokyo", now)).toBe("Today 08:30")
     expect(formatWhen(new Date(Date.UTC(2026, 9, 2, 15, 30)), "Asia/Tokyo", now)).toBe("Tomorrow 00:30")
   })
+
+  it("still says tomorrow across the night the clocks change", () => {
+    // London springs forward at 01:00 UTC on 29 March 2026: the day is 23
+    // hours long, so 24 hours after Saturday 23:30 is already Monday.
+    const springForward = new Date(Date.UTC(2026, 2, 28, 23, 30))
+    expect(formatWhen(new Date(Date.UTC(2026, 2, 29, 22, 45)), "Europe/London", springForward)).toBe("Tomorrow 23:45")
+    expect(formatWhen(new Date(Date.UTC(2026, 2, 30, 22, 45)), "Europe/London", springForward)).toBe("Mon 23:45")
+    // And the autumn night, 25 hours long: from Sunday 00:30 BST, 24 hours
+    // on is still Sunday, so Monday 00:15 was read as a weekday.
+    const fallBack = new Date(Date.UTC(2026, 9, 24, 23, 30))
+    expect(formatWhen(new Date(Date.UTC(2026, 9, 26, 0, 15)), "Europe/London", fallBack)).toBe("Tomorrow 00:15")
+  })
 })
 
 describe("comingUp", () => {

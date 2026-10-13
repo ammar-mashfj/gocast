@@ -17,7 +17,11 @@ class StationSlugController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
-        $name = trim((string) $request->query('name', ''));
+        // Same bound as StoreStationRequest: a longer name would be refused on
+        // create, so there is no link to preview for it. `string` keeps an
+        // array (`?name[]=`) a 422 rather than a cast warning.
+        $validated = $request->validate(['name' => ['nullable', 'string', 'max:100']]);
+        $name = trim($validated['name'] ?? '');
 
         return response()->json([
             'data' => [

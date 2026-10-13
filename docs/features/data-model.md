@@ -1,6 +1,6 @@
 ---
 feature: Data model (database schema, models, seeded plans)
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-11 against 3ccc644 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/database/migrations/0001_01_01_000000_create_users_table.php
   - api/database/migrations/0001_01_01_000001_create_cache_table.php
@@ -142,13 +142,14 @@ sources:
   - client/interfaces/User.ts
   - api/database/migrations/2026_09_30_120000_add_origin_to_stream_sessions_table.php
   - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
+  - api/database/migrations/2026_10_06_120000_add_hard_starts_and_jingle_clock.php
   - api/app/Services/BroadcastOrigin.php
 fingerprint: eddb6097646b2a54
 ---
 
 # Data model
 
-The database as the code defines it today: 67 migrations replayed in filename order, reconciled against the 20 models in `api/app/Models`, the factories and the seeders. MySQL everywhere, including tests (`api/phpunit.xml` forces `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, and also `CACHE_STORE=array`, `SESSION_DRIVER=array`, `QUEUE_CONNECTION=sync`, so the cache, sessions and jobs tables are idle in tests).
+The database as the code defines it today: 70 migrations replayed in filename order, reconciled against the 20 models in `api/app/Models`, the factories and the seeders. MySQL everywhere, including tests (`api/phpunit.xml` forces `DB_CONNECTION=mysql`, `DB_DATABASE=gocast_test`, and also `CACHE_STORE=array`, `SESSION_DRIVER=array`, `QUEUE_CONNECTION=sync`, so the cache, sessions and jobs tables are idle in tests).
 
 **The one thing people get wrong:** the `plans` rows are not seeded by a seeder. They are inserted, and later `UPDATE`d, *inside migrations* (`2026_04_16_131050_create_plans_table.php` and the "add feature column" migrations). `DatabaseSeeder` only creates one `Test User`; `StationSeeder::run()` is empty. A database that has not run the migrations has no Free or Pro plan, and `users.plan_id` defaults to `1`, so a missing row breaks user creation through the foreign key. The second trap is that several `plans` columns look like limits but are only display text or are never enforced (see "Columns nothing reads or enforces").
 
@@ -160,6 +161,7 @@ The database as the code defines it today: 67 migrations replayed in filename or
 - Several "wall clock" columns (`start_time`, `end_time`) are MySQL `TIME` and cast to `string`, never `datetime`, because they carry no date.
 - Order-of-migration quirks: two pairs share a timestamp and run alphabetically (`2026_08_15_115900_add_desired_state...` before `..._add_feature_columns_to_plans...`; `2026_08_30_120000_add_message_and_social...` before `..._create_listener_sessions...`).
 - Four migrations read or write application code, so they are coupled to the code at the time they run: `2026_09_15_140100_add_stream_key_to_stations_table.php` calls `Station::generateStreamKey()` and the `encrypted` cast (needs `APP_KEY`; sets `timestamps = false` so `updated_at` is not touched); `2026_09_20_134242_backfill_default_playlists.php` reads `stations.autodj_*` and `tracks.kind` with raw `DB::table` and returns early if `autodj_order` is already gone; `2026_08_29_090000_add_container_index...` backfills by `created_at, id`; `2026_08_30_130000_add_unique_email_plan...` deletes duplicate `(email, plan)` rows, keeping `MAX(id)`.
+- One migration is guarded against a shared development database: `2026_10_06_120000_add_hard_starts_and_jingle_clock.php` adds `autodj_slots.start_mode` only if `Schema::hasColumn` says it is missing (another branch's `2026_10_05_130000_add_start_mode_to_autodj_slots_table` creates the same column), and its `down()` leaves the column alone when the `migrations` table shows that other migration ran. The `stations` columns it adds are unguarded.
 
 ## Relationship overview
 
@@ -275,7 +277,7 @@ Dropped: `idle_stop_hours` (added 2026-08-15, dropped 2026-08-29 when `stations:
 
 ### stations
 
-The widest table. Migrations: create, `add_missing_indexes`, `add_featured`, `add_plan_id...` (drops), `add_deleted_at`, `add_desired_state`, `add_last_ready_at`, `drop_is_live`, `add_jingle_settings`, `add_jingle_mode`, `add_autodj_cursor` (later dropped), `add_container_index`, `add_silent_since`, `add_featured_at`, `add_timezone`, `add_autodj_order` (later dropped), `add_stream_key`, `drop_autodj_columns`, `add_autodj_last_playlist_id`.
+The widest table. Migrations: create, `add_missing_indexes`, `add_featured`, `add_plan_id...` (drops), `add_deleted_at`, `add_desired_state`, `add_last_ready_at`, `drop_is_live`, `add_jingle_settings`, `add_jingle_mode`, `add_autodj_cursor` (later dropped), `add_container_index`, `add_silent_since`, `add_featured_at`, `add_timezone`, `add_autodj_order` (later dropped), `add_stream_key`, `drop_autodj_columns`, `add_autodj_last_playlist_id`, `add_hard_starts_and_jingle_clock`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -283,7 +285,7 @@ The widest table. Migrations: create, `add_missing_indexes`, `add_featured`, `ad
 | `container_index` | uint, NOT NULL, unique | first column after `id`; slot in the container IP space (`LiquidsoapSupervisor::containerIp`, `config/liquidsoap.php`); assigned in `StationObserver::creating` as `max(container_index over withTrashed) + 1`; never recycled |
 | `user_id` | bigint FK users, cascade, indexed | |
 | `name` | string(100) | |
-| `slug` | string(60) unique | generated in `Station::booted()` (`-2`, `-3` suffixes, checks `withTrashed`, base capped to 55 chars); no code path regenerates it on update |
+| `slug` | string(60) unique | generated in `Station::booted()` by `Station::slugFor` (`-2`, `-3` suffixes, checks `withTrashed` and `RESERVED_SLUGS` = `['slug-preview']`, base capped to `SLUG_MAX` 55 chars); no code path regenerates it on update |
 | `description` | text null | |
 | `genre` | string(255) null | |
 | `timezone` | string(64) null | IANA name; shared by show times and AutoDJ slots; null means no `nextOccurrence()` |
@@ -295,6 +297,12 @@ The widest table. Migrations: create, `add_missing_indexes`, `add_featured`, `ad
 | `last_ready_at` | timestamp null | stamped by `StationEventController` on the container's ready event |
 | `silent_since` | timestamp null | the auto-stop clock; written by `SweepStations`/`StopStation` |
 | `autodj_last_playlist_id` | char(26) null | which playlist the rotation last drew from; **no FK**; written by `AutoDjScheduler` via query builder |
+| `autodj_last_jingle_at` | datetime(3) null | the jingle clock: when the last jingle was planned to start (`2026_10_06`) |
+| `autodj_last_jingle_id` | char(26) null | which jingle that was, so the same ID is not picked twice running; **no FK** |
+| `autodj_songs_since_jingle` | uint default 0 | songs handed out since it |
+| `autodj_queued_at` | datetime(3) null | when `AutoDjScheduler` last handed out a track |
+| `autodj_queued_start` | datetime(3) null | when that track was expected to start, in the container's own timeline |
+| `autodj_queued_airtime` | double null | how long it plays; the three `autodj_queued_*` columns are only read when the container asks again within a couple of seconds (Liquidsoap re-asking while the first answer loads) |
 | `icecast_mount` | string(255) | no DB default; `Station::booted()` `creating` sets `/stream/{slug}` when empty; read by `SyncListenerCounts` and the .liq |
 | `icecast_password` | string(255) | random 32 chars; **not used by the audio path**, see gaps |
 | `stream_key` | text null | `encrypted` cast (ciphertext is ~250 bytes, hence `text`); 32 chars `[A-Za-z0-9]`; minted on create and backfilled for all rows including trashed |
@@ -303,8 +311,9 @@ The widest table. Migrations: create, `add_missing_indexes`, `add_featured`, `ad
 | `theme_config` | json null | cast `array`; accepted by `UpdateStationRequest` (`nullable array`, no shape rules) and echoed by `StationResource`; declared in `client/interfaces/Station.ts` and used by no other client file (grep) |
 | `jingles_enabled` | bool default false | |
 | `jingle_interval_seconds` | uint default 1800 | |
-| `jingle_mode` | string(16) default `interval` | `interval` or `tracks` |
+| `jingle_mode` | string(16) default `interval` | `interval`, `tracks` or `times` (`Station::JINGLE_MODES`) |
 | `jingle_every_tracks` | uint default 5 | |
+| `jingle_times` | json null | cast `array`; minutes past the hour for `jingle_mode = times` (`[0, 30]` is ":00 and :30"), 1..12 distinct values 0..59 by validation; `StationResource` returns `[]` for null |
 | `created_at`, `updated_at` | | |
 | `deleted_at` | timestamp null | soft delete |
 
@@ -315,9 +324,9 @@ Dropped or renamed:
 - `is_live` (bool + index): dropped 2026-08-16. Live-ness is now "has an open `stream_sessions` row" (`Station::scopeLive()`, `isLive()`). The `Station` docblock still lists `@property bool $is_live` (stale).
 - `autodj_cursor_position`, `autodj_order`, `autodj_deck`: added 2026-08-18 / 2026-09-12, moved into `playlists` and dropped 2026-09-20 after `backfill_default_playlists` copied them into each station's default playlist. Rolling back in order restores them: `drop_autodj_columns::down()` recreates empty columns and `backfill_default_playlists::down()` copies each default playlist's `order/cursor_position/deck` back (then deletes every `playlist_track` and `playlists` row).
 
-Model `Station` (`api/app/Models/Station.php`): `$guarded = []` (everything is mass-assignable; request classes are the gate; there is no `$hidden`, so `icecast_password` and the decrypted `stream_key` would serialize if a raw model were ever returned instead of `StationResource`); `HasUuids`, `SoftDeletes`, `LogsActivity` (logs `name, slug, description, genre, featured, desired_state`, dirty only); route key is `slug`. Casts: `featured`, `jingles_enabled` boolean; `jingle_*` integer; `stream_key` encrypted; `stream_key_rotated_at`, `featured_at`, `started_at`, `silent_since`, `last_ready_at` datetime; `social_links`, `theme_config` array. Not cast: `timezone`, `desired_state`, `container_index`.
+Model `Station` (`api/app/Models/Station.php`): `$guarded = []` (everything is mass-assignable; request classes are the gate; there is no `$hidden`, so `icecast_password` and the decrypted `stream_key` would serialize if a raw model were ever returned instead of `StationResource`); `HasUuids`, `SoftDeletes`, `LogsActivity` (logs `name, slug, description, genre, featured, desired_state`, dirty only); route key is `slug`. Casts: `featured`, `jingles_enabled` boolean; `jingle_interval_seconds`, `jingle_every_tracks`, `autodj_songs_since_jingle` integer; `stream_key` encrypted; `stream_key_rotated_at`, `featured_at`, `started_at`, `silent_since`, `last_ready_at`, `autodj_last_jingle_at`, `autodj_queued_at`, `autodj_queued_start` datetime; `autodj_queued_airtime` float; `social_links`, `theme_config`, `jingle_times` array. Not cast: `timezone`, `desired_state`, `container_index`, `autodj_last_jingle_id`.
 
-Model hooks: `creating` sets slug, mount, icecast password, stream key, `desired_state`, jingle defaults; `created` force-creates the default playlist (`Main rotation`, sequential, position 0). `StationObserver` (registered in `AppServiceProvider`) on changes to `name, slug, description, genre, icecast_mount` calls `supervisor->up()` only if the station is running and nobody is live (else the reconciler recreates it after the show); a slug change additionally runs `downBySlug(oldSlug)` and renames the playlist directory first (even when stopped, in which case it stops there). Jingle column changes on a running station are pushed over telnet without a restart. `deleting` (soft or force) brings the container down; `forceDeleted` wipes the playlist directory and container artifacts; `restored` brings it back up if `desired_state` is running. `UserObserver::updated` on a `plan_id` change re-pushes watermark and jingle settings to each of the user's running stations. Scopes: `running()`, `live()`, `featured()`, `indexable()`/`withIndexability()` (running, or ever had a stream session, or ever had listener stats). Constants: `FEATURED_RAIL_SIZE` 4, `MAX_SOCIAL_LINKS` 8, `DEFAULT_JINGLE_INTERVAL_SECONDS` 1800, `DEFAULT_JINGLE_EVERY_TRACKS` 5. Methods: `rotateStreamKey()`, `isIndexable()`. Jingle clock columns (`autodj_last_jingle_at/_id`, `autodj_songs_since_jingle`) and the last-handed-out track (`autodj_queued_at/_start/_airtime`) are written by `JingleClock`/`AutoDjScheduler` with the query builder, never through the model; `jingle_times` is minutes past the hour for `jingle_mode = times`. `autodj_slots.start_mode` is `soft` or `hard`.
+Model hooks: `creating` sets slug, mount, icecast password, stream key, `desired_state`, jingle defaults; `created` force-creates the default playlist (`Main rotation`, sequential, position 0). `StationObserver` (registered in `AppServiceProvider`) on changes to `name, slug, description, genre, icecast_mount` calls `supervisor->up()` only if the station is running and nobody is live (else the reconciler recreates it after the show); a slug change additionally runs `downBySlug(oldSlug)` and renames the playlist directory first (even when stopped, in which case it stops there). `artwork_url`, `icecast_password` and the jingle columns restart nothing: the first two never reach the script, and jingle settings are read by Laravel at each track boundary (`JingleClock`), not rendered into it. `deleting` (soft or force) brings the container down; `forceDeleted` wipes the playlist directory and container artifacts; `restored` brings it back up if `desired_state` is running (no live guard: the delete already removed the container). `UserObserver::updated` on a `plan_id` change re-pushes the watermark setting to each of the user's running stations (jingles need no push since the plan is checked in `AutoDjScheduler::next`). Scopes: `running()`, `live()`, `featured()`, `indexable()`/`withIndexability()` (running, or ever had a stream session, or ever had listener stats). Constants: `FEATURED_RAIL_SIZE` 4, `MAX_SOCIAL_LINKS` 8, `SLUG_MAX` 55, `RESERVED_SLUGS`, `DEFAULT_JINGLE_INTERVAL_SECONDS` 1800, `DEFAULT_JINGLE_EVERY_TRACKS` 5, `JINGLE_MODE_INTERVAL/TRACKS/TIMES`. Methods: `slugFor()` (public static, also used by the create page's slug preview), `rotateStreamKey()`, `isIndexable()`. The jingle clock columns (`autodj_last_jingle_at/_id`, `autodj_songs_since_jingle`) and the last-handed-out track (`autodj_queued_at/_start/_airtime`) are written by `JingleClock`/`AutoDjScheduler` with the query builder, never through the model, so `StationObserver` never sees them.
 
 ### stream_sessions
 
@@ -419,7 +428,7 @@ Every uploaded audio file, music or jingle.
 | `position` | uint | 1-based, gap-free per station AND kind (maintained by `TrackImporter`) |
 | `created_at`, `updated_at` | | |
 
-Indexes: `(station_id, position)`, `(station_id, kind, position)`, `(analyzed_at)`. Model: `$fillable = ['title','artist']` only (everything else is `forceFill`ed or set by the factory), casts floats/ints/`analyzed_at`, scopes `music()`/`jingles()`, `playlists()`. The library `position` is still maintained but a music track only plays if it is in a playlist; playback order comes from `playlist_track.position`.
+Indexes: `(station_id, position)`, `(station_id, kind, position)`, `(analyzed_at)`. Model: `$fillable = ['title','artist']` only (everything else is `forceFill`ed or set by the factory), casts floats/ints/`analyzed_at`, scopes `music()`/`jingles()`, `playlists()`, and `airtimeSeconds()` (cue-out minus cue-in from `TrackAnalysis::cuePoints`, null when `duration_seconds` is 0, so the AutoDJ planner never counts on a track it cannot time). The library `position` is still maintained but a music track only plays if it is in a playlist; playback order comes from `playlist_track.position`.
 
 ### playlists
 
@@ -455,10 +464,11 @@ AutoDJ programming (which playlist plays when). Not the advertised show times.
 | `label` | string(60) null | |
 | `days` | json | array of weekday ints, 0 = Sunday, the day the slot **starts**; no DB constraint on values |
 | `start_time`, `end_time` | time | end at or before start means it runs into the next day |
+| `start_mode` | string(8) default `soft` | `soft`: the song playing at the slot's start finishes first; `hard`: the slot starts on time (AutoDJ picks songs that end before it, fades one only when none fits). Added by `2026_10_06`, guarded (see Conventions) |
 | `position` | uint default 0 | |
 | `created_at`, `updated_at` | | |
 
-Index `(station_id, position)`. Model `AutodjSlot`: `#[Fillable(...)]` all columns except `id`, casts `days` array and the two times `string`, and `windowsBetween()` builds concrete DST-safe windows. Full behaviour in [Schedule](schedule.md) and [AutoDJ](autodj.md).
+Index `(station_id, position)`. Model `AutodjSlot`: `#[Fillable(...)]` all columns except `id`, `$attributes` defaults `start_mode` to `START_SOFT`, constants `START_SOFT`/`START_HARD`/`START_MODES`, casts `days` array and the two times `string`, `startsOnTime()`, and `windowsBetween()` builds concrete DST-safe windows. Full behaviour in [Schedule](schedule.md) and [AutoDJ](autodj.md).
 
 ### station_schedules
 
@@ -572,4 +582,4 @@ No test asserts the schema as a whole. Relevant: `api/tests/Feature/PlaylistBack
 
 ## History
 
-Individual features that changed the schema are documented in their own docs ([Schedule](schedule.md), [Listener analytics](listener-analytics.md), [Encoder ingest](encoder-ingest.md), [Station lifecycle](station-lifecycle.md)). Notable schema events in order: 2026-04 initial users/stations/sessions/plans; 2026-08-15 `desired_state` split from row existence; 2026-08-16 `is_live` dropped; 2026-08-17/18 admins dropped and recreated; 2026-08-29 `container_index`, `silent_since`, `idle_stop_hours` dropped; 2026-08-30 listener analytics tables; 2026-09-09 invites and `station_events`; 2026-09-11 timezone and show times; 2026-09-15 stream keys and encoder flag; 2026-09-20 playlists and AutoDJ slots replaced `stations.autodj_*`.
+Individual features that changed the schema are documented in their own docs ([Schedule](schedule.md), [Listener analytics](listener-analytics.md), [Encoder ingest](encoder-ingest.md), [Station lifecycle](station-lifecycle.md)). Notable schema events in order: 2026-04 initial users/stations/sessions/plans; 2026-08-15 `desired_state` split from row existence; 2026-08-16 `is_live` dropped; 2026-08-17/18 admins dropped and recreated; 2026-08-29 `container_index`, `silent_since`, `idle_stop_hours` dropped; 2026-08-30 listener analytics tables; 2026-09-09 invites and `station_events`; 2026-09-11 timezone and show times; 2026-09-15 stream keys and encoder flag; 2026-09-20 playlists and AutoDJ slots replaced `stations.autodj_*`; 2026-09-30 and 2026-10-01 `stream_sessions.ip_address/country` and `peak_at`; 2026-10-06 `autodj_slots.start_mode`, `stations.jingle_times` and the jingle-clock columns.

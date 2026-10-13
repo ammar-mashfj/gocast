@@ -73,6 +73,9 @@ function Band({ slug }: { slug: string }) {
   const hasQueue = (engine?.getQueue().length ?? 0) > 0
   const playing = engine?.isPlaying() ?? false
   const onSolid = air.tone === "mic" || air.tone === "warn"
+  // What the transport is steering, off the studio page: without it the
+  // skip button is a leap in the dark. The studio shows its own deck.
+  const track = broadcasting && !onStudio ? engine?.getCurrentTrack() ?? null : null
 
   return (
     <StatusBand
@@ -81,6 +84,11 @@ function Band({ slug }: { slug: string }) {
       message={air.message}
       meta={
         <>
+          {track && (
+            <span className="max-w-48 truncate font-sans text-sm font-medium tracking-normal" title={track.title}>
+              {track.title}
+            </span>
+          )}
           {broadcasting && liveSince !== null && (
             <span className="text-meter-sm tracking-normal">{formatClock((now - liveSince) / 1000)}</span>
           )}

@@ -1,8 +1,8 @@
-import { IconBrowser, IconShieldLock, IconCreditCardOff } from "@tabler/icons-react"
+import { IconBrowser, IconHeadphones, IconCreditCardOff } from "@tabler/icons-react"
 
 const CUES = [
   { icon: IconBrowser, label: "Browser-based", hint: "No install, no plugin" },
-  { icon: IconShieldLock, label: "Private until shared", hint: "Stations are hidden until you send the link" },
+  { icon: IconHeadphones, label: "Listeners need no app", hint: "Your link opens the player in any browser" },
   { icon: IconCreditCardOff, label: "Free forever", hint: "No credit card to start" },
 ] as const
 

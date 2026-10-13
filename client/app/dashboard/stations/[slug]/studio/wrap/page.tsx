@@ -35,8 +35,12 @@ export default function WrapPage() {
   useEffect(() => {
     let found: ShowSummary | null = null
     try {
-      const raw = sessionStorage.getItem(signOffKey(slug))
+      const key = signOffKey(slug)
+      const raw = sessionStorage.getItem(key)
       if (raw) {
+        // Read once: left in place, a later idle hand-off within the half
+        // hour would show this show's wrap again.
+        sessionStorage.removeItem(key)
         const parsed = JSON.parse(raw) as ShowSummary
         if (Date.now() - parsed.endedAt < FRESH_MS) found = parsed
       }

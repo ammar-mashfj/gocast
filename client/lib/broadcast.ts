@@ -961,6 +961,11 @@ export class BroadcastManager {
       // Adopted before the handshake completes so encoded frames start filling
       // harbor's buffer the moment it is willing to read them.
       this.ws = ws
+      // The old-rate backlog died with the old socket. Left set, backlogMs()
+      // would read this socket's fresh frames as the old rate's carry.
+      this.carryBytes = 0
+      this.carryMs = 0
+      this.bytesSentAtShift = this.bytesSent
 
       let settled = false
       let helloTimer: ReturnType<typeof setTimeout> | null = null

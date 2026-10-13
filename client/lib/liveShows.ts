@@ -6,7 +6,8 @@ import type { StreamSession } from "@/interfaces/StreamSession"
  * Sessions exist only for people broadcasting, so this is live airtime —
  * AutoDJ hours are in Audience. A show is counted on the day it STARTED, so
  * one running past midnight is last night's show, not two. Days are the
- * viewer's local days, like the chart's axis.
+ * station's (`timeZone`), since the overview is rendered on the server and
+ * the server's midnight is nobody's; without a zone they are the clock's own.
  *
  * `truncated` means the sessions endpoint returned a full page, so the
  * window may be cut off: the comparison with the 14 days before is then
@@ -15,6 +16,7 @@ import type { StreamSession } from "@/interfaces/StreamSession"
 export const LIVE_SHOW_DAYS = 14
 
 export interface LiveShows {
+  /** `date` is the calendar day as 00:00 UTC; format it with timeZone "UTC". */
   days: { date: Date; seconds: number }[]
   seconds: number
   /** Change against the 14 days before; null when it can't be trusted. */
@@ -26,22 +28,20 @@ export interface LiveShows {
   latest: number | null
 }
 
-function dayKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+/** The calendar day `days` after a Y-M-D string, as Y-M-D. */
+function shiftDay(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
 }
 
-export function liveShows(sessions: StreamSession[], now: Date, truncated: boolean): LiveShows {
-  const today = new Date(now)
-  today.setHours(0, 0, 0, 0)
-  const days = Array.from({ length: LIVE_SHOW_DAYS }, (_, i) => {
-    const date = new Date(today)
-    date.setDate(date.getDate() - (LIVE_SHOW_DAYS - 1 - i))
-    return { date, seconds: 0 }
-  })
-  const index = new Map(days.map((d, i) => [dayKey(d.date), i]))
-  const windowStart = days[0].date.getTime()
-  const priorStart = new Date(days[0].date)
-  priorStart.setDate(priorStart.getDate() - LIVE_SHOW_DAYS)
+export function liveShows(sessions: StreamSession[], now: Date, truncated: boolean, timeZone?: string): LiveShows {
+  // en-CA gives Y-M-D, which sorts and shifts as plain calendar arithmetic.
+  const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+  const today = dayOf.format(now)
+  const keys = Array.from({ length: LIVE_SHOW_DAYS }, (_, i) => shiftDay(today, -(LIVE_SHOW_DAYS - 1 - i)))
+  const days = keys.map((key) => ({ date: new Date(`${key}T00:00:00Z`), seconds: 0 }))
+  const index = new Map(keys.map((key, i) => [key, i]))
+  const priorKeys = new Set(Array.from({ length: LIVE_SHOW_DAYS }, (_, i) => shiftDay(keys[0], -(i + 1))))
 
   let seconds = 0
   let prior = 0
@@ -52,7 +52,8 @@ export function liveShows(sessions: StreamSession[], now: Date, truncated: boole
     if (!s.ended_at) continue
     const started = new Date(s.started_at)
     const length = Math.max(0, Math.floor((new Date(s.ended_at).getTime() - started.getTime()) / 1000))
-    const slot = index.get(dayKey(started))
+    const key = dayOf.format(started)
+    const slot = index.get(key)
     if (slot !== undefined) {
       days[slot].seconds += length
       seconds += length
@@ -60,7 +61,7 @@ export function liveShows(sessions: StreamSession[], now: Date, truncated: boole
       if (s.peak_listeners > 0 && (!peak || s.peak_listeners > peak.listeners)) {
         peak = { listeners: s.peak_listeners, at: started }
       }
-    } else if (started.getTime() >= priorStart.getTime() && started.getTime() < windowStart) {
+    } else if (priorKeys.has(key)) {
       prior += length
     }
   }

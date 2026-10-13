@@ -80,7 +80,10 @@ export function CreateStation() {
         const res = await api.get("/stations/slug-preview", { params: { name: trimmed } })
         if (latest.current === name) setSlug(res.data.data.slug ?? null)
       } catch {
-        // The overview shows the real link after creating; nothing to say here.
+        // Back to the placeholder: the last answer was for another name, and
+        // showing it would promise a link creating won't mint. The overview
+        // shows the real one after creating.
+        if (latest.current === name) setSlug(null)
       }
     }, PREVIEW_DELAY_MS)
     return () => clearTimeout(timer)

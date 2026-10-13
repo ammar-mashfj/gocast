@@ -60,8 +60,25 @@ export default function Body() {
             <td>The server is coming up. A few seconds, normally.</td>
           </tr>
           <tr>
-            <td><strong>Live</strong></td>
-            <td>A person is broadcasting, from the studio or an encoder.</td>
+            <td><strong>Going live</strong></td>
+            <td>
+              The station is on and waiting for you to start your show.
+              Listeners hear silence until you do.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Live</strong> / <strong>Live · Mic</strong></td>
+            <td>
+              A person is broadcasting, from the studio or an encoder. The
+              second reads while your mic is open from this browser.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Show ended</strong></td>
+            <td>
+              Your show from this browser has just finished and the dashboard
+              is checking what is on air now. Gone in a moment.
+            </td>
           </tr>
           <tr>
             <td><strong>On air · AutoDJ</strong></td>
@@ -71,22 +88,28 @@ export default function Body() {
             </td>
           </tr>
           <tr>
-            <td><strong>No sound</strong></td>
+            <td><strong>Silence</strong></td>
             <td>
-              The station is running but playing silence &mdash; usually AutoDJ
-              with nothing to play. Add tracks to AutoDJ’s playlist, or go live.
+              The station is running but playing silence &mdash; AutoDJ with
+              nothing to play. Add tracks to AutoDJ’s playlist, or go live.
             </td>
           </tr>
           <tr>
-            <td><strong>Checking&hellip;</strong> / <strong>Status unknown</strong></td>
+            <td><strong>Checking</strong></td>
             <td>
-              The dashboard hasn&rsquo;t heard back from the station yet. This
-              says nothing about what listeners hear; it clears on the next
-              answer.
+              The dashboard has just opened and hasn&rsquo;t heard from the
+              station yet. It says nothing about what listeners hear.
             </td>
           </tr>
           <tr>
-            <td><strong>Not reaching listeners</strong></td>
+            <td><strong>No answer</strong></td>
+            <td>
+              The dashboard can&rsquo;t reach the station right now and keeps
+              trying. It clears on the next answer.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Not heard</strong></td>
             <td>
               The station is running and producing audio, but it is not getting
               out. Nobody can hear it. This one is ours to fix &mdash; if it

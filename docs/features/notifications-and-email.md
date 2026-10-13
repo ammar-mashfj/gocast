@@ -1,6 +1,6 @@
 ---
 feature: Notifications and email (bell, transactional mail, outreach, station-live alerts, Resend webhook)
-verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
+verified: 2026-10-11 against 3ccc644 plus uncommitted work (feat/dashboard-design; NotificationIcon re-added, queue backlog alert)
 sources:
   - api/app/Notifications/Bell/BellNotification.php
   - api/app/Notifications/Bell/BellPayload.php
@@ -31,6 +31,7 @@ sources:
   - api/app/Webhooks/Resend/ResendWebhookHandler.php
   - api/app/Services/AdminTelegram.php
   - api/app/Jobs/SendAdminTelegramAlert.php
+  - api/app/Console/Commands/CheckQueueBacklog.php
   - api/app/Models/EmailVerificationCode.php
   - api/app/Models/PasswordResetCode.php
   - api/app/Http/Controllers/AuthController.php
@@ -76,6 +77,7 @@ sources:
   - api/database/migrations/2026_09_15_100000_add_created_at_index_to_notifications_table.php
   - api/database/migrations/2026_09_15_130100_create_email_suppressions_table.php
   - client/components/dashboard/NotificationItem.tsx
+  - client/components/dashboard/NotificationIcon.tsx
   - client/components/dashboard/NotificationDetailDialog.tsx
   - client/hooks/useNotifications.ts
   - client/lib/notifications.ts
@@ -109,7 +111,7 @@ Plus one inbound path: a Resend webhook that forwards received email to the admi
 
 ## Catalogue: every email and bell notification
 
-Queued = the class `implements ShouldQueue`. Laravel queues one job per channel, so a bell row and its email are independent jobs. Queue connection default in `api/config/queue.php` is `database`; `.env.example` sets `redis`. With no worker running, no queued mail leaves the system.
+Queued = the class `implements ShouldQueue`. Laravel queues one job per channel, so a bell row and its email are independent jobs. Queue connection default in `api/config/queue.php` is `database`; `.env.example` sets `redis`. No notification class names a queue, so all of them ride `default`; in production each queue has a worker of its own (`gocast-queue` for `default`, `gocast-realtime`, `gocast-analysis`), because a worker given several queues blocks `block_for` seconds on the first before looking at the next and a steady trickle there starves the rest (the `config/queue.php` comment records `default` stalling for an hour on 2026-10-10). `queue:check-backlog` (every minute) posts "Queue stuck: default" to the admin Telegram once the oldest waiting job is older than `QUEUE_ALERT_DEFAULT_SECONDS` (300 s; `realtime` 60 s, `analysis` 3600 s). With no worker running, no queued mail leaves the system.
 
 | Class | Trigger (file) | Recipient | Channels | Queued | Dedup / throttle |
 |---|---|---|---|---|---|
@@ -168,9 +170,9 @@ Rows are always looked up through `$request->user()->notifications()->findOrFail
 
 - The bell is **Updates** (`components/dashboard/shell/UpdatesMenu.tsx`), a text button in the dashboard top bar with an unread count badge (`formatUnreadCount`, capped at the API's `capped_at`, e.g. "99+"). Popover `min(22rem, 100vw − 2rem)` wide (24rem from `sm`), feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications." with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
 - `useNotifications` polls `/notifications/unread-count` every 60 s **only while the tab is visible** (stops on hidden, refreshes on becoming visible if 60 s have passed). The feed loads when the popover opens. Read/mark-all/delete are optimistic with rollback and a sequence guard so an in-flight feed response cannot overwrite a newer mutation. The UI never passes `filter` or `category`.
-- `NotificationItem`: a dot before each row coloured by level while unread (`notificationDotClass` in `lib/notifications.ts`), grey once read; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
-- The web dashboard no longer draws the `icon` key (`NotificationIcon` was removed with the old header); the level dot replaces it. `icon` is still stored and sent.
-- Level dot colours (`LEVEL_DOTS`): `info` and `warning` off-white, `success` violet, `error` error red.
+- `NotificationItem`: a dot before each row coloured by level while unread (`notificationDotClass` in `lib/notifications.ts`), grey once read, then a 16 px glyph for the payload's `icon` key, then title, body (clamped to two lines) and a relative date; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
+- `NotificationIcon` (`components/dashboard/NotificationIcon.tsx`, an untracked file re-added on 2026-10-11) maps the `icon` key to a Tabler glyph: `bell`, `radio`, `microphone`, `invite` (gift), `plan-upgraded` (sparkles), `plan-expired` (arrow down), `megaphone`, `warning`; any other key renders the bell. The glyph fades with the title once read. The dot says how urgent, the glyph what about.
+- Level dot colours (`LEVEL_DOTS`, tokens from `app/dashboard.css`): `info` and `warning` `bg-foreground` (off-white in dark), `success` `bg-on-air-text` (the lavender on-air token), `error` `bg-error`; a read row's dot is `bg-surface-strong`.
 - No realtime push: the only update paths are the 60 s poll and opening the popover. (`api/routes/channels.php` mentions moving the bell onto the Ably transport as a future idea; it is not done.)
 
 ### Mobile
@@ -210,6 +212,8 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 To handle another event, add a class implementing `ResendWebhookHandler` and register it in `HANDLERS`.
 
+`AdminTelegram` has five other callers, none of them email: model hooks in `AppServiceProvider` post a new registration, a new or updated access request, a new station and every broadcast start (all queued `SendAdminTelegramAlert`, `afterCommit`), and `AdminTelegram::opsAlert()` posts infrastructure alerts from the calling process, bypassing the queue, throttled to one per key per 15 minutes via `Cache::add` (callers: `queue:check-backlog`, and `stations:sync-listeners` nearing Icecast's source limit). Those messages are documented in [Admin panel](admin-panel.md).
+
 ## Scheduled commands (`api/routes/console.php`)
 
 | Command | Schedule | Effect |
@@ -217,8 +221,9 @@ To handle another event, add a class implementing `ResendWebhookHandler` and reg
 | `app:nudge-inactive-broadcasters` (`--dry-run`) | daily 16:00, no overlap | Candidates: verified users created between 8 and 7 days ago, on the `free` plan, with no station (including soft-deleted) that has any ended stream session. Skips anyone with an existing `InactiveBroadcasterNudge` row. Uses their first station's slug if any. See [Accounts, plans and invites](accounts-plans-invites.md). |
 | `plans:expire` | hourly | Sends `PlanExpired` (see catalogue). |
 | `notifications:prune` | daily 05:00 | Bell retention. |
+| `queue:check-backlog` | every minute, `withoutOverlapping(5)` | Telegram `opsAlert` when the oldest waiting job on `realtime`/`default`/`analysis` has waited longer than `config('queue.backlog_alert_seconds')`. On the `sync` driver (tests) it reports nothing to check. |
 
-Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `FRONTEND_URL`, `QUEUE_CONNECTION`, `NOTIFICATION_RETENTION_DAYS`, `NOTIFICATION_PER_PAGE`, `NOTIFICATION_UNREAD_COUNT_CAP`.
+Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `FRONTEND_URL`, `QUEUE_CONNECTION`, `QUEUE_ALERT_REALTIME_SECONDS` / `_DEFAULT_` / `_ANALYSIS_`, `NOTIFICATION_RETENTION_DAYS`, `NOTIFICATION_PER_PAGE`, `NOTIFICATION_UNREAD_COUNT_CAP`.
 
 ## Gaps and traps
 
@@ -240,7 +245,7 @@ Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`
 
 ## Tests
 
-`api/tests/Feature/Notifications/BellContractTest.php` (payload validation, base-class rules, queued-with-mail), `NotificationControllerTest.php`, `PruneNotificationsTest.php`, `NudgeInactiveBroadcastersTest.php`, `SendAnnouncementTest.php`, `StationNotifySubscriptionTest.php`, `UnsubscribeTest.php`, `ResendWebhookTest.php`, `Admin/RawEmailTest.php`. Mail-sending paths are also covered in `Auth/EmailVerificationCodeTest.php`, `Auth/PasswordResetTest.php`, `Auth/InviteRedemptionTest.php`, `Auth/ProfileEmailChangeTest.php`, `Account/PasswordChangeNotificationTest.php`, `Admin/InviteTest.php`, `Admin/AccessRequestReviewTest.php`, `Admin/StationUpgradeTest.php` and `Console/ExpirePlansTest.php`. There are no client tests for the bell.
+`api/tests/Feature/Notifications/BellContractTest.php` (payload validation, base-class rules, queued-with-mail), `NotificationControllerTest.php`, `PruneNotificationsTest.php`, `NudgeInactiveBroadcastersTest.php`, `SendAnnouncementTest.php`, `StationNotifySubscriptionTest.php`, `UnsubscribeTest.php`, `ResendWebhookTest.php`, `Admin/RawEmailTest.php`, `CheckQueueBacklogTest.php` (stand-in queue connection; alert once per stall, retry on refused send). Mail-sending paths are also covered in `Auth/EmailVerificationCodeTest.php`, `Auth/PasswordResetTest.php`, `Auth/InviteRedemptionTest.php`, `Auth/ProfileEmailChangeTest.php`, `Account/PasswordChangeNotificationTest.php`, `Admin/InviteTest.php`, `Admin/AccessRequestReviewTest.php`, `Admin/StationUpgradeTest.php` and `Console/ExpirePlansTest.php`. There are no client tests for the bell.
 
 ## History
 

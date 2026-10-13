@@ -40,6 +40,7 @@ sources:
   - api/app/Http/Requests/ReplaceAutodjSlotsRequest.php
   - api/app/Http/Requests/ReplaceStationSchedulesRequest.php
   - api/app/Http/Resources/StationResource.php
+  - api/app/Http/Resources/AutodjSlotResource.php
   - api/app/Http/Resources/TrackResource.php
   - api/app/Http/Resources/PlaylistResource.php
   - api/app/Services/StationLifecycleException.php
@@ -194,7 +195,7 @@ This tab is **AutoDJ's programme** (violet, Pro). It also draws show times read-
 | Row | Shown to | Content | Tap |
 |---|---|---|---|
 | Show time (coral) | everyone | start time, label or "Show time", "Show time - on your player page" | opens `/show-times/[slug]` |
-| AutoDJ slot (violet) | Pro only | "HH:mm - HH:mm", label or playlist name or "AutoDJ", "AutoDJ - N tracks on shuffle / in order" | opens the slot editor |
+| AutoDJ slot (violet) | Pro only | "HH:mm - HH:mm" (with " - on time" appended when `start_mode === 'hard'`, see below), label or playlist name or "AutoDJ", "AutoDJ - N tracks on shuffle / in order" | opens the slot editor |
 | Default playlist, "All day" (violet) | Pro only, when **no slot covers that weekday** | default playlist name (else "Default playlist") and the same "AutoDJ - N tracks on shuffle / in order" line | nothing |
 
 - **NOW badge** on a slot (or on the all-day default row): only when the selected day is the phone's today, the station `is_on_air && !is_live` (intent-derived, from the station payload, not the container), and `station.programme.slot_id` equals the slot (or is empty for the default row). The programme is computed server-side at fetch time and this tab does not poll, so NOW can be stale until the next focus or pull. It also assumes the phone and the station are in the same timezone: "today" is the phone's date, while slots are in the station's zone.
@@ -202,7 +203,7 @@ This tab is **AutoDJ's programme** (violet, Pro). It also draws show times read-
 - Empty day on Pro (cannot really happen, because the default row fills in): "Nothing scheduled on <day>."
 - Footer: "Times are in <timezone>. Change it in Station settings on the web." Only when the station has a timezone. With no timezone there is **no hint at all** (see gaps).
 
-**Adding and editing** (Pro): **+ Add** creates a draft `{days:[selected day], 06:00-12:00, first non-default playlist (else the first)}` and opens `ScheduleEditor` as a bottom sheet. Tapping a slot opens the same sheet with that slot. Saving builds the **full list** from `station.autodj_slots` (label, playlist_id, days, start_time, end_time), pushes/replaces/splices the one changed row **by array index** (the API returns slots ordered by `position`, which matches), and sends **`PUT /stations/{slug}/autodj-slots`** with `{slots: [...]}`. It sends **no `timezone`**, so the API keeps the station's. API rules (`ReplaceAutodjSlotsRequest`): up to 50 slots, label up to 60, 1 to 7 days each, `H:i` times, the playlist must belong to the station, and overlapping windows are refused ("Slots can touch but not overlap", overnight and week-wrap included). The endpoint itself does **not** check the plan; the Pro gate here is the phone hiding the controls. The call is not optimistic; on success the shell station is reloaded and the sheet closes. On failure the API's message shows in the sheet (validation `message`, first error), and the sheet stays open.
+**Adding and editing** (Pro): **+ Add** creates a draft `{days:[selected day], 06:00-12:00, first non-default playlist (else the first)}` and opens `ScheduleEditor` as a bottom sheet. Tapping a slot opens the same sheet with that slot. Saving builds the **full list** from `station.autodj_slots` (label, playlist_id, days, start_time, end_time, start_mode), pushes/replaces/splices the one changed row **by array index** (the API returns slots ordered by `position`, which matches), and sends **`PUT /stations/{slug}/autodj-slots`** with `{slots: [...]}`. It sends **no `timezone`**, so the API keeps the station's. **`start_mode`** (`soft` or `hard`, "starts on time") is only editable on the web Schedule; the phone has no control for it, but it sends the field for every slot (a new slot is `soft`, an edited one keeps what it had) because the API reads a missing `start_mode` as `soft` (`AutodjSlotController::replace`) and a save without it would turn every on-time slot back to soft. API rules (`ReplaceAutodjSlotsRequest`): up to 50 slots, label up to 60, 1 to 7 days each, `H:i` times, optional `start_mode` in `soft`/`hard`, the playlist must belong to the station, and overlapping windows are refused ("Slots can touch but not overlap", overnight and week-wrap included). The endpoint itself does **not** check the plan; the Pro gate here is the phone hiding the controls. The call is not optimistic; on success the shell station is reloaded and the sheet closes. On failure the API's message shows in the sheet (validation `message`, first error), and the sheet stays open.
 
 One row = one slot, and a slot can span several weekdays. The phone edits **all days of that row at once** through the day chips; there is no per-day edit like the web grid's edge drags. Editing a multi-day slot from a day's list changes every day it covers.
 
@@ -220,7 +221,7 @@ A separate stack screen (not a tab), reached only from the Overview link card or
 ## The schedule editor sheet (`components/station/ScheduleEditor.tsx`)
 
 - One component, two `kind`s chosen by the caller: `show` (coral, "Goes live at") and `slot` (violet, "Starts"/"Ends", with a playlist radio list). There is deliberately **no switch** between them (a "Live show | AutoDJ" picker was removed on 2026-09-29 because it made show times look like programming).
-- Fields: Name (max 60), Days (M T W T F S S chips, Monday first, values 0 = Sunday), times, and for slots a playlist list (colour swatch, "N tracks - shuffle / in order").
+- Fields: Name (max 60), Days (M T W T F S S chips, Monday first, values 0 = Sunday), times, and for slots a playlist list (colour swatch, "N tracks - shuffle / in order"). There is no on-time switch; the slot explainer reads "What AutoDJ plays while you're not live. It starts after the song playing at its start time, unless it's set on the web to start exactly on time. Going live always takes over."
 - Times use Android's native clock dial (`@expo/ui/jetpack-compose` `DateTimePicker`, 24-hour). The dial is seeded when opened and remounted per field; tapping the open field closes it. It is a Jetpack Compose control, so it is **Android-only**.
 - A slot whose end is at or before its start shows "Ends (next day)" and is treated by the API as overnight (start equal to end is refused client-side: "The slot needs to end at a different time than it starts.").
 - Client checks: at least one day. Everything else (overlaps, missing playlist, missing timezone) is left to the API and its message is shown as the error.
@@ -265,7 +266,7 @@ API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `Trac
 
 - **Long-press** a track to start selecting (rows become checkboxes and a "Done" pill replaces the Add button). Tap rows to toggle; unticking the last one ends select mode. Selection is by track id, **across playlists**.
 - A bottom bar shows "Delete N track(s)" (disabled at 0), which opens a bottom sheet: "Delete N tracks? They're removed from your library and from every playlist they're in, and AutoDJ stops playing them. This can't be undone." with Delete / Keep them.
-- `DELETE /stations/{slug}/tracks` with `{track_ids: [...]}` (`DestroyTracksRequest`: 1 to 2000 distinct ULIDs, all this station's). `TrackImporter::destroyMany` detaches the tracks from every playlist, deletes the rows, resequences, removes the files from disk, rewrites and reloads the playlist file (one reload for the whole batch) and records a `track_deleted` station event per file. The response is the fresh library (`meta.deleted`); the phone ignores it and reloads. Success notice "Deleted N track(s)."; failure notice with the error. Either way the lists reload.
+- `DELETE /stations/{slug}/tracks` with `{track_ids: [...]}` (`DestroyTracksRequest`: 1 to 2000 distinct ULIDs, all this station's). `TrackImporter::destroyMany` detaches the tracks from every playlist, deletes the rows, resequences (once per kind), removes the files from disk and records a `track_deleted` station event per file. Nothing is written for Liquidsoap any more: the container asks Laravel for one track at a time, so a deleted track simply stops being handed out. The response is the fresh library (`meta.deleted`); the phone ignores it and reloads. Success notice "Deleted N track(s)."; failure notice with the error. Either way the lists reload.
 - Deleting is **not plan-gated** (a downgraded owner can still delete), so Free can select and delete even though "+ Add" is hidden.
 - Deleting a track that is playing does not interrupt what is on air until the next track boundary (audio path; see [autodj.md](autodj.md)).
 
@@ -291,7 +292,7 @@ API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `Trac
 
 All are under the `verified` middleware group except the public listeners endpoint (`api/routes/api.php`). An unverified account gets 403 "Your email address is not verified." on all of them.
 
-**Existing owner endpoints the phone never calls:** `POST /stations/{slug}/skip`, `stream-key` rotation, station PATCH/DELETE/creation, playlist CRUD, track PATCH/reorder, per-playlist track edits. The status payload's `up_next` and `playlist_length` are received and ignored.
+**Existing owner endpoints the phone never calls:** `POST /stations/{slug}/skip`, `stream-key` rotation, station PATCH/DELETE/creation, playlist CRUD, track PATCH/reorder, `GET /tracks/{track}/audio` (the web library's preview), per-playlist track edits. The status payload's `up_next` and `playlist_length` are received and ignored.
 
 ## Surfaces
 

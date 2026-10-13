@@ -228,6 +228,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
 
     if (manager) {
       await manager.stop()
+      // Go live was pressed again during that await: the refs and state below
+      // belong to the new run now, and wiping them would orphan its manager
+      // (mic open, unreachable by Go live / Cancel / End). Its station too.
+      if (managerRef.current !== manager) return
       managerRef.current = null
     }
     if (stationIdRef.current) {

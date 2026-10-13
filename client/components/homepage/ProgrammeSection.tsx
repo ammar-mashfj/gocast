@@ -13,7 +13,7 @@ const POINTS = [
   },
   {
     title: "Nothing to babysit",
-    body: "Slots switch at the next track boundary, in your station’s timezone. Gaps fall back to your default rotation.",
+    body: "Slots start at the next track change, or on the dot if you switch that on, in your station’s timezone. Gaps fall back to your default rotation.",
   },
 ] as const
 
@@ -28,8 +28,8 @@ const PRO_EXTRAS = [
     body: "A public Icecast URL that works in TuneIn, Sonos, VLC and every directory that takes one.",
   },
   {
-    title: "Your site, your domain",
-    body: "Embed the player with one line of HTML, or point a DNS record at your station.",
+    title: "A player on your own site",
+    body: "Embed the live player on any page you run. One iframe, copied from your dashboard.",
   },
   {
     title: "Broadcast from your own gear",

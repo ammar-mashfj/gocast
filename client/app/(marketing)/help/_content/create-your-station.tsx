@@ -18,7 +18,7 @@ export default function Body() {
         </li>
         <li>
           <strong>A link.</strong>{" "}Built from the name &mdash; &ldquo;Night
-          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>
+          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>{" "}
           &mdash; and shown while you type, so you see it before you create
           the station. If somebody already has that name, a number is added.
           It never changes, even if you rename the station later, so every

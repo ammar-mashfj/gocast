@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
  * not the root), so a question folded inside an open card looks closed.
  */
 export function Disclosure({
+  id,
   title,
   description,
   variant = "row",
@@ -24,6 +25,8 @@ export function Disclosure({
   children,
   className,
 }: {
+  /** An anchor for links from other pages (`settings#encoder`). */
+  id?: string
   title: React.ReactNode
   description?: React.ReactNode
   variant?: "row" | "card"
@@ -33,6 +36,7 @@ export function Disclosure({
 }) {
   return (
     <Collapsible.Root
+      id={id}
       defaultOpen={defaultOpen}
       className={cn(
         "flex flex-col",

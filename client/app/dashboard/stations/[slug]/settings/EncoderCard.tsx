@@ -1,17 +1,29 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
+import { IconLoader2 } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { Disclosure } from "@/components/ds/Disclosure"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 import { ProTag } from "@/components/ds/Tag"
 import { EncoderConnection } from "@/components/dashboard/EncoderConnection"
 import { useProRequest } from "@/contexts/ProRequestContext"
+import { useStationPower } from "@/hooks/useStationPower"
+import { useStationStatus } from "@/hooks/useStationStatus"
 import { StationEncoder } from "@/interfaces/Station"
 import api from "@/lib/axios"
+
+/**
+ * How often the watcher below asks whether the encoder has turned up. A
+ * person is sitting in front of BUTT with Connect pressed, watching; ten
+ * seconds of "waiting" after their software says Connected reads as broken.
+ * The route allows 120/min and answers from a short server-side cache.
+ */
+const WATCH_POLL_MS = 2000
 
 interface EncoderCardProps {
   slug: string
@@ -146,7 +158,8 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
   }
 
   return (
-    <Disclosure variant="card" title="Use your own DJ software" description="Optional. Skip this if you go live from the browser.">
+    // The id is the pre-flight page's "Using DJ software instead?" anchor.
+    <Disclosure id="encoder" variant="card" title="Use your own DJ software" description="Optional. Skip this if you go live from the browser.">
       {!encoder ? (
         // The plan allows it, but this deployment has no ingest router
         // published, so there is no honest address to print.
@@ -159,6 +172,11 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
           </p>
 
           <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
+
+          {/* Mounted only while the card is open: Collapsible unmounts its
+              content when closed, so the 2s poll runs only while someone is
+              looking at the values and waiting for their software. */}
+          <ConnectionWatcher slug={slug} stationName={stationName} />
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-body-sm text-text-faint">Pasted your key somewhere public? Make a new one.</span>
@@ -195,7 +213,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
 const TIPS = [
   {
     q: "Turn the station on first?",
-    a: "Yes. Press Start AutoDJ on the Overview, then connect. Your software connects to the station itself, so there’s nothing to connect to while it’s off air.",
+    a: "Yes. Press Put it on air above (or Start AutoDJ on the Overview), then connect. Your software connects to the station itself, so there’s nothing to connect to while it’s off air.",
   },
   {
     q: "Shoutcast doesn’t work?",
@@ -210,3 +228,135 @@ const TIPS = [
     a: "It isn’t encrypted. Your software sends the key as plain text, so treat it like a password on a shared network, and make a new one if you ever paste it somewhere public.",
   },
 ]
+
+/**
+ * Is anybody there?
+ *
+ * The values above are five things to type, and then the card would go
+ * quiet, leaving the one question a DJ has ("did that work?") to be answered
+ * by opening the player page and listening. Worse, the two ways it can
+ * silently fail look the same from the encoder's side: a station that is off
+ * air and a mount someone else holds both show up in BUTT as a connection
+ * that fails or carries nothing.
+ *
+ * So this watches `live_source` on its own 2s poll and says which state the
+ * station is in: off (with the button that turns it on), starting, waiting,
+ * taken by another source, or connected. Guarded on the station running: a
+ * session row can outlive its container when a `live_disconnected` is lost,
+ * and a stopped station cannot have anyone on air whatever its rows claim.
+ */
+function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: string }) {
+  const router = useRouter()
+  const { status } = useStationStatus(slug, true, WATCH_POLL_MS)
+  // The dashboard's shared poll feeds the band and the overview; nudged when
+  // the encoder lands so they say "live" at once rather than at their own
+  // pace (thirty seconds for an idle station).
+  const { refresh: refreshShared } = useStationStatus(slug)
+  const power = useStationPower(slug)
+  // Covers the gap between a start being accepted and the poll noticing:
+  // /start answers before the container is up, and without this the card
+  // would snap back to "off air" right after the click.
+  const [startRequested, setStartRequested] = useState(false)
+
+  const running = status !== null && status.state !== "offline"
+  const live = status?.live_source ?? null
+  const connected = running && live?.type === "external"
+  const otherLive = running && live !== null && live.type !== "external"
+  const settling = status !== null && (status.state === "starting" || !status.reachable)
+
+  // Fire once per connection, not on every 2s sample: refresh() is a request.
+  const announced = useRef(false)
+  useEffect(() => {
+    if (!connected) {
+      announced.current = false
+      return
+    }
+    if (announced.current) return
+    announced.current = true
+    void refreshShared()
+    router.refresh()
+  }, [connected, refreshShared, router])
+
+  async function putOnAir() {
+    if (await power.start()) setStartRequested(true)
+  }
+
+  if (status === null) return null
+
+  if (connected) {
+    return (
+      <Watch tone="live" label="CONNECTED">
+        <span className="font-semibold text-foreground">{live?.client ? `${live.client} is connected.` : "Your encoder is connected."}</span>{" "}
+        {stationName} is live.
+      </Watch>
+    )
+  }
+
+  if (otherLive) {
+    return (
+      <Watch tone="warn" label="TAKEN">
+        <span className="font-semibold text-foreground">Something else is already broadcasting.</span>{" "}
+        {stationName} takes one source at a time, so your software is turned away until that show ends.
+      </Watch>
+    )
+  }
+
+  if (!running && !startRequested) {
+    return (
+      <Watch
+        tone="off"
+        label="OFF AIR"
+        action={
+          <Button size="sm" variant="subtle" onClick={putOnAir} disabled={power.pending !== null}>
+            {power.pending === "start" && <IconLoader2 className="animate-spin" />}
+            Put it on air
+          </Button>
+        }
+      >
+        <span className="font-semibold text-foreground">{stationName} is off air.</span>{" "}
+        Your software connects to the station itself, so there is nothing listening until it is on.
+      </Watch>
+    )
+  }
+
+  const starting = !running || settling
+  return (
+    <Watch tone="onair" label={starting ? "STARTING" : "WAITING"} bar={!starting}>
+      {starting ? `Starting ${stationName}. Give it a few seconds, then connect.` : `${stationName} is on air. Waiting for your software to connect.`}
+    </Watch>
+  )
+}
+
+/** One state of the watcher: a lamp, a sentence, and a button or a waiting bar. */
+function Watch({
+  tone,
+  label,
+  children,
+  action,
+  bar = false,
+}: {
+  tone: "off" | "onair" | "live" | "warn"
+  label: string
+  children: React.ReactNode
+  action?: React.ReactNode
+  /** Indeterminate, because the wait is: it ends when someone presses Connect elsewhere. */
+  bar?: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-panel bg-surface-inset p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3.5">
+        <StatusLamp tone={tone} variant="soft" pulse={tone === "onair"} className="shrink-0">
+          {label}
+        </StatusLamp>
+        <p className="text-body-sm leading-relaxed text-muted-foreground">{children}</p>
+      </div>
+      {action}
+      {bar && (
+        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-strong" role="progressbar" aria-label="Waiting for your software to connect">
+          {/* Reduced motion: a still, dimmed full bar reads as waiting, not as a third done. */}
+          <div className="h-full w-1/3 rounded-full bg-on-air animate-indeterminate motion-reduce:w-full motion-reduce:animate-none motion-reduce:bg-on-air/40" />
+        </div>
+      )}
+    </div>
+  )
+}

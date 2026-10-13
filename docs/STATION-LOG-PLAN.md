@@ -7,7 +7,7 @@ Where we ended up: **build a day-ahead station log in Laravel, keep Liquidsoap p
 
 ---
 
-## 1. Where this came from: a customer (mjescandar@gmail.com)
+## 1. Where this came from: a customer
 
 ### Email 1: "About schelude"
 

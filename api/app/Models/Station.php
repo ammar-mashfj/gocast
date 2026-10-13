@@ -177,6 +177,15 @@ class Station extends Model
     public const SLUG_MAX = 55;
 
     /**
+     * Links a station can never have: static routes under /stations that sit
+     * ahead of the {station} binding, so a station holding one could never be
+     * fetched by its slug.
+     *
+     * @var list<string>
+     */
+    public const RESERVED_SLUGS = ['slug-preview'];
+
+    /**
      * The link a name gets: Str::slug, then -2, -3, ... until free. Names
      * that produce an empty slug (e.g. emoji-only) fall back to "station".
      *
@@ -186,7 +195,7 @@ class Station extends Model
      * create resolves on its own.
      *
      * A deleted station's link counts as taken: anyone who saved it would
-     * otherwise land on a stranger.
+     * otherwise land on a stranger. So does a RESERVED_SLUGS route name.
      */
     public static function slugFor(string $name): string
     {
@@ -198,7 +207,7 @@ class Station extends Model
 
         $slug = $base;
         $suffix = 2;
-        while (static::withTrashed()->where('slug', $slug)->exists()) {
+        while (in_array($slug, self::RESERVED_SLUGS, true) || static::withTrashed()->where('slug', $slug)->exists()) {
             $slug = $base.'-'.$suffix;
             $suffix++;
         }

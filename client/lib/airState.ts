@@ -140,6 +140,19 @@ export function airState(input: AirInput): AirState {
   }
 
   if (status.source === "silence") {
+    // The checklist turned the station on and the host is about to go live:
+    // the silence is the gap before their show, not AutoDJ running dry (an
+    // account without AutoDJ has none to run dry).
+    if (broadcastState === "ready" || broadcastState === "connecting") {
+      return {
+        onAir: true,
+        broadcasting: false,
+        tone: "off",
+        label: "GOING LIVE",
+        message: "Your station is on and waiting for you. Listeners hear silence until you go live.",
+        action: null,
+      }
+    }
     return {
       onAir: true,
       broadcasting: false,

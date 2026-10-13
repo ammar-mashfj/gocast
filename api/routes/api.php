@@ -128,7 +128,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // with a 403 JSON ("Your email address is not verified.") for API clients.
     Route::middleware('verified')->group(function () {
         // Before the resource: GET /stations/{station} would otherwise try
-        // to bind "slug-preview" as a station and answer 404.
+        // to bind "slug-preview" as a station and answer 404. The slug is in
+        // Station::RESERVED_SLUGS so no station can be shadowed by this.
         Route::get('/stations/slug-preview', StationSlugController::class)
             ->middleware('throttle:slug-preview');
         Route::apiResource('stations', StationController::class);

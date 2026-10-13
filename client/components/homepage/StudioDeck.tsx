@@ -19,8 +19,9 @@ const TRACKS = [
 
 const STATION = { name: "Late Shift", link: "gocast.fm/station/late-shift" }
 
-type Repeat = "off" | "all" | "one"
-const NEXT_REPEAT: Record<Repeat, Repeat> = { off: "all", all: "one", one: "off" }
+/** The real studio's two modes (audioEngine RepeatMode): the queue loops, or one track does. */
+type Repeat = "all" | "one"
+const NEXT_REPEAT: Record<Repeat, Repeat> = { all: "one", one: "all" }
 
 /** The row the real studio prints under the deck, minus the ones that need
     a monitor device to make sense. */
@@ -54,7 +55,7 @@ const INITIAL: Sim = {
   playing: true,
   cur: 0,
   pos: 196,
-  repeat: "off",
+  repeat: "all",
   micOpen: false,
   level: 0,
   showSecs: 32 * 60 + 14,
@@ -141,8 +142,7 @@ export function StudioDeck() {
           let cur = s.cur
           if (pos >= TRACKS[cur].len) {
             pos = 0
-            if (s.repeat !== "one") cur = cur + 1 < TRACKS.length ? cur + 1 : 0
-            if (s.repeat === "off" && cur === 0) n.playing = false
+            if (s.repeat === "all") cur = cur + 1 < TRACKS.length ? cur + 1 : 0
           }
           n.pos = pos
           n.cur = cur
