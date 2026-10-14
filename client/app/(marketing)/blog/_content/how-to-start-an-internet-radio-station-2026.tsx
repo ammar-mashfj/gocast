@@ -99,7 +99,7 @@ export default function Body() {
         enough to offer a real free tier rather than a two-week demo.
       </p>
       <p>
-        Pro is $15/month and covers what a station needs once it outgrows a browser tab:
+        Pro is $20/month and covers what a station needs once it outgrows a browser tab:
         24/7 AutoDJ from a 3&nbsp;GB library, ingest from BUTT, Mixxx or any
         Icecast-compatible encoder, a public stream URL you can hand to TuneIn or play on
         Sonos, 1,000 concurrent listeners, listener analytics, and a custom domain
@@ -107,9 +107,7 @@ export default function Body() {
         <Link href="/blog/keep-your-radio-station-on-air-24-7">
           how to keep a station on air 24/7
         </Link>{" "}
-        . It&#39;s in beta, and free while it is: you request it from your
-        dashboard and we invite stations in a few at a time, with no card and
-        nothing to pay until billing opens.
+        . You ask for it from your dashboard and we email you how to pay.
       </p>
       <p>
         Strongest point: going from zero to live in under a minute. Weakest point: the
@@ -192,7 +190,7 @@ export default function Body() {
           <tr>
             <td><strong>GoCast</strong></td>
             <td>60 seconds</td>
-            <td>Free, or $15/mo Pro</td>
+            <td>Free, or $20/mo Pro</td>
             <td>Yes</td>
             <td>Yes (Pro)</td>
             <td>Hobbyists, podcasters, churches</td>

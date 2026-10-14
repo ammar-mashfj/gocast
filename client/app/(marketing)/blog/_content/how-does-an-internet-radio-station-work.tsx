@@ -218,7 +218,7 @@ export default function Body() {
         You don&#39;t need any of this to run a station on GoCast &mdash;
         that&#39;s rather the point. But knowing how the machine works makes
         the whole market legible: why every platform has listener caps, what a
-        $59 plan is actually buying over a $15 one, why self-hosting is
+        $59 plan is actually buying over a $20 one, why self-hosting is
         cheaper on paper and dearer in evenings, and what&#39;s really
         happening in the two seconds between pressing &ldquo;go live&rdquo;
         and hearing your own voice on the player page.

@@ -149,9 +149,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
     slug: "free-and-pro",
     title: "What you get on Free and on Pro",
     description:
-      "Every limit that differs between the two plans, and how to ask for Pro while it is in beta.",
+      "Every limit that differs between the two plans, and how to get Pro.",
     category: "getting-started",
-    updated: "2026-09-23",
+    updated: "2026-10-14",
     Body: FreeAndProBody,
     related: ["upload-your-music", "broadcast-from-butt-or-mixxx"],
   },

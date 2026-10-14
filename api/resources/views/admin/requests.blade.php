@@ -187,12 +187,44 @@
                                 </td>
                                 <td class="text-right">
                                     <div class="flex justify-end gap-1">
+                                        {{-- The first step for every Pro request: there is no
+                                             checkout, so they get prices and payment by email and
+                                             Approve comes after they pay or ask to try it. Kept on
+                                             approved rows too, because the trial it offers is an
+                                             approval and somebody on it still needs the prices. --}}
+                                        @if ($entry->user && $entry->plan === $pricedPlan && $entry->status !== \App\Models\WaitlistEntry::STATUS_REJECTED)
+                                            <a href="{{ route('admin.requests.payment-email', $entry) }}"
+                                               class="btn btn-ghost btn-xs"
+                                               title="Open the email composer with the prices, payment and trial offer filled in. Nothing is sent until you preview and send it.">
+                                                Payment email
+                                            </a>
+                                        @endif
                                         @if ($entry->status === \App\Models\WaitlistEntry::STATUS_APPROVED)
                                             <form method="POST" action="{{ route('admin.requests.revoke', $entry) }}"
-                                                  onsubmit="return confirm('Move {{ $entry->email }} back to Free? They lose AutoDJ and drop to the free listener cap.')">
+                                                  onsubmit="return confirm({{ Js::from('Move '.$entry->email.' back to Free? They lose AutoDJ and drop to the free listener cap.') }})">
                                                 @csrf
                                                 <button type="submit" class="btn btn-ghost btn-xs">Revoke</button>
                                             </form>
+                                            {{-- Trial to paid, and renewals. Adds the term to the end
+                                                 date they already have rather than restarting it, and
+                                                 never passes through Free the way Revoke + Approve would. --}}
+                                            @if ($entry->user)
+                                                <form method="POST" action="{{ route('admin.requests.renew', $entry) }}"
+                                                      class="flex items-center gap-1"
+                                                      onsubmit="return confirm('Add ' + this.term.options[this.term.selectedIndex].text + {{ Js::from(' of '.$entry->plan.' for '.$entry->email.' (') }} + this.paid.options[this.paid.selectedIndex].text + ')? It is added to their current end date, and they will be emailed.')">
+                                                    @csrf
+                                                    {{-- The end date this page showed. A renewal that finds
+                                                         a different one (a double-click, a revoke, another
+                                                         admin) is refused instead of added on top. --}}
+                                                    <input type="hidden" name="seen_until" value="{{ $entry->user->plan_expires_at?->getTimestamp() }}">
+                                                    @include('admin.partials.grant-fields')
+                                                    <button type="submit" class="btn btn-primary btn-xs"
+                                                            @disabled(! $known)
+                                                            title="Add this term to their current end date and email them">
+                                                        Renew
+                                                    </button>
+                                                </form>
+                                            @endif
                                         @elseif ($entry->status === \App\Models\WaitlistEntry::STATUS_REJECTED)
                                             <form method="POST" action="{{ route('admin.requests.reopen', $entry) }}">
                                                 @csrf
@@ -210,15 +242,9 @@
                                                      see AccessRequestController::TERMS. --}}
                                                 <form method="POST" action="{{ route('admin.requests.approve', $entry) }}"
                                                       class="flex items-center gap-1"
-                                                      onsubmit="return confirm('Put {{ $entry->email }} on {{ $entry->plan }} for ' + this.term.options[this.term.selectedIndex].text + '? They will be emailed, and the account returns to Free on its own when it ends.')">
+                                                      onsubmit="return confirm({{ Js::from('Put '.$entry->email.' on '.$entry->plan.' for ') }} + this.term.options[this.term.selectedIndex].text + ' (' + this.paid.options[this.paid.selectedIndex].text + ')? They will be emailed, and the account returns to Free on its own when it ends.')">
                                                     @csrf
-                                                    <select name="term" class="select select-xs w-24"
-                                                            @disabled(! $known)
-                                                            title="How long they keep the plan. It returns to Free automatically when this runs out.">
-                                                        @foreach ($terms as $value => $label)
-                                                            <option value="{{ $value }}" @selected($value === $defaultTerm)>{{ $label }}</option>
-                                                        @endforeach
-                                                    </select>
+                                                    @include('admin.partials.grant-fields')
                                                     <button type="submit" class="btn btn-primary btn-xs"
                                                             @disabled(! $known)
                                                             title="{{ $known ? 'Grant this plan for the term selected and email them' : 'No plan is configured with this slug' }}">

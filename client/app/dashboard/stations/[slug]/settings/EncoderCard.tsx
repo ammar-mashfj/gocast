@@ -136,10 +136,10 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
           </p>
           <div>
             {/* Outline: on this page the section saves are the filled ones.
-                "Request", not "Upgrade" — Pro is granted by hand. */}
+                Opens the request form — payment is arranged by email. */}
             <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
               {proRequest.requested && <IconCheck size={16} data-icon="inline-start" />}
-              <span>{proRequest.requested ? "Request sent" : "Request Pro"}</span>
+              <span>{proRequest.requested ? "Request sent" : "Get Pro"}</span>
             </Button>
           </div>
         </CardContent>

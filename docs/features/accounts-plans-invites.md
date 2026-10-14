@@ -18,6 +18,7 @@ sources:
   - api/app/Http/Controllers/Admin/InviteController.php
   - api/app/Http/Controllers/Admin/AccountController.php
   - api/app/Http/Controllers/Admin/StationController.php
+  - api/app/Services/PlanTerm.php
   - api/app/Http/Requests/RegisterRequest.php
   - api/app/Http/Requests/StoreWaitlistRequest.php
   - api/app/Http/Requests/StoreProAccessRequest.php
@@ -122,7 +123,7 @@ Source of truth is the migration chain, not a seeder (`database/seeders/Database
 - `users.plan_id` is `DEFAULT 1` with a foreign key. New accounts are Free only because row id 1 is Free. `AuthController::register` and Google sign-up never set `plan_id`; the column default does. If plan id 1 were ever not Free, every signup would land on it.
 - A user with no plan row is treated as **free** everywhere (`$this->plan?->x ?? false`), with the one exception `analytics`/`max_listeners` display which coalesce to 0.
 - `Plan::isFree()` is `slug === 'free'`. `ExpirePlans`, `InviteRedemption`, `NudgeInactiveBroadcasters` and `AccessRequestController::revoke` all find Free by that slug.
-- Client-side price: `PRO_PRICE_USD = 15` and `PRO_AVAILABLE = false` in `client/interfaces/Plan.ts`. No server number exists. `PRO_AVAILABLE` is read by `AutoDjUpsell.tsx` and `AudienceUpsell.tsx` (outside this doc's sources) to word the CTA.
+- Client-side price: `PRO_PRICE_USD = 20` and `PRO_AVAILABLE = false` in `client/interfaces/Plan.ts`. No server number exists. `PRO_AVAILABLE` is read by `AutoDjUpsell.tsx` and `AudienceUpsell.tsx` (outside this doc's sources) to word the CTA.
 - Marketing copy (`PricingSection.tsx`) claims Free "100 concurrent listeners" and Pro "1,000 concurrent listeners", "3 GB" library, "Priority support". The 3 GB is `LIQUIDSOAP_STATION_STORAGE_BYTES` default (`config/liquidsoap.php:716`), a per-station cap that is **the same on every plan**, not a plan column.
 
 ## Every place a plan is checked
@@ -161,7 +162,7 @@ Helpers on `User`: `canUseAutoDj()`, `canEmbed()`, `canUseEncoder()`, `watermark
 | Writer | Plan | Expiry | Notification | Where |
 |---|---|---|---|---|
 | Invite redeemed | invite's plan | `now + duration_days`, or null if the invite has no duration | `InviteRedeemed` (mail + bell) | `InviteRedemption::redeem` |
-| Admin approves a request | the entry's `plan` slug | always set: 1 week, 2 weeks, 1/2/3 months (default 3 months) via `AccessRequestController::TERMS` | `ProAccessGranted` | `Admin/AccessRequestController::approve` |
+| Admin approves a request | the entry's `plan` slug | always set: 1 week, 2 weeks, 1/2/3/6/12 months (default 1 week, the trial) via `AccessRequestController::TERMS`; a Free/Paid select (`paid`) only changes the email wording | `ProAccessGranted` (`paid: true` thanks them for the payment instead of "on us") | `Admin/AccessRequestController::approve` |
 | Admin upgrades from a station page | any non-free plan | the same terms, or `none` (no end) | `ProAccessGranted` with a required note (max 2000) | `Admin/StationController::upgrade` |
 | Admin provisions an account | chosen `plan_id` (`StoreAccountRequest`: name, unique email, password min 8, `station_name` max 100) | not set | none; account is created already verified, with a station, in one transaction. Ignores `max_stations`; the password is shown once in a flash | `Admin/AccountController::store` |
 | Admin revokes an approved request | Free | null | none | `AccessRequestController::revoke` |
@@ -217,8 +218,8 @@ Google sign-in links an existing password account by email and then redeems, whi
 - Resubmitting overwrites the same row. If the row was `rejected` it is reopened to `pending` (`reopen()` clears reviewer and time); an `approved` row is left alone.
 - A create, or an update that changed `social`, `message` or `status`, fires an AdminTelegram alert if the row is `pending` (hooked on the model in `AppServiceProvider`, `AdminTelegram::accessRequested`; inert without a bot token). An identical resubmit changes nothing and sends nothing; a resubmit that reopens a rejected row does. The DB column `social` is nullable, but both requests require it.
 - Only Pro-with-`user_id` requests are grantable (`isGrantable()`: pending and `user_id` not null). Custom enquiries can only be dismissed.
-- Admin actions (see [admin-panel](admin-panel.md)): `approve` (locks the row, marks approved, writes the plan and a fixed end date, sends `ProAccessGranted`), `dismiss` (refused for an approved row), `revoke` (approved back to pending, plan to Free, no email), `reopen` (rejected to pending). Approval looks up the plan by `entry.plan`; the account's plan is written even if the user is already on a paid plan, and `invite_id` is left as is.
-- **Where the form lives.** Web: `ProAccessDialog` (title "Request Pro access", copy says Pro is in beta and free; requires a `social` value containing a "."; shows the account email read-only), mounted once by `ProRequestProvider` in the dashboard layout. Every upgrade affordance calls `useProRequest().open()`. `requested` is React state, reset on reload; there is no API to ask "have I already requested". The Custom card on the public pricing page reuses the same dialog with `plan="custom"`, which posts to the public endpoint with an email field. The pricing page has no Pro request button (removed on purpose). Mobile has none: its account screen's "Request Pro" opens `/dashboard` on the web.
+- Admin actions (see [admin-panel](admin-panel.md)): `approve` (locks the row, marks approved, writes the plan and a fixed end date, sends `ProAccessGranted`), `dismiss` (refused for an approved row), `revoke` (approved back to pending, plan to Free, no email; refused when the account is on a plan the request did not grant), `reopen` (rejected to pending). Approval looks up the plan by `entry.plan` and refuses an account already on a different paid plan or permanently on this one (`PlanTerm::conflict`); `invite_id` is left as is.
+- **Where the form lives.** Web: `ProAccessDialog` (title "Get Pro", copy says we email you how to pay and Pro switches on once payment arrives; requires a `social` value containing a "."; shows the account email read-only), mounted once by `ProRequestProvider` in the dashboard layout. Every upgrade affordance calls `useProRequest().open()`. `requested` is React state, reset on reload; there is no API to ask "have I already requested". The Custom card on the public pricing page reuses the same dialog with `plan="custom"`, which posts to the public endpoint with an email field. The pricing page has no Pro request button (removed on purpose). Mobile has none: its account screen's "Get Pro" opens `/dashboard` on the web.
 - Error mapping in the dialog: 401 session expired, 429 too many attempts, 422 check details, anything else generic.
 
 ## Account self-service
@@ -235,7 +236,7 @@ Google sign-in links an existing password account by email and then redeems, whi
 
 ## Time-limited plans: `plans:expire`
 
-Scheduled hourly, `withoutOverlapping` (`routes/console.php`). It picks users where `plan_expires_at <= now()` with `lazyById(500)` (keyset paging, because the loop nulls the column it filters on), sets `plan_id` to Free and `plan_expires_at` to null on each, one save per user so `UserObserver` fires, then sends `PlanExpired` only if the ended plan differs from Free. Fails with an error if no `free` plan exists.
+Scheduled hourly, `withoutOverlapping` (`routes/console.php`). It picks users where `plan_expires_at <= now()` with `lazyById(500)` (keyset paging, because the loop nulls the column it filters on), then for each one re-reads the row under `lockForUpdate` in its own transaction and skips it if the date is now null or in the future (an admin renewed it after the batch was read; the grant paths lock the same row), else sets `plan_id` to Free and `plan_expires_at` to null, one save per user so `UserObserver` fires (its container push waits for the commit), then sends `PlanExpired` only if the ended plan differs from Free. Fails with an error if no `free` plan exists.
 
 It deletes and stops nothing. Caps apply only when creating or starting, so a downgraded account keeps its station and library. The visible effects: rotation stops at the next track boundary, jingles are pushed off, uploads and slot playback are refused, the encoder key stops working on reconnect, the embed 404s, audience history locks, and a second running station cannot be started. `PlanExpired` copy promises the station and uploads are untouched, and says the AutoDJ library "no longer accepts new uploads" only when the ended plan had AutoDJ and Free does not.
 
@@ -269,11 +270,11 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 
 | Surface | What it does with this feature |
 |---|---|
-| Web `/dashboard/settings` ("Account") | `PlanCard` (plan name, "Up to N listeners at once", AutoDJ sentence, "Request Pro" if AutoDJ locked; renders nothing when the plan is unknown), Profile form, Change/Set password, Danger zone with delete dialog (typed email). Reads `user` from the cookie via `getUser()`, not from the API, so name and email are as of last `saveAuth`. **`plan.expires_at` is not shown here** |
+| Web `/dashboard/settings` ("Account") | `PlanCard` (plan name, "Up to N listeners at once", AutoDJ sentence, "Get Pro" if AutoDJ locked; renders nothing when the plan is unknown), Profile form, Change/Set password, Danger zone with delete dialog (typed email). Reads `user` from the cookie via `getUser()`, not from the API, so name and email are as of last `saveAuth`. **`plan.expires_at` is not shown here** |
 | Web dashboard layout | Fetches `/user` once server-side and provides it through `AccountProvider`; `usePlan()` is null on a failed fetch, and the `use*Locked()` hooks treat null as "not locked" (`useAutoDjLocked`, `useAudienceLocked`, `useEmbedLocked`, `useEncoderLocked`) so a timeout never paints an upsell on a paying user. The API is the real gate |
-| Web sidebar | "Pro" badge on items with `lock: "autodj"` (AutoDJ and Schedule, since Schedule is AutoDJ slots only) or `"audience"` (Audience); the links stay live on purpose. Plan card with "Request Pro" when AutoDJ locked, "Requested" state per session; a paid plan's name is a badge next to the user's name in the footer instead |
+| Web sidebar | "Pro" badge on items with `lock: "autodj"` (AutoDJ and Schedule, since Schedule is AutoDJ slots only) or `"audience"` (Audience); the links stay live on purpose. Plan card with "Get" + Pro badge when AutoDJ locked, "Requested" state per session; a paid plan's name is a badge next to the user's name in the footer instead |
 | Web `/auth/register?invite=CODE` | `useInvite` calls `GET /invites/{code}` and shows a banner: valid (plan and days), closed used/expired, invalid, or unchecked (lookup failed, code is still sent). Submit is disabled while the lookup is `checking`. The code is only sent when the state is valid or unchecked. `invite_used`, `invite_already_redeemed`, `invite_expired`, `invite_not_found` errors flip the banner so a retry goes without the code. Google button passes `invite` on the popup URL; the outcome toast comes from the popup message |
-| Mobile | `account.tsx` shows plan name, listeners, AutoDJ and an "Ends" date from `expires_at`; "Request Pro" (shown only when `plan.slug === 'free'`) opens the web dashboard. No invite entry anywhere; native Google sign-in supports an `invite` field but the app does not send one (no file under `mobile/src` mentions invites). |
+| Mobile | `account.tsx` shows plan name, listeners, AutoDJ and an "Ends" date from `expires_at`; "Get Pro" (shown only when `plan.slug === 'free'`) opens the web dashboard. No invite entry anywhere; native Google sign-in supports an `invite` field but the app does not send one (no file under `mobile/src` mentions invites). |
 | Admin (boundary) | Requests queue, invites page, provision account, station upgrade: [admin-panel](admin-panel.md) |
 
 ## Gaps and traps
@@ -296,7 +297,7 @@ Idempotency is "has a notification of this class ever been stored for the user" 
 16. **Nudge blind spots** (`NudgeInactiveBroadcasters`): paid accounts are never nudged; a free account live at run time is nudged; the one-day `created_at` window means unverified-at-day-7 accounts miss it; AutoDJ airtime cannot mislead it only because AutoDJ is paid and paid accounts are excluded.
 17. **Unsubscribe scope:** `email_suppressions` is consulted only by admin invite sending. A suppressed address can still receive every other email.
 18. **Access request state is per session on the client.** `ProRequestContext.requested` resets on reload, so the button re-enables; a resubmit silently overwrites the earlier message (by design, `updateOrCreate`).
-19. **Approval does not check the current plan or invite.** Approving a request for an account already on Pro overwrites its plan and expiry (possibly shortening an open-ended plan).
+19. **Approval only writes over Free or the requested plan.** A running grant of the requested plan (invite or trial) is extended, not restarted; an account on another plan, or on the requested plan with no end date, is refused and has to be changed by hand.
 20. **Custom enquiries are unauthenticated free text** stored as-is and can only ever be dismissed, never approved.
 
 ## Tests

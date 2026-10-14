@@ -375,7 +375,7 @@ function EncoderView({
         <DialogFooter>
           <Button onClick={onRequestPro} className="w-full sm:w-auto">
             <IconSparkles data-icon="inline-start" />
-            {proRequested ? "Request sent" : "Request access"}
+            {proRequested ? "Request sent" : "Get Pro"}
           </Button>
         </DialogFooter>
       </>

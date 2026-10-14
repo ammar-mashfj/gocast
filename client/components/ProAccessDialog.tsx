@@ -22,12 +22,12 @@ import api from "@/lib/axios"
  * wording, so callers override rather than fork.
  */
 const PRO_COPY = {
-  title: "Request Pro access",
+  title: "Get Pro",
   description:
-    "Pro is in beta and free while it is — no card, nothing to pay. We're onboarding a few stations at a time. Tell us about yours.",
+    "Tell us about your station and we'll email you how to pay. Pro switches on as soon as your payment arrives.",
   confirmation:
-    "Thanks — your request is in. We're inviting stations in small batches, so it may be a while before you hear from us. There's nothing to pay while Pro is in beta, and we'll give you notice long before billing opens.",
-  submitLabel: "Request access",
+    "Thanks — we've got it. We'll be in touch by email with how to pay.",
+  submitLabel: "Send",
 }
 
 interface Props {

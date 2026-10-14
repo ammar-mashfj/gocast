@@ -86,7 +86,7 @@ export default function Account() {
             <Fact label="AutoDJ" value={plan.autodj_enabled ? 'Plays your library between shows' : 'Not on this plan'} />
             {plan.expires_at && <Fact label="Ends" value={formatDate(plan.expires_at)} />}
             {!pro && (
-              <Button label="Request Pro" variant="pro" height={50} radius={16} size={15} onPress={() => openWeb('/dashboard')} />
+              <Button label="Get Pro" variant="pro" height={50} radius={16} size={15} onPress={() => openWeb('/dashboard')} />
             )}
           </Card>
         )}

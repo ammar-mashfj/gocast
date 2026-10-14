@@ -70,7 +70,7 @@ export default function Body() {
           </tr>
           <tr>
             <td>GoCast Pro</td>
-            <td>$15/mo, free during beta</td>
+            <td>$20/mo</td>
             <td>Music that plays 24/7, 1,000 listeners</td>
           </tr>
           <tr>
@@ -94,7 +94,7 @@ export default function Body() {
         Two of those prices include something the others don&#39;t. Live365 is
         expensive because the fee covers your US licensing, which you&#39;d
         otherwise arrange and pay for separately &mdash; so comparing it
-        directly against a $15 platform is comparing different things. And a
+        directly against a $20 platform is comparing different things. And a
         $5 server is only $5 if your time is worth nothing; budget an evening
         to set it up and an hour here and there forever.
       </p>
@@ -249,9 +249,8 @@ export default function Body() {
         line rather than something we can hand out for free to everyone.
       </p>
       <p>
-        Pro is $15 a month, and it&#39;s free while it&#39;s in beta &mdash;
-        you request it from your dashboard and we invite stations in a few at a
-        time. When billing opens we&#39;ll tell you first.{" "}
+        Pro is $20 a month. You ask for it from your dashboard and we email you
+        how to pay.{" "}
         <Link href="/blog/keep-your-radio-station-on-air-24-7">
           What Pro actually does
         </Link>{" "}
@@ -266,7 +265,7 @@ export default function Body() {
         never need to leave.
       </p>
       <p>
-        <strong>The committed station &mdash; $15&ndash;30/month.</strong>{" "}
+        <strong>The committed station &mdash; $20&ndash;35/month.</strong>{" "}
         Paid platform so the station plays when you&#39;re not there, your own
         domain, a decent USB mic. Still no licensing cost, because the music is
         royalty-free or the content is talk.

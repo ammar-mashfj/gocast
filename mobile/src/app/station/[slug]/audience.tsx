@@ -70,7 +70,7 @@ export default function AudienceTab() {
             <T weight={400} size={15} tone="muted" lineHeight={1.45}>
               Listening history by day for 90 days, by country and by device, comes with Pro.
             </T>
-            <Button label="Request Pro" variant="pro" height={52} radius={16} size={15} onPress={() => openWeb('/dashboard')} />
+            <Button label="Get Pro" variant="pro" height={52} radius={16} size={15} onPress={() => openWeb('/dashboard')} />
           </Card>
         </>
       ) : (

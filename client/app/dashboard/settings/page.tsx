@@ -426,7 +426,7 @@ function PlanCard() {
             onClick={proRequest.open}
             disabled={proRequest.requested}
           >
-            {proRequest.requested ? "Request sent" : "Request Pro"}
+            {proRequest.requested ? "Request sent" : "Get Pro"}
           </Button>
         )}
       </CardContent>

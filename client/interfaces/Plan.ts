@@ -58,12 +58,13 @@ export interface Plan {
  * marketing page and the in-dashboard upsell both import this rather than
  * hardcoding it twice and disagreeing after the next pricing change.
  */
-export const PRO_PRICE_USD = 15
+export const PRO_PRICE_USD = 20
 
 /**
- * Pro is not self-serve yet: there is no Stripe integration and no checkout
- * route. Access is requested through ProAccessDialog and granted by hand, so
- * every "upgrade" affordance opens that form rather than a payment page.
+ * Pro is not self-serve yet: there is no checkout route. Pro is requested
+ * through ProAccessDialog, the payment details go out by email, and the plan
+ * is granted by hand once paid, so every "upgrade" affordance opens that form
+ * rather than a payment page.
  * Flip this once billing ships and the CTAs become real upgrade links.
  */
 export const PRO_AVAILABLE = false

@@ -80,7 +80,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your history stays if you downgrade."
-              : "Free while Pro is in beta — no card. Your history keeps building either way."}
+              : "We'll email you how to pay. Your history keeps building either way."}
           </p>
           <button
             type="button"
@@ -89,7 +89,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
             className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-all hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
           >
             {request.requested ? <IconCheck size={14} /> : <IconSparkles size={14} />}
-            <span>{request.requested ? "Requested" : "Upgrade to Pro"}</span>
+            <span>{request.requested ? "Request sent" : "Get Pro"}</span>
           </button>
         </div>
       </div>

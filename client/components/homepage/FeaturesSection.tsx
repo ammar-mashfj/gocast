@@ -257,7 +257,7 @@ export default function FeaturesSection() {
         </div>
 
         <div>
-          <GroupHeading label="When you're not" note="Pro — free while it's in beta" />
+          <GroupHeading label="When you're not" note="Pro" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {OFF_MIC.map((feature) => (
               <FeatureCard key={feature.title} feature={feature} />

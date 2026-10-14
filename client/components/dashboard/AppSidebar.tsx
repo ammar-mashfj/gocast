@@ -275,10 +275,10 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   </>
                 ) : (
                   <>
-                    {/* Pro is granted by hand, not bought, so the verb is
-                        "Request". The amber tag names the plan per DESIGN.md
-                        instead of a second filled violet button. */}
-                    <span>Request</span>
+                    {/* "Get" — it opens the request form, and payment is
+                        arranged by email. The amber tag names the plan per
+                        DESIGN.md instead of a second filled violet button. */}
+                    <span>Get</span>
                     <Badge variant="pro">
                       Pro
                     </Badge>
@@ -288,7 +288,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
               {proRequest.requested
-                ? "Request sent — we'll be in touch."
+                ? "Request sent — we'll be in touch by email."
                 : "Your station goes silent when you stop broadcasting."}
             </p>
           </div>

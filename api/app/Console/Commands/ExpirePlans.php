@@ -6,6 +6,7 @@ use App\Models\Plan;
 use App\Models\User;
 use App\Notifications\PlanExpired;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Moves accounts whose time-limited plan has run out back to Free.
@@ -45,27 +46,50 @@ class ExpirePlans extends Command
 
         $expired = 0;
 
+        // Looked up here rather than eager-loaded per account: a shared
+        // invite can expire hundreds in one hour, and there are a handful of
+        // plans.
+        $plans = Plan::all()->keyBy('id');
+
         // lazyById, not each(): the loop nulls the very column the WHERE
         // matches on, so offset pagination would skip every second page once
         // more than a chunk of accounts expire in the same hour (a shared
         // invite with a high use count does exactly that). Keyset paging is
         // immune — the same reason AnalyzeTracksCommand uses it.
-        $users = User::query()
-            ->with('plan')
+        $ids = User::query()
+            ->select('id')
             ->where('plan_expires_at', '<=', now())
             // Already free with a stale date is a no-op we still want to
             // clear, so the row stops matching tomorrow.
-            ->lazyById(500);
+            ->lazyById(500)
+            ->pluck('id');
 
-        foreach ($users as $user) {
-            $endedPlan = $user->plan;
+        foreach ($ids as $id) {
+            // Re-read under a lock, because the batch above is a snapshot: an
+            // admin can renew a lapsed account between that read and this
+            // write. Saving the stale copy would put a customer who has just
+            // paid back on Free (both columns count as changed against the
+            // old values) and email them that their plan ended. The lock
+            // orders this against the grant paths, which lock the same row.
+            $ended = DB::transaction(function () use ($id, $free, $plans) {
+                $user = User::whereKey($id)->lockForUpdate()->first();
 
-            $user->forceFill([
-                'plan_id' => $free->id,
-                'plan_expires_at' => null,
-            ])->save();
+                if (! $user?->plan_expires_at || $user->plan_expires_at->isFuture()) {
+                    return null;
+                }
 
-            if ($endedPlan && $endedPlan->isNot($free)) {
+                $endedPlan = $plans->get($user->plan_id);
+
+                $user->forceFill([
+                    'plan_id' => $free->id,
+                    'plan_expires_at' => null,
+                ])->save();
+
+                return $endedPlan && $endedPlan->isNot($free) ? [$user, $endedPlan] : null;
+            });
+
+            if ($ended !== null) {
+                [$user, $endedPlan] = $ended;
                 $user->notify(new PlanExpired($endedPlan, $free));
                 $expired++;
             }

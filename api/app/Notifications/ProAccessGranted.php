@@ -72,12 +72,30 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
      *                             exactly when `$until` is.
      * @param  string|null  $note  The admin's own reason for an unprompted
      *                             upgrade. Null for an approved request.
+     * @param  bool  $paid  They paid for this term. Swaps "on us, free of
+     *                      charge" for a thank-you; telling somebody who just
+     *                      sent money that it is free reads like a mistake.
+     *                      Always comes with `$until`: a paid grant is for a
+     *                      term that has a price, never open-ended.
+     * @param  bool  $extended  The term was added to a grant that was still
+     *                          running (AccessRequestController::renew), so
+     *                          `$until` is further out than `$term` from
+     *                          today. The copy says "added" rather than "for",
+     *                          which would contradict the date beside it.
+     * @param  bool  $renewed  A renewal of a request whose grant had already
+     *                         ended, so they are back on the plan after a
+     *                         spell on Free. Never with `$extended`. Swaps
+     *                         "your request is approved" — a decision made
+     *                         weeks ago — for "it's back on".
      */
     public function __construct(
         private readonly Plan $plan,
         private readonly ?Carbon $until,
         private readonly ?string $term,
         private readonly ?string $note = null,
+        private readonly bool $paid = false,
+        private readonly bool $extended = false,
+        private readonly bool $renewed = false,
     ) {}
 
     /**
@@ -108,8 +126,15 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // it has built anything does get AutoDJ, so the sentence still names
         // it — but "keeps your station playing" is a promise about a station
         // that does not exist yet, and the button would have nowhere to go.
-        $body = ($this->note === null ? 'Your request was approved' : "We've upgraded your account")
-            .' — up to '.number_format($this->plan->max_listeners).' listeners at once';
+        $opener = match (true) {
+            $this->paid => 'Thanks for your payment',
+            $this->extended => "We've extended your {$this->plan->name}",
+            $this->renewed => "Your {$this->plan->name} is back on",
+            $this->note !== null => "We've upgraded your account",
+            default => 'Your request was approved',
+        };
+
+        $body = $opener.' — up to '.number_format($this->plan->max_listeners).' listeners at once';
 
         if ($this->plan->autodj_enabled) {
             $body .= $station !== null
@@ -136,7 +161,17 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // question. A request grant keeps the term, which is what they asked
         // for and what its email subject promises.
         $points = match (true) {
+            $this->paid => [
+                $this->extended
+                    ? "{$this->term} of {$this->plan->name} added, paid — thank you."
+                    : "{$this->term} of {$this->plan->name}, paid — thank you.",
+                "It runs until {$this->until->toFormattedDateString()}. If you don't renew by then, your account goes back to Free on its own. Nothing you have made is deleted.",
+            ],
             $this->until === null => ['On us — no card, nothing to pay.'],
+            $this->extended => [
+                "{$this->term} more on us — no card, nothing to pay.",
+                "It now runs until {$this->until->toFormattedDateString()}, then your account goes back to Free on its own. Nothing you have made is deleted.",
+            ],
             $this->note !== null => [
                 "On us until {$this->until->toFormattedDateString()} — no card, nothing to pay. Then your account goes back to Free on its own; nothing you have made is deleted.",
             ],
@@ -201,11 +236,15 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             // An admin upgrade leaves the length out of the subject: the body
             // states it once, as a date, and a subject saying "3 months" over
             // a note that says "a month" is the contradiction people notice.
-            ->subject($this->term === null || $this->note !== null
-                ? "You're on GoCast {$this->plan->name}"
-                : "You're on GoCast {$this->plan->name} — {$this->term} on us")
+            ->subject(match (true) {
+                $this->term === null || $this->note !== null || $this->paid => "You're on GoCast {$this->plan->name}",
+                $this->extended => "GoCast {$this->plan->name} — {$this->term} more on us",
+                default => "You're on GoCast {$this->plan->name} — {$this->term} on us",
+            })
             ->greeting("Hey {$notifiable->name},");
 
+        // The admin's own words lead whatever kind of grant this is: it is the
+        // only part that says why, and a paid grant must not drop it.
         if ($this->note !== null) {
             // One line per paragraph the admin typed, so a blank line in the
             // textarea is a paragraph break in the email rather than being
@@ -213,7 +252,16 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             foreach (preg_split('/\R{2,}/', trim($this->note)) as $paragraph) {
                 $message->line(trim($paragraph));
             }
+        }
 
+        if ($this->paid) {
+            $message->line(match (true) {
+                $this->extended => "Thanks for your payment. We've added {$this->term} of {$this->plan->name} to your account.",
+                default => "Thanks for your payment. Your station is now on {$this->plan->name} for {$this->term}.",
+            });
+
+            $message->line("It runs until **{$this->until->toFormattedDateString()}**. If you don't renew by then, your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.");
+        } elseif ($this->note !== null) {
             // One sentence carries the whole term — the date — rather than a
             // "for 3 months" line followed by a "runs until" line.
             $message->line($this->until === null
@@ -221,8 +269,13 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
                 : "Your station is now on {$this->plan->name} until **{$this->until->toFormattedDateString()}**, free of charge. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.");
         } elseif ($this->until === null) {
             $message->line("Your request is approved. Your station is now on {$this->plan->name}, free of charge.");
+        } elseif ($this->extended) {
+            $message->line("We've added {$this->term} of {$this->plan->name} to your account, free of charge.");
+            $message->line("It now runs until **{$this->until->toFormattedDateString()}**. After that your account goes back to Free automatically — we'll email you when it does, and nothing you have made is deleted.");
         } else {
-            $message->line("Your request is approved. Your station is now on {$this->plan->name} for {$this->term}, free of charge.");
+            $message->line($this->renewed
+                ? "Your {$this->plan->name} is back on. Your station is on {$this->plan->name} again for {$this->term}, free of charge."
+                : "Your request is approved. Your station is now on {$this->plan->name} for {$this->term}, free of charge.");
             // Said plainly rather than buried at the bottom. The account really
             // does drop back on this date with nobody touching it, and finding
             // that out from a 403 mid-upload is the outcome this line exists to

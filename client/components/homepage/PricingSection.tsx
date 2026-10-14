@@ -3,7 +3,7 @@ import { IconCheck } from "@tabler/icons-react"
 import WaitlistButton from "./WaitlistButton"
 import { PRO_PRICE_USD } from "@/interfaces/Plan"
 
-const LAST_UPDATED = "21 September 2026"
+const LAST_UPDATED = "14 October 2026"
 
 // Eight, deliberately matching PRO_FEATURES. Free showing five against Pro's
 // eight made the cheaper column look like the lesser product directly under a
@@ -44,8 +44,8 @@ export default function PricingSection() {
           Free is the whole product.
         </h2>
         <p className="text-base text-text-secondary tracking-[0.01em] max-w-[52ch] leading-relaxed">
-          No credit card, no trial clock. Everything below is live today — paid
-          tiers arrive when you actually outgrow it.
+          Free needs no card and never runs out. Everything below is live
+          today — Pro is there when you outgrow it.
         </p>
       </div>
 
@@ -110,7 +110,7 @@ export default function PricingSection() {
           </div>
         </div>
 
-        {/* Roadmap column — neither of these is buyable yet */}
+        {/* Roadmap column — neither of these is self-serve: both start with a request */}
         <div className="flex flex-col gap-4">
           <div className="text-[11px] tracking-[0.2em] uppercase text-amber-300/70">
             When you outgrow it
@@ -121,13 +121,9 @@ export default function PricingSection() {
               <div className="flex items-baseline gap-2">
                 <span className="text-lg font-semibold text-text-primary">Pro</span>
                 <span className="text-base text-text-muted">
-                  Free in beta, then ${PRO_PRICE_USD}/mo
+                  ${PRO_PRICE_USD}/mo
                 </span>
               </div>
-              <span className="inline-flex shrink-0 items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] tracking-[0.2em] uppercase font-medium px-2.5 py-1 rounded-full">
-                <span className="size-1.5 rounded-full bg-amber-400" />
-                In beta
-              </span>
             </div>
 
             <p className="text-base text-text-muted leading-relaxed">
@@ -150,9 +146,8 @@ export default function PricingSection() {
                 the signup we actually want. The card stays because the price
                 and the feature list still do their job unclicked. */}
             <p className="mt-1 pt-4 border-t border-white/[0.06] text-sm text-text-muted leading-relaxed">
-              Requested from your dashboard once your station is set up — we
-              onboard a few at a time. Nothing to pay while it&apos;s in beta,
-              and we&apos;ll give notice before billing opens.
+              Ask for it from your dashboard once your station is set up, and
+              we&apos;ll email you how to pay.
             </p>
           </div>
 

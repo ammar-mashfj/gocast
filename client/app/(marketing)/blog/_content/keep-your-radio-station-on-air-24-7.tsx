@@ -168,7 +168,7 @@ export default function Body() {
           <tr>
             <th>&nbsp;</th>
             <th>Free</th>
-            <th>Pro &mdash; free in beta</th>
+            <th>Pro &mdash; $20/month</th>
           </tr>
         </thead>
         <tbody>
@@ -227,11 +227,9 @@ export default function Body() {
 
       <h2>How to Get Pro</h2>
       <p>
-        Pro is in beta, and while it is, there&#39;s nothing to pay. We invite
-        a few stations at a time, after looking at a real one &mdash; which is
-        why you ask from inside your dashboard rather than from the pricing
-        page. If we invite you in, you get everything above at no cost, for as
-        long as the beta runs.
+        Pro is $20 a month. You ask for it from inside your dashboard rather
+        than from the pricing page, because we look at your station first, and
+        then we email you how to pay.
       </p>
       <ol>
         <li>
@@ -240,7 +238,7 @@ export default function Body() {
         </li>
         <li>
           Open your station&#39;s <strong>Library</strong>{" "} page, or use{" "}
-          <strong>Request access</strong>{" "} in the sidebar.
+          <strong>Get Pro</strong>{" "} in the sidebar.
         </li>
         <li>
           Paste a link to a public page &mdash; Instagram, YouTube, TikTok,
@@ -255,14 +253,14 @@ export default function Body() {
       </ol>
       <p>
         We use the email on your account, so there&#39;s nothing to fill in
-        there, and there&#39;s no card to enter. Because we onboard in small
-        batches it may be a while before you hear back.
+        there. We reply by email with the price and how to pay, and Pro
+        switches on as soon as the payment arrives.
       </p>
       <p>
-        When billing does open, Pro will be $15 a month. We&#39;ll tell you
-        before that happens rather than surprising you with a charge, and if
-        you&#39;d rather stop there you can &mdash; your uploads stay yours
-        either way. For where that sits against everything else a station pays
+        Pro is paid in advance for the term you pick and doesn&#39;t renew on
+        its own. You can cancel any time and we refund what you paid, minus the
+        months you&#39;ve used at the monthly price &mdash; and your uploads
+        stay yours either way. For where that sits against everything else a station pays
         for, see{" "}
         <Link href="/blog/how-much-does-it-cost-to-run-an-internet-radio-station">
           what it actually costs to run a station
@@ -331,12 +329,10 @@ export default function Body() {
         That&#39;s roughly 30 to 35 hours.
       </p>
 
-      <h3>How much does Pro cost right now?</h3>
+      <h3>How much does Pro cost?</h3>
       <p>
-        Nothing, while it&#39;s in beta. You ask for it from your dashboard,
-        and stations we invite in get the full thing without paying and
-        without entering a card. Once billing opens it&#39;s $15 a month,
-        and we&#39;ll give you notice before anyone is charged.
+        $20 a month. You ask for it from your dashboard and we email you how
+        to pay. It doesn&#39;t renew on its own, and you can cancel any time.
       </p>
 
       <h3>Can I use BUTT or Mixxx instead of the browser?</h3>

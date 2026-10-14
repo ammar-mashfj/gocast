@@ -58,7 +58,7 @@ class InviteRedeemed extends BellNotification implements ShouldQueue
         $body = "Your account is on GoCast {$this->plan->name}, free of charge.";
 
         if ($this->until) {
-            $body .= " It runs until {$this->until->toFormattedDateString()}.";
+            $body .= " It runs until {$this->until->toFormattedDateString()}, and nothing is charged when it ends.";
         }
 
         $points = ['Up to '.number_format($this->plan->max_listeners).' listeners at once.'];
@@ -112,7 +112,10 @@ class InviteRedeemed extends BellNotification implements ShouldQueue
         // The promise is only made when the code will keep it: `until` is set
         // from the invite's duration and enforced by plans:expire.
         if ($this->until) {
-            $message->line("{$this->plan->name} runs until **{$this->until->toFormattedDateString()}**.");
+            // Pro is otherwise paid in advance (see /terms), so an invite says
+            // outright that this one is not the start of a bill: when it ends
+            // the account goes back to Free, it is never charged.
+            $message->line("{$this->plan->name} runs until **{$this->until->toFormattedDateString()}**. Nothing is charged when it ends: your account goes back to Free on its own, and nothing you have made is deleted.");
         }
 
         $message

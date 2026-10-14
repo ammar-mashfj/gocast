@@ -447,9 +447,9 @@ export function SchedulePlanner({ station, playlists }: Props) {
 
           {locked && (
             <div>
-              {/* "Request", not "Upgrade" — Pro is granted by hand. */}
+              {/* Opens the request form — payment is arranged by email. */}
               <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
-                {proRequest.requested ? "Request sent" : "Request Pro"}
+                {proRequest.requested ? "Request sent" : "Get Pro"}
               </Button>
             </div>
           )}

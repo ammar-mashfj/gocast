@@ -9,11 +9,13 @@ use App\Models\StationEvent;
 use App\Models\StreamSession;
 use App\Models\User;
 use App\Notifications\ProAccessGranted;
+use App\Services\PlanTerm;
 use App\Services\UserAgentParser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /**
@@ -278,6 +280,10 @@ class StationController extends Controller
             'endsAt' => $upgrade['endsAt'],
             'termKey' => $upgrade['termKey'],
             'note' => $upgrade['note'],
+            'seen' => $upgrade['seen'],
+            // The same sentence a request grant refuses on. Here it is only a
+            // warning: this page is where an account is changed by hand.
+            'conflict' => PlanTerm::conflict($user, $upgrade['plan'], withTerm: $upgrade['endsAt'] !== null),
             // Split rather than passing the MailMessage: it is Renderable,
             // and a view renders every Renderable it is handed before the
             // template runs, so `$mail->subject` would be read off a string.
@@ -301,7 +307,33 @@ class StationController extends Controller
      */
     public function upgrade(Request $request, Station $station): RedirectResponse
     {
-        $upgrade = $this->resolveUpgrade($request, $station);
+        // Resolved again under the account's row lock, not trusted from the
+        // preview: the end date extends a running grant, so it has to be
+        // read from the row as it is when written — and the lock orders this
+        // against plans:expire, which locks the same row before demoting it.
+        // UserObserver's container fan-out waits for the commit.
+        //
+        // The form carries the account state the preview was computed from
+        // (`seen`), and a send that finds a different one is refused. That
+        // is what makes a double submit safe now that a term extends a
+        // running grant — the second POST sees the date the first wrote —
+        // and what keeps the email naming the date the admin approved when a
+        // renewal or plans:expire got in between.
+        $upgrade = DB::transaction(function () use ($request, $station) {
+            $upgrade = $this->resolveUpgrade($request, $station, lock: true);
+
+            if ($upgrade instanceof RedirectResponse) {
+                return $upgrade;
+            }
+
+            if ((string) $request->input('seen') !== $upgrade['seen']) {
+                return $this->backToStation($station, "{$upgrade['user']->email}'s plan has changed since the preview, so nothing was changed or sent. Open the upgrade again to see where it stands now.");
+            }
+
+            $upgrade['user']->forceFill(['plan_id' => $upgrade['plan']->id, 'plan_expires_at' => $upgrade['endsAt']])->save();
+
+            return $upgrade;
+        });
 
         if ($upgrade instanceof RedirectResponse) {
             return $upgrade;
@@ -309,7 +341,6 @@ class StationController extends Controller
 
         ['user' => $user, 'plan' => $plan, 'endsAt' => $endsAt] = $upgrade;
 
-        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
         $user->notify($upgrade['notification']);
 
         // Same reason as feature(): LogsActivity on User records the plan_id
@@ -341,9 +372,12 @@ class StationController extends Controller
      * request behind the upgrade, "your request is approved" would be a lie,
      * and a Pro plan arriving with no explanation reads like a mistake.
      *
-     * @return RedirectResponse|array{user: User, plan: Plan, endsAt: Carbon|null, termKey: string, note: string, notification: ProAccessGranted}
+     * `seen` fingerprints the account's plan as it was read, for upgrade() to
+     * compare against what the preview was showing.
+     *
+     * @return RedirectResponse|array{user: User, plan: Plan, endsAt: Carbon|null, termKey: string, note: string, seen: string, notification: ProAccessGranted}
      */
-    private function resolveUpgrade(Request $request, Station $station): RedirectResponse|array
+    private function resolveUpgrade(Request $request, Station $station, bool $lock = false): RedirectResponse|array
     {
         $note = trim((string) $request->input('note'));
 
@@ -351,7 +385,9 @@ class StationController extends Controller
             return $this->backToStation($station, 'Write a note of up to 2,000 characters — it is the opening of the email, so nothing was changed or sent.');
         }
 
-        $user = $station->user;
+        $user = $lock
+            ? User::whereKey($station->user_id)->lockForUpdate()->first()
+            : $station->user;
 
         if (! $user) {
             return $this->backToStation($station, "{$station->name} has no owner account to upgrade.");
@@ -372,11 +408,18 @@ class StationController extends Controller
             return $this->backToStation($station, 'That is not a term we grant. Pick one from the list.');
         }
 
-        // NoOverflow for the same reason as approve(): the date written here
-        // and the date the email names have to be the same day.
-        $endsAt = $term === null
-            ? null
-            : now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
+        // The same rule as a request grant: a term on top of a running grant
+        // of the same plan is added to it, so a gift month for somebody who
+        // paid for a year does not cut the year short.
+        $extendsFrom = $term === null ? null : PlanTerm::extendsFrom($user, $plan);
+        $endsAt = $term === null ? null : PlanTerm::endOfTerm($extendsFrom, $term);
+
+        // Only reachable as "no end date" for an account that already has the
+        // plan with no end date: the send would change nothing and still
+        // email them that they have been upgraded.
+        if ($user->plan_id === $plan->id && $endsAt === null && $user->plan_expires_at === null) {
+            return $this->backToStation($station, "{$user->email} is already on {$plan->name} with no end date, so there is nothing to upgrade.");
+        }
 
         return [
             'user' => $user,
@@ -384,7 +427,8 @@ class StationController extends Controller
             'endsAt' => $endsAt,
             'termKey' => $termKey,
             'note' => $note,
-            'notification' => new ProAccessGranted($plan, $endsAt, $term['label'] ?? null, $note),
+            'seen' => $user->plan_id.':'.($user->plan_expires_at?->getTimestamp() ?? ''),
+            'notification' => new ProAccessGranted($plan, $endsAt, $term['label'] ?? null, $note, extended: $extendsFrom !== null),
         ];
     }
 

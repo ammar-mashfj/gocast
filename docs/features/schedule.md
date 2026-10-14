@@ -137,7 +137,7 @@ Everything confusing about this feature comes from the two looking alike: both h
 | Surface | Show times | AutoDJ slots |
 |---|---|---|
 | Web Station settings `/dashboard/stations/{slug}/settings#show-times` | **Editor** plus the timezone picker, every plan | — |
-| Web Schedule `/dashboard/stations/{slug}/schedule` | Dashed "SHOW" marks on the grid, linking to settings; the banner names the next show | **Editable week grid** (see below). Free sees a read-only grid, a Pro badge and "Request Pro"; the sidebar item carries the Pro lock |
+| Web Schedule `/dashboard/stations/{slug}/schedule` | Dashed "SHOW" marks on the grid, linking to settings; the banner names the next show | **Editable week grid** (see below). Free sees a read-only grid, a Pro badge and "Get Pro"; the sidebar item carries the Pro lock |
 | Web checklist | "Set your show times" links to settings `#show-times` | — |
 | Player page `/station/{slug}` | "Full schedule" sheet, converted to the listener's clock with the station's clock in brackets | Never shown |
 | Mobile Overview → "Your link" card → **Show times** screen | **Editor**, every plan. No timezone picker | — |
