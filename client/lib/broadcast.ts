@@ -130,6 +130,17 @@ const REBUILD_WINDOW_MS = 10 * 60 * 1000
  * the rest of the show, which is the loop this exists to end.
  */
 const REBUILD_CREATE_TIMEOUT_MS = 8000
+/**
+ * Consecutive sockets that close without a single frame sent before the
+ * broadcast is ended. Harbor drops a silent source after its 10s timeout, but
+ * a reconnect that opens and survives the hello counts as a success, so the
+ * reconnect budget restarts on every one of those drops and never runs out.
+ * Found in production: a hidden Chrome tab whose AudioContext the browser had
+ * suspended reconnected every 12s for as long as the tab stayed open. That
+ * case is now parked instead (see parkedDrop); this limit is for an engine
+ * that runs but sends nothing, once the frame watchdog's rebuilds are spent.
+ */
+const MAX_EMPTY_DROPS = 3
 
 /** The pause before the next attempt, jittered. */
 function reconnectDelay(attempt: number): number {
@@ -213,6 +224,16 @@ export class BroadcastManager {
   private visibilityHandler: (() => void) | null = null
   /** When the current socket was accepted, for the drop report. */
   private connectedAt = 0
+  /** Bytes sent over the current socket, whether or not the counters are armed. */
+  private socketBytes = 0
+  /** Sockets in a row that closed with socketBytes still 0 — see MAX_EMPTY_DROPS. */
+  private emptyDrops = 0
+  /**
+   * A drop held back from the reconnect loop because the browser had stopped
+   * the audio context: every socket would close empty until it runs again.
+   * The next encoded frame proves it does, and starts the reconnect.
+   */
+  private parkedDrop: { id: string | null; at: number } | null = null
   /**
    * Most audio queued inside the current socket, in bytes. A backlog that
    * grows before a drop means the upload couldn't keep up with the encoder,
@@ -282,6 +303,8 @@ export class BroadcastManager {
     this.reconnecting = false
     this.lastMetadata = null
     this.sentMetadataKey = null
+    this.emptyDrops = 0
+    this.parkedDrop = null
     this.steps = BroadcastManager.buildSteps(options?.skipMic)
     this.callbacks.onStateChange('connecting')
     this.callbacks.onStepChange([...this.steps])
@@ -357,8 +380,14 @@ export class BroadcastManager {
    */
   private handleChunk = (chunk: ArrayBuffer) => {
     this.lastFrameAt = Date.now()
+    if (this.parkedDrop && !this.stopping) {
+      const { id, at } = this.parkedDrop
+      this.parkedDrop = null
+      void this.reconnect(id, at)
+    }
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(chunk)
+      this.socketBytes += chunk.byteLength
       const buffered = this.ws.bufferedAmount
       if (buffered > this.peakBufferedBytes) this.peakBufferedBytes = buffered
       if (!this.countersArmed) return
@@ -507,7 +536,7 @@ export class BroadcastManager {
       }
       // 'live' is what hands the studio the new engine (BroadcastContext).
       // Mid-reconnect it arrives with the reconnect's own 'live'.
-      if (!this.reconnecting) this.callbacks.onStateChange('live')
+      if (!this.reconnecting && !this.parkedDrop) this.callbacks.onStateChange('live')
     } catch (err) {
       console.error('[BroadcastManager] audio engine rebuild failed:', err)
       if (!this.stopping) {
@@ -638,6 +667,7 @@ export class BroadcastManager {
 
     this.established = true
     this.connectedAt = Date.now()
+    this.socketBytes = 0
     this.peakBufferedBytes = 0
     // Arm on the first handshake only. A reconnect must not reset the tally —
     // frames lost mid-show are exactly what it exists to report.
@@ -751,6 +781,26 @@ export class BroadcastManager {
         frameAgeMs: this.lastFrameAt ? Date.now() - this.lastFrameAt : null,
         engineRebuilds: this.rebuildTimes.length,
       })
+
+      // A socket that carried no audio was dropped by harbor for silence, and
+      // reconnecting can't fix that: the next socket will be just as empty.
+      const empty = this.socketBytes === 0
+      if (empty && this.engine?.isSuspended()) {
+        // Stopped by the browser — a background tab, a locked phone, a call
+        // taking the audio. A tap or the OS gives it back, often minutes
+        // later, so wait for audio instead of ending the show or looping.
+        this.parkedDrop = { id: dropId, at: Date.now() }
+        this.callbacks.onStateChange('reconnecting')
+        this.callbacks.onError('')
+        return
+      }
+      this.emptyDrops = empty ? this.emptyDrops + 1 : 0
+      if (this.emptyDrops >= MAX_EMPTY_DROPS) {
+        resolveDrop(dropId, 'gave_up', { downMs: 0, attempts: 0, lastError: 'empty_socket_limit' })
+        void this.fail(new Error('The studio stopped sending audio. Go live again to get back on air.'))
+        return
+      }
+
       void this.reconnect(dropId)
     }
     // Errors are always followed by a close, which is where the work happens.
@@ -777,10 +827,9 @@ export class BroadcastManager {
    * That window is only reached by a DROPPED socket. Pressing End releases
    * such a station immediately — see releaseStation in BroadcastContext.
    */
-  private async reconnect(dropId: string | null = null): Promise<void> {
+  private async reconnect(dropId: string | null = null, droppedAt = Date.now()): Promise<void> {
     if (this.reconnecting || this.stopping) return
     this.reconnecting = true
-    const droppedAt = Date.now()
 
     this.callbacks.onStateChange('reconnecting')
     // Clear any stale message so the UI shows "reconnecting", not an old error.
@@ -942,6 +991,7 @@ export class BroadcastManager {
     this.stopping = true
     this.wakeFromBackoff?.()
     this.reconnecting = false
+    this.releaseParkedDrop()
     this.established = false
     this.unwatchVisibility()
     this.unwatchFrames()
@@ -995,6 +1045,14 @@ export class BroadcastManager {
     this.wakeLock = null
   }
 
+  /** The show ended while a drop waited for audio — close its report as stopped. */
+  private releaseParkedDrop() {
+    if (!this.parkedDrop) return
+    const { id, at } = this.parkedDrop
+    this.parkedDrop = null
+    resolveDrop(id, 'stopped', { downMs: Date.now() - at, attempts: 0 })
+  }
+
   private async fail(err: unknown) {
     // Failing ends the show as surely as stop() does, and anything still in
     // flight (a reconnect attempt, an engine rebuild) checks this flag to
@@ -1016,6 +1074,7 @@ export class BroadcastManager {
     }
 
     this.reconnecting = false
+    this.releaseParkedDrop()
     this.established = false
     this.unwatchVisibility()
     this.unwatchFrames()
