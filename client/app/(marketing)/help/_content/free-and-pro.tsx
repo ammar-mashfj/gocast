@@ -4,8 +4,8 @@ export default function Body() {
   return (
     <>
       <p>
-        Two plans. Free is free permanently and needs no card. Pro is $15 a
-        month once billing opens, and is free while it is in beta.
+        Two plans. Free is free permanently and needs no card. Pro is $20 a
+        month.
       </p>
 
       <h2>The Differences, All of Them</h2>
@@ -95,9 +95,11 @@ export default function Body() {
       <h2>Getting Pro</h2>
       <p>
         Ask for it from your dashboard &mdash; the locked features each have a
-        button. While Pro is in beta the stations we let in get the whole thing
-        without paying and without entering a card, and we give notice before
-        anybody is ever charged.
+        button. We email you how to pay, and Pro switches on as soon as the
+        payment arrives. It is paid in advance for the term you pick and does
+        not renew on its own. Cancel any time and we refund what you paid,
+        minus the months you have used at the monthly price &mdash; never
+        less than nothing, so you never owe more than you paid.
       </p>
 
       <h2>If a Plan Lapses</h2>

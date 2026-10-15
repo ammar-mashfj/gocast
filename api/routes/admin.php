@@ -72,7 +72,9 @@ Route::middleware('auth:admin')->group(function () {
     // POST rather than PATCH throughout: these are plain Blade forms, and a
     // spoofed method buys nothing here while costing a hidden field on every
     // row. `approve` is the one that moves an account onto a paid plan.
+    Route::get('requests/{entry}/payment-email', [AccessRequestController::class, 'paymentEmail'])->name('requests.payment-email');
     Route::post('requests/{entry}/approve', [AccessRequestController::class, 'approve'])->name('requests.approve');
+    Route::post('requests/{entry}/renew', [AccessRequestController::class, 'renew'])->name('requests.renew');
     Route::post('requests/{entry}/dismiss', [AccessRequestController::class, 'dismiss'])->name('requests.dismiss');
     Route::post('requests/{entry}/revoke', [AccessRequestController::class, 'revoke'])->name('requests.revoke');
     Route::post('requests/{entry}/reopen', [AccessRequestController::class, 'reopen'])->name('requests.reopen');

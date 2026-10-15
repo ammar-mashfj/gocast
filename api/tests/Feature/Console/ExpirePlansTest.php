@@ -56,3 +56,30 @@ it('is safe to run twice', function () {
 
     Notification::assertSentToTimes($user, PlanExpired::class, 1);
 });
+
+it('leaves an account renewed after the batch was read', function () {
+    // The race: an admin renews a lapsed trial between the batch read and
+    // the write. Simulated by renewing the row the moment the batch loads it.
+    $user = User::factory()->create([
+        'plan_id' => $this->pro->id,
+        'plan_expires_at' => now()->subMinute(),
+    ]);
+    $renewedUntil = now()->addYear()->startOfSecond();
+    $renewed = false;
+
+    User::retrieved(function (User $retrieved) use ($user, $renewedUntil, &$renewed) {
+        if (! $renewed && $retrieved->is($user)) {
+            $renewed = true;
+            User::whereKey($user->id)->update(['plan_expires_at' => $renewedUntil]);
+        }
+    });
+
+    $this->artisan('plans:expire')->assertSuccessful();
+
+    $user->refresh();
+
+    expect($user->plan_id)->toBe($this->pro->id)
+        ->and($user->plan_expires_at->equalTo($renewedUntil))->toBeTrue();
+
+    Notification::assertNothingSent();
+});

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Invite;
+use App\Models\Plan;
 use App\Models\User;
 use App\Notifications\InviteRedeemed;
 use Illuminate\Support\Facades\DB;
@@ -53,11 +54,16 @@ class InviteRedemption
             // links an existing account by email and then redeems, so the
             // caller cannot tell a new account from an old one.
             //
-            // Queried rather than read off the relation so nothing stale is
-            // cached on the model: a user created moments ago has no plan_id
-            // in memory yet (the column default fills it in), and the plan
-            // the caller reads afterwards must be the invite's, not this one.
-            $current = $user->plan()->first();
+            // Read off a locked copy of the row rather than the relation, for
+            // two reasons. Nothing stale is cached on the model: a user created
+            // moments ago has no plan_id in memory yet (the column default
+            // fills it in), and the plan the caller reads afterwards must be
+            // the invite's, not this one. And the lock orders this against the
+            // admin grant paths and plans:expire, which lock the same row —
+            // without it an approval landing in between would pass its own
+            // "is on Free" check too, and the last write would win with the
+            // other one's email already sent.
+            $current = Plan::find(User::whereKey($user->getKey())->lockForUpdate()->value('plan_id'));
 
             if ($current && ! $current->isFree()) {
                 throw InviteException::alreadyOnPlan($current->name);

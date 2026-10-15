@@ -82,7 +82,7 @@ export const ARTICLES: Article[] = [
     metaDescription:
       "Music blocks, a bulletin at six, a podcast repeat on Wednesday: how to schedule playlists by time on your radio station, and how the switch behaves.",
     date: "2026-09-21",
-    updated: "2026-10-05",
+    updated: "2026-10-14",
     readingTime: "~7 minutes",
     image: "/blog/schedule/hero.webp",
     Body: SchedulingBody,
@@ -132,6 +132,7 @@ export const ARTICLES: Article[] = [
     metaDescription:
       "From a laptop that's never allowed to sleep to a streaming stack: the four jobs a station does, where home-built setups break, and how GoCast handles each.",
     date: "2026-09-01",
+    updated: "2026-10-14",
     readingTime: "~8 minutes",
     Body: HowItWorksBody,
     faqs: [
@@ -168,6 +169,7 @@ export const ARTICLES: Article[] = [
     description:
       "Real numbers for platform fees, music licensing, bandwidth and gear — including why the platform fee is the smallest line on the bill.",
     date: "2026-09-01",
+    updated: "2026-10-14",
     readingTime: "~9 minutes",
     Body: CostsBody,
     faqs: [
@@ -202,9 +204,9 @@ export const ARTICLES: Article[] = [
     slug: "keep-your-radio-station-on-air-24-7",
     title: "How to Keep Your Internet Radio Station On Air 24/7",
     description:
-      "Your station can now keep playing when you are not there. What is new in GoCast, everything the free plan already does, and how to get Pro free while it is in beta.",
+      "Your station can now keep playing when you are not there. What is new in GoCast, everything the free plan already does, and how to get Pro.",
     date: "2026-09-01",
-    updated: "2026-10-05",
+    updated: "2026-10-14",
     readingTime: "~7 minutes",
     Body: OnAir247Body,
     faqs: [
@@ -229,9 +231,9 @@ export const ARTICLES: Article[] = [
           "3 GB per station, shared between your music and your jingles — roughly 30 to 35 hours.",
       },
       {
-        question: "How much does GoCast Pro cost right now?",
+        question: "How much does GoCast Pro cost?",
         answer:
-          "Nothing while it is in beta. You request it from your dashboard, and stations we invite in get the full thing without paying and without entering a card. Once billing opens Pro is $15 a month, and we give notice before anyone is charged.",
+          "$20 a month. You ask for it from your dashboard and we email you how to pay. It is paid in advance for the term you pick, does not renew on its own, and you can cancel any time.",
       },
       {
         question: "Can I broadcast to GoCast from BUTT or Mixxx?",
@@ -246,7 +248,7 @@ export const ARTICLES: Article[] = [
     description:
       "Everything you actually need to know: software compared, equipment that matters, music licensing explained honestly, and how to get your first listeners.",
     date: "2026-05-01",
-    updated: "2026-08-31",
+    updated: "2026-10-14",
     readingTime: "~10 minutes",
     image: "/blog/how-to-start-an-internet-radio-station-2026.webp",
     Body: HowToStartBody,
@@ -265,7 +267,7 @@ export const ARTICLES: Article[] = [
       {
         question: "How much does it cost to run an internet radio station?",
         answer:
-          "You can run one for free. GoCast's free tier is $0 with no card and handles up to 100 concurrent listeners. Self-hosting AzuraCast costs $5-15/month for the VPS. Paid platforms run $15/month (GoCast Pro) to $29/month (Radio.co) and $59+/month (Live365, which bundles US music licensing). The costs that scale are bandwidth and, if you play commercial music, licensing.",
+          "You can run one for free. GoCast's free tier is $0 with no card and handles up to 100 concurrent listeners. Self-hosting AzuraCast costs $5-15/month for the VPS. Paid platforms run $20/month (GoCast Pro) to $29/month (Radio.co) and $59+/month (Live365, which bundles US music licensing). The costs that scale are bandwidth and, if you play commercial music, licensing.",
       },
       {
         question:

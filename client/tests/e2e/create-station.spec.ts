@@ -27,9 +27,9 @@ test.describe("no station yet", () => {
     await expect(page.getByText("Create your station first", { exact: false })).toHaveCount(1)
   })
 
-  test("Request Pro explains instead of opening the form", async ({ page }) => {
+  test("Get Pro explains instead of opening the form", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.getByRole("button", { name: "Request Pro" }).click()
+    await page.getByRole("button", { name: "Get Pro" }).click()
     await expect(page.getByText("Create your station first, then tell us about it to request Pro.")).toBeVisible()
     await expect(page.getByRole("dialog")).toHaveCount(0)
   })

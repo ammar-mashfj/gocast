@@ -78,9 +78,14 @@
                         </div>
                     </div>
 
-                    @if ($endsAt && $user->plan && ! $user->plan->isFree() && $user->plan_expires_at === null)
+                    {{-- The account state this preview was computed from. The
+                         send refuses if it has changed since: a double submit,
+                         a renewal or an expiry in between. --}}
+                    <input type="hidden" name="seen" value="{{ $seen }}">
+
+                    @if ($conflict)
                         <div role="alert" class="alert alert-warning alert-soft text-sm">
-                            They have {{ $user->plan->name }} with no end date today. This puts an end date on it, and they go back to Free on {{ $endsAt->toFormattedDateString() }}.
+                            {{ $conflict }}@if ($endsAt) They go back to Free on {{ $endsAt->toFormattedDateString() }}.@endif
                         </div>
                     @endif
 

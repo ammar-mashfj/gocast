@@ -20,8 +20,8 @@ export function planIncludes(plan: Plan): string {
 
 /**
  * Which plan this account is on. Pro is the amber card (amber = Pro); Free is
- * a plain card with Request Pro, since Pro is granted by hand and there is no
- * billing to manage. A time-limited plan (an invite) says when it ends.
+ * a plain card with Get Pro, which opens the request form: payment is
+ * arranged by email, so there is no billing to manage. A time-limited plan (an invite) says when it ends.
  * Renders nothing until the plan is known, rather than guessing Free at a
  * paying customer.
  */
@@ -49,9 +49,9 @@ export function PlanCard() {
         </span>
       </div>
       {!pro && (
-        // "Request", not "Upgrade": Pro is granted by hand.
+        // Opens the request form — payment is arranged by email.
         <Button variant="pro" className="shrink-0 self-start sm:self-auto" onClick={proRequest.open} disabled={proRequest.requested}>
-          {proRequest.requested ? "Request sent" : "Request Pro"}
+          {proRequest.requested ? "Request sent" : "Get Pro"}
         </Button>
       )}
     </Card>

@@ -172,7 +172,7 @@ Errors are read from `ApiError.body.code`. The API's codes for these calls come 
 - The API answers **200 for every plan**; entitlement is in the payload (`AudienceController`). `analytics_days <= 0` (Free, or a user with no plan row) returns `locked: true` with only `live` and `peak_all_time`. Otherwise `plan_days` is clamped to the retention config (default 90) and `days` is honoured only when it is 7, 30 or 90 (`min(requested, plan_days)`), else the plan's window.
 - Range picker: a `7d / 30d / 90d` segmented control, shown only when more than one option is `<= plan_days`. A Pro plan gets all three. Default is the plan's own window (90), so the first paint is the 90-day view.
 
-**Locked (Free)**: two tiles, LISTENING NOW (`live`; note "right now" if `station.is_on_air`, else "off air") and PEAK (`peak_all_time`, "all time"), then a Pro card: "See who tuned in, from where, for how long." and a **Request Pro** button. That button just opens `/dashboard` on the web in the in-app browser. It is **not a request**; the request flow (if any) lives on the web ([accounts-plans-invites.md](accounts-plans-invites.md)).
+**Locked (Free)**: two tiles, LISTENING NOW (`live`; note "right now" if `station.is_on_air`, else "off air") and PEAK (`peak_all_time`, "all time"), then a Pro card: "See who tuned in, from where, for how long." and a **Get Pro** button. That button just opens `/dashboard` on the web in the in-app browser. It is **not a request**; the request flow (if any) lives on the web ([accounts-plans-invites.md](accounts-plans-invites.md)).
 
 **Report (Pro)**
 
@@ -308,7 +308,7 @@ All are under the `verified` middleware group except the public listeners endpoi
 2. **Slot saves fail silently-ish on a station with no timezone.** A Pro owner with no timezone sees no hint on the Schedule tab (the footer only shows when there is a zone), taps + Add, and the save returns 422 "Set the station timezone before adding slots." The way out is to add a Show time first (which stamps the phone's zone) or use the web settings. The web disables Save with an explanation; the phone does not.
 3. **The first Show times save silently sets the station timezone to the phone's.** It then re-times both show times and every AutoDJ slot. There is no confirmation and no mobile picker.
 4. **Show times screen and the shell disagree after a save.** The screen owns a separate `GET /stations/{slug}` copy. The Overview's "N on your player page" and the Schedule tab's coral rows are refreshed only by their own reloads (Schedule reloads on focus; Overview does not).
-5. **"Request Pro" is not a request.** It only opens the web `/dashboard` in an in-app browser. Free owners get no direct upgrade path in the app, and the copy elsewhere ("comes with Pro") sends them nowhere.
+5. **"Get Pro" is not a request.** It only opens the web `/dashboard` in an in-app browser. Free owners get no direct upgrade path in the app, and the copy elsewhere ("comes with Pro") sends them nowhere.
 6. **"NOW" and "today" use the phone's clock and date**, while slots live in the station's timezone. Away from the station's zone the badge and the selected weekday can be wrong. NOW also depends on an intent-derived `is_on_air`, not container health.
 7. **Multi-day slots edit all their days at once** (no per-day edit as on the web grid).
 8. **One station only.** `home.tsx` takes `data[0]`; a second station is invisible on mobile.

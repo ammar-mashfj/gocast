@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\User;
 use App\Services\LiquidsoapSupervisor;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -90,14 +91,35 @@ class UserObserver
 
         // The `plan` relation, if the caller had it loaded, is the OLD plan.
         // Eloquent does not drop a loaded belongsTo when its key changes, and
-        // plans:expire — the one caller that performs a downgrade
-        // automatically — eager-loads it to name the ended plan in the email.
+        // any caller that read the plan before writing a new one would still
+        // hold it.
         // Every push below walks station -> user -> plan, so left in place it
         // would send the entitlements of the plan that just ended: watermark
         // left off. Unset rather than reloaded so it
         // costs nothing for a caller that never touched it.
         $user->unsetRelation('plan');
 
+        // After the commit, so callers can write the plan inside the
+        // transaction that checks it — the admin grant paths and plans:expire
+        // all do, with the row locked — without holding that lock across a
+        // 3s-per-container telnet fan-out. Runs immediately outside one.
+        //
+        // The closure runs against this model as it is at COMMIT, not as it
+        // was at this save, so a second plan change on the same model in the
+        // same transaction queues a second push of the same final state. The
+        // plan id is captured to drop those: only the push queued by the save
+        // that left the model where it is now goes out.
+        $planId = $user->plan_id;
+
+        DB::afterCommit(function () use ($user, $planId) {
+            if ($user->plan_id === $planId) {
+                $this->pushPlan($user);
+            }
+        });
+    }
+
+    private function pushPlan(User $user): void
+    {
         // Only running stations have a container to talk to. A stopped one
         // renders the new value into its script whenever it next starts.
         $stations = $user->stations()->running()->get();

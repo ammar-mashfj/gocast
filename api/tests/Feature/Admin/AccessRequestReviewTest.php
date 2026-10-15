@@ -40,11 +40,32 @@ function proRequest(?User $user = null): WaitlistEntry
     ]);
 }
 
+/**
+ * What the approve form posts for a free trial. Both fields are required, so
+ * every grant in these tests says what it is.
+ *
+ * @return array{term: string, paid: string}
+ */
+function trialGrant(string $term = '1-week', bool $paid = false): array
+{
+    return ['term' => $term, 'paid' => $paid ? '1' : '0'];
+}
+
+/**
+ * What the renew form posts: the grant, plus the end date the page showed.
+ *
+ * @return array{term: string, paid: string, seen_until: string}
+ */
+function renewal(WaitlistEntry $entry, string $term = '1-month', bool $paid = true): array
+{
+    return [...trialGrant($term, $paid), 'seen_until' => (string) $entry->user->fresh()->plan_expires_at?->getTimestamp()];
+}
+
 describe('approving', function () {
     it('moves the account onto the plan it asked for', function () {
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry))->assertRedirect();
+        $this->post(route('admin.requests.approve', $entry), trialGrant())->assertRedirect();
 
         expect($entry->user->fresh()->plan_id)->toBe($this->pro->id);
     });
@@ -52,7 +73,7 @@ describe('approving', function () {
     it('grants the term the admin picked', function () {
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '2-weeks']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('2-weeks'));
 
         expect($entry->user->fresh()->plan_expires_at->startOfSecond())
             ->toEqual(now()->addWeeks(2)->startOfSecond());
@@ -68,21 +89,37 @@ describe('approving', function () {
 
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '3-months']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('3-months'));
 
         expect($entry->user->fresh()->plan_expires_at->toDateString())->toBe('2027-02-28');
     });
 
-    it('defaults to three months when the form sends no term', function () {
-        // The term the grant email promised for months before anything
-        // enforced it, so an old form or a bare post lands where it always
-        // claimed to.
+    it('refuses a post that does not say the term or whether it was paid', function () {
+        // Both used to default, and each default was wrong for somebody: a
+        // paying customer left on "Free, 1 week" is emailed "free of charge"
+        // and dropped after seven days. A post missing either is a stale form.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), ['paid' => '0'])
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'not a term we grant'));
+        $this->post(route('admin.requests.approve', $entry), ['term' => '1-month'])
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'paid or free'));
 
-        expect($entry->user->fresh()->plan_expires_at->startOfSecond())
-            ->toEqual(now()->addMonths(3)->startOfSecond());
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING)
+            ->and($entry->user->fresh()->plan_id)->toBe($this->free->id);
+        Notification::assertNothingSent();
+    });
+
+    it('refuses a paid grant for a term that is not sold', function () {
+        // "Paid, 1 week" is the admin having forgotten to change the term
+        // after a payment, not a sale — there is no one-week price.
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.approve', $entry), trialGrant('1-week', paid: true))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'not a term we sell'));
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
+        Notification::assertNothingSent();
     });
 
     it('refuses a term that is not on the list without settling the request', function () {
@@ -91,7 +128,7 @@ describe('approving', function () {
         // the row pending so the real decision is still there to make.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '10-years'])
+        $this->post(route('admin.requests.approve', $entry), trialGrant('10-years'))
             ->assertRedirect()
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'not a term we grant'));
 
@@ -109,7 +146,7 @@ describe('approving', function () {
     it('drops the account back to free once the term runs out', function () {
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '1-week']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('1-week'));
 
         $this->travel(6)->days();
         $this->artisan('plans:expire');
@@ -124,26 +161,54 @@ describe('approving', function () {
     });
 
     /**
-     * An account that came in on a 30-day invite and is then granted 3 months
-     * gets three months from today — not three months and thirty days, and
-     * not the invite's date left in place to undo the decision early.
+     * An account that came in on a 30-day invite and then pays for 3 months
+     * keeps the invite days it had left: they paid for the full term, and
+     * starting it today would take those days back.
      */
-    it('replaces an invite trial clock rather than adding to it', function () {
+    it('adds to a running invite trial rather than restarting it', function () {
+        $inviteEnds = now()->addDays(10);
         $user = User::factory()->create([
             'plan_id' => $this->pro->id,
-            'plan_expires_at' => now()->addDays(10),
+            'plan_expires_at' => $inviteEnds,
         ]);
         $entry = proRequest($user);
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '3-months']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('3-months', paid: true));
 
         expect($user->fresh()->plan_expires_at->startOfSecond())
-            ->toEqual(now()->addMonths(3)->startOfSecond());
+            ->toEqual($inviteEnds->copy()->addMonthsNoOverflow(3)->startOfSecond());
 
-        $this->travel(11)->days();
-        $this->artisan('plans:expire');
+        Notification::assertSentTo($user, ProAccessGranted::class,
+            fn (ProAccessGranted $notification) => str_contains(
+                collect($notification->toMail($user)->introLines)->implode(' '),
+                "We've added 3 months of Pro",
+            ));
+    });
 
-        expect($user->fresh()->plan_id)->toBe($this->pro->id);
+    it('refuses to put an end date on a grant that has none', function () {
+        // A grant from before terms existed. Any term would make it expire.
+        $user = User::factory()->create(['plan_id' => $this->pro->id, 'plan_expires_at' => null]);
+        $entry = proRequest($user);
+
+        $this->post(route('admin.requests.approve', $entry), trialGrant())
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'no end date'));
+
+        expect($user->fresh()->plan_expires_at)->toBeNull()
+            ->and($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
+        Notification::assertNothingSent();
+    });
+
+    it('refuses to replace a plan that was set by hand', function () {
+        $custom = Plan::factory()->create(['slug' => 'custom-deal', 'name' => 'Custom Deal']);
+        $user = User::factory()->create(['plan_id' => $custom->id]);
+        $entry = proRequest($user);
+
+        $this->post(route('admin.requests.approve', $entry), trialGrant('12-months', paid: true))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Custom Deal'));
+
+        expect($user->fresh()->plan_id)->toBe($custom->id)
+            ->and($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
+        Notification::assertNothingSent();
     });
 
     it('unlocks the entitlements the plan actually carries', function () {
@@ -152,7 +217,7 @@ describe('approving', function () {
         // request time rather than copied onto the user.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $plan = $entry->user->fresh()->plan;
 
@@ -170,7 +235,7 @@ describe('approving', function () {
 
         expect($entry->user->watermarked())->toBeTrue();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         expect($entry->user->fresh()->watermarked())->toBeFalse();
     });
@@ -182,7 +247,7 @@ describe('approving', function () {
         $entry = proRequest();
         $station = Station::factory()->for($entry->user)->create();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         Notification::assertSentTo($entry->user, ProAccessGranted::class,
             function (ProAccessGranted $notification) use ($entry, $station) {
@@ -212,7 +277,7 @@ describe('approving', function () {
         $entry = proRequest();
         Station::factory()->for($entry->user)->create();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '2-weeks']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('2-weeks'));
 
         $endsOn = $entry->user->fresh()->plan_expires_at->toFormattedDateString();
 
@@ -236,7 +301,7 @@ describe('approving', function () {
         // bell is the only place the date still exists.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry), ['term' => '1-month']);
+        $this->post(route('admin.requests.approve', $entry), trialGrant('1-month'));
 
         $expiresAt = $entry->user->fresh()->plan_expires_at;
 
@@ -253,10 +318,39 @@ describe('approving', function () {
             });
     });
 
+    it('thanks a paying customer instead of calling it free', function () {
+        // A paid grant is the admin confirming a payment arrived. "Free of
+        // charge" or "on us" to somebody who just sent money reads as a
+        // mistake, so the email and the bell both drop it.
+        $entry = proRequest();
+        Station::factory()->for($entry->user)->create();
+
+        $this->post(route('admin.requests.approve', $entry), trialGrant('12-months', paid: true));
+
+        expect($entry->user->fresh()->plan_expires_at->startOfDay())
+            ->toEqual(now()->addMonthsNoOverflow(12)->startOfDay());
+
+        Notification::assertSentTo($entry->user, ProAccessGranted::class,
+            function (ProAccessGranted $notification) use ($entry) {
+                $mail = $notification->toMail($entry->user);
+                $body = collect([...$mail->introLines, ...$mail->outroLines])->implode(' ');
+                $points = implode(' ', $notification->toDatabase($entry->user->fresh())['action']['detail']['points']);
+
+                expect($body)->toContain('Thanks for your payment')
+                    ->and($body)->toContain('for 12 months')
+                    ->and($body)->not->toContain('free of charge')
+                    ->and($mail->subject)->not->toContain('on us')
+                    ->and($points)->toContain('paid')
+                    ->and($points)->not->toContain('on us');
+
+                return true;
+            });
+    });
+
     it('records who decided and when', function () {
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $entry->refresh();
 
@@ -271,7 +365,7 @@ describe('approving', function () {
         // only thing that actually tells them.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         Notification::assertSentTo($entry->user, ProAccessGranted::class);
     });
@@ -283,7 +377,7 @@ describe('approving', function () {
             'social' => '@network',
         ]);
 
-        $this->post(route('admin.requests.approve', $entry))
+        $this->post(route('admin.requests.approve', $entry), trialGrant())
             ->assertRedirect()
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'no GoCast account'));
 
@@ -301,7 +395,7 @@ describe('approving', function () {
             'social' => '@rae',
         ]);
 
-        $this->post(route('admin.requests.approve', $entry))
+        $this->post(route('admin.requests.approve', $entry), trialGrant())
             ->assertRedirect()
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'platinum'));
 
@@ -315,7 +409,7 @@ describe('approving', function () {
         $entry = proRequest();
         $entry->user->delete();
 
-        $this->post(route('admin.requests.approve', $entry->fresh()))
+        $this->post(route('admin.requests.approve', $entry->fresh()), trialGrant())
             ->assertRedirect()
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'deleted'));
 
@@ -327,17 +421,51 @@ describe('approving', function () {
         // the decision with the wrong name, or send a second email.
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $second = Admin::factory()->create(['name' => 'Grace Second']);
 
         $this->actingAs($second, 'admin')
-            ->post(route('admin.requests.approve', $entry))
+            ->post(route('admin.requests.approve', $entry), trialGrant())
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'already settled'));
 
         expect($entry->fresh()->reviewed_by)->toBe($this->admin->id);
 
         Notification::assertSentToTimes($entry->user, ProAccessGranted::class, 1);
+    });
+
+    it('leaves nothing half-granted when the plan write fails', function () {
+        // The plan and its end date are one write in one transaction with the
+        // decision. Split, a failure here left the account on Free with a
+        // future end date and the request stamped approved.
+        $entry = proRequest();
+
+        User::saving(fn () => throw new RuntimeException('database went away'));
+
+        $this->withoutExceptionHandling();
+
+        expect(fn () => $this->post(route('admin.requests.approve', $entry), trialGrant()))
+            ->toThrow(RuntimeException::class);
+
+        $user = $entry->user->fresh();
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING)
+            ->and($user->plan_id)->toBe($this->free->id)
+            ->and($user->plan_expires_at)->toBeNull();
+
+        Notification::assertNothingSent();
+    });
+
+    it('refuses clearly when there is no free plan to tell a Free account by', function () {
+        $user = User::factory()->create(['plan_id' => $this->free->id]);
+        $entry = proRequest($user);
+        $this->free->update(['slug' => 'starter']);
+
+        $this->post(route('admin.requests.approve', $entry), trialGrant())
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'would replace it') && str_contains($status, 'Nothing changed'));
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING)
+            ->and($user->fresh()->plan_id)->toBe($this->free->id);
     });
 });
 
@@ -364,7 +492,7 @@ describe('dismissing', function () {
         // Dismissing one would hide it from the queue while the account keeps
         // the plan — the grant would become invisible and unrevokable.
         $entry = proRequest();
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $this->post(route('admin.requests.dismiss', $entry))
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Revoke it instead'));
@@ -376,7 +504,7 @@ describe('dismissing', function () {
 describe('revoking', function () {
     it('moves the account back to free and reopens the request', function () {
         $entry = proRequest();
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $this->post(route('admin.requests.revoke', $entry))->assertRedirect();
 
@@ -393,7 +521,7 @@ describe('revoking', function () {
     it('takes AutoDJ back with the plan', function () {
         $entry = proRequest();
 
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
         $this->post(route('admin.requests.revoke', $entry));
 
         expect($entry->user->fresh()->plan->autodj_enabled)->toBeFalse();
@@ -404,7 +532,7 @@ describe('revoking', function () {
         // so a downgrade never deletes anyone's work. That is deliberate —
         // see the controller.
         $entry = proRequest();
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $station = Station::factory()->for($entry->user)->create();
 
@@ -412,6 +540,29 @@ describe('revoking', function () {
 
         expect($entry->user->fresh()->stations()->count())->toBe(1)
             ->and($station->fresh())->not->toBeNull();
+    });
+
+    it('refuses to take back a plan the account was moved to by hand since', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $custom = Plan::factory()->create(['slug' => 'custom-deal', 'name' => 'Custom Deal']);
+        $entry->user->forceFill(['plan_id' => $custom->id, 'plan_expires_at' => null])->save();
+
+        $this->post(route('admin.requests.revoke', $entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Custom Deal'));
+
+        expect($entry->user->fresh()->plan_id)->toBe($custom->id)
+            ->and($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_APPROVED);
+    });
+
+    it('reopens a request whose grant already expired', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $entry->user->forceFill(['plan_id' => $this->free->id, 'plan_expires_at' => null])->save();
+
+        $this->post(route('admin.requests.revoke', $entry));
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
     });
 
     it('refuses to revoke a request that was never approved', function () {
@@ -439,7 +590,7 @@ describe('reopening', function () {
 
     it('refuses to reopen an approved request', function () {
         $entry = proRequest();
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $this->post(route('admin.requests.reopen', $entry))
             ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Only a dismissed request'));
@@ -504,14 +655,14 @@ describe('the queue view', function () {
 
     it('names the admin who decided', function () {
         $entry = proRequest();
-        $this->post(route('admin.requests.approve', $entry));
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
 
         $this->get(route('admin.requests.index', ['status' => 'approved']))
             ->assertOk()
             ->assertSee('Ada Reviewer');
     });
 
-    it('offers every term on the approve form, preselecting the default', function () {
+    it('offers every term on the approve form, preselecting none', function () {
         proRequest();
 
         $response = $this->get(route('admin.requests.index'))->assertOk();
@@ -523,7 +674,10 @@ describe('the queue view', function () {
 
         // Nothing here may grant a plan that never ends — that was the old
         // behaviour and the reason the term is enforced at all.
-        $response->assertSee('value="'.AccessRequestController::DEFAULT_TERM.'" selected', false)
+        // Nothing preselected either: the admin must pick the term and
+        // whether it was paid, so neither can be left on a wrong default.
+        $response->assertSee('<option value="" disabled selected>Term…</option>', false)
+            ->assertSee('<option value="" disabled selected>Paid?</option>', false)
             ->assertDontSee('No end date');
     });
 
@@ -554,5 +708,234 @@ describe('access', function () {
 
         expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING)
             ->and($entry->user->fresh()->plan_id)->toBe($this->free->id);
+    });
+});
+
+describe('payment email', function () {
+    it('opens the composer with the prices and the trial offer filled in', function () {
+        $entry = proRequest();
+        Station::factory()->for($entry->user)->create(['name' => 'Rae Radio']);
+
+        $this->get(route('admin.requests.payment-email', $entry))
+            ->assertRedirect(route('admin.emails.index'));
+
+        $this->get(route('admin.emails.index'))
+            ->assertOk()
+            ->assertSee($entry->email)
+            ->assertSee('GoCast Pro: how to pay')
+            ->assertSee('Rae Radio')
+            ->assertSee('| 12 months | $160 |', false)
+            ->assertSee('7 days of Pro, free');
+    });
+
+    it('leaves the request pending and sends nothing', function () {
+        $entry = proRequest();
+
+        $this->get(route('admin.requests.payment-email', $entry));
+
+        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
+        Notification::assertNothingSent();
+    });
+});
+
+describe('renewing', function () {
+    it('moves a trial onto a paid term without passing through Free', function () {
+        // The usual paid grant: the payment email offers a free week, so the
+        // request is already approved by the time the money arrives.
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $trialEnds = $entry->user->fresh()->plan_expires_at;
+
+        $this->travel(3)->days();
+
+        $this->post(route('admin.requests.renew', $entry), renewal($entry, '12-months'))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Added 12 months'));
+
+        $user = $entry->user->fresh();
+
+        // Added to the trial's end date, so the days left on it are kept.
+        expect($user->plan_id)->toBe($this->pro->id)
+            ->and($user->plan_expires_at->startOfSecond())
+            ->toEqual($trialEnds->copy()->addMonthsNoOverflow(12)->startOfSecond())
+            ->and($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_APPROVED);
+
+        Notification::assertSentTo($entry->user, ProAccessGranted::class,
+            function (ProAccessGranted $notification) use ($entry) {
+                $mail = $notification->toMail($entry->user);
+                $body = collect([...$mail->introLines, ...$mail->outroLines])->implode(' ');
+
+                return str_contains($body, "Thanks for your payment. We've added 12 months of Pro")
+                    && ! str_contains($body, 'free of charge');
+            });
+    });
+
+    it('starts a lapsed grant from today', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $entry->user->forceFill(['plan_id' => $this->free->id, 'plan_expires_at' => null])->save();
+
+        $this->post(route('admin.requests.renew', $entry), renewal($entry));
+
+        expect($entry->user->fresh()->plan_id)->toBe($this->pro->id)
+            ->and($entry->user->fresh()->plan_expires_at->startOfSecond())
+            ->toEqual(now()->addMonthNoOverflow()->startOfSecond());
+    });
+
+    it('only renews an approved request', function () {
+        $entry = proRequest();
+
+        $this->post(route('admin.requests.renew', $entry), renewal($entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Only an approved request'));
+
+        expect($entry->user->fresh()->plan_id)->toBe($this->free->id);
+        Notification::assertNothingSent();
+    });
+
+    it('offers Renew on an approved row', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+
+        $this->get(route('admin.requests.index', ['status' => 'approved']))
+            ->assertOk()
+            ->assertSee(route('admin.requests.renew', $entry))
+            // The trial is an approval, and somebody on it still needs the prices.
+            ->assertSee(route('admin.requests.payment-email', $entry));
+    });
+
+    it('adds a term once when the form is submitted twice', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $form = renewal($entry, '12-months');
+
+        $this->post(route('admin.requests.renew', $entry), $form);
+        $endsAt = $entry->user->fresh()->plan_expires_at;
+
+        $this->post(route('admin.requests.renew', $entry), $form)
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'changed since this page loaded'));
+
+        expect($entry->user->fresh()->plan_expires_at)->toEqual($endsAt);
+        // The trial approval and one renewal.
+        Notification::assertSentToTimes($entry->user, ProAccessGranted::class, 2);
+    });
+
+    it('does not put a revoked account back on the plan from a stale page', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $form = renewal($entry);
+
+        $this->post(route('admin.requests.revoke', $entry));
+
+        $this->post(route('admin.requests.renew', $entry), $form)
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Only an approved request'));
+
+        expect($entry->user->fresh()->plan_id)->toBe($this->free->id)
+            ->and($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
+    });
+
+    it('tells a lapsed account its plan is back rather than re-approving the request', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        // plans:expire ran.
+        $entry->user->forceFill(['plan_id' => $this->free->id, 'plan_expires_at' => null])->save();
+
+        $this->post(route('admin.requests.renew', $entry), renewal($entry, '2-weeks', paid: false));
+
+        Notification::assertSentTo($entry->user, ProAccessGranted::class, function (ProAccessGranted $notification) use ($entry) {
+            $mail = implode(' ', $notification->toMail($entry->user)->introLines);
+            $bell = data_get($notification->toDatabase($entry->user), 'body');
+
+            return str_contains($mail, 'Your Pro is back on')
+                && ! str_contains($mail, 'Your request is approved')
+                && str_starts_with($bell, 'Your Pro is back on');
+        });
+    });
+
+    it('refuses to replace a plan that was set by hand since the grant', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.approve', $entry), trialGrant());
+        $custom = Plan::factory()->create(['slug' => 'custom-deal', 'name' => 'Custom Deal']);
+        $entry->user->forceFill(['plan_id' => $custom->id])->save();
+
+        $this->post(route('admin.requests.renew', $entry), renewal($entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'Custom Deal'));
+
+        expect($entry->user->fresh()->plan_id)->toBe($custom->id);
+    });
+
+    it('keeps the confirm prompt valid JavaScript for an email with an apostrophe', function () {
+        // HTML-escaping alone is decoded back to a raw ' before the handler
+        // runs, which ended the JS string and skipped the confirm entirely.
+        $user = User::factory()->create(['plan_id' => $this->free->id, 'email' => "o'brien@example.com"]);
+        $entry = proRequest($user);
+
+        $this->get(route('admin.requests.index'))
+            ->assertOk()
+            ->assertDontSee("confirm('Put o&#039;brien", false)
+            ->assertSee('o\\u0027brien', false);
+    });
+});
+
+describe('payment email guards', function () {
+    it('is not offered or built for a request that is not for Pro', function () {
+        $user = User::factory()->create(['plan_id' => $this->free->id]);
+        $entry = WaitlistEntry::create(['user_id' => $user->id, 'email' => $user->email, 'plan' => 'custom']);
+
+        $this->get(route('admin.requests.index'))
+            ->assertOk()
+            ->assertDontSee(route('admin.requests.payment-email', $entry));
+
+        $this->get(route('admin.requests.payment-email', $entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'quotes Pro prices'));
+    });
+
+    it('is not built for a dismissed request', function () {
+        $entry = proRequest();
+        $this->post(route('admin.requests.dismiss', $entry));
+
+        $this->get(route('admin.requests.payment-email', $entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'was dismissed'));
+
+        expect(session()->getOldInput('body'))->toBeNull();
+    });
+
+    it('is not built for a request with no account', function () {
+        $entry = WaitlistEntry::create(['email' => 'stranger@example.com', 'plan' => 'pro']);
+
+        $this->get(route('admin.requests.payment-email', $entry))
+            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'has no GoCast account'));
+    });
+
+    it('escapes the station name so it cannot add markup to our email', function () {
+        $entry = proRequest();
+        Station::factory()->for($entry->user)->create(['name' => 'Rae | [click](http://evil.test)']);
+
+        $this->get(route('admin.requests.payment-email', $entry));
+
+        expect(session()->getOldInput('body'))
+            ->toContain('**Rae \\| \\[click\\]\\(http://evil\\.test\\)**');
+    });
+
+    it('leaves the greeting blank rather than over the composer limit', function () {
+        $user = User::factory()->create(['plan_id' => $this->free->id, 'name' => str_repeat('a', 130)]);
+        $entry = proRequest($user);
+
+        $this->get(route('admin.requests.payment-email', $entry));
+
+        expect(session()->getOldInput('greeting'))->toBe('');
+    });
+
+    it('quotes the same monthly price as the website', function () {
+        // Two apps, two constants: the marketing page and upsells read
+        // PRO_PRICE_USD, the payment email reads PRICES_USD. This is the
+        // only thing that notices when a price change updates one of them,
+        // so a missing file fails rather than skips: a skip would let exactly
+        // that mismatch through any run that has api/ and not client/.
+        $planTs = base_path('../client/interfaces/Plan.ts');
+
+        expect(is_file($planTs))->toBeTrue("{$planTs} is missing, so the website price cannot be checked against the payment email.");
+
+        preg_match('/export const PRO_PRICE_USD = (\d+)/', file_get_contents($planTs), $match);
+
+        expect((int) ($match[1] ?? 0))->toBe(AccessRequestController::PRICES_USD['1-month']);
     });
 });

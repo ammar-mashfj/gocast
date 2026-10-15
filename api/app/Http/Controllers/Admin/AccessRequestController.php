@@ -4,11 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Notifications\ProAccessGranted;
+use App\Services\EmailMarkdown;
+use App\Services\PlanTerm;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
@@ -63,14 +67,33 @@ class AccessRequestController extends Controller
         '1-month' => ['label' => '1 month', 'weeks' => 0, 'months' => 1],
         '2-months' => ['label' => '2 months', 'weeks' => 0, 'months' => 2],
         '3-months' => ['label' => '3 months', 'weeks' => 0, 'months' => 3],
+        '6-months' => ['label' => '6 months', 'weeks' => 0, 'months' => 6],
+        '12-months' => ['label' => '12 months', 'weeks' => 0, 'months' => 12],
     ];
 
     /**
-     * Preselected in the dropdown, and what a post with no `term` at all is
-     * taken to mean. Three months because that is the term the grant email
-     * has been promising since before anything enforced it.
+     * What Pro costs, per term, as the payment email quotes it.
+     *
+     * Only the monthly price is public (PRO_PRICE_USD on the client); the
+     * longer terms are offered by email, so this is the one place they live.
+     * Keyed by the same values as TERMS so a paid grant and the price quoted
+     * for it can be read off one row.
+     *
+     * @var array<string, int>
      */
-    public const DEFAULT_TERM = '3-months';
+    public const PRICES_USD = [
+        '1-month' => 20,
+        '3-months' => 52,
+        '6-months' => 96,
+        '12-months' => 160,
+    ];
+
+    /**
+     * The plan the payment email sells. PRICES_USD is a Pro price list, so
+     * the email is only offered on a request for this plan — a Custom
+     * enquiry quoted $20 a month is answering a question nobody asked.
+     */
+    public const PRICED_PLAN_SLUG = 'pro';
 
     public function index(Request $request): View
     {
@@ -132,7 +155,7 @@ class AccessRequestController extends Controller
             // The approve dropdown. Passed rather than read off the class in
             // the view so the template has no reason to know the controller.
             'terms' => array_map(fn (array $term) => $term['label'], self::TERMS),
-            'defaultTerm' => self::DEFAULT_TERM,
+            'pricedPlan' => self::PRICED_PLAN_SLUG,
             'emptyMessage' => $this->emptyMessage($search, $plan, $status),
         ]);
     }
@@ -140,49 +163,68 @@ class AccessRequestController extends Controller
     /**
      * Grant the plan the request asked for.
      *
-     * Split deliberately across the transaction boundary. Inside it, the only
-     * thing that happens is CLAIMING the request — lock the row, check it is
-     * still pending, stamp the decision. The plan write and the email happen
-     * after the commit, because UserObserver answers a plan change by opening
-     * a telnet connection to every running container (3s timeout each), and
-     * holding a row lock open across network I/O to Docker is how an admin
-     * panel starts timing out under two people using it.
-     *
-     * The cost of that split is a narrow window where the entry reads
-     * `approved` and the account is still free. It needs the database to fail
-     * between two adjacent statements, and the fix is to revoke and approve
-     * again — which is strictly better than the alternative failure, where a
-     * paid plan is granted and nothing records who did it.
-     *
-     * The end date is computed BEFORE the claim, with the other guards, so a
-     * stale form is refused without stamping a decision on the row.
+     * The pending-status claim is what stops a second approve: two admins
+     * with the page open is the realistic race, and the loser must not grant
+     * or email twice. See grant() for how the term is written.
      */
     public function approve(Request $request, WaitlistEntry $entry): RedirectResponse
     {
-        $term = self::TERMS[(string) $request->input('term', self::DEFAULT_TERM)] ?? null;
+        return $this->grant($request, $entry, renewing: false);
+    }
 
-        if ($term === null) {
-            // Only reachable from a form that no longer matches this list, so
-            // the honest answer is to refuse rather than silently substitute a
-            // term nobody chose. Flashed like every other refusal here because
-            // the admin layout renders `status` and not the error bag.
-            return back()->with('status', 'That is not a term we grant. Reload the page and pick one from the list.');
+    /**
+     * Add a term to a request that is already approved.
+     *
+     * The payment email offers a free week first, so the usual paid grant
+     * lands on a request that was approved for the trial — and approve() only
+     * takes pending ones. Without this the only route was Revoke then Approve,
+     * which drops a paying customer to Free in between (UserObserver's
+     * container fan-out included) just to change a date. Renewals are the
+     * same case, months later.
+     *
+     * An approved row stays approved, so the status cannot stop a double
+     * submit the way it does for approve(). The form carries the end date the
+     * admin was looking at (`seen_until`) instead, and a renewal whose account
+     * has moved on since — the first click of a double-click, a revoke, a
+     * second admin — is refused rather than stacked on top.
+     */
+    public function renew(Request $request, WaitlistEntry $entry): RedirectResponse
+    {
+        return $this->grant($request, $entry, renewing: true);
+    }
+
+    /**
+     * The shared body of approve() and renew().
+     *
+     * Everything that decides the grant happens in one transaction: lock the
+     * request and the account, check both are still what the admin saw, stamp
+     * the decision, and write the plan and its end date together. Writing them
+     * separately left an account on Free with a future end date (and the
+     * request approved) whenever the second write failed. UserObserver's
+     * container fan-out — a telnet connection per running station — waits for
+     * the commit, so the row lock is never held across network I/O; only the
+     * email is sent outside.
+     *
+     * The account's row lock is also what orders this against plans:expire,
+     * which re-reads and locks the same row before demoting it, so a renewal
+     * of a lapsed trial cannot be overwritten by an expiry that read it first.
+     *
+     * The term is EXTENDED from a running grant of the same plan, not
+     * restarted — see PlanTerm::extendsFrom() and termStart().
+     */
+    private function grant(Request $request, WaitlistEntry $entry, bool $renewing): RedirectResponse
+    {
+        $choice = $this->grantChoice($request);
+
+        if (is_string($choice)) {
+            return back()->with('status', $choice);
         }
+
+        [$term, $paid] = $choice;
 
         if ($entry->user_id === null) {
             // Not a permission failure — there is genuinely nobody to upgrade.
             return back()->with('status', "{$entry->email} has no GoCast account, so there is nothing to grant. Reply by email and dismiss the request.");
-        }
-
-        // Resolved before the claim rather than after it, because User is
-        // soft-deleted: the foreign key survives a closed account (the column
-        // is only nulled by a hard delete), so `user_id` being set is not the
-        // same as there being an account to move. Approving one of these would
-        // otherwise stamp the decision and then fatal on the plan write.
-        $user = $entry->user;
-
-        if (! $user) {
-            return back()->with('status', "The account behind {$entry->email} has been deleted. Dismiss the request instead.");
         }
 
         $plan = Plan::where('slug', $entry->plan)->first();
@@ -191,38 +233,159 @@ class AccessRequestController extends Controller
             return back()->with('status', "No plan is configured with the slug \"{$entry->plan}\", so this request cannot be granted.");
         }
 
-        $claimed = DB::transaction(function () use ($entry, $request) {
+        $outcome = DB::transaction(function () use ($request, $entry, $plan, $term, $renewing) {
             $locked = WaitlistEntry::whereKey($entry->getKey())->lockForUpdate()->first();
 
-            // Two admins with the page open is the realistic race, and the
-            // loser must not re-stamp the decision with their own name.
-            if (! $locked?->isGrantable()) {
-                return null;
+            $claimable = $renewing
+                ? $locked?->status === WaitlistEntry::STATUS_APPROVED
+                : $locked?->isGrantable();
+
+            if (! $claimable) {
+                return $renewing
+                    ? 'Only an approved request can be renewed, and this one is not (any more) — nothing changed. Reload the page.'
+                    : 'That request was already settled — nothing changed.';
             }
 
+            // User is soft-deleted and the foreign key survives a closed
+            // account, so `user_id` being set is not the same as there being
+            // an account to move. The default scope leaves a closed one out.
+            $user = User::whereKey($entry->user_id)->lockForUpdate()->first();
+
+            if (! $user) {
+                return "The account behind {$entry->email} has been deleted, so there is nothing to grant.";
+            }
+
+            if ($renewing && (string) $request->input('seen_until') !== (string) $user->plan_expires_at?->getTimestamp()) {
+                return "{$entry->email}'s end date has changed since this page loaded, so nothing was added. Reload and check it before renewing.";
+            }
+
+            $start = $this->termStart($user, $plan);
+
+            if (is_string($start)) {
+                return $start;
+            }
+
+            // Stamped on a renewal too, so the row says who made the latest
+            // grant, which is the one anybody asking "who put them on this"
+            // means.
             $locked->markReviewed(WaitlistEntry::STATUS_APPROVED, $request->user('admin'));
 
-            return $locked;
+            $endsAt = PlanTerm::endOfTerm($start, $term);
+
+            // An extension of the plan they are already on changes no plan_id,
+            // so the common renewal triggers no fan-out at all.
+            $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
+
+            return [$user, $endsAt, $start !== null];
         });
 
-        if (! $claimed) {
-            return back()->with('status', 'That request was already settled — nothing changed.');
+        if (is_string($outcome)) {
+            return back()->with('status', $outcome);
         }
 
-        // Overwritten rather than extended: an account that arrived on a
-        // 30-day invite and is then granted 3 months gets three months from
-        // today, not three months and thirty days. The admin picked a term
-        // looking at this row, and the date they get is the one they picked.
-        // NoOverflow: three months from 30 November is the end of February,
-        // not the 2nd of March. Carbon overflows by default, which would put
-        // the account's real end date a couple of days past the one the email
-        // it is about to send names.
-        $endsAt = now()->addWeeks($term['weeks'])->addMonthsNoOverflow($term['months']);
+        [$user, $endsAt, $extended] = $outcome;
 
-        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
-        $user->notify(new ProAccessGranted($plan, $endsAt, $term['label']));
+        // A renewal that is not an extension is a lapsed grant coming back,
+        // and "your request is approved" would be news of a decision made
+        // weeks ago.
+        $user->notify(new ProAccessGranted($plan, $endsAt, $term['label'], paid: $paid, extended: $extended, renewed: $renewing && ! $extended));
 
-        return back()->with('status', "{$user->email} is on {$plan->name} for {$term['label']}, until {$endsAt->toFormattedDateString()}, and has been emailed. It returns to Free on its own; their dashboard catches up on their next page load.");
+        $kind = $paid ? 'paid' : 'free';
+        $how = $extended ? "Added {$term['label']} to" : "Granted {$term['label']} of";
+
+        return back()->with('status', "{$how} {$plan->name} ({$kind}) for {$user->email}, now until {$endsAt->toFormattedDateString()}, and emailed them. It returns to Free on its own; their dashboard catches up on their next page load.");
+    }
+
+    /**
+     * Where a new term starts for this account: the end of its running grant
+     * of the same plan, null for today, or the refusal to flash.
+     *
+     * Refuses whatever PlanTerm::conflict() names. Both cases are a decision
+     * about the account, not this request, so neither is guessed at here; the
+     * stations upgrade is where an admin makes that call on purpose.
+     */
+    private function termStart(User $user, Plan $plan): Carbon|string|null
+    {
+        $conflict = PlanTerm::conflict($user, $plan, withTerm: true);
+
+        if ($conflict !== null) {
+            return "{$conflict} Nothing changed — change the account by hand from Stations if that is what you want.";
+        }
+
+        return PlanTerm::extendsFrom($user, $plan);
+    }
+
+    /**
+     * Open the email composer with the payment email already written.
+     *
+     * There is no checkout: a request is answered with this email, they reply
+     * with the term they want, and the admin grants it once the money is in.
+     * So this is the first step for every Pro request, and Approve is the last
+     * one. Pre-filled rather than sent, because the admin is the one who knows
+     * whether this person was quoted the founding price, and the composer's
+     * preview step is where that gets edited in.
+     *
+     * Offered on approved rows as well as pending ones: the trial the email
+     * offers is an approval, and somebody on it still needs the prices. Not
+     * on a dismissed one — prices to somebody already turned down — nor one
+     * with no account, which could pay and still never be granted. The view
+     * hides the button in both cases; this is the same rule for a direct GET.
+     *
+     * Leaves the request as it is — nothing has been decided by sending it.
+     */
+    public function paymentEmail(WaitlistEntry $entry): RedirectResponse
+    {
+        if ($entry->plan !== self::PRICED_PLAN_SLUG) {
+            return back()->with('status', 'The payment email quotes Pro prices, and this is a request for something else. Reply to it by email.');
+        }
+
+        if ($entry->status === WaitlistEntry::STATUS_REJECTED) {
+            return back()->with('status', 'That request was dismissed. Reopen it first if they should get the prices after all.');
+        }
+
+        if ($entry->user === null) {
+            return back()->with('status', "{$entry->email} has no GoCast account, so a payment could not be granted to anything. Reply by email.");
+        }
+
+        $user = $entry->user;
+        $station = $user?->stations()->first();
+
+        $prices = collect(self::PRICES_USD)
+            ->map(fn (int $price, string $key) => '| '.self::TERMS[$key]['label']." | \${$price} |")
+            ->implode("\n");
+
+        // Escaped because both are typed by the user and land in Markdown sent
+        // from our address: a `|` in a station name breaks the price table,
+        // and `[x](url)` would put their link in our email.
+        $for = $station ? ' for **'.EmailMarkdown::escape($station->name).'**' : '';
+        $monthly = self::PRICES_USD['1-month'];
+
+        $body = <<<MD
+            Thanks for asking about GoCast Pro{$for}.
+
+            Pro is \${$monthly} a month, and a longer term costs less:
+
+            | Term | Price |
+            |---|---|
+            {$prices}
+
+            Card payments are coming. For now we take payment in USDT. Reply with the term you want and we'll send you the payment details. Pro is switched on as soon as the payment arrives.
+
+            Want to try it first? Reply and we'll turn on 7 days of Pro, free.
+
+            You can cancel anytime. We refund what you paid minus the months you have used, counted at the monthly price. If those months come to more than you paid, there is no refund, and you never owe anything extra.
+            MD;
+
+        return redirect()->route('admin.emails.index')->withInput([
+            'recipients' => $entry->email,
+            'subject' => 'GoCast Pro: how to pay',
+            // Not escaped: the greeting is printed as plain text by the email
+            // template, so backslashes would show. Only the body is Markdown.
+            // Left blank rather than invalid when the name is too long for
+            // the composer's 120-character greeting.
+            'greeting' => $user?->name && mb_strlen("Hey {$user->name},") <= 120 ? "Hey {$user->name}," : '',
+            'body' => $body,
+        ]);
     }
 
     /**
@@ -252,6 +415,10 @@ class AccessRequestController extends Controller
      * the way down, so a downgraded account keeps the station it has and the
      * tracks in it. Deleting somebody's work on a downgrade would be a far
      * worse default than letting them sit over a line.
+     *
+     * Only takes back the plan this request granted. An account moved onto
+     * something else by hand since — a Custom deal — is refused, for the same
+     * reason grant() will not overwrite one.
      */
     public function revoke(WaitlistEntry $entry): RedirectResponse
     {
@@ -265,26 +432,37 @@ class AccessRequestController extends Controller
             return back()->with('status', 'No plan with the slug "'.self::FREE_PLAN_SLUG.'" exists, so there is nowhere to move this account back to.');
         }
 
-        $reopened = DB::transaction(function () use ($entry) {
+        // The plan write is in the transaction for the same reason as
+        // grant(): reopened-but-still-Pro is the half-done state to avoid.
+        // UserObserver's fan-out still waits for the commit.
+        $reopened = DB::transaction(function () use ($entry, $free) {
             $locked = WaitlistEntry::whereKey($entry->getKey())->lockForUpdate()->first();
 
             if ($locked?->status !== WaitlistEntry::STATUS_APPROVED) {
-                return null;
+                return 'That request was already settled — nothing changed.';
+            }
+
+            $user = User::whereKey($locked->user_id)->lockForUpdate()->first();
+            $granted = Plan::where('slug', $locked->plan)->value('id');
+
+            // On Free already (it expired) is fine: reopening is all that is
+            // left to do. Any plan other than the granted one is not ours.
+            if ($user && $user->plan_id !== $free->id && $user->plan_id !== $granted) {
+                $current = Plan::find($user->plan_id)?->name ?? 'another plan';
+
+                return "{$user->email} is on {$current} now, which this request did not grant. Nothing changed — change the account by hand if it should go back to Free.";
             }
 
             $locked->reopen();
 
+            $user?->forceFill(['plan_id' => $free->id, 'plan_expires_at' => null])->save();
+
             return $locked;
         });
 
-        if (! $reopened) {
-            return back()->with('status', 'That request was already settled — nothing changed.');
+        if (is_string($reopened)) {
+            return back()->with('status', $reopened);
         }
-
-        // Same split as approve(), for the same reason: this is the telnet
-        // fan-out that puts the watermark back, and on a Pro account it can be
-        // five containers rather than one.
-        $reopened->user?->forceFill(['plan_id' => $free->id, 'plan_expires_at' => null])->save();
 
         return back()->with('status', "Moved {$reopened->email} back to {$free->name}. Their station keeps running.");
     }
@@ -302,6 +480,45 @@ class AccessRequestController extends Controller
         $entry->reopen();
 
         return back()->with('status', "Reopened {$entry->email}.");
+    }
+
+    /**
+     * The term and the paid flag from an approve or renew form, or the
+     * refusal to flash.
+     *
+     * Both are required. They used to default — to 3 months, then to a free
+     * week — and either default is wrong for somebody: a paying customer left
+     * on "Free, 1 week" is emailed "free of charge" and dropped after seven
+     * days. The form makes the admin pick both; a post without them is a
+     * stale form and is refused rather than guessed at.
+     *
+     * A paid grant must be a term that has a price. Every other term is a
+     * trial or a gift, so "paid, 1 week" is the admin having forgotten to
+     * change the term, not a sale.
+     *
+     * @return array{0: array{label: string, weeks: int, months: int}, 1: bool}|string
+     */
+    private function grantChoice(Request $request): array|string
+    {
+        $term = self::TERMS[(string) $request->input('term')] ?? null;
+
+        if ($term === null) {
+            // Flashed like every other refusal here because the admin layout
+            // renders `status` and not the error bag.
+            return 'That is not a term we grant. Reload the page and pick one from the list.';
+        }
+
+        $paid = $request->input('paid');
+
+        if (! in_array($paid, ['0', '1'], true)) {
+            return 'Pick whether this was paid or free before granting it.';
+        }
+
+        if ($paid === '1' && ! array_key_exists((string) $request->input('term'), self::PRICES_USD)) {
+            return "{$term['label']} is not a term we sell, so it cannot be a paid grant. Pick the term they paid for.";
+        }
+
+        return [$term, $paid === '1'];
     }
 
     /**

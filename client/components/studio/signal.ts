@@ -149,6 +149,18 @@ function computeSignal(
   const micOpen = !micDisabled && (engine?.isMicActive() ?? false)
   const playing = engine?.isPlaying() ?? false
 
+  if (state === "reconnecting" && engine?.isSuspended()) {
+    // The socket is held back until audio runs again — see parkedDrop in
+    // lib/broadcast.ts — so waiting alone won't bring it back.
+    return {
+      code: "suspended",
+      tone: "fault",
+      label: "Audio paused",
+      detail: touch
+        ? "Your browser paused the studio's audio, so nothing is reaching listeners. Tap anywhere to resume and reconnect."
+        : "Your browser paused the studio's audio, so nothing is reaching listeners. Click anywhere or press any key to resume and reconnect.",
+    }
+  }
   if (state === "reconnecting") {
     return {
       code: "reconnecting",

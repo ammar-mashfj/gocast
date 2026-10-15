@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Notifications\ProAccessGranted;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Testing\TestResponse;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -20,6 +21,20 @@ beforeEach(function () {
     Notification::fake();
 });
 
+/**
+ * Post the send the way the preview page does: with the `seen` fingerprint of
+ * the account as it stands, which upgrade() refuses on when it has changed.
+ */
+function postUpgrade(Station $station, array $form): TestResponse
+{
+    $user = $station->user()->first();
+
+    return test()->post(route('admin.stations.upgrade', $station), [
+        'seen' => $user->plan_id.':'.($user->plan_expires_at?->getTimestamp() ?? ''),
+        ...$form,
+    ]);
+}
+
 function freeStation(): Station
 {
     return Station::factory()
@@ -30,7 +45,7 @@ function freeStation(): Station
 it('moves the owner onto the plan for the term picked', function () {
     $station = freeStation();
 
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => '1-month',
         'note' => 'You have been pulling a crowd.',
@@ -45,7 +60,7 @@ it('moves the owner onto the plan for the term picked', function () {
 it('can upgrade with no end date', function () {
     $station = freeStation();
 
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => 'none',
         'note' => 'Welcome aboard.',
@@ -72,7 +87,7 @@ it('can upgrade with no end date', function () {
 it('opens the email with the admin note instead of a request approval', function () {
     $station = freeStation();
 
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => '3-months',
         'note' => "We noticed Night Shift is getting a lot of listeners.\n\nSo here is Pro, on us.",
@@ -105,7 +120,7 @@ it('opens the email with the admin note instead of a request approval', function
 it('records who made the upgrade', function () {
     $station = freeStation();
 
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => '1-week',
         'note' => 'Enjoy.',
@@ -122,7 +137,7 @@ it('refuses a blank note out loud', function (string $note) {
 
     // Through `status`, not the error bag: the admin layout only renders the
     // flash, so a validation error here would be a silent reload.
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => '1-month',
         'note' => $note,
@@ -135,7 +150,7 @@ it('refuses a blank note out loud', function (string $note) {
 it('refuses the free plan and unknown terms', function (string $field, mixed $value) {
     $station = freeStation();
 
-    $this->post(route('admin.stations.upgrade', $station), [
+    postUpgrade($station, [
         'plan_id' => $this->pro->id,
         'term' => '1-month',
         'note' => 'Enjoy.',
@@ -234,6 +249,100 @@ describe('previewing', function () {
             'plan_id' => $this->pro->id,
             'term' => '1-month',
             'note' => 'Hello.',
-        ])->assertSee('This puts an end date on it');
+        ])->assertSee('a term would make it expire');
+    });
+
+    it('warns when the upgrade would replace another paid plan', function () {
+        $custom = Plan::factory()->create(['slug' => 'custom-deal', 'name' => 'Custom Deal']);
+        $user = User::factory()->create(['plan_id' => $custom->id, 'plan_expires_at' => null]);
+        $station = Station::factory()->for($user)->create();
+
+        $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '1-month',
+            'note' => 'Hello.',
+        ])->assertSee('is on Custom Deal, and granting Pro would replace it.');
+    });
+
+    it('carries the account state it was computed from to the send', function () {
+        $station = freeStation();
+
+        $this->post(route('admin.stations.upgrade.preview', $station), [
+            'plan_id' => $this->pro->id,
+            'term' => '1-month',
+            'note' => 'Hello.',
+        ])->assertSee('name="seen" value="'.$this->free->id.':"', false);
+    });
+});
+
+it('refuses a second submit of the same preview instead of adding the term twice', function () {
+    $station = freeStation();
+    $form = ['plan_id' => $this->pro->id, 'term' => '1-month', 'note' => 'Hello.'];
+    $seen = $this->free->id.':';
+
+    $this->post(route('admin.stations.upgrade', $station), [...$form, 'seen' => $seen]);
+    $endsAt = $station->user->fresh()->plan_expires_at;
+
+    $this->post(route('admin.stations.upgrade', $station), [...$form, 'seen' => $seen])
+        ->assertSessionHas('status', fn (string $status) => str_contains($status, 'has changed since the preview'));
+
+    expect($station->user->fresh()->plan_expires_at->equalTo($endsAt))->toBeTrue();
+    Notification::assertSentToTimes($station->user, ProAccessGranted::class, 1);
+});
+
+it('refuses a send whose account changed after the preview', function () {
+    $station = freeStation();
+    $seen = $this->free->id.':';
+
+    // A request grant lands between the preview and the send.
+    $station->user->forceFill(['plan_id' => $this->pro->id, 'plan_expires_at' => now()->addWeek()])->save();
+
+    $this->post(route('admin.stations.upgrade', $station), [
+        'plan_id' => $this->pro->id,
+        'term' => '1-month',
+        'note' => 'Hello.',
+        'seen' => $seen,
+    ])->assertSessionHas('status', fn (string $status) => str_contains($status, 'has changed since the preview'));
+
+    expect($station->user->fresh()->plan_expires_at->toDateString())->toBe(now()->addWeek()->toDateString());
+    Notification::assertNothingSent();
+});
+
+it('refuses a no-end upgrade that would change nothing', function () {
+    $user = User::factory()->create(['plan_id' => $this->pro->id, 'plan_expires_at' => null]);
+    $station = Station::factory()->for($user)->create();
+
+    postUpgrade($station, ['plan_id' => $this->pro->id, 'term' => 'none', 'note' => 'Hello.'])
+        ->assertSessionHas('status', fn (string $status) => str_contains($status, 'nothing to upgrade'));
+
+    Notification::assertNothingSent();
+});
+
+it('adds the term to a running grant of the same plan rather than restarting it', function () {
+    // A customer who paid for a year, then gets a gift month from this page:
+    // restarting the term from today would cut the year to a month.
+    $paidUntil = now()->addYear()->startOfSecond();
+    $station = Station::factory()
+        ->for(User::factory()->create(['plan_id' => $this->pro->id, 'plan_expires_at' => $paidUntil]))
+        ->create();
+
+    postUpgrade($station, [
+        'plan_id' => $this->pro->id,
+        'term' => '1-month',
+        'note' => 'A month on us for the crowd you are pulling.',
+    ]);
+
+    $user = $station->user->fresh();
+
+    expect($user->plan_expires_at->toDateString())->toBe($paidUntil->copy()->addMonthNoOverflow()->toDateString());
+
+    Notification::assertSentTo($user, ProAccessGranted::class, function (ProAccessGranted $notification) use ($user) {
+        $points = implode(' ', data_get($notification->toDatabase($user), 'action.detail.points', []));
+
+        // Says "more", not "for 1 month", which the date beside it contradicts.
+        expect($points)->toContain('1 month more on us')
+            ->and(implode(' ', $notification->toMail($user)->introLines))->toContain($user->plan_expires_at->toFormattedDateString());
+
+        return true;
     });
 });

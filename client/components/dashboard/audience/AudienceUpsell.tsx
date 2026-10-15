@@ -80,11 +80,11 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your history stays if you downgrade."
-              : "Free while Pro is in beta — no card. Your history keeps building either way."}
+              : "We'll email you how to pay. Your history keeps building either way."}
           </p>
           <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
             {request.requested && <IconCheck />}
-            {request.requested ? "Requested" : "Request Pro"}
+            {request.requested ? "Request sent" : "Get Pro"}
           </Button>
         </div>
       </div>

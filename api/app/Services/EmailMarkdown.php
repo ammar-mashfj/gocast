@@ -75,6 +75,19 @@ final class EmailMarkdown
     }
 
     /**
+     * Backslash-escape everything CommonMark (and its table extension) would
+     * read as markup, so user-typed text renders as the characters typed.
+     *
+     * For any pre-filled body that puts a user's own words — a station name,
+     * a display name — into Markdown sent from our address: a `|` breaks a
+     * table, and `[x](url)` would put their link in our email.
+     */
+    public static function escape(string $text): string
+    {
+        return preg_replace('/([\\\\`*_{}\[\]()#+\-.!|<>~])/', '\\\\$1', $text);
+    }
+
+    /**
      * The body's words with the markup taken off, for the inbox preheader.
      *
      * Read off the rendered HTML rather than the source, so what is left is

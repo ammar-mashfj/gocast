@@ -4,6 +4,7 @@ use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\LiquidsoapSupervisor;
+use Illuminate\Support\Facades\DB;
 
 use function Pest\Laravel\actingAs;
 
@@ -99,6 +100,22 @@ it('applies an upgrade to running stations without restarting them', function ()
     app()->instance(LiquidsoapSupervisor::class, $supervisor);
 
     $user->update(['plan_id' => $this->pro->id]);
+});
+
+it('pushes once for two plan changes in one transaction', function () {
+    // Each save queues a push for after the commit, and both would read the
+    // model as it is then — the same final plan, sent twice.
+    $user = User::factory()->create(['plan_id' => $this->free->id]);
+    Station::factory()->for($user, 'user')->create(['desired_state' => Station::STATE_RUNNING]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldReceive('applyWatermarkSettings')->once();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    DB::transaction(function () use ($user) {
+        $user->update(['plan_id' => $this->pro->id]);
+        $user->update(['plan_id' => $this->free->id]);
+    });
 });
 
 it('ignores user edits that do not change the plan', function () {

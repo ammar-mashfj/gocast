@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { TextAreaField, TextField } from "@/components/ds/Field"
 
 /**
- * Request Pro, from inside the dashboard (every "Request Pro" button opens it
+ * Get Pro, from inside the dashboard (every "Get Pro" button opens it
  * through ProRequestContext). The same form as the marketing kit's
  * ProAccessDialog — the rules are useAccessRequest's — drawn with the ds kit.
  *
@@ -36,17 +36,16 @@ export function ProRequestDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Request Pro</DialogTitle>
+          <DialogTitle>Get Pro</DialogTitle>
           <DialogDescription>
-            Pro is in beta and free while it is — no card, nothing to pay. We’re onboarding a few stations at a time. Tell us about yours.
+            Tell us about your station and we’ll email you how to pay. Pro switches on as soon as your payment arrives.
           </DialogDescription>
         </DialogHeader>
 
         {form.submitted ? (
           <>
             <p role="status" className="text-body-sm text-muted-foreground">
-              Thanks — your request is in. We’re inviting stations in small batches, so it may be a while before you hear from us. There’s
-              nothing to pay while Pro is in beta, and we’ll give you notice long before billing opens.
+              Thanks — we’ve got it. We’ll be in touch by email with how to pay.
             </p>
             <DialogFooter>
               <Button size="lg" variant="subtle" onClick={() => onOpenChange(false)}>
@@ -87,7 +86,7 @@ export function ProRequestDialog({
             )}
             <DialogFooter>
               <Button size="lg" variant="pro" type="submit" disabled={form.submitting}>
-                {form.submitting ? "Sending…" : "Request access"}
+                {form.submitting ? "Sending…" : "Send"}
               </Button>
             </DialogFooter>
           </form>

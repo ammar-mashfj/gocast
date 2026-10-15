@@ -258,9 +258,9 @@ export default function Body() {
 
       <h2>Who Gets It</h2>
       <p>
-        Scheduling is part of AutoDJ, so it comes with Pro &mdash; which is
-        free while the beta runs. You ask for it from inside your dashboard and
-        we invite stations in a few at a time. Free stations keep everything
+        Scheduling is part of AutoDJ, so it comes with Pro, at $20 a month.
+        You ask for it from inside your dashboard and we email you how to pay.
+        Free stations keep everything
         they had: browser broadcasting, push-to-talk, a file queue, a shareable
         player page and a hundred listeners at once.
       </p>

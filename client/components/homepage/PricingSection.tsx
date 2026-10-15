@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { Section, SectionIntro } from "./Section"
 import WaitlistButton from "./WaitlistButton"
 
-const LAST_UPDATED = "21 September 2026"
+const LAST_UPDATED = "14 October 2026"
 
 // Eight, deliberately matching PRO_FEATURES. Free showing five against Pro's
 // eight made the cheaper column look like the lesser product directly under a
@@ -66,7 +66,7 @@ export default function PricingSection() {
       <SectionIntro
         eyebrow="Pricing"
         title="Free is the whole product."
-        lead="No credit card, no trial clock. Everything below is live today — paid tiers arrive when you actually outgrow it."
+        lead="Free needs no card and never runs out. Everything below is live today — Pro is there when you outgrow it."
       />
 
       <div className="grid items-stretch gap-3.5 lg:grid-cols-3">
@@ -96,25 +96,24 @@ export default function PricingSection() {
           </Button>
         </div>
 
-        {/* Pro — in beta, granted by hand. Deliberately no button: a request
+        {/* Pro — payment is arranged by email. Deliberately no button: a request
             from someone who has never signed up is not something anyone can
             act on, and the form used to convert curious visitors into
             form-fills instead of the signup we actually want. */}
         <div className={cn(CARD, "bg-pro-tint")}>
           <div className="flex items-center justify-between gap-3">
             <span className="eyebrow text-fault-text">When you outgrow it</span>
-            <Tag variant="pro">In beta</Tag>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="font-display text-display">Pro</span>
             <span className="font-mono text-base font-semibold">
-              Free in beta <span className="text-fault-text">then ${PRO_PRICE_USD}/mo</span>
+              ${PRO_PRICE_USD} <span className="text-fault-text">/ month</span>
             </span>
           </div>
           <p className="text-body text-fault-text">Everything in Free, plus:</p>
           <FeatureList items={PRO_FEATURES} />
           <p className="mt-auto text-body-sm text-fault-text">
-            Requested from your dashboard once your station is set up — we onboard a few at a time. Nothing to pay while it’s in beta, and we’ll give notice before billing opens.
+            Ask for it from your dashboard once your station is set up, and we’ll email you how to pay.
           </p>
         </div>
 

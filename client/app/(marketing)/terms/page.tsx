@@ -13,7 +13,7 @@ export default function TermsPage() {
     <main className="max-w-2xl mx-auto px-6 py-16">
       <h1 className="font-display text-3xl font-semibold mb-2">Terms of Service</h1>
       <p className="text-sm text-text-muted mb-12">
-        Last updated: September 8, 2026
+        Last updated: October 14, 2026
       </p>
 
       <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">
@@ -103,18 +103,19 @@ export default function TermsPage() {
             </p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5 mt-3">
               <li>
-                Pro is not self-serve yet. It is requested from your dashboard and granted manually,
-                and it is free while in beta.
+                Pro is not self-serve yet. You request it from your dashboard, we email you the
+                price and how to pay, and Pro is switched on once your payment arrives.
               </li>
               <li>
-                Billing is not active. We will give notice before we begin charging, and you will
-                never be charged without agreeing to a price first.
+                Pro is paid in advance for the term you choose. It does not renew automatically:
+                when the term ends your account returns to the free plan unless you pay for another
+                term. Nothing you have made is deleted when that happens.
               </li>
               <li>
-                Once billing opens, paid subscriptions will be billed monthly and renew automatically
-                until cancelled. You will be able to cancel at any time, and your plan will remain
-                active until the end of the billing period. Refunds will not be provided for partial
-                billing periods.
+                You can cancel at any time. We refund what you paid minus the months you have used,
+                counted at the monthly price. If those months come to more than you paid, there is
+                no refund, and you never owe anything extra. Refunds are sent back the way you paid,
+                less any network or transfer fee.
               </li>
               <li>
                 We reserve the right to change pricing, and will give notice before a change affects

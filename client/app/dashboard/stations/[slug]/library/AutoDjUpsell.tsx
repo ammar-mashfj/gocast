@@ -62,7 +62,7 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your uploads stay if you downgrade."
-              : "Free while Pro is in beta — no card. We're onboarding a few stations at a time, and your uploads stay yours either way."}
+              : "We'll email you how to pay. Cancel any time, and your uploads stay yours either way."}
           </p>
 
           {request.requested ? (
@@ -73,9 +73,9 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           ) : (
             // The page's one filled button and its only request action (the
             // header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
-            // the amber Pro tag). "Request", not "Upgrade" — Pro is granted by hand.
+            // the amber Pro tag). Opens the request form — payment is by email.
             <Button variant="pro" full className="mt-4" onClick={request.open}>
-              Request Pro
+              Get Pro
             </Button>
           )}
         </div>

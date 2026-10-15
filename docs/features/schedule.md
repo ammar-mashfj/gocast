@@ -142,7 +142,7 @@ Everything confusing about this feature comes from the two looking alike: both h
 | Surface | Show times | AutoDJ slots |
 |---|---|---|
 | Web Station settings `/dashboard/stations/{slug}/settings#show-times` ("When you're usually live") | **Editor** plus the timezone picker, every plan. Day chips are neutral off-white (`DayToggle tone="neutral"`), Monday first | — |
-| Web Schedule `/dashboard/stations/{slug}/schedule` | Grey dashed "YOU" marks on the grid (not red: red means live right now), linking to settings; the "Your next show" card names the next one | **Editable week grid** (see below). Free sees the grid without slots, a PRO tag by the title, "Off air unless you're live" and "Request Pro"; the sidebar item carries the Pro lock |
+| Web Schedule `/dashboard/stations/{slug}/schedule` | Grey dashed "YOU" marks on the grid (not red: red means live right now), linking to settings; the "Your next show" card names the next one | **Editable week grid** (see below). Free sees the grid without slots, a PRO tag by the title, "Off air unless you're live" and "Get Pro"; the sidebar item carries the Pro lock |
 | Web overview (and the top bar's setup menu) | Setup item "Set your show times" links to settings `#show-times`; "Coming up" lists the next ones | "Coming up" lists AutoDJ's next slot change (`programme.next`); its header link is "Schedule →", or "Show times →" on a plan without AutoDJ |
 | Player page `/station/{slug}` | "Full schedule" sheet, converted to the listener's clock with the station's clock in brackets | Never shown |
 | Mobile Overview → "Your link" card → **Show times** screen | **Editor**, every plan. No timezone picker | — |

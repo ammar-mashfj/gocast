@@ -50,6 +50,10 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            // Cast so plan ids compare with === everywhere: the admin grant
+            // paths decide "same plan or not" on it, and a string id from a
+            // raw attribute or another PDO setup would read as a different plan.
+            'plan_id' => 'integer',
             'plan_expires_at' => 'datetime',
             'password' => 'hashed',
         ];

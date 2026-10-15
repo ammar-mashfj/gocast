@@ -218,7 +218,7 @@ function ProTag() {
 /**
  * Free accounts only. Above the account row because the question it answers
  * — "why does my station go quiet?" — comes up while looking at the nav.
- * Pro is granted by hand, not bought, so the verb is "Request".
+ * "Get Pro" opens the request form; payment is arranged by email.
  */
 function PlanCard() {
   const plan = usePlan()
@@ -237,13 +237,13 @@ function PlanCard() {
               Requested
             </>
           ) : (
-            "Request Pro"
+            "Get Pro"
           )}
         </Button>
       </div>
       <p className="text-caption text-muted-foreground">
         {proRequest.requested
-          ? "Request sent — we’ll be in touch."
+          ? "Request sent — we’ll be in touch by email."
           : "Your station goes silent when you stop broadcasting."}
       </p>
     </div>

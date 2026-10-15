@@ -90,7 +90,7 @@ const SHOTS: Record<Account, Shot[]> = {
     { name: "free-your-shows-empty", path: "/dashboard/broadcasts" },
     { name: "free-settings-dj-locked", path: "/settings", station: true, open: click(/Use your own DJ software/) },
     { name: "free-account", path: "/dashboard/settings" },
-    { name: "free-request-pro", path: "/dashboard/settings", open: click("Request Pro", { last: true }), expects: "dialog" },
+    { name: "free-request-pro", path: "/dashboard/settings", open: click("Get Pro", { last: true }), expects: "dialog" },
   ],
   new: [
     { name: "create-station", path: "/dashboard" },

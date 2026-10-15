@@ -148,9 +148,9 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
             Any software that can send to an Icecast server can go live on {stationName}, with its own server address and stream key, so you keep
             broadcasting with the tools you already know.
           </p>
-          {/* "Request", not "Upgrade" — Pro is granted by hand. */}
+          {/* Opens the request form — payment is arranged by email. */}
           <Button variant="pro" onClick={proRequest.open} disabled={proRequest.requested}>
-            {proRequest.requested ? "Request sent" : "Request Pro"}
+            {proRequest.requested ? "Request sent" : "Get Pro"}
           </Button>
         </div>
       </Disclosure>
