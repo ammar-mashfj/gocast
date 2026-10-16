@@ -108,3 +108,60 @@ it('shows the account behind a Pro request, and none behind a public enquiry', f
         // One of the two is grantable; the enquiry has nobody behind it.
         ->assertSeeInOrder(['From accounts', '1']);
 });
+
+/** What RawEmailController logs for a send from the composer. */
+function logSentEmail(array $to, string $subject = 'GoCast Pro: how to pay', bool $marketing = false): void
+{
+    activity()
+        ->withProperties(['subject' => $subject, 'marketing' => $marketing, 'sent' => $to, 'suppressed' => []])
+        ->log('sent email');
+}
+
+it('says which pending requests have been emailed and which have not', function () {
+    WaitlistEntry::create(['email' => 'emailed@example.com', 'plan' => 'pro', 'social' => '@a']);
+    WaitlistEntry::create(['email' => 'waiting@example.com', 'plan' => 'pro', 'social' => '@b']);
+
+    logSentEmail(['Emailed@Example.com']);
+
+    $this->get(route('admin.requests.index'))
+        ->assertOk()
+        ->assertSeeInOrder(['emailed@example.com', 'emailed', 'waiting@example.com'])
+        ->assertSeeInOrder(['waiting@example.com', 'not emailed yet'])
+        ->assertSee('1 not emailed yet');
+});
+
+it('filters to pending requests nobody has emailed', function () {
+    WaitlistEntry::create(['email' => 'emailed@example.com', 'plan' => 'pro', 'social' => '@a']);
+    WaitlistEntry::create(['email' => 'waiting@example.com', 'plan' => 'pro', 'social' => '@b']);
+
+    logSentEmail(['emailed@example.com']);
+
+    $this->get(route('admin.requests.index', ['status' => 'needs-action']))
+        ->assertOk()
+        ->assertSee('waiting@example.com')
+        ->assertDontSee('emailed@example.com');
+});
+
+it('ignores marketing sends and mail sent before the request came in', function () {
+    $this->travel(-2)->days();
+    logSentEmail(['early@example.com'], 'Welcome');
+    $this->travelBack();
+
+    WaitlistEntry::create(['email' => 'early@example.com', 'plan' => 'pro', 'social' => '@a']);
+    logSentEmail(['early@example.com'], 'Product news', marketing: true);
+
+    $this->get(route('admin.requests.index', ['status' => 'needs-action']))
+        ->assertOk()
+        ->assertSee('early@example.com')
+        ->assertSee('not emailed yet');
+});
+
+it('says so when every pending request has been emailed', function () {
+    WaitlistEntry::create(['email' => 'emailed@example.com', 'plan' => 'pro', 'social' => '@a']);
+    logSentEmail(['emailed@example.com']);
+
+    $this->get(route('admin.requests.index', ['status' => 'needs-action']))
+        ->assertOk()
+        ->assertSee('Every pending request has been emailed.')
+        ->assertSee('all emailed, waiting on them');
+});

@@ -7,7 +7,15 @@
         <div class="stat">
             <div class="stat-title">Pending</div>
             <div class="stat-value {{ $pendingEntries > 0 ? 'text-warning' : '' }}">{{ $pendingEntries }}</div>
-            <div class="stat-desc">waiting on a decision</div>
+            <div class="stat-desc">
+                @if ($notEmailedEntries > 0)
+                    <a href="{{ route('admin.requests.index', ['status' => 'needs-action']) }}" class="link link-warning">{{ $notEmailedEntries }} not emailed yet</a>
+                @elseif ($pendingEntries > 0)
+                    all emailed, waiting on them
+                @else
+                    waiting on a decision
+                @endif
+            </div>
         </div>
         <div class="stat">
             <div class="stat-title">Requests</div>
@@ -42,6 +50,7 @@
             <span>Status</span>
             <select name="status" class="select select-sm">
                 <option value="pending" @selected($status === 'pending')>Pending</option>
+                <option value="needs-action" @selected($status === 'needs-action')>Pending, not emailed</option>
                 <option value="approved" @selected($status === 'approved')>Approved</option>
                 <option value="rejected" @selected($status === 'rejected')>Dismissed</option>
                 <option value="all" @selected($status === 'all')>All</option>
@@ -130,6 +139,17 @@
                                                 <span class="badge badge-warning badge-sm">pending</span>
                                         @endswitch
                                     </div>
+                                    {{-- "Pending" alone can't say whether the prices went out, so the
+                                         last admin email since the request is printed under it. Only
+                                         mail sent from the composer counts. --}}
+                                    @if (isset($lastEmailed[$entry->id]))
+                                        <div class="mt-1 text-xs opacity-60"
+                                             title="{{ $lastEmailed[$entry->id]['subject'] }} · {{ $lastEmailed[$entry->id]['at']->toDayDateTimeString() }}">
+                                            emailed {{ $lastEmailed[$entry->id]['at']->diffForHumans() }}
+                                        </div>
+                                    @elseif ($entry->status === \App\Models\WaitlistEntry::STATUS_PENDING)
+                                        <div class="mt-1 text-xs text-warning">not emailed yet</div>
+                                    @endif
                                     @if ($entry->reviewed_at)
                                         <div class="mt-1 text-xs opacity-60"
                                              title="{{ $entry->reviewed_at->toDayDateTimeString() }}">

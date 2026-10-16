@@ -13,8 +13,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * The review queue for "Request access" submissions, and the actions that
@@ -45,6 +47,13 @@ class AccessRequestController extends Controller
      * a paid plan or downgrade them further than intended.
      */
     private const FREE_PLAN_SLUG = 'free';
+
+    /**
+     * The status filter for pending requests nobody has emailed yet. Not a
+     * stored status: "pending" covers both "untouched" and "sent the prices,
+     * waiting on them", and only the email log can tell those apart.
+     */
+    private const NEEDS_ACTION = 'needs-action';
 
     /**
      * How long a grant can run for, as the approve dropdown offers it.
@@ -105,9 +114,14 @@ class AccessRequestController extends Controller
         // need a person. `all` is the escape hatch for looking things up.
         $status = (string) $request->query('status', WaitlistEntry::STATUS_PENDING);
 
-        if (! in_array($status, [...WaitlistEntry::STATUSES, 'all'], true)) {
+        if (! in_array($status, [...WaitlistEntry::STATUSES, self::NEEDS_ACTION, 'all'], true)) {
             $status = WaitlistEntry::STATUS_PENDING;
         }
+
+        // Always worked out, not only under its filter: the Pending stat
+        // carries the count, so the page says there is work before anyone
+        // thinks to filter for it.
+        $uncontacted = $this->uncontactedIds(WaitlistEntry::pending()->get(['id', 'email', 'created_at']));
 
         $entries = WaitlistEntry::query()
             // Pro requests carry the account that sent them, and the whole
@@ -127,13 +141,15 @@ class AccessRequestController extends Controller
                     ->orWhere('message', 'like', "%{$search}%")
             ))
             ->when($plan !== '', fn (Builder $query) => $query->where('plan', $plan))
-            ->when($status !== 'all', fn (Builder $query) => $query->where('status', $status))
+            ->when($status === self::NEEDS_ACTION, fn (Builder $query) => $query->whereKey($uncontacted))
+            ->when(! in_array($status, ['all', self::NEEDS_ACTION], true), fn (Builder $query) => $query->where('status', $status))
             ->latest()
             ->paginate(25)
             ->withQueryString();
 
         return view('admin.requests', [
             'entries' => $entries,
+            'lastEmailed' => $this->lastEmailed($entries->getCollection()),
             'search' => $search,
             'plan' => $plan,
             'status' => $status,
@@ -147,6 +163,7 @@ class AccessRequestController extends Controller
             'grantablePlans' => Plan::query()->pluck('slug')->all(),
             'totalEntries' => WaitlistEntry::count(),
             'pendingEntries' => WaitlistEntry::pending()->count(),
+            'notEmailedEntries' => count($uncontacted),
             'recentEntries' => WaitlistEntry::where('created_at', '>=', now()->subDays(7))->count(),
             'uniqueEmails' => WaitlistEntry::distinct('email')->count('email'),
             // Requests from a real account, which are the only ones that can
@@ -527,6 +544,75 @@ class AccessRequestController extends Controller
      * emptiness this is saves a reviewer wondering whether the queue is clear
      * or the table is.
      */
+    /**
+     * The latest admin email to each request's address since it came in,
+     * keyed by entry id. Entries nobody has emailed are absent.
+     *
+     * Read off the "sent email" activity rather than a column on the entry,
+     * so every request emailed before this existed shows up as contacted too.
+     * Only mail sent from the admin composer is logged; a reply from the
+     * mailbox itself does not count. Marketing sends are skipped: a newsletter
+     * to everyone is not an answer to anybody's request.
+     *
+     * @param  Collection<int, WaitlistEntry>  $entries
+     * @return array<int, array{at: Carbon, subject: string}>
+     */
+    private function lastEmailed(Collection $entries): array
+    {
+        if ($entries->isEmpty()) {
+            return [];
+        }
+
+        $wanted = $entries->map(fn (WaitlistEntry $entry) => mb_strtolower($entry->email))->flip();
+        $sends = [];
+
+        Activity::query()
+            ->where('description', 'sent email')
+            ->where('created_at', '>=', $entries->min('created_at'))
+            ->oldest()
+            ->get(['properties', 'created_at'])
+            ->each(function (Activity $send) use ($wanted, &$sends) {
+                if ($send->properties['marketing'] ?? false) {
+                    return;
+                }
+
+                foreach ((array) ($send->properties['sent'] ?? []) as $address) {
+                    $address = mb_strtolower((string) $address);
+
+                    if ($wanted->has($address)) {
+                        $sends[$address][] = ['at' => $send->created_at, 'subject' => (string) ($send->properties['subject'] ?? '')];
+                    }
+                }
+            });
+
+        $latest = [];
+
+        foreach ($entries as $entry) {
+            // Oldest first, so the last one at or after the request wins.
+            foreach ($sends[mb_strtolower($entry->email)] ?? [] as $send) {
+                if ($send['at']->gte($entry->created_at)) {
+                    $latest[$entry->id] = $send;
+                }
+            }
+        }
+
+        return $latest;
+    }
+
+    /**
+     * @param  Collection<int, WaitlistEntry>  $pending
+     * @return list<int>
+     */
+    private function uncontactedIds(Collection $pending): array
+    {
+        $emailed = $this->lastEmailed($pending);
+
+        return $pending->reject(fn (WaitlistEntry $entry) => isset($emailed[$entry->id]))
+            ->pluck('id')
+            ->values()
+            ->all();
+    }
+
     private function emptyMessage(string $search, string $plan, string $status): string
     {
         if ($search !== '' || $plan !== '') {
@@ -539,6 +625,7 @@ class AccessRequestController extends Controller
 
         return match ($status) {
             WaitlistEntry::STATUS_PENDING => 'Nothing waiting for review.',
+            self::NEEDS_ACTION => 'Every pending request has been emailed.',
             WaitlistEntry::STATUS_APPROVED => 'Nothing has been approved yet.',
             WaitlistEntry::STATUS_REJECTED => 'Nothing has been dismissed.',
             default => 'No access requests yet.',
