@@ -240,7 +240,12 @@
 
 html, body, #root {
   background: var(--background);
+  /* The visible height (svh), not 100vh: on a phone 100vh is the screen
+     with the browser's bars hidden, so with them showing every page had an
+     empty scroll of about their height. 100vh stays as the fallback for
+     browsers without svh. */
   min-height: 100vh;
+  min-height: 100svh;
 }
 
 /* The parts of the page no component draws still belong to the system. */
@@ -283,6 +288,27 @@ html, body, #root {
   animation: lamp-settle 220ms var(--ease-out-expo);
 }
 
+/* The Go live button's dot: a ring ripples out of it, like a signal. */
+@keyframes dot-ripple {
+  from { transform: scale(1); opacity: 0.7; }
+  to { transform: scale(2.8); opacity: 0; }
+}
+.dot-ripple {
+  position: relative;
+}
+.dot-ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: dot-ripple 1.8s var(--ease-out-expo) infinite;
+}
+/* Still when Go live can't be pressed. */
+:disabled > .dot-ripple::after {
+  display: none;
+}
+
 /* The end-of-show card: the panel rises, then its numbers land in turn. */
 @keyframes signoff-rise {
   from { opacity: 0; transform: translateY(12px); }
@@ -296,6 +322,9 @@ html, body, #root {
   .lamp-settle,
   .signoff-rise {
     animation: none;
+  }
+  .dot-ripple::after {
+    display: none;
   }
   ::view-transition-group(*),
   ::view-transition-old(*),

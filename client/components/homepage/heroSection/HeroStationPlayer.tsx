@@ -177,14 +177,16 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
   }, [station])
 
   const toggle = useCallback(() => {
-    if (playing) {
+    // `playing` is only ever set by the <audio> element's own `playing`
+    // event, so the meter can't start before there is sound. A second press
+    // while still connecting cancels.
+    if (playing || loading) {
       teardown()
       setPlaying(false)
       return
     }
-    setPlaying(true)
     start()
-  }, [playing, start, teardown])
+  }, [playing, loading, start, teardown])
 
   /**
    * Three-valued on purpose. `false` means the API told us the mount is down;
@@ -204,7 +206,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
 
   // What the transport row says. The track only shows while audio is
   // actually playing here: it comes from the poll, which only runs then.
-  const line = playing
+  const line = playing && !loading
     ? title
       ? artist
         ? `${title} — ${artist}`
@@ -278,7 +280,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
           aria-label={playing ? `Pause ${name}` : `Play ${name}`}
           className="flex size-14 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-[opacity,transform] duration-150 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.96] disabled:opacity-45"
         >
-          {loading && !playing ? (
+          {loading ? (
             <IconLoader2 size={20} className="animate-spin" />
           ) : playing ? (
             <IconPlayerPauseFilled size={20} />
@@ -288,7 +290,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <span className="truncate font-display text-base font-bold">{line}</span>
-          {playing ? (
+          {playing && !loading ? (
             /* Not a progress bar. A live stream has no position; a level
                meter is the only honest shape, and it only moves while audio
                is actually playing. */
@@ -307,6 +309,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
         ref={audioRef}
         preload="none"
         onPlaying={() => { setLoading(false); setPlaying(true) }}
+        onWaiting={() => setLoading(true)}
         onPause={() => setPlaying(false)}
         onError={() => { setLoading(false); setPlaying(false) }}
       />

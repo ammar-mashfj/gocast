@@ -53,10 +53,13 @@ export function MicMeter({
   stream,
   open,
   onRed = false,
+  compact = false,
   className,
 }: {
   stream: MediaStream | null
   open: boolean
+  /** A slim bar with no dB scale, for a one-line row. */
+  compact?: boolean
   /** Drawn on a solid red surface: ink segments instead of the traffic light. */
   onRed?: boolean
   className?: string
@@ -153,10 +156,13 @@ export function MicMeter({
       const red = onRedRef.current
       g.clearRect(0, 0, width, height)
       const gap = 3
-      const segW = (width - gap * (SEGMENTS - 1)) / SEGMENTS
-      const lit = Math.round(toPct(level) * SEGMENTS)
-      for (let i = 0; i < SEGMENTS; i++) {
-        const segDb = FLOOR_DB + ((i + 1) / SEGMENTS) * -FLOOR_DB
+      // Fewer segments on a narrow meter (the go-live page's one-line mic
+      // row): 30 across ~90px drew hairlines. ~6px a segment, at most 30.
+      const count = Math.max(8, Math.min(SEGMENTS, Math.round((width + gap) / 9)))
+      const segW = (width - gap * (count - 1)) / count
+      const lit = Math.round(toPct(level) * count)
+      for (let i = 0; i < count; i++) {
+        const segDb = FLOOR_DB + ((i + 1) / count) * -FLOOR_DB
         const on = i < lit
         const hot = segDb > -6
         const color = red
@@ -210,9 +216,9 @@ export function MicMeter({
       aria-valuenow={FLOOR_DB}
       className={cn("@container flex flex-col gap-1.5", className)}
     >
-      <canvas ref={canvasRef} className="block h-6 w-full" />
+      <canvas ref={canvasRef} className={cn("block w-full", compact ? "h-3" : "h-6")} />
       {/* The scale takes its colour from the pad around it. */}
-      <span className="relative block h-3.5 font-mono text-micro leading-none tabular-nums" aria-hidden>
+      <span className={cn("relative block h-3.5 font-mono text-micro leading-none tabular-nums", compact && "hidden")} aria-hidden>
         {SCALE.map((db) => (
           <span
             key={db}

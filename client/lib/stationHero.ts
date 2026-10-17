@@ -18,7 +18,7 @@ export type HeroTone = "off" | "onair" | "live" | "caution"
 
 export type Headline = "live" | "on_air" | "silent" | "off_air" | "starting" | "checking" | "no_answer" | "fault"
 
-export type HeroAction = "go-live" | "open-studio" | "hear-stream" | "start-autodj" | "stop"
+export type HeroAction = "go-live" | "open-studio" | "start-autodj" | "stop"
 
 export interface HeroInput {
   /** The page payload's coarse state, until the first poll answers. */
@@ -52,8 +52,8 @@ export interface Hero {
   tone: HeroTone
   /** Mono caps state word. */
   label: string
-  /** The 34px line: what this state means for a listener. */
-  title: string
+  /** The 34px line: what this state means for a listener. Null off air, where the status band says it. */
+  title: string | null
   /** What the buttons will do, or what to do instead. */
   text: string | null
   /** Who or what holds the mount, when known: "Live from Mixxx 2.5", "AutoDJ". */
@@ -164,7 +164,7 @@ export function stationHero(input: HeroInput): Hero {
               : null
 
   // ── Words ─────────────────────────────────────────────────────────────
-  let title: string
+  let title: string | null
   let text: string | null
   switch (headline) {
     case "live":
@@ -212,10 +212,13 @@ export function stationHero(input: HeroInput): Hero {
       text = "Retrying."
       break
     case "off_air":
-      title = "Nothing’s playing right now."
+      // The status band above already says "Nothing's playing. Nobody can
+      // tune in"; the hero says what to do about it instead of repeating it,
+      // so there is no headline, only the next step.
+      title = null
       text = autoDjLocked
-        ? "Nobody can tune in. Go live from your browser — nothing to install."
-        : "Nobody can tune in. Start AutoDJ to play your music, or go live yourself."
+        ? "Go live from your browser whenever you’re ready. Nothing to install."
+        : "Go live from your browser, or start AutoDJ to keep your music playing while you’re away."
       break
   }
 
@@ -247,7 +250,8 @@ export function stationHero(input: HeroInput): Hero {
     // unknown. "Open studio" would be a guess, wrong for every encoder show:
     // offer no lead action for the one poll it takes to find out.
   } else if (headline === "live") {
-    actions.push(liveFromThisBrowser ? "open-studio" : "hear-stream")
+    // Live from elsewhere: no lead action. The link card's Open already plays the stream.
+    if (liveFromThisBrowser) actions.push("open-studio")
   } else {
     // Go live leads in every other state. Off air it starts the station too.
     actions.push("go-live")

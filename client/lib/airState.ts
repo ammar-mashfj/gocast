@@ -31,6 +31,13 @@ export interface AirState {
   label: string
   /** One sentence: what listeners hear, and what to do about it. */
   message: string
+  /**
+   * The same, short enough to share a phone-width row with the lamp and the
+   * button. Empty where the lamp says it all (OFF AIR). Absent where the
+   * full sentence must be read (faults, warnings): the band then gives it
+   * its own row.
+   */
+  short?: string
   /** The band's button, if it has one. */
   action: AirAction | null
   /** On air in any form: the listener count means something. */
@@ -58,7 +65,9 @@ export interface AirInput {
   showEnding?: boolean
 }
 
-const OFF_MESSAGE = "Nothing’s playing. Nobody can tune in right now."
+// Off air says how to get on, not what off air means: the label already does.
+const offMessage = (autoDjLocked: boolean) =>
+  autoDjLocked ? "Go live to put your station on air." : "Start AutoDJ or go live to put your station on air."
 
 export function airState(input: AirInput): AirState {
   const { status, statusLoading, broadcastState, signal, micLatched, autoDjLocked, onStudio, showEnding } = input
@@ -68,7 +77,7 @@ export function airState(input: AirInput): AirState {
     const base = { onAir: true, broadcasting: true }
     // Before the first signal sample: live, with nothing to say yet.
     if (!signal) {
-      return { ...base, tone: "live", label: "LIVE", message: "You’re live.", action: onStudio ? null : "open-studio" }
+      return { ...base, tone: "live", label: "LIVE", message: "You’re live.", short: "", action: onStudio ? null : "open-studio" }
     }
     if (signal.tone === "mic") {
       return {
@@ -76,8 +85,12 @@ export function airState(input: AirInput): AirState {
         tone: "mic",
         label: "LIVE · MIC",
         message: signal.detail,
-        // A held mic closes when you let go; only a latched one is left open.
-        action: micLatched ? "close-mic" : onStudio ? null : "open-studio",
+        short: "Your mic is on.",
+        // A held mic closes when you let go; only a latched one is left
+        // open — and on the studio its own controls close it (the floating
+        // talk button on a phone, Keep mic open elsewhere), so the band adds
+        // no second Close mic there.
+        action: onStudio ? null : micLatched ? "close-mic" : "open-studio",
       }
     }
     if (signal.tone === "fault") {
@@ -89,7 +102,7 @@ export function airState(input: AirInput): AirState {
         action: onStudio ? null : "open-studio",
       }
     }
-    return { ...base, tone: "live", label: "LIVE", message: signal.detail, action: onStudio ? null : "open-studio" }
+    return { ...base, tone: "live", label: "LIVE", message: signal.detail, short: signal.short ?? "", action: onStudio ? null : "open-studio" }
   }
 
   // ── Everything else comes from the poll ───────────────────────────────
@@ -97,19 +110,19 @@ export function airState(input: AirInput): AirState {
 
   // The status still describes the show that just ended: no guessing from it.
   if (showEnding) {
-    return { ...idle, tone: "off", label: "SHOW ENDED", message: "Your show has ended. Checking what’s on air now…", action: null }
+    return { ...idle, tone: "off", label: "SHOW ENDED", message: "Your show has ended. Checking what’s on air now…", short: "Show ended. Checking…", action: null }
   }
   const offAction: AirAction = autoDjLocked ? "go-live" : "start-autodj"
 
   if (!status) {
     return statusLoading
       ? { ...idle, tone: "off", label: "CHECKING", message: "Checking your station…", action: null }
-      : { ...idle, tone: "off", label: "NO ANSWER", message: "We can’t reach your station right now. Trying again.", action: null }
+      : { ...idle, tone: "off", label: "NO ANSWER", message: "We can’t reach your station right now. Trying again.", short: "Can’t reach your station.", action: null }
   }
 
   switch (status.state) {
     case "offline":
-      return { ...idle, tone: "off", label: "OFF AIR", message: OFF_MESSAGE, action: offAction }
+      return { ...idle, tone: "off", label: "OFF AIR", message: offMessage(autoDjLocked), short: "", action: offAction }
     case "starting":
       return { ...idle, tone: "off", label: "STARTING", message: "Your station is starting up.", action: null }
     case "degraded":
@@ -132,11 +145,11 @@ export function airState(input: AirInput): AirState {
         : status.live_source?.type === "electron"
           ? "from the GoCast app"
           : "from another browser"
-    return { onAir: true, broadcasting: false, tone: "live", label: "LIVE", message: `You’re live ${from}.`, action: null }
+    return { onAir: true, broadcasting: false, tone: "live", label: "LIVE", message: `You’re live ${from}.`, short: "", action: null }
   }
 
   if (!status.reachable) {
-    return { ...idle, tone: "off", label: "NO ANSWER", message: "Your station isn’t answering. Trying again.", action: null }
+    return { ...idle, tone: "off", label: "NO ANSWER", message: "Your station isn’t answering. Trying again.", short: "Station not answering.", action: null }
   }
 
   if (status.source === "silence") {
@@ -149,8 +162,25 @@ export function airState(input: AirInput): AirState {
         broadcasting: false,
         tone: "off",
         label: "GOING LIVE",
-        message: "Your station is on and waiting for you. Listeners hear silence until you go live.",
+        // Seconds at most: the checks are done or nearly, and the show is
+        // about to connect. Not "waiting for you" — nothing is waiting on
+        // the host here.
+        message: "Getting you on air…",
+        short: "Getting you on air…",
         action: null,
+      }
+    }
+    // Without AutoDJ there is nothing to "run dry": the station is up and
+    // nobody is broadcasting to it (a studio that left, a show that ended).
+    if (autoDjLocked) {
+      return {
+        onAir: true,
+        broadcasting: false,
+        tone: "warn",
+        label: "SILENCE",
+        message: "Your station is on, but nobody is live. Listeners hear silence.",
+        short: "Listeners hear silence.",
+        action: "go-live",
       }
     }
     return {
@@ -159,6 +189,7 @@ export function airState(input: AirInput): AirState {
       tone: "warn",
       label: "SILENCE",
       message: "AutoDJ is on but has nothing to play. Listeners hear silence.",
+      short: "AutoDJ has nothing to play.",
       action: "add-tracks",
     }
   }
@@ -170,7 +201,7 @@ export function airState(input: AirInput): AirState {
       : np?.title
         ? `AutoDJ is playing ${np.title}.`
         : "AutoDJ is playing."
-  return { onAir: true, broadcasting: false, tone: "onair", label: "ON AIR · AUTODJ", message, action: "go-live" }
+  return { onAir: true, broadcasting: false, tone: "onair", label: "ON AIR · AUTODJ", message, short: "AutoDJ is playing.", action: "go-live" }
 }
 
 /** Button text for each band action. */

@@ -135,7 +135,7 @@ describe("airState — this tab is broadcasting", () => {
     const mic = signal({ code: "mic", tone: "mic", label: "Live · Mic", detail: "You’re talking." })
     expect(airState(input({ ...live, signal: mic }))).toMatchObject({ tone: "mic", label: "LIVE · MIC", action: "open-studio" })
     expect(airState(input({ ...live, signal: mic, micLatched: true })).action).toBe("close-mic")
-    expect(airState(input({ ...live, signal: mic, micLatched: true, onStudio: true })).action).toBe("close-mic")
+    expect(airState(input({ ...live, signal: mic, micLatched: true, onStudio: true })).action).toBeNull()
   })
 
   it("turns amber on a fault, with the signal's own words", () => {

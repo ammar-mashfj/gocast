@@ -53,8 +53,10 @@ export function ShowsList({ slug, timeZone, initial }: { slug: string; timeZone:
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
 
-  const longest = Math.min(BAR_CAP, Math.max(1, ...shows.map(seconds)))
   const tz = timeZone ?? "UTC"
+  // The bar (tablet and PC) is each show's length against the longest one
+  // in the list, which the column head says.
+  const longest = Math.min(BAR_CAP, Math.max(1, ...shows.map(seconds)))
 
   const more = async () => {
     setLoading(true)
@@ -79,7 +81,10 @@ export function ShowsList({ slug, timeZone, initial }: { slug: string; timeZone:
         <div className={cn(COLUMNS, "py-3.5 eyebrow-sm text-text-faint")} aria-hidden>
           <span>Started</span>
           <span className="hidden md:block">From</span>
-          <span>On air</span>
+          <span>
+            On air
+            <span className="normal-case tracking-normal max-sm:hidden"> · bar vs. your longest show</span>
+          </span>
           <span className="text-right">Peak</span>
         </div>
         <ul>
@@ -150,9 +155,10 @@ function ShowRow({
           </span>
         </span>
         <span className="hidden truncate text-sm text-muted-foreground md:block">{from(show)}</span>
-        <span className="flex min-w-0 flex-col gap-1.5 md:flex-row-reverse md:items-center md:gap-3">
-          <span className="font-mono text-body-sm text-muted-foreground tabular-nums md:w-16 md:shrink-0">{formatAirtime(Math.round(seconds(show)))}</span>
-          <span aria-hidden className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-control">
+        {/* Phones: just the time. Tablet and PC: the time and a bar. */}
+        <span className="flex min-w-0 items-center gap-3 sm:flex-row-reverse">
+          <span className="font-mono text-body-sm text-muted-foreground tabular-nums sm:w-16 sm:shrink-0">{formatAirtime(Math.round(seconds(show)))}</span>
+          <span aria-hidden className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-control max-sm:hidden">
             <span className="block h-full rounded-full bg-foreground" style={{ width: `${Math.max(share, 2)}%` }} />
           </span>
         </span>

@@ -1,15 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { useEmbedLocked } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
 import { taggedStationUrl } from "@/lib/share"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { Card, CardHeader } from "@/components/ds/Card"
 import { CopyField } from "@/components/ds/CopyField"
-import { EmbedDialog } from "@/components/dashboard/EmbedDialog"
-import { ShareDialog } from "@/components/dashboard/share/ShareDialog"
-import { TuneInCodeDialog } from "@/components/dashboard/share/TuneInCodeDialog"
 
 /**
  * The station's link, with Open ↗ (the player page, as a listener sees it)
@@ -19,32 +14,44 @@ import { TuneInCodeDialog } from "@/components/dashboard/share/TuneInCodeDialog"
  * the owner share tag; the displayed one is bare.
  */
 export function YourLinkCard({ url, appUrl, slug, stationName }: { url: string; appUrl: string; slug: string; stationName: string }) {
-  const [open, setOpen] = useState<"qr" | "embed" | "share" | null>(null)
-  const embedLocked = useEmbedLocked()
-  const proRequest = useProRequest()
-  const close = (next: boolean) => !next && setOpen(null)
-  const pick = (what: "qr" | "embed") => (what === "embed" && embedLocked ? proRequest.open() : setOpen(what))
-
   return (
     <Card>
-      <CardHeader
-        title="Your link"
-        aside={
-          <span className="-my-2 -mr-3.5 flex gap-1">
-            <Button variant="quiet" size="sm" asChild>
-              <a href={url} target="_blank" rel="noopener noreferrer">Open ↗</a>
-            </Button>
-            <Button variant="quiet" size="sm" onClick={() => setOpen("share")}>
-              Share…
-            </Button>
-          </span>
-        }
-      />
-      <CopyField label="Station link" value={taggedStationUrl(appUrl, slug, "owner")} display={url.replace(/^https?:\/\//, "")} />
-
-      <TuneInCodeDialog open={open === "qr"} onOpenChange={close} url={url} appUrl={appUrl} slug={slug} stationName={stationName} />
-      <EmbedDialog open={open === "embed"} onOpenChange={close} slug={slug} stationName={stationName} />
-      <ShareDialog open={open === "share"} onOpenChange={close} appUrl={appUrl} slug={slug} stationName={stationName} onPick={pick} embedLocked={embedLocked} />
+      <CardHeader title="Your link" />
+      <StationLinkRow url={url} appUrl={appUrl} slug={slug} stationName={stationName} />
     </Card>
+  )
+}
+
+/**
+ * The link on its own: the field with Copy, then Open ↗ (not on phones).
+ * Share (the dialog with the QR code and embed) is off for now. In the
+ * overview hero, under the station's name; the card above is off for now.
+ */
+export function StationLinkRow({
+  url,
+  appUrl,
+  slug,
+  className,
+}: {
+  url: string
+  appUrl: string
+  slug: string
+  /** Unused while Share is off. */
+  stationName?: string
+  className?: string
+}) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      <CopyField
+        label="Station link"
+        value={taggedStationUrl(appUrl, slug, "owner")}
+        display={url.replace(/^https?:\/\//, "")}
+        className="min-w-0 flex-[1_1_16rem]"
+      />
+      {/* Not on a phone: opening another tab there is rarely what's wanted. */}
+      <Button variant="quiet" size="sm" className="max-md:hidden" asChild>
+        <a href={url} target="_blank" rel="noopener noreferrer">Open ↗</a>
+      </Button>
+    </div>
   )
 }

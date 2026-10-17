@@ -9,10 +9,11 @@ import { showsTrend } from "@/lib/showsTrend"
 import { Button } from "@/components/ds/Button"
 import { PageHeader } from "@/components/ds/PageHeader"
 import { ShowsList, type ShowsPage } from "@/components/dashboard/shows/ShowsList"
+import { ShowsChart, type RecentShow } from "@/components/dashboard/shows/ShowsChart"
 
 export const metadata: Metadata = { title: "Your shows" }
 
-type SessionsResponse = ShowsPage & { summary: { shows: number; live_seconds: number } }
+type SessionsResponse = ShowsPage & { summary: { shows: number; live_seconds: number }; recent?: RecentShow[] }
 
 /**
  * Your shows: every time someone was on the mic, newest first. AutoDJ airs
@@ -72,6 +73,7 @@ export default async function YourShowsPage() {
           </>
         }
       />
+      <ShowsChart shows={res.recent ?? []} timeZone={station.timezone} />
       <ShowsList slug={station.slug} timeZone={station.timezone} initial={res} />
     </div>
   )

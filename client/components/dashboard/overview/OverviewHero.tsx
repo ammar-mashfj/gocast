@@ -11,13 +11,13 @@ import { useStationPower } from "@/hooks/useStationPower"
 import { useListenerCount } from "@/hooks/useListenerCount"
 import { useCountUp } from "@/hooks/useCountUp"
 import { stationHero, type Hero, type HeroAction, type HeroTone } from "@/lib/stationHero"
+import { formatAirtime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
-import { StatusLamp } from "@/components/ds/StatusLamp"
-import { HelpLink } from "@/components/dashboard/HelpLink"
 import { NowPlayingWell } from "./NowPlayingWell"
 import { OverviewHeader } from "./OverviewHeader"
+import { AudienceProTag } from "./AudienceProTag"
 
 /**
  * The overview's hero, as the prototype draws it: two panels on one rounded
@@ -37,9 +37,7 @@ const SURFACE: Record<HeroTone, { panel: string; seam: string }> = {
   caution: { panel: "bg-fault-tint", seam: "bg-background" },
 }
 
-const LAMP = { off: "off", onair: "onair", live: "live", caution: "warn" } as const
-
-export function OverviewHero({ station, lastLive }: { station: Station; lastLive: string | null }) {
+export function OverviewHero({ station, lastLive, appUrl }: { station: Station; lastLive: string | null; appUrl: string }) {
   const { status, loading } = useStationStatus(station.slug)
   const autoDjLocked = useAutoDjLocked()
   const { state: broadcastState, stationSlug } = useBroadcast()
@@ -63,51 +61,59 @@ export function OverviewHero({ station, lastLive }: { station: Station; lastLive
   const surface = SURFACE[hero.tone]
 
   return (
-    <section aria-label="On air now" className={cn("flex flex-wrap gap-0.5 overflow-hidden rounded-hero", surface.seam)}>
-      <div className={cn("flex min-w-0 flex-[2_1_26rem] flex-col gap-4.5 p-6 sm:p-7", surface.panel)}>
-        <OverviewHeader station={station} lastLive={lastLive} />
+    // Below xl the listener count is a strip under the hero: on a tablet or
+    // phone a side panel squeezed the hero for one number. On a desktop it
+    // is the right-hand panel again, where the hero has room to spare.
+    <section aria-label="On air now" className={cn("flex flex-col gap-0.5 overflow-hidden rounded-hero xl:flex-row", surface.seam)}>
+      <div className={cn("flex min-w-0 flex-col gap-3.5 p-5 sm:gap-4.5 sm:p-7 xl:flex-[2_1_26rem]", surface.panel)}>
+        <OverviewHeader station={station} lastLive={lastLive} appUrl={appUrl} />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusLamp tone={LAMP[hero.tone]} variant={hero.tone === "live" ? "bare" : "soft"} pulse={hero.tone === "live"}>
-            {hero.label}
-          </StatusLamp>
-          {hero.source && hero.tone !== "live" && <span className="text-caption text-muted-foreground">· {hero.source}</span>}
-          <HelpLink article="turning-your-station-on-and-off" label="what each station status means" />
-          {/* Announced once per change of state; `alert` only for the real fault. */}
-          <p key={hero.headline} role={hero.headline === "fault" ? "alert" : "status"} className="sr-only">
-            {`Station status: ${hero.label.toLowerCase()}. ${hero.title}`}
-          </p>
-        </div>
+        {/* No status pill: the status band above already says it. */}
+        {/* Announced once per change of state; `alert` only for the real fault. */}
+        <p key={hero.headline} role={hero.headline === "fault" ? "alert" : "status"} className="sr-only">
+          {`Station status: ${hero.label.toLowerCase()}.${hero.title ? ` ${hero.title}` : ""}`}
+        </p>
 
-        <div className="flex flex-col gap-2">
-          <h2 className="font-display text-display text-balance">{hero.title}</h2>
-          {hero.text && <p className="max-w-140 text-body text-pretty text-muted-foreground">{hero.text}</p>}
-        </div>
+        {/* With a headline the text explains it; without one (off air) the
+            text is a hint for the buttons, so it sits under them. */}
+        {hero.title && (
+          <div className="flex flex-col gap-2">
+            <h2 className="font-display text-display text-balance max-sm:text-title">{hero.title}</h2>
+            {hero.text && <p className="max-w-140 text-body text-pretty text-muted-foreground">{hero.text}</p>}
+          </div>
+        )}
 
         {hero.nowPlaying && <NowPlayingWell nowPlaying={hero.nowPlaying} status={status} />}
 
-        {hero.actions.length > 0 && (
-          <div className="mt-auto flex flex-wrap gap-2.5">
-            {hero.actions.map((a) => (
-              <HeroButton
-                key={a}
-                action={a}
-                hero={hero}
-                slug={station.slug}
-                pending={power.pending}
-                onStart={power.start}
-                onStop={() => (hero.stop.confirm ? setConfirmStop(true) : power.stop())}
-              />
-            ))}
+        {(hero.actions.length > 0 || (!hero.title && hero.text)) && (
+          <div className="mt-auto flex flex-col gap-2.5">
+            {hero.actions.length > 0 && (
+              <div className="flex flex-wrap gap-2.5">
+                {hero.actions.map((a) => (
+                  <HeroButton
+                    key={a}
+                    action={a}
+                    hero={hero}
+                    slug={station.slug}
+                    pending={power.pending}
+                    onStart={power.start}
+                    onStop={() => (hero.stop.confirm ? setConfirmStop(true) : power.stop())}
+                  />
+                ))}
+              </div>
+            )}
+            {!hero.title && hero.text && <p className="max-w-140 text-body-sm text-pretty text-muted-foreground">{hero.text}</p>}
           </div>
         )}
       </div>
 
+      {/* Shown off air too: one short strip, and its line says how to start counting. */}
       <ListeningNow
         slug={station.slug}
         hero={hero}
         autoDjLocked={autoDjLocked}
         peak={station.stats?.peak_listeners ?? 0}
+        stats={station.stats}
         className={surface.panel}
       />
 
@@ -162,13 +168,13 @@ function HeroButton({
   onStart: () => void
   onStop: () => void
 }) {
-  const onRed = hero.tone === "live"
   switch (action) {
     case "go-live":
+      // Phones and tablets: the whole width of the hero, the other buttons under it.
       return hero.goLiveDisabled ? (
-        <Button size="lg" dot="live" disabled>Go live now</Button>
+        <Button size="lg" dot="live" className="max-lg:w-full lg:flex-1" disabled>Go live now</Button>
       ) : (
-        <Button size="lg" dot="live" asChild>
+        <Button size="lg" dot="live" className="max-lg:w-full lg:flex-1" asChild>
           <Link href={`/dashboard/stations/${slug}/live`}>Go live now</Link>
         </Button>
       )
@@ -177,12 +183,6 @@ function HeroButton({
       return (
         <Button size="lg" variant="ink" asChild>
           <Link href={`/dashboard/stations/${slug}/studio`}>Open the studio</Link>
-        </Button>
-      )
-    case "hear-stream":
-      return (
-        <Button size="lg" variant={onRed ? "ink" : "primary"} asChild>
-          <a href={`/station/${slug}`} target="_blank" rel="noopener noreferrer">Hear your stream ↗</a>
         </Button>
       )
     case "start-autodj":
@@ -202,12 +202,13 @@ function HeroButton({
   }
 }
 
-/** The hero's right panel: the listener count, big. */
+/** The listener count: a one-line strip under the hero below xl, the right-hand panel from xl. */
 function ListeningNow({
   slug,
   hero,
   autoDjLocked,
   peak,
+  stats,
   className,
 }: {
   slug: string
@@ -215,6 +216,7 @@ function ListeningNow({
   autoDjLocked: boolean
   /** The most ever listening at once, so an empty room reads against the station's best. */
   peak: number
+  stats: Station["stats"]
   className: string
 }) {
   const onAir = hero.tone !== "off"
@@ -231,21 +233,50 @@ function ListeningNow({
           ? "Counting who’s tuned in…"
           : count === 0
             ? peak > 0
-              ? `Nobody right now. Your peak is ${peak.toLocaleString()}.`
-              : "Nobody yet. Share your link below."
+              ? (
+                  <>
+                    Nobody right now.
+                    {/* From xl the record is in the facts below. */}
+                    <span className="xl:hidden"> Your all-time record is {peak.toLocaleString()} at once.</span>
+                  </>
+                )
+              : "Nobody yet. Share your link."
             : hero.tone === "live"
               ? "Tuned in to your show right now."
               : "On your player page and the direct stream."
 
   return (
-    <div className={cn("flex min-w-0 flex-[1_1_16rem] flex-col gap-2.5 p-6 sm:p-7", className)}>
+    <div
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-6 py-4 sm:px-7",
+        "xl:flex-[1_1_16rem] xl:flex-col xl:flex-nowrap xl:items-start xl:gap-2.5 xl:p-7",
+        className,
+      )}
+    >
       <span className="eyebrow text-muted-foreground">Listening now</span>
-      <span className="font-mono text-meter-xl tabular-nums" aria-live="polite">
+      <span className="font-mono text-title-sm tabular-nums xl:text-meter-xl" aria-live="polite">
         {shown === null ? <span className="text-text-faint">—</span> : shown}
       </span>
-      <span className="text-sm text-pretty text-muted-foreground">{line}</span>
-      <Link href={`/dashboard/stations/${slug}/audience`} className="mt-auto pt-2 text-body-sm font-semibold hover:underline">
-        See your audience →
+      <span className="min-w-0 flex-1 basis-48 text-sm text-pretty text-muted-foreground xl:flex-none xl:basis-auto">{line}</span>
+      {/* Desktop only, where this is a tall column: the station's track
+          record under the live count. Airtime and shows are live shows
+          only — AutoDJ hours aren't recorded, so they aren't claimed. */}
+      {stats && (
+        <dl className="hidden w-full flex-col border-y border-line py-3 text-body-sm xl:flex">
+          {[
+            ["All-time record", peak.toLocaleString()],
+            ["Live shows", stats.sessions.toLocaleString()],
+            ["Time live", formatAirtime(stats.total_airtime_seconds)],
+          ].map(([term, value]) => (
+            <div key={term} className="flex items-baseline justify-between gap-3 py-1">
+              <dt className="text-muted-foreground">{term}</dt>
+              <dd className="font-mono tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <Link href={`/dashboard/stations/${slug}/audience`} className="inline-flex shrink-0 items-center gap-2 text-body-sm font-semibold hover:underline xl:mt-auto xl:pt-2">
+        See your audience → <AudienceProTag />
       </Link>
     </div>
   )

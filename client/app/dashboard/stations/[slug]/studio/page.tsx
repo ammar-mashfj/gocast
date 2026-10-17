@@ -1,21 +1,29 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useStationBySlug } from "@/contexts/StationContext"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { useBroadcastStats } from "@/hooks/useBroadcastStats"
-import { useCoarsePointer } from "@/lib/useCoarsePointer"
 import { env } from "@/lib/env"
-import { YourLinkCard } from "@/components/dashboard/overview/YourLinkCard"
-import { EndBroadcastButton } from "@/components/studio/EndBroadcast"
+import { Button } from "@/components/ds/Button"
+import { cn } from "@/lib/utils"
+import { taggedStationUrl } from "@/lib/share"
+import { copyText } from "@/lib/clipboard"
+import { toast } from "sonner"
+import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
+import { ASK_END_SHOW_EVENT, EndBroadcastButton } from "@/components/studio/EndBroadcast"
 import { FileQueue } from "@/components/studio/FileQueue"
 import { MusicOnlyPad, NowPlaying } from "@/components/studio/NowPlaying"
 import { PushToTalk, isOverlayTarget, isTypingTarget } from "@/components/studio/PushToTalk"
-import { MicLatchButton, StudioControls } from "@/components/studio/StudioControls"
+import { MicLatchButton, MonitorToggle, StudioControls } from "@/components/studio/StudioControls"
 import { StudioStats } from "@/components/studio/StudioStats"
+import { FocusButton } from "@/components/studio/FocusButton"
+import { MicSheet, TalkFab } from "@/components/studio/TalkFab"
 import { useTransportHealth } from "@/components/studio/signal"
+import { GoLiveChecks } from "@/components/studio/GoLiveChecks"
+import { Skeleton } from "@/components/ui/skeleton"
 
 /**
  * The studio, while you're live: the talk pad and the mic on the left; what's
@@ -32,13 +40,41 @@ export default function StudioPage() {
   const router = useRouter()
   const { state, engine, micDisabled } = useBroadcast()
   const station = useStationBySlug(slug)
-  const touch = useCoarsePointer()
   const wasLive = useRef(false)
 
   const isLive = state === "live" || state === "reconnecting"
   const stats = useBroadcastStats(slug, isLive)
   const transport = useTransportHealth(isLive)
   const stationName = station?.name ?? slug
+
+  // Live, the studio is the whole screen on a phone or tablet: no top bar,
+  // no tab bar (app/dashboard.css, below lg). The way out is End show.
+  useEffect(() => {
+    if (!isLive) return
+    const root = document.documentElement
+    root.setAttribute("data-studio-live", "")
+    return () => root.removeAttribute("data-studio-live")
+  }, [isLive])
+
+  // Back while live — the system gesture, or the browser's button — asks
+  // "End the show?", exactly as End show does, instead of leaving. A page
+  // can't disable back, so it keeps one extra history entry on top and,
+  // when back lands under it, puts it back and asks. Best effort: a very
+  // fast double back can still get through (the Go Live page then sends a
+  // live tab straight back here).
+  useEffect(() => {
+    if (!isLive) return
+    const MARK = "__gocastLiveGuard"
+    const guard = () => window.history.pushState({ ...window.history.state, [MARK]: true }, "")
+    if (!window.history.state?.[MARK]) guard()
+    const onPop = () => {
+      if (window.history.state?.[MARK]) return
+      guard()
+      window.dispatchEvent(new Event(ASK_END_SHOW_EVENT))
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [isLive])
 
   // The red-dot prefix is the tab's own on-air lamp, visible from any tab.
   useDocumentTitle(isLive ? `● LIVE · ${stationName} | GoCast` : null)
@@ -73,37 +109,154 @@ export default function StudioPage() {
     return () => document.removeEventListener("keydown", onKey)
   }, [engine, micDisabled])
 
-  // Mounted across `reconnecting`, so the queue and engine-bound controls
-  // don't tear down on a passing socket drop. The band shows it.
-  if (!isLive) return null
+  // Going live: Go Live opens the studio as soon as the checks start, and
+  // they run here, in a dialog over a still picture of the studio's layout
+  // (the real controls need a live engine). Idle is handled above.
+  // One GoLiveChecks, first in the fragment either way: React keeps the
+  // same instance across the switch to live, so it can show "You're on
+  // air" and its leave-cleanup never sees a stale "ready" and stops the
+  // show it just started.
+  const checks = <GoLiveChecks stationName={stationName} />
+
+  if (!isLive) {
+    return (
+      <>
+        {checks}
+        <Skeleton aria-hidden className="mb-5 h-26 rounded-card opacity-40 animate-none" />
+        <div
+          aria-hidden
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,23.75rem),1fr))] items-start gap-5 opacity-40 [&_[data-slot=skeleton]]:animate-none"
+        >
+          <div className="flex min-w-0 flex-col gap-3.5">
+            <Skeleton className="h-64 rounded-hero" />
+            <Skeleton className="h-14 rounded-panel" />
+            <Skeleton className="h-16 rounded-panel" />
+          </div>
+          <div className="flex min-w-0 flex-col gap-3.5">
+            <Skeleton className="h-36 rounded-card" />
+            <Skeleton className="h-72 rounded-card" />
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,23.75rem),1fr))] items-start gap-5">
-      <h1 className="sr-only">Studio — {stationName}</h1>
-
-      <div className="flex min-w-0 flex-col gap-3.5">
-        {micDisabled ? (
-          <MusicOnlyPad />
-        ) : (
-          <>
-            <PushToTalk />
-            <div className="flex flex-wrap justify-between gap-3 text-body-sm text-text-faint">
-              <span>{touch ? "Hold the pad to talk." : "Hold the pad or Space to talk. Press L to keep it open."}</span>
-              <span>Listeners hear you about 15–20 s late.</span>
-            </div>
-          </>
-        )}
-        <MicLatchButton />
-        <StudioControls />
+    <>
+    {checks}
+    <h1 className="sr-only">Studio — {stationName}</h1>
+    {/* The show's numbers first, above the two columns; under it the mic on
+        the left and the music (what's playing, then what's next) on the
+        right, together. Outside the columns' grid on purpose: that grid
+        auto-fits its column count, and a full-width child inside it kept a
+        third, empty column alive on wide screens. */}
+    {/* From md (two columns side by side: a tablet held upright and up) the
+        studio fits the window: the strip on top, the columns filling the
+        rest at one height, the pad and the running order taking up the
+        slack, and the running order scrolling inside its card instead of
+        the page. Below lg the tab bar is under it: the shell pads 7.5rem for
+        it, -mb-12 gives most of that back and the height takes the rest
+        (5.75rem = 1.25rem top + 4.5rem left of the bottom pad). Phones
+        stack and scroll as before. */}
+    {/* Phones too now: the talk pad is a floating button (TalkFab) and the
+        running order takes the screen, scrolling inside its card. */}
+    {/* Below lg, live, the top bar and tab bar are gone (data-studio-live,
+        app/dashboard.css): the studio runs from the LIVE band to 1.25rem
+        above the bottom edge and the home indicator (the shell pads 1.25rem). */}
+    <div className="flex flex-col gap-5 max-lg:h-[calc(100svh-var(--chrome-h,0px)-2.5rem-env(safe-area-inset-bottom))] max-md:gap-3.5 lg:h-[calc(100svh-var(--chrome-h,0px)-2.5rem)]">
+      {/* Focus mode sits at the strip's end: the top of the studio, where a
+          screen-level control is looked for. Desktop only for now. */}
+      {/* Not on a phone: the running order needs the room, and the
+          listener count is on the LIVE band already. */}
+      <div className="flex gap-2.5 max-md:hidden">
+        <div className="min-w-0 flex-1">
+          <StudioStats stats={stats} transport={transport} />
+        </div>
+        <FocusButton className="h-auto self-stretch rounded-card px-5 max-lg:hidden" />
       </div>
+      {/* 21rem columns: two fit from ~700px, which an upright iPad mini has.
+          On a tablet (md to xl) the music gets the wider share, a third to
+          two-thirds: the
+          talk pad is one big target that works at any width, the running
+          order is rows of names that need it. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,21rem),1fr))] items-stretch gap-5 md:max-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        {/* The mic column: not on a phone, where the floating button and the
+            Mic & monitor sheet stand in for it. */}
+        <div className="flex min-w-0 flex-col gap-3.5 max-md:hidden md:min-h-0">
+          {micDisabled ? (
+            <MusicOnlyPad className="md:flex-1" />
+          ) : (
+            // No hint line under it: the pad says how to talk, the LIVE band
+            // says how late listeners hear you, and L is in the shortcuts.
+            // Keep mic open sits right under the pad it holds open.
+            <PushToTalk className="md:min-h-0 md:flex-1" underPad={<MicLatchButton />} />
+          )}
+          <StudioControls />
+        </div>
 
-      <div className="flex min-w-0 flex-col gap-3.5">
-        <NowPlaying />
-        <StudioStats stats={stats} transport={transport} timeZone={station?.timezone ?? null} />
-        <FileQueue />
-        <YourLinkCard url={`${env.appUrl}/station/${slug}`} appUrl={env.appUrl} slug={slug} stationName={stationName} />
-        <EndBroadcastButton />
+        <div className="flex min-h-0 min-w-0 flex-col gap-3.5">
+          <NowPlaying />
+          <FileQueue className="max-h-none min-h-0 flex-1" />
+          {/* The listener link as two buttons beside End show, not a card:
+              mid-show nobody reads the address, and the card's height is the
+              running order's. Sharing in full is on the overview. */}
+          <div className="flex gap-2.5">
+            {/* Not on a tablet or phone (below lg): opening another tab or
+                app there pauses this page, and a paused page ends the show. */}
+            <Button size="lg" variant="subtle" className="max-lg:hidden" asChild>
+              <a
+                href={`${env.appUrl}/station/${slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open your player page"
+                className="max-xl:px-3.5 max-lg:hidden"
+              >
+                {/* Icon only where the columns are narrow (below xl). */}
+                <span className="max-xl:sr-only">Open</span>
+                <IconExternalLink />
+                <span className="sr-only"> your player page (opens in a new tab)</span>
+              </a>
+            </Button>
+            {/* Same reason (below lg): copying is fine, but sending the link
+                means leaving this page, and that ends the show there. */}
+            <CopyLinkButton url={taggedStationUrl(env.appUrl, slug, "owner")} className="max-lg:hidden" />
+            {/* Phones: Monitor as a one-tap toggle, then Mic (its sheet). */}
+            <MonitorToggle className="gap-1.5 px-3 md:hidden" />
+            <MicSheet className="md:hidden" />
+            <EndBroadcastButton className="min-w-0 flex-1" />
+          </div>
+          <TalkFab className="md:hidden" />
+        </div>
       </div>
     </div>
+    </>
+  )
+}
+
+/** Copies the listener link; says "Copied" for a moment. */
+function CopyLinkButton({ url, className }: { url: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  return (
+    <Button
+      size="lg"
+      variant="subtle"
+      title="Copy your listener link"
+      className={cn("max-xl:px-3.5", className)}
+      onClick={async () => {
+        if (await copyText(url)) setCopied(true)
+        else toast.error(`Couldn’t copy. The link is ${url}`)
+      }}
+    >
+      {copied ? <IconCheck /> : <IconCopy />}
+      {/* Icon only where the columns are narrow (below xl). */}
+      <span className="max-xl:sr-only">{copied ? "Copied" : "Copy link"}</span>
+      <span className="sr-only" aria-live="polite">{copied ? "Listener link copied" : ""}</span>
+    </Button>
   )
 }

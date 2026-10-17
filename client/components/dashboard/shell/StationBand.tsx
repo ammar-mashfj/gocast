@@ -1,5 +1,6 @@
 "use client"
 
+import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -46,13 +47,18 @@ function Band({ slug }: { slug: string }) {
 
   const broadcasting = (broadcastState === "live" || broadcastState === "reconnecting") && stationSlug === slug
   const onStudio = pathname?.startsWith(`/dashboard/stations/${slug}/studio`) ?? false
+  // "Go live" links to the go-live page; on that page it would only reload it.
+  const onGoLive = pathname?.startsWith(`/dashboard/stations/${slug}/live`) ?? false
   const transport = useTransportHealth(broadcasting)
   const signal = useStudioSignal(broadcasting ? transport : null, { inStudio: onStudio })
 
   const air = airState({
     status,
     statusLoading: loading,
-    broadcastState: broadcasting ? broadcastState : "idle",
+    // This tab's state whenever it's about this station, not only once live:
+    // airState reads `connecting`/`ready` to say "going live" while the
+    // checks run, rather than calling the silence they leave a fault.
+    broadcastState: stationSlug === slug ? broadcastState : "idle",
     signal,
     micLatched: !micDisabled && (engine?.isMicLatched() ?? false),
     autoDjLocked,
@@ -64,8 +70,11 @@ function Band({ slug }: { slug: string }) {
   // reached while the host was in the library still belongs to the show.
   // The studio counts them itself.
   const showStats = useBroadcastStats(stationSlug, broadcasting && !onStudio)
-  const stationListeners = useListenerCount(slug, air.onAir && !broadcasting)
-  const listeners = broadcasting ? showStats.listeners : stationListeners
+  // On the studio the band still shows the count — a phone's studio has no
+  // stats strip — from the plain station count rather than a second copy of
+  // the studio's show stats.
+  const stationListeners = useListenerCount(slug, air.onAir && (!broadcasting || onStudio))
+  const listeners = broadcasting && !onStudio ? showStats.listeners : stationListeners
   const now = useNow(broadcasting && liveSince !== null)
 
   const power = useStationPower(slug)
@@ -82,6 +91,7 @@ function Band({ slug }: { slug: string }) {
       tone={air.tone}
       label={air.label}
       message={air.message}
+      shortMessage={air.short}
       meta={
         <>
           {track && (
@@ -89,10 +99,13 @@ function Band({ slug }: { slug: string }) {
               {track.title}
             </span>
           )}
-          {broadcasting && liveSince !== null && (
+          {/* Not on the studio page: its stats strip shows the same clock
+              right below, with when the show started. */}
+          {broadcasting && liveSince !== null && !onStudio && (
             <span className="text-meter-sm tracking-normal">{formatClock((now - liveSince) / 1000)}</span>
           )}
-          {air.onAir && listeners !== null && <span>{listeners} LISTENING</span>}
+          {/* On the studio, phones only: from md the stats strip has it. */}
+          {air.onAir && listeners !== null && <span className={cn(onStudio && "md:hidden")}>{listeners} LISTENING</span>}
         </>
       }
     >
@@ -118,7 +131,7 @@ function Band({ slug }: { slug: string }) {
           </Button>
         </>
       )}
-      {air.action && (
+      {air.action && !(air.action === "go-live" && onGoLive) && (
         <BandAction
           action={air.action}
           tone={air.tone}

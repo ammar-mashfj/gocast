@@ -21,8 +21,9 @@ const TABS: { key: NavKey; label: string }[] = [
 ]
 
 /**
- * The phone's bottom tab bar (the design system's TabBar, as the mobile app
- * has it): below 640px, fixed to the bottom, the chosen tab marked by a bar
+ * The bottom tab bar (the design system's TabBar, as the mobile app has
+ * it): phones and tablets, below 1024px — the same line where the sidebar
+ * becomes a drawer — fixed to the bottom, the chosen tab marked by a bar
  * above its label. "More" opens the sidebar drawer for the rest.
  */
 export function TabBar() {
@@ -47,7 +48,7 @@ export function TabBar() {
     <nav
       aria-label="Main"
       data-slot="tab-bar"
-      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-background px-2.5 pt-1.5 pb-[env(safe-area-inset-bottom)] sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-background px-2.5 pt-1.5 pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
       {TABS.map((t) => (
         <Tab

@@ -17,19 +17,27 @@ export function CheckList({ steps }: { steps: BroadcastStepInfo[] }) {
           <Glyph status={step.status} />
           <span
             className={cn(
-              "flex-1 text-body font-semibold",
+              "min-w-0 flex-1 text-body font-semibold",
               step.status === "pending" ? "text-text-faint" : step.status === "error" ? "text-fault-text" : "text-foreground",
             )}
           >
             {step.label}
           </span>
+          {/* Every status word stacked in one cell, only the current one
+              visible: the column is always as wide as the widest ("CHECKING"),
+              so a label never wraps while its check runs and unwraps when
+              it says "DONE". */}
           <span
             className={cn(
-              "eyebrow",
+              "grid shrink-0 justify-items-end eyebrow",
               step.status === "done" ? "text-ok" : step.status === "error" ? "text-fault-text" : step.status === "active" ? "text-foreground" : "text-text-faint",
             )}
           >
-            {STATE[step.status]}
+            {(Object.keys(STATE) as StepStatus[]).map((s) => (
+              <span key={s} aria-hidden={s !== step.status} className={cn("col-start-1 row-start-1", s !== step.status && "invisible")}>
+                {STATE[s]}
+              </span>
+            ))}
           </span>
         </li>
       ))}

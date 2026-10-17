@@ -11,6 +11,7 @@ export function PageHeader({
   aside,
   actions,
   className,
+  descriptionClassName,
 }: {
   title: React.ReactNode
   description?: React.ReactNode
@@ -18,6 +19,7 @@ export function PageHeader({
   aside?: React.ReactNode
   actions?: React.ReactNode
   className?: string
+  descriptionClassName?: string
 }) {
   return (
     <header className={cn("flex flex-wrap items-start justify-between gap-x-6 gap-y-4", className)}>
@@ -26,7 +28,7 @@ export function PageHeader({
           <h1 className="font-display text-page text-balance">{title}</h1>
           {aside}
         </div>
-        {description && <p className="max-w-[65ch] text-lead text-pretty text-muted-foreground">{description}</p>}
+        {description && <p className={cn("max-w-[65ch] text-lead text-pretty text-muted-foreground", descriptionClassName)}>{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>

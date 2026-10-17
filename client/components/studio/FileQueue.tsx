@@ -127,7 +127,9 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
             Playing
           </span>
         ) : airsAt ? (
-          <span className="font-mono text-muted-foreground tabular-nums">{clockTime(airsAt)}</span>
+          // When it airs: desktop only. On a phone or tablet the names need
+          // the room more than the clock times.
+          <span className="font-mono text-muted-foreground tabular-nums max-lg:hidden">{clockTime(airsAt)}</span>
         ) : null}
       </div>
       <div className="hidden text-right font-mono text-xs text-muted-foreground tabular-nums sm:block">
@@ -154,7 +156,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
  * Shared by both layouts now. The phone layout used to carry its own copy of
  * this list — no air times, no keyboard reordering, unlabelled buttons.
  */
-export function FileQueue() {
+export function FileQueue({ className }: { className?: string } = {}) {
   const { engine } = useBroadcast()
   const version = useEngineVersion(engine)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -297,6 +299,7 @@ export function FileQueue() {
         // file is dragged over it.
         "flex max-h-136 min-h-45 flex-col overflow-hidden rounded-card border bg-card transition-colors",
         dragOver ? "border-foreground/40" : "border-transparent",
+        className,
       )}
     >
       <input
@@ -316,7 +319,10 @@ export function FileQueue() {
           <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
-            Your show’s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
+            {/* The preamble goes where the column is narrow (below xl), so the
+                line doesn't wrap. */}
+            <span className="max-xl:hidden">Your show’s playlist · </span>
+            {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
             {engine && currentIndex >= 0 && <LoopsIn engine={engine} />}
             {queue.length > 0 && (
               <span>
@@ -328,7 +334,7 @@ export function FileQueue() {
             )}
           </p>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
+        <div className="flex w-full flex-wrap items-center gap-1.5">
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
               whether it moves on to the next track or holds this one. */}
@@ -362,8 +368,10 @@ export function FileQueue() {
             ))}
           </div>
           {queue.length > 0 && (
-            // Icon-only on a phone, where the words push Add files off the
-            // edge; it comes with an undo, so a bare icon is safe to press.
+            // Icon-only wherever the card is narrow (a phone, and the
+            // tablet's two-column studio below xl), where the words push Add
+            // files onto a row of its own; it comes with an undo, so a bare
+            // icon is safe to press.
             // Kept in the row (invisible) whenever there is a queue, even with
             // nothing upcoming: mounting it as the first track started moved
             // Add files out from under the pointer.
@@ -376,18 +384,20 @@ export function FileQueue() {
               aria-hidden={upcoming === 0 || undefined}
               onClick={() => removeWithUndo("upcoming")}
             >
-              <IconTrash className="sm:hidden" />
-              <span className="max-sm:sr-only">Clear upcoming</span>
+              <IconTrash className="xl:hidden" />
+              <span className="max-xl:sr-only">Clear upcoming</span>
             </Button>
           )}
-          <Button variant="ghost" size="sm" className="ml-auto h-9 sm:ml-0" onClick={() => fileInputRef.current?.click()}>
+          {/* "Add" on a phone: with the full words the row was ~20px too wide
+              for the card, and Add files wrapped onto a line of its own. */}
+          <Button variant="ghost" size="sm" className="ml-auto h-9" onClick={() => fileInputRef.current?.click()} aria-label="Add files">
             <IconPlus data-icon="inline-start" />
-            Add files
+            Add<span className="max-sm:hidden"> files</span>
           </Button>
         </div>
       </header>
 
-      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-md:pb-24 sm:px-3">
         {queue.length === 0 ? (
           <button
             type="button"
@@ -428,8 +438,9 @@ export function FileQueue() {
         )}
       </div>
 
+      {/* Dragging files in is a desktop gesture: not on a phone or tablet (below lg). */}
       {queue.length > 0 && (
-        <p className="border-t border-border px-5 py-2 text-xs text-muted-foreground">
+        <p className="border-t border-border px-5 py-2 text-xs text-muted-foreground max-lg:hidden">
           {dragOver ? "Drop to add to the end of the running order" : "Drag files anywhere onto this panel to add them"}
         </p>
       )}

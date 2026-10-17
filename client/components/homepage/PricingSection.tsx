@@ -2,7 +2,7 @@ import Link from "next/link"
 import { Button, buttonVariants } from "@/components/ds/Button"
 import { StatusLamp } from "@/components/ds/StatusLamp"
 import { Tag } from "@/components/ds/Tag"
-import { PRO_PRICE_USD } from "@/interfaces/Plan"
+import { PRO_FEATURES, PRO_PRICE_USD } from "@/interfaces/Plan"
 import { cn } from "@/lib/utils"
 import { Section, SectionIntro } from "./Section"
 import WaitlistButton from "./WaitlistButton"
@@ -24,17 +24,6 @@ const FREE_FEATURES = [
   "Listeners need no app or account",
 ]
 
-// Condensed for the compact card — the full list lives in the docs.
-const PRO_FEATURES = [
-  "24/7 AutoDJ from your library (3 GB)",
-  "Playlists and a weekly schedule",
-  "Broadcast from BUTT, Mixxx or any Icecast encoder",
-  "Public stream URL for TuneIn & Sonos",
-  "Embed your player, on your own domain",
-  "1,000 concurrent listeners",
-  "90 days of listener analytics, by country",
-  "Priority support",
-]
 
 // Custom is scoped by hand, so this list can carry things we build to order
 // rather than things you can switch on: the website is one of those (see

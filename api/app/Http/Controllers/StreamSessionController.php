@@ -51,12 +51,23 @@ class StreamSessionController extends Controller
             ->selectRaw('COALESCE(SUM(GREATEST(TIMESTAMPDIFF(SECOND, started_at, ended_at), 0)), 0) as live_seconds')
             ->first();
 
+        // The Your shows chart: every finished show of the last 30 days, not
+        // just the first page's 20. Capped so a runaway station can't make
+        // this the heavy part of the response.
+        $recent = $station->streamSessions()
+            ->whereNotNull('ended_at')
+            ->where('started_at', '>=', now()->subDays(30)->startOfDay())
+            ->oldest('started_at')
+            ->limit(300)
+            ->get(['id', 'started_at', 'ended_at', 'peak_listeners']);
+
         return response()->json([
             ...$page->toArray(),
             'summary' => [
                 'shows' => (int) $summary->shows,
                 'live_seconds' => (int) $summary->live_seconds,
             ],
+            'recent' => $recent,
         ]);
     }
 

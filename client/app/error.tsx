@@ -12,7 +12,7 @@ export default function Error({
   reset: () => void
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-svh items-center justify-center p-6">
       <Card className="max-w-md w-full">
         <CardContent className="flex flex-col items-center text-center py-10">
           <div className="size-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">

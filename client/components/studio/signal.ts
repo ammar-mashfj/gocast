@@ -75,6 +75,8 @@ export interface StudioSignal {
   label: string
   /** One sentence: what listeners hear, and what to do about it. */
   detail: string
+  /** The phone band's version, when `detail` won't share a row with the lamp. */
+  short?: string
 }
 
 /**
@@ -125,9 +127,12 @@ function liveSignal(touch: boolean): StudioSignal {
     code: "live",
     tone: "live",
     label: "Live",
+    // Just the one way to lose it: the LIVE lamp already says you're live. The delay is on the talk
+    // pad (PushToTalk), where the host is when it matters.
     detail: touch
-      ? "Listeners hear you about 15–20 seconds after you speak. Switching apps or locking the screen stops the broadcast."
-      : "Listeners hear you about 15–20 seconds after you speak. Closing this tab ends the broadcast.",
+      ? "Switching apps or locking the screen ends the broadcast."
+      : "Closing this tab ends the broadcast.",
+    short: touch ? "Stay on this screen." : "Keep this tab open.",
   }
 }
 

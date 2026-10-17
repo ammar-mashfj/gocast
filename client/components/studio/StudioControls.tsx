@@ -2,10 +2,10 @@
 
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { MicSettings } from "./MicSettings"
+import { IconHeadphones } from "@tabler/icons-react"
 import { ShortcutsDialog } from "./ShortcutsDialog"
 
 /**
@@ -35,51 +35,60 @@ export function MicLatchButton() {
 }
 
 /**
- * The row under the latch: Monitor (with its volume — a desktop's speakers
- * have no hardware rocker), the mic settings and the keyboard shortcuts.
+ * The row under the mic check: Monitor (on/off, at full level — the
+ * device's own volume turns it down), the mic settings and the keyboard
+ * shortcuts.
  *
  * The monitor taps the music bus post-duck and never the mic, so no routing
  * exists that could feed the microphone back into itself (see audioEngine).
  */
 export function StudioControls() {
-  const { engine, micDisabled } = useBroadcast()
-  useEngineVersion(engine)
-
-  const monitor = engine?.isMonitorEnabled() ?? false
-  const volume = engine?.getMonitorVolume() ?? 0
+  const { micDisabled } = useBroadcast()
 
   return (
-    <div className="flex flex-wrap gap-2">
-      <div className="flex h-13 flex-1 items-center gap-3 rounded-button bg-card pr-3.5">
-        <button
-          type="button"
-          aria-pressed={monitor}
-          aria-keyshortcuts="M"
-          title="Hear the music through your speakers (M). Never the stream."
-          onClick={() => engine?.setMonitorEnabled(!monitor)}
-          className={cn(
-            "flex h-full flex-col items-center justify-center gap-0.5 rounded-button px-3.5 transition-colors",
-            monitor ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <span className="text-body-sm font-bold">Monitor</span>
-          <span className="eyebrow-sm font-medium">{monitor ? "ON" : "OFF"}</span>
-        </button>
-        <Slider
-          value={[Math.round(volume * 100)]}
-          onValueChange={([v]) => engine?.setMonitorVolume(v / 100)}
-          max={100}
-          step={1}
-          disabled={!monitor}
-          aria-label="Monitor volume"
-          className="min-w-24 flex-1"
-        />
-      </div>
+    // Desktop (xl): one row of equal labelled buttons. Narrower: Mic settings
+    // first on a full row (right under the meter), then the rest.
+    <div className="flex flex-wrap gap-2 xl:grid xl:auto-cols-fr xl:grid-flow-col">
+      <MonitorToggle />
 
-      <div className="flex gap-2">
-        {!micDisabled && <MicSettings />}
-        <ShortcutsDialog micDisabled={micDisabled} />
+      <div className="contents">
+        {!micDisabled && (
+          <div className="flex max-xl:order-first max-xl:basis-full">
+            <MicSettings />
+          </div>
+        )}
+        {/* Keyboard shortcuts mean nothing on a tablet or phone (below lg). */}
+        <div className="flex max-lg:hidden">
+          <ShortcutsDialog micDisabled={micDisabled} />
+        </div>
       </div>
     </div>
+  )
+}
+
+/** Monitor on/off — in the controls row, and in the phone's Mic & monitor sheet. */
+export function MonitorToggle({ className }: { className?: string }) {
+  const { engine } = useBroadcast()
+  useEngineVersion(engine)
+  const monitor = engine?.isMonitorEnabled() ?? false
+  // On/off only, at full level: the device's volume turns it down. A
+  // slider here cost a whole row for something set once.
+  return (
+    <button
+      type="button"
+      aria-pressed={monitor}
+      aria-keyshortcuts="M"
+      title="Hear the music through your speakers (M). Never the stream."
+      onClick={() => engine?.setMonitorEnabled(!monitor)}
+      className={cn(
+        "flex h-13 flex-1 items-center justify-center gap-2.5 rounded-button px-4 transition-colors",
+        monitor ? "bg-foreground text-background" : "bg-card text-muted-foreground hover:text-foreground",
+        className,
+      )}
+    >
+      <IconHeadphones className="size-5" aria-hidden />
+      <span className="text-body-sm font-bold">Monitor</span>
+      <span className="eyebrow-sm font-medium">{monitor ? "ON" : "OFF"}</span>
+    </button>
   )
 }

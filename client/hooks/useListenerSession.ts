@@ -38,7 +38,9 @@ export function useListenerSession(
     // and waiting for a resolved transport keeps the server from having to
     // guess: an Icecast listener is already inside the number the admin poll
     // returns, so reporting them as HLS would count the same person twice.
-    if (!playing || !transport) return
+    // No slug means the caller has no station to report against (the
+    // homepage hero when its API fetch failed) — posting would only 404.
+    if (!slug || !playing || !transport) return
 
     let cancelled = false
     let timer: ReturnType<typeof setInterval> | null = null

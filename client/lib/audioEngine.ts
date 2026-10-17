@@ -106,10 +106,12 @@ export function assertBroadcastSupported(options?: { skipMic?: boolean }): void 
 export type RepeatMode = 'all' | 'one'
 
 /**
- * Default monitor level. Speakers-only, never the stream — the monitor bus
- * hangs off `fileGain` and is deliberately not part of the encode path.
+ * Monitor level. Speakers-only, never the stream — the monitor bus hangs
+ * off `fileGain` and is deliberately not part of the encode path. Full: the
+ * studio has no volume control for it any more (it's on/off), and the
+ * device's own volume is the one to turn down.
  */
-const MONITOR_DEFAULT_VOLUME = 0.62
+const MONITOR_DEFAULT_VOLUME = 1
 
 export interface AddFilesResult {
   added: number
@@ -921,15 +923,29 @@ export class AudioEngine {
   }
 
   /**
-   * Resume playback at the saved position, if any. Pairs with
-   * {@link restoreQueue}; call only after the webcast socket is live.
+   * Start the show's music: at the saved position when the last show left
+   * one, otherwise from the first track. Pairs with {@link restoreQueue};
+   * call only after the webcast socket is live.
    *
-   * @param fromStart Cue the same song but from 0:00 — the broadcaster's
-   *   choice on the Go Live page, for a show that shouldn't open mid-song.
+   * Loaded tracks with no saved spot used to sit idle until the host pressed
+   * play, so a show whose music was picked on the Go Live page opened silent
+   * (and the band said so). Picking it is the intent to play it.
+   *
+   * @param fromStart Start the running order from the top (track 1, 0:00)
+   *   and ignore the saved spot — the Go Live page's "From the top", which
+   *   it also picks when the host reorders (a new order is a new show). The
+   *   saved spot itself is left alone, so it's still there if they back out.
    */
   async resumePlayback(options?: { fromStart?: boolean }): Promise<void> {
+    if (options?.fromStart) {
+      if (this.queue.length > 0) await this.playIndex(0)
+      return
+    }
     const playback = await loadPlayback(this.station)
-    if (!playback || playback.currentIndex < 0) return
+    if (!playback || playback.currentIndex < 0) {
+      if (this.queue.length > 0) await this.playIndex(0)
+      return
+    }
     // The saved index is into the queue as stored; the restore may have taken
     // unreadable tracks out since. A song that went with them resumes on the
     // next one, from its start.
@@ -938,7 +954,7 @@ export class AudioEngine {
     // No clamp against track.duration here: restoreQueue fills durations in
     // behind the queue, so it is usually still 0 at this point and would send
     // every resume back to 0:00. playIndexAtOffset clamps to the real length.
-    const offset = options?.fromStart || !sameTrack ? 0 : Math.max(0, playback.offset)
+    const offset = !sameTrack ? 0 : Math.max(0, playback.offset)
     if (offset > 0) {
       await this.playIndexAtOffset(index, offset)
     } else {

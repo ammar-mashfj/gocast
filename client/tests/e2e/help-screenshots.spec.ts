@@ -236,7 +236,7 @@ test.describe("@screenshots", () => {
     await dress(page)
 
     // The hero: what's on air, the buttons that change it, listening now.
-    const hero = page.getByRole("heading", { name: "Nothing’s playing right now." })
+    const hero = page.getByRole("heading", { name: "Your station is quiet." })
     await shot(page, "station-power", padded(page, await cardBox(hero, 1000, 180), 0))
 
     const header = page.locator("header").filter({ has: page.locator("h1") }).first()

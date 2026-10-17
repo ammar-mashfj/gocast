@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { signOffKey, type ShowSummary } from "@/components/studio/EndBroadcast"
@@ -31,8 +31,13 @@ export default function WrapPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
   const [summary, setSummary] = useState<ShowSummary | null>(null)
+  // What the first read found. The read deletes the stored summary, and
+  // React's development double-run would otherwise find it gone the second
+  // time and send the host to the overview a second after the wrap appeared.
+  const read = useRef<ShowSummary | null>(null)
 
   useEffect(() => {
+    if (read.current) return
     let found: ShowSummary | null = null
     try {
       const key = signOffKey(slug)
@@ -48,6 +53,7 @@ export default function WrapPage() {
       // Unreadable or blocked: no summary.
     }
     if (found) {
+      read.current = found
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reading browser storage once, after hydration
       setSummary(found)
     } else {

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { IconPlayerPauseFilled, IconPlayerPlayFilled, IconPlayerSkipForwardFilled } from "@tabler/icons-react"
 import { toast } from "sonner"
+import { QRCodeSVG } from "qrcode.react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ds/Dialog"
 import { Button } from "@/components/ds/Button"
 import { StatTile } from "@/components/ds/Stat"
 import { StatusLamp } from "@/components/ds/StatusLamp"
@@ -73,6 +75,11 @@ function mmss(total: number) {
   const s = Math.max(0, Math.floor(total))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
 }
+
+/** What the demo deck's QR says when someone actually scans it off the screen. */
+const DEMO_QR_MESSAGE =
+  "Welcome to GoCast! You just scanned a radio station that doesn't exist (yet). " +
+  "Late Shift is only a demo — name yours and it's on air in a minute: https://gocast.fm"
 
 /**
  * A working mock of the on-air deck. Nothing is fetched and no audio plays:
@@ -292,11 +299,11 @@ export function StudioDeck() {
             )}
           >
             <span className="flex items-start justify-between gap-3">
-              <span className="font-display text-display">{sim.micOpen ? "You’re on" : "Hold here to talk"}</span>
+              <span className="font-display text-display">{sim.micOpen ? "You’re on" : "Hold anywhere here to talk"}</span>
               {!sim.micOpen && (
                 <span className="eyebrow mt-1.5 inline-flex shrink-0 items-center gap-1.5 text-muted-foreground">
                   <span aria-hidden className="size-2 rounded-full bg-live" />
-                  Live while held
+                  Mic live while held
                 </span>
               )}
             </span>
@@ -372,12 +379,32 @@ export function StudioDeck() {
           </div>
 
           <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-4 rounded-card bg-surface-raised p-4">
-            <div
-              aria-hidden="true"
-              className="flex aspect-square items-center justify-center rounded-item bg-[image:var(--artwork-placeholder)] font-mono text-micro font-semibold text-muted-foreground"
-            >
-              QR
-            </div>
+            {/* A real, scannable code. Late Shift is a demo, so it carries a
+                note instead of a dead link — with the real site at the end.
+                The 72px tile is too small to scan off a screen, so it opens
+                a big copy. */}
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Show the QR code bigger"
+                  className="aspect-square cursor-zoom-in rounded-item bg-white p-1.5 outline-none transition-transform duration-150 hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <QRCodeSVG value={DEMO_QR_MESSAGE} size={60} level="L" className="size-full" />
+                </button>
+              </DialogTrigger>
+              <DialogContent size="sm">
+                <DialogHeader>
+                  <DialogTitle>Scan me</DialogTitle>
+                  <DialogDescription>Point your phone camera at it.</DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-center">
+                  <div className="rounded-card bg-white p-5">
+                    <QRCodeSVG value={DEMO_QR_MESSAGE} size={280} level="L" marginSize={2} title="Demo QR code" />
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <div className="flex min-w-0 flex-col gap-2.5">
               <span className="truncate font-mono text-body-sm">{STATION.link}</span>
               <Button

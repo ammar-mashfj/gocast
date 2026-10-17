@@ -122,6 +122,17 @@
   /* Floating panels (menus, popovers, dialogs). The page itself has no
      shadows: hierarchy is lightness steps. */
   --shadow-panel: 0 20px 40px -10px rgb(0 0 0 / 0.6);
+  /* A bar pinned to the bottom of the screen (go-live's Go live bar), cast
+     upward over the content scrolling under it. */
+  --shadow-bar-up: 0 -16px 24px -12px rgb(0 0 0 / 0.55);
+
+  /* The tab bar's height (54px tabs + 6px top padding + its border) plus
+     the home indicator: where a bar pinned above it sits (bottom-tab-bar). */
+  --spacing-tab-bar: calc(3.8125rem + env(safe-area-inset-bottom));
+  /* The phone studio's floating talk button: above the studio's bottom row
+     (End show, 3.25rem), its 1.25rem margin and the home indicator. The tab
+     bar is hidden in the live studio. */
+  --spacing-talk-fab: calc(6.25rem + env(safe-area-inset-bottom)); /* 28px clear of End show */
 }
 
 /* The one stroke weight: ghost buttons, outline cards, dashed drop zones,
@@ -338,10 +349,10 @@
    The Toaster is shared with marketing (app/layout.tsx), so this is scoped;
    the variables go on each toast because the toaster's own inline style
    would beat them there. */
-@media (max-width: 39.99rem) {
-  /* Above the phone tab bar (54px tabs + 6px top padding + its border),
+@media (max-width: 63.99rem) {
+  /* Above the tab bar (phones and tablets, below lg) (54px tabs + 6px top padding + its border),
      not over it. */
-  .dark:has([data-slot="tab-bar"]) {
+  .dark:has([data-slot="tab-bar"]):not([data-studio-live]) {
     --toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
 }
@@ -418,8 +429,36 @@ input[data-slot="ds-input"]:-webkit-autofill:focus {
   --ds-on-air-text: #1A0806;
   --ds-text-faint: rgb(26 8 6 / 0.55);
   --ds-line: rgb(26 8 6 / 0.14);
+  /* Chips (the genre tag): a darker wash of the red, not the dark-theme fill. */
+  --ds-surface-control: rgb(26 8 6 / 0.12);
   --ds-line-strong: rgb(26 8 6 / 0.3);
   /* For ds Button's `ink` variant: ink fill, red words. */
   --ink: #1A0806;
   --paper: #FF5A4E;
+}
+
+/* ── Studio focus mode ─────────────────────────────────────────────────────
+   The studio alone on the screen (components/studio/FocusButton): no
+   sidebar, no top bar. The status band stays — it carries the warnings.
+   The shell re-measures --chrome-h, so the studio's fit-the-screen height
+   grows into the freed space by itself. */
+html[data-studio-focus] [data-slot="sidebar"],
+html[data-studio-focus] [data-slot="top-bar"] {
+  display: none;
+}
+/* …and the page's max width goes with the sidebar: the studio takes the
+   whole screen. */
+html[data-studio-focus] [data-slot="page-frame"] {
+  max-width: none;
+}
+
+/* ── Live studio on a phone or tablet ──────────────────────────────────────
+   While a show is live the studio is the whole screen below lg: no top bar,
+   no tab bar — the LIVE band is the top edge, End show the way out
+   (studio/page.tsx sets the attribute while live). */
+@media (max-width: 63.99rem) {
+  html[data-studio-live] [data-slot="top-bar"],
+  html[data-studio-live] [data-slot="tab-bar"] {
+    display: none;
+  }
 }

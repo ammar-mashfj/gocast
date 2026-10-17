@@ -61,6 +61,29 @@ export interface Plan {
 export const PRO_PRICE_USD = 20
 
 /**
+ * Pro paid for a year at once, in whole dollars. Must match the 12-month row
+ * of AccessRequestController::PRICES_USD — that is what the payment email
+ * actually quotes.
+ */
+export const PRO_PRICE_YEAR_USD = 160
+
+/**
+ * What Pro adds over Free, condensed — the pricing card and the dashboard
+ * upsell both read this, so they can't disagree. The full list lives in the
+ * "What you get on Free and on Pro" help article.
+ */
+export const PRO_FEATURES = [
+  "24/7 AutoDJ from your library (3 GB)",
+  "Playlists and a weekly schedule",
+  "Broadcast from BUTT, Mixxx or any Icecast encoder",
+  "Public stream URL for TuneIn & Sonos",
+  "Embed your player, on your own domain",
+  "1,000 concurrent listeners",
+  "90 days of listener analytics, by country",
+  "Priority support",
+]
+
+/**
  * Pro is not self-serve yet: there is no checkout route. Pro is requested
  * through ProAccessDialog, the payment details go out by email, and the plan
  * is granted by hand once paid, so every "upgrade" affordance opens that form

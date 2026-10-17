@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-6">
+    <div className="flex min-h-svh flex-col items-center justify-center p-6">
       <Link href="/" className="mb-12">
         <Image src="/logo.svg" alt="GoCast" width={171} height={27} className="w-[100px] h-auto" />
       </Link>

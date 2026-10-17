@@ -3,16 +3,15 @@
 import type { BroadcastStats } from "@/hooks/useBroadcastStats"
 import type { TransportHealth } from "@/components/studio/signal"
 import { formatBytes, formatClock } from "@/lib/format"
-import { StatTile } from "@/components/ds/Stat"
+import { cn } from "@/lib/utils"
 import { DEFAULT_BITRATE } from "@/lib/audioEngine"
 
 /**
- * The show's three numbers, as the prototype has them under Now playing:
- * how long you've been on, who's listening (and the most so far), and how
- * much audio has been lost on the way out — green while it's none.
- *
- * Each carries one line under it: when the show started; the peak, or that
- * nobody has joined yet; and the bitrate going out with the data sent. The
+ * The show's four numbers, as a strip across the top of the studio (above
+ * both columns, so what's playing and the running order stay together):
+ * how long you've been on, who's listening now, the most at once so far,
+ * and how much audio has been lost on the way out — green while it's none.
+ * Audio lost carries the bitrate going out and the data sent under it. The
  * go-live check and the in-show step-down can both lower the bitrate, and a
  * host should be able to see that: amber below the default, when the line
  * is the reason.
@@ -20,34 +19,22 @@ import { DEFAULT_BITRATE } from "@/lib/audioEngine"
 export function StudioStats({
   stats,
   transport,
-  timeZone,
 }: {
   stats: BroadcastStats
   transport: TransportHealth
-  /** The station's zone: the start time reads on the same clock as the top bar. Null falls back to the browser's. */
-  timeZone: string | null
 }) {
   const lost = (transport.stats?.droppedMs ?? 0) / 1000
   return (
-    <div className="grid grid-cols-3 gap-2.5">
-      <StatTile
-        compact
-        label="On air"
-        value={formatClock(stats.elapsed)}
-        sub={
-          stats.startedAt
-            ? `since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: timeZone ?? undefined })}`
-            : undefined
-        }
-      />
-      <StatTile
-        compact
-        label="Listening"
-        value={stats.listeners ?? "—"}
-        sub={stats.peak === 0 && !stats.listeners ? "nobody yet" : `peak ${stats.peak}`}
-      />
-      <StatTile
-        compact
+    // Hairlines between cells from the strip's own fill showing through a
+    // 1px gap: works for a row of four and for the phone's 2×2 alike.
+    <div className="grid grid-cols-4 gap-px overflow-hidden rounded-card bg-line max-md:rounded-panel">
+      {/* No "since 7:39 PM": a show can run past midnight, or for days. */}
+      {/* The listener delay, here rather than on the talk pad: it qualifies
+          what "on air" means, in one short line. */}
+      <Cell label="On air" value={formatClock(stats.elapsed)} sub="heard 15–20 s later" />
+      <Cell label="Listening" value={stats.listeners ?? "—"} sub={stats.listeners ? "right now" : "nobody yet"} />
+      <Cell label="Peak" value={stats.peak} sub="most at once" />
+      <Cell
         label="Audio lost"
         value={lost > 0 ? `${lost.toFixed(1)} s` : "0 s"}
         good={lost === 0}
@@ -57,19 +44,37 @@ export function StudioStats({
   )
 }
 
-/** The bitrate going out, then the data sent; on a phone's narrow tile they wrap to two lines. */
+/** One number in the strip: label, value, then its detail on a line of its own. */
+function Cell({ label, value, sub, good }: { label: string; value: React.ReactNode; sub?: React.ReactNode; good?: boolean }) {
+  return (
+    // Tight: a cell holds a label, a number and one short line — padding
+    // beyond that was just empty card.
+    // Phones: one compact row of four — label and number only, so the
+    // running order keeps the screen.
+    <div className="flex min-w-0 flex-col gap-1 bg-card px-4 py-3 max-md:gap-0.5 max-md:px-2.5 max-md:py-2 sm:px-5">
+      <span className="eyebrow font-medium text-text-faint">{label}</span>
+      <span className={cn("font-display text-meter-sm font-bold tabular-nums max-md:text-body xl:text-meter", good && "text-ok")}>{value}</span>
+      {sub && <span className="min-w-0 truncate text-caption text-text-faint max-md:hidden">{sub}</span>}
+    </div>
+  )
+}
+
+/** The bitrate going out, then the data sent, on one line. */
 function Outgoing({ kbps, bytesSent }: { kbps: number | null; bytesSent: number }) {
   if (kbps === null) return null
   const slow = kbps < DEFAULT_BITRATE
   return (
-    <span className="flex flex-wrap gap-x-2">
+    // One line, cut short if it must: wrapping made the cell jump between one
+    // and two lines as the "sent" figure grew.
+    <span className="block truncate">
       <span
         className={slow ? "text-fault-text" : undefined}
         title={slow ? "Your upload can’t keep up with full quality, so the studio is sending less to stay on air." : undefined}
       >
         {kbps} kbps{slow && " · slow line"}
       </span>
-      <span>{formatBytes(bytesSent)} sent</span>
+      {" · "}
+      {formatBytes(bytesSent)} sent
     </span>
   )
 }

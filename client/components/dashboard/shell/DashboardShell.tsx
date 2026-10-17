@@ -4,14 +4,15 @@ import { useEffect, useRef } from "react"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { TopBar } from "./TopBar"
 import { StationBand } from "./StationBand"
-import { TabBar } from "./TabBar"
+// TabBar (./TabBar) is off for now: the sidebar is always there. Kept to bring back.
 
 /**
  * Everything right of the sidebar: the sticky chrome (top bar + status band)
  * and the page body.
  *
  * The body is padded to the page gutter and capped at `max-w-page`. The deep
- * bottom padding is room for the phone tab bar and goes with it (sm:hidden).
+ * bottom padding is room for the tab bar and goes with it (lg:hidden — phones
+ * and tablets get the tab bar; the sidebar takes over from lg).
  *
  * The chrome's height changes with the band (its message wraps on narrow
  * screens), so it is measured and published as `--chrome-h` on <html>, for
@@ -40,10 +41,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <TopBar />
         <StationBand />
       </div>
-      <div className="flex-1 px-gutter pt-5 pb-30 sm:pb-5">
-        <div className="mx-auto w-full max-w-page">{children}</div>
+      <div className="flex-1 px-gutter pt-5 pb-5">
+        <div data-slot="page-frame" className="mx-auto w-full max-w-page">{children}</div>
       </div>
-      <TabBar />
     </SidebarInset>
   )
 }

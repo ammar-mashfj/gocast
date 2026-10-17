@@ -83,7 +83,7 @@ export function Gallery() {
           ))}
         </Card>
         <div className="-mx-gutter flex flex-col gap-px overflow-hidden">
-          <StatusBand tone="off" label="OFF AIR" message="Nothing’s playing. Nobody can tune in right now.">
+          <StatusBand tone="off" label="OFF AIR" message="Start AutoDJ or go live to put your station on air.">
             <Button size="sm" variant="onair-soft">Start AutoDJ</Button>
           </StatusBand>
           <StatusBand tone="onair" label="ON AIR · AUTODJ" message="AutoDJ is playing Neon Rain by Koto Blue." meta={<span>12 LISTENING</span>}>

@@ -49,9 +49,11 @@ export interface ActionRowProps {
   href?: string
   onClick?: () => void
   className?: string
+  /** On the description line, to hide it at some sizes ("max-sm:hidden"). */
+  descriptionClassName?: string
 }
 
-export function ActionRow({ title, description, href, onClick, className }: ActionRowProps) {
+export function ActionRow({ title, description, href, onClick, className, descriptionClassName }: ActionRowProps) {
   const classes = cn(
     "flex w-full items-center justify-between gap-3 rounded-well bg-surface-raised p-4 text-left transition-colors",
     "outline-none hover:bg-surface-control focus-visible:ring-2 focus-visible:ring-ring",
@@ -61,7 +63,7 @@ export function ActionRow({ title, description, href, onClick, className }: Acti
     <>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-body font-semibold">{title}</span>
-        {description && <span className="text-body-sm text-muted-foreground">{description}</span>}
+        {description && <span className={cn("text-body-sm text-muted-foreground", descriptionClassName)}>{description}</span>}
       </span>
       <IconChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
     </>
@@ -73,7 +75,7 @@ export function ActionRow({ title, description, href, onClick, className }: Acti
     <div className={cn(classes, "hover:bg-surface-raised")}>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-body font-semibold">{title}</span>
-        {description && <span className="text-body-sm text-muted-foreground">{description}</span>}
+        {description && <span className={cn("text-body-sm text-muted-foreground", descriptionClassName)}>{description}</span>}
       </span>
     </div>
   )

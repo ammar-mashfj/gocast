@@ -88,16 +88,16 @@ describe("stationHero — live", () => {
     expect(h).toMatchObject({ tone: "live", label: "LIVE", title: "You’re live.", source: "Live from this browser", actions: ["open-studio"] })
   })
 
-  it("from DJ software: names it, offers to listen, keeps the stop (the cut-off path)", () => {
+  it("from DJ software: names it, keeps the stop (the cut-off path)", () => {
     const s = status({ state: "live", source: "live", broadcaster: true, live_source: { type: "external", client: "Mixxx 2.5" } })
     const h = stationHero(input({ status: s }))
-    expect(h).toMatchObject({ title: "You’re live from Mixxx 2.5.", source: "Live from Mixxx 2.5", actions: ["hear-stream", "stop"] })
+    expect(h).toMatchObject({ title: "You’re live from Mixxx 2.5.", source: "Live from Mixxx 2.5", actions: ["stop"] })
     expect(h.text).toBe("Stop broadcasting in Mixxx 2.5 to end the show.")
   })
 
-  it("from another browser: listen only — that show ends in its own studio", () => {
+  it("from another browser: no actions — that show ends in its own studio", () => {
     const s = status({ state: "live", source: "live", broadcaster: true, live_source: { type: "browser", client: null } })
-    expect(stationHero(input({ status: s })).actions).toEqual(["hear-stream"])
+    expect(stationHero(input({ status: s })).actions).toEqual([])
   })
 
   it("offers no lead action until the first poll says which source is live", () => {

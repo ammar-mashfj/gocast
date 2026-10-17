@@ -49,7 +49,8 @@ export function Prose({
         prose-pre:bg-card prose-pre:border-0 prose-pre:rounded-well
         prose-blockquote:border-l-on-air prose-blockquote:text-muted-foreground prose-blockquote:not-italic
         prose-hr:border-line
-        prose-table:block prose-table:overflow-x-auto prose-table:rounded-well md:prose-table:table md:prose-table:overflow-hidden
+        prose-table:block prose-table:overflow-x-auto prose-table:rounded-well prose-table:bg-card md:prose-table:table md:prose-table:overflow-hidden
+        [&_th]:px-4 [&_td]:px-4
         prose-th:bg-surface-raised prose-th:text-foreground prose-th:border-line
         prose-td:border-line prose-td:text-text-secondary
         prose-img:rounded-well

@@ -117,9 +117,12 @@ export function NowPlaying() {
   const clockLabelRef = useRef<HTMLSpanElement>(null)
   const elapsedRef = useRef<HTMLSpanElement>(null)
   const durationRef = useRef<HTMLSpanElement>(null)
+  // Phones: time left at the end of the bar instead of the big clock.
+  const barRowRef = useRef<HTMLDivElement>(null)
+  const leftSmallRef = useRef<HTMLSpanElement>(null)
   const prevLeft = useRef<number | null>(null)
 
-  const { text: nextText, count: upcoming } = upNext(queue, currentIndex, repeatMode)
+  const { text: nextText } = upNext(queue, currentIndex, repeatMode)
 
   // The playhead is read per frame, never memoised: every dependency such a
   // memo could take keeps a stable identity for the life of the deck, so it
@@ -143,8 +146,15 @@ export function NowPlaying() {
     if (durationRef.current) {
       durationRef.current.textContent = duration > 0 ? formatTime(duration) : "–:––"
     }
+    if (leftSmallRef.current) {
+      leftSmallRef.current.textContent = duration > 0 ? `−${formatTime(left)}` : "–:––"
+    }
+    const soonNow = duration > 0 && eng.isPlaying() && left < ENDING_SOON_S
+    if (barRowRef.current && barRowRef.current.dataset.soon !== String(soonNow)) {
+      barRowRef.current.dataset.soon = String(soonNow)
+    }
     if (clockWrapRef.current) {
-      const soon = duration > 0 && eng.isPlaying() && left < ENDING_SOON_S
+      const soon = soonNow
       if (clockWrapRef.current.dataset.soon !== String(soon)) {
         clockWrapRef.current.dataset.soon = String(soon)
         if (clockLabelRef.current) clockLabelRef.current.textContent = soon ? "GET READY" : "LEFT"
@@ -172,7 +182,10 @@ export function NowPlaying() {
   })
 
   return (
-    <section aria-label="Now playing" className="flex flex-col gap-3 rounded-panel bg-card p-4">
+    <section aria-label="Now playing" className="flex flex-col gap-4 rounded-panel bg-card p-5">
+      {/* Phones: the title has the row to itself; the time left is at the
+          end of the bar below, bold, amber near the end, in place of the
+          track's length. Wider screens keep the big clock here. */}
       <div className="flex items-center gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.75">
           <h2 className="truncate text-heading">
@@ -189,7 +202,7 @@ export function NowPlaying() {
         <div
           ref={clockWrapRef}
           data-soon="false"
-          className="group flex shrink-0 flex-col items-end gap-0.5"
+          className="group flex shrink-0 flex-col items-end gap-0.5 max-sm:hidden"
         >
           <span
             ref={clockRef}
@@ -200,13 +213,15 @@ export function NowPlaying() {
           <span ref={clockLabelRef} className="eyebrow-sm font-medium text-text-faint group-data-[soon=true]:text-pro">
             LEFT
           </span>
-          <p ref={cueRef} className="sr-only" role="status" />
         </div>
+        {/* Outside the clock, which is hidden on a phone: the spoken
+            countdown cues must still be heard there. */}
+        <p ref={cueRef} className="sr-only" role="status" />
       </div>
 
       {/* Elapsed and length either side of the bar, on its own line: the
           row is the label's height, so the card grows by a few pixels. */}
-      <div className="flex items-center gap-2.5 font-mono text-micro text-text-faint tabular-nums" aria-hidden>
+      <div ref={barRowRef} data-soon="false" className="group flex items-center gap-2.5 font-mono text-micro text-text-faint tabular-nums" aria-hidden>
         <span ref={elapsedRef} className="w-9">–:––</span>
         <div className="h-1.25 flex-1 overflow-hidden rounded-full bg-foreground/8">
           <div
@@ -215,16 +230,22 @@ export function NowPlaying() {
             style={{ width: "0%" }}
           />
         </div>
-        <span ref={durationRef} className="w-9 text-right">–:––</span>
+        <span ref={durationRef} className="w-9 text-right max-sm:hidden">–:––</span>
+        <span
+          ref={leftSmallRef}
+          className="w-12 text-right text-body-sm font-bold text-foreground group-data-[soon=true]:text-pro sm:hidden"
+        >
+          –:––
+        </span>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-control bg-background px-3">
+      {/* Phones: "Next" gets a row of its own — beside three buttons it had
+          room for a letter or two — and Play/Pause widens to fill the row
+          under it. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-control bg-background px-3 max-sm:basis-full">
           <span className="eyebrow-sm text-text-faint">NEXT</span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{nextText}</span>
-          <span className="rounded-tag bg-muted-foreground px-1.5 py-0.5 font-mono text-micro font-semibold text-background tabular-nums">
-            {upcoming}
-          </span>
         </div>
         <TransportButton
           label="Previous track"
@@ -249,7 +270,7 @@ export function NowPlaying() {
           aria-label={playing ? "Pause" : "Play"}
           aria-keyshortcuts="K"
           title={playing ? "Pause (K)" : "Play (K)"}
-          className="flex h-12 w-16 shrink-0 items-center justify-center rounded-control bg-foreground text-background transition-transform active:scale-[0.96] disabled:opacity-40"
+          className="flex h-12 w-16 shrink-0 items-center justify-center rounded-control bg-foreground text-background transition-transform active:scale-[0.96] disabled:opacity-40 max-sm:flex-1"
         >
           {playing ? <IconPlayerPauseFilled size={22} /> : <IconPlayerPlayFilled size={22} />}
         </button>
@@ -287,9 +308,9 @@ function TransportButton({
 }
 
 /** A music-only show: in the pad's place, a plain card saying why there is no mic. */
-export function MusicOnlyPad() {
+export function MusicOnlyPad({ className }: { className?: string } = {}) {
   return (
-    <div className="flex flex-col gap-1 rounded-card bg-card p-5">
+    <div className={cn("flex flex-col gap-1 rounded-card bg-card p-5", className)}>
       <span className="font-display text-body font-bold">Music only</span>
       <span className="text-sm text-muted-foreground">Your running order is on air. The mic stays closed for this show.</span>
     </div>

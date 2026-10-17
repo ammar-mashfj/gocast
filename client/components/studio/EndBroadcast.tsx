@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
@@ -35,6 +35,9 @@ export const signOffKey = (slug: string) => `gocast:signoff:${slug}`
  * the wrap screen (studio/wrap). The summary is written before the stop,
  * because the studio moves to the wrap screen the moment the socket closes.
  */
+/** Opens End show's confirmation from elsewhere: the studio's back-gesture guard. */
+export const ASK_END_SHOW_EVENT = "gocast:ask-end-show"
+
 export function EndBroadcastButton({ className }: { className?: string }) {
   const router = useRouter()
   const { stop, stationSlug, liveSince, getTransportStats, engine } = useBroadcast()
@@ -51,6 +54,16 @@ export function EndBroadcastButton({ className }: { className?: string }) {
     setOnFor(liveSince ? Math.round((Date.now() - liveSince) / 1000) : null)
     setOpen(true)
   }
+
+  // The system back gesture in the live studio asks the same question.
+  useEffect(() => {
+    const onAsk = () => {
+      setOnFor(liveSince ? Math.round((Date.now() - liveSince) / 1000) : null)
+      setOpen(true)
+    }
+    window.addEventListener(ASK_END_SHOW_EVENT, onAsk)
+    return () => window.removeEventListener(ASK_END_SHOW_EVENT, onAsk)
+  }, [liveSince])
 
   // "AutoDJ takes over" is only true if it has something to play. The
   // rotation's length rides on the status poll, which only runs here while

@@ -36,6 +36,26 @@ export function removeTrack(
   return { tracks: next, playback }
 }
 
+/**
+ * Moves one track, keeping the saved spot on the same song: "Pick up where
+ * you stopped" means that track, wherever it now sits in the order.
+ */
+export function moveTrack(
+  tracks: PreflightTrack[],
+  playback: PlaybackState | null,
+  from: number,
+  to: number,
+): { tracks: PreflightTrack[]; playback: PlaybackState | null } {
+  if (from === to || from < 0 || to < 0 || from >= tracks.length || to >= tracks.length) return { tracks, playback }
+  const next = [...tracks]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  if (!playback) return { tracks: next, playback }
+  const currentId = tracks[playback.currentIndex]?.id
+  const currentIndex = next.findIndex((t) => t.id === currentId)
+  return { tracks: next, playback: currentIndex === -1 ? playback : { ...playback, currentIndex } }
+}
+
 /** Which files fit under the queue's byte limit, in order; the rest are skipped. */
 export function fitFiles<F extends { size: number }>(files: F[], usedBytes: number, limit: number): { fit: F[]; skipped: F[] } {
   const fit: F[] = []

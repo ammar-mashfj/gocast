@@ -20,8 +20,9 @@ export interface BroadcastStartOptions {
   /** Music only: no microphone is requested or mixed. */
   skipMic?: boolean
   /**
-   * Cue the saved queue's last song from 0:00 instead of where it stopped.
-   * Chosen on the Go Live page; see {@link AudioEngine.resumePlayback}.
+   * Start the running order from the top (track 1, 0:00) instead of where
+   * the last show stopped. Chosen on the Go Live page, and picked for the
+   * host there when they reorder; see {@link AudioEngine.resumePlayback}.
    */
   resumeFromStart?: boolean
 }

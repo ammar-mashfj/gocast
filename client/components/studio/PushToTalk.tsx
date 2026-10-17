@@ -50,7 +50,14 @@ export function isOverlayTarget(target: EventTarget | null): boolean {
  * slides off the pad keeps the mic open until it lifts — and a touch can no
  * longer fire the mouse handlers a second time.
  */
-export function PushToTalk() {
+export function PushToTalk({
+  className,
+  underPad,
+}: {
+  className?: string
+  /** Directly under the pad, above the mic check: the studio puts Keep mic open here. */
+  underPad?: React.ReactNode
+} = {}) {
   const { engine, micStream, micDisabled } = useBroadcast()
   useEngineVersion(engine)
 
@@ -109,13 +116,15 @@ export function PushToTalk() {
         hint: latched ? "Press L, or switch off Keep mic open, to close it" : "Let go to close the mic",
       }
     : {
-        title: "Hold here to talk",
+        title: "Hold anywhere here to talk",
         hint: `${touch ? "Press and hold anywhere here." : "Hold Space, or press and hold here."} The music ${fades ? "fades out" : "dips"} while you talk.`,
       }
 
   return (
-    // The pad you hold, and the mic check under it.
-    <div className="flex flex-col gap-2.5">
+    // The pad you hold, and the mic check under it. The pad grows to fill
+    // whatever height the studio gives this (the desktop's fit-the-screen
+    // layout); elsewhere it keeps its own minimum.
+    <div className={cn("flex flex-col gap-2.5", className)}>
       <button
         type="button"
         aria-pressed={micOpen}
@@ -138,7 +147,9 @@ export function PushToTalk() {
         }}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          "flex min-h-72 w-full touch-none select-none flex-col justify-between gap-4 rounded-hero p-6 text-left transition-colors duration-150",
+          // Takes up the column's slack (the studio page, from md). Its
+          // minimum is lower in the tablet's narrow column (below xl).
+          "flex min-h-72 w-full flex-1 touch-none select-none flex-col justify-between gap-4 rounded-hero p-6 text-left transition-colors duration-150 md:max-xl:min-h-52 md:max-xl:p-5",
           // Holding Space (or clicking) focuses the pad, and the global focus
           // style drew a white outline round it the whole time you talked.
           // The ring is for finding the pad by keyboard, so it shows only
@@ -159,33 +170,39 @@ export function PushToTalk() {
             : "bg-card grille text-foreground hover:inset-ring-2 hover:inset-ring-live/35",
         )}
       >
-        <span className="flex items-start justify-between gap-3">
-          <span className="text-display">{look.title}</span>
+        {/* Where the column is narrow (below xl) the tag goes above a smaller
+            title instead of beside it: side by side, "anywhere" pushed the tag
+            to the pad's edge and the big title's lines overlapped. */}
+        <span className="flex flex-col-reverse items-start gap-2 xl:flex-row xl:justify-between xl:gap-3">
+          <span className="min-w-0 text-title max-xl:leading-tight xl:text-display">{look.title}</span>
           {/* The design system's `trailing` slot. A red dot marks the control
               that puts you on air, as it does on Go live. */}
           {!micOpen && (
-            <span className="mt-1.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-micro font-semibold uppercase tracking-widest text-muted-foreground">
+            <span className="inline-flex shrink-0 items-center gap-1.5 xl:mt-1.5 font-mono text-micro font-semibold uppercase tracking-widest text-muted-foreground">
               <span aria-hidden className="size-2 rounded-full bg-live" />
-              Live while held
+              Mic live while held
             </span>
           )}
         </span>
-        <span className={cn("text-sm font-medium", micOpen ? "text-live-ink/70" : "text-muted-foreground")}>
-          {look.hint}
-        </span>
+        {/* The listener delay is on the stats strip, under ON AIR. */}
+        <span className={cn("text-sm font-medium", micOpen ? "text-live-ink/70" : "text-muted-foreground")}>{look.hint}</span>
       </button>
 
+      {underPad}
+
+      {/* Just the level: one row, a label and a slim meter. The device is in
+          the tooltip and in mic settings; the dB scale was more than a glance
+          needs. It stays on the page — the moving bars are how a dead mic
+          gets noticed before the listeners do. */}
       <section
         aria-label="Mic check"
-        className="flex flex-col gap-3 rounded-card bg-card p-5 text-muted-foreground"
+        title={device}
+        className="flex items-center gap-3 rounded-panel bg-card px-4 py-3 text-muted-foreground"
       >
-        <span className="flex items-baseline justify-between gap-3">
-          <span className={cn("font-mono text-micro font-medium", micOpen && "font-semibold text-live-text")}>
-            {micOpen ? "Going out live" : "Mic check \u00b7 only you see this"}
-          </span>
-          <span className="min-w-0 truncate text-xs text-text-faint" title={device}>{device}</span>
+        <span className={cn("shrink-0 font-mono text-micro font-medium uppercase", micOpen && "font-semibold text-live-text")}>
+          {micOpen ? "Live" : "Mic"}
         </span>
-        <MicMeter stream={micStream} open={micOpen} />
+        <MicMeter stream={micStream} open={micOpen} compact className="min-w-0 flex-1" />
       </section>
     </div>
   )

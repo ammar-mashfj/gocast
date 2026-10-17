@@ -17,6 +17,8 @@ export default function YourShowsLoading() {
         <PageHeader title="Your shows" />
         <Skeleton className="h-6 w-80 max-w-full" />
       </div>
+      {/* ShowsChart: the switch row, then the bars. */}
+      <Skeleton className="h-76 rounded-card" />
       <Card size="none" className="gap-0 overflow-hidden rounded-panel">
         <div className={cn(COLUMNS, "py-3.5 eyebrow-sm text-text-faint")}>
           <span>Started</span>
@@ -31,7 +33,7 @@ export default function YourShowsLoading() {
               <Skeleton className="h-3 w-24" />
             </span>
             <Skeleton className="hidden h-4 w-14 md:block" />
-            <Skeleton className="h-1.5 w-full rounded-full" />
+            <Skeleton className="h-4 w-14 sm:h-1.5 sm:w-full sm:rounded-full" />
             <Skeleton className="ml-auto h-4 w-5" />
           </div>
         ))}

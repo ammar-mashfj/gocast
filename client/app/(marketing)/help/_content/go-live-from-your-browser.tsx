@@ -29,7 +29,7 @@ export default function Body() {
           Add the tracks you want to play to your running order.
         </li>
         <li>
-          Press <strong>Go live on</strong>{" "}your station. GoCast checks your
+          Press <strong>Go live</strong>. GoCast checks your
           connection, your station, your mic and the audio, and you go on air
           the moment they pass; the studio opens. If a check fails it says why,
           and nothing went out.

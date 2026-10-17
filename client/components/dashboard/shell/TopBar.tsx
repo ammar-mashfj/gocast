@@ -1,19 +1,18 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSidebar } from "@/components/ui/sidebar"
 import { useCurrentStation } from "@/contexts/StationContext"
 import { useMounted } from "@/hooks/useMounted"
-import { pageLabel } from "@/lib/dashboardNav"
+import { activeNav, pageLabel } from "@/lib/dashboardNav"
 import { formatStationClock } from "@/lib/format"
 import { Button } from "@/components/ds/Button"
 import { SetupMenu } from "./SetupMenu"
 import { UpdatesMenu } from "./UpdatesMenu"
 
 /**
- * The dashboard's top bar: sidebar toggle, "Station › Page", the time where
+ * The dashboard's top bar: sidebar toggle, the page's name, the time where
  * the station is, the setup chip while anything is left, and Updates. The
  * status band sits directly under it and scrolls with it (DashboardShell).
  */
@@ -21,10 +20,12 @@ export function TopBar() {
   const { toggleSidebar } = useSidebar()
   const pathname = usePathname() ?? ""
   const station = useCurrentStation()
-  const page = pageLabel(pathname)
+  // The overview has no label of its own in the nav (it was the station's
+  // name here); name it, but only on the overview, not on unlisted routes.
+  const label = pageLabel(pathname) ?? (station && activeNav(pathname) === "overview" ? "Overview" : null)
 
   return (
-    <header className="flex h-15 items-center gap-3.5 px-gutter">
+    <header data-slot="top-bar" className="flex h-15 items-center gap-3.5 px-gutter">
       {/* The comp's glyph: two full bars and a short third, left-aligned. */}
       <Button variant="quiet" size="icon" onClick={toggleSidebar} aria-label="Toggle sidebar" className="-ml-2 flex-col gap-1">
         <span aria-hidden className="h-0.5 w-4 rounded-full bg-muted-foreground" />
@@ -32,23 +33,11 @@ export function TopBar() {
         <span aria-hidden className="mr-1.5 h-0.5 w-2.5 rounded-full bg-muted-foreground" />
       </Button>
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-body">
-        {station && (
-          <Link
-            href={`/dashboard/stations/${station.slug}`}
-            aria-current={page ? undefined : "page"}
-            className={page ? "truncate text-muted-foreground hover:text-foreground" : "truncate text-foreground"}
-          >
-            {station.name}
-          </Link>
-        )}
-        {page && (
-          <>
-            {station && <span aria-hidden className="text-text-faint">›</span>}
-            <span aria-current="page" className="truncate text-foreground">{page}</span>
-          </>
-        )}
-      </nav>
+      {/* The page only. The station's name used to lead it ("Station ›
+          Page"), but an account has one station, its name is on the sidebar
+          card and the overview, and a long one truncated the page name — the
+          part that says where you are. */}
+      {label && <span aria-current="page" className="min-w-0 truncate text-body text-foreground">{label}</span>}
 
       <div className="ml-auto flex items-center gap-3.5">
         {station?.timezone && <StationClock timeZone={station.timezone} />}

@@ -27,12 +27,11 @@ export function ShortcutsDialog({ micDisabled }: { micDisabled: boolean }) {
       <DialogTrigger asChild>
         <Button
           variant="quiet"
-          size="icon"
-          className="size-13 rounded-button bg-card text-foreground hover:bg-card/80"
-          aria-label="Keyboard shortcuts"
+          className="h-13 w-full gap-2 rounded-button bg-card px-4 text-foreground hover:bg-card/80"
           title="Keyboard shortcuts"
         >
-          <IconKeyboard className="size-5.5" />
+          <IconKeyboard className="size-5" aria-hidden />
+          Shortcuts
         </Button>
       </DialogTrigger>
       <DialogContent size="sm">

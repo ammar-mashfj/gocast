@@ -5,16 +5,18 @@ import { env } from "@/lib/env"
 import type { Station } from "@/interfaces/Station"
 import type { StreamSession } from "@/interfaces/StreamSession"
 import { OverviewHero } from "@/components/dashboard/overview/OverviewHero"
-import { YourLinkCard } from "@/components/dashboard/overview/YourLinkCard"
-import { ComingUpCard } from "@/components/dashboard/overview/ComingUpCard"
-import { ShowsLinks } from "@/components/dashboard/overview/ShowsLinks"
+// YourLinkCard is off too: the link is in the hero now (StationLinkRow).
+// ComingUpCard (components/dashboard/overview) is off for now; kept to bring back.
+// ShowsLinks (Recent shows) is off too: the sidebar has Your shows, and
+// under the hero is the Pro offer's alone.
+import { OverviewBelow } from "@/components/dashboard/overview/OverviewBelow"
 
 // Its own tab title, so history and open tabs are told apart.
 export const metadata: Metadata = { title: "Overview" }
 
 /**
  * The station overview: who the station is and what's on air (one hero, with
- * the controls that change it), how to hand out the link, what's next, and
+ * the controls that change it), how to hand out the link, and
  * where the shows went. What's left to set up lives in the top bar (SetupMenu). Layout
  * from the dashboard prototype (docs/design/dashboard-prototype); decisions in
  * docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md (R5.1).
@@ -24,15 +26,13 @@ export default async function StationOverviewPage({ params }: { params: Promise<
 
   let station: Station
   let sessions: StreamSession[]
-  let sessionTotal: number
   try {
     const [stationRes, sessionsRes] = await Promise.all([
       apiFetch<{ data: Station }>(`/stations/${slug}`),
-      apiFetch<{ data: StreamSession[]; total?: number }>(`/stations/${slug}/sessions`),
+      apiFetch<{ data: StreamSession[] }>(`/stations/${slug}/sessions`),
     ])
     station = stationRes.data
     sessions = sessionsRes.data
-    sessionTotal = sessionsRes.total ?? sessionsRes.data.length
   } catch (err) {
     // A 401 is a stale cookie and goes to the login page.
     redirectIfSessionExpired(err)
@@ -45,14 +45,9 @@ export default async function StationOverviewPage({ params }: { params: Promise<
 
   return (
     <div className="flex flex-col gap-5">
-      <OverviewHero station={station} lastLive={lastLive} />
+      <OverviewHero station={station} lastLive={lastLive} appUrl={env.appUrl} />
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,21rem),1fr))] gap-5">
-        <YourLinkCard url={`${env.appUrl}/station/${station.slug}`} appUrl={env.appUrl} slug={station.slug} stationName={station.name} />
-        <ComingUpCard station={station} />
-      </div>
-
-      <ShowsLinks slug={station.slug} sessions={sessions} truncated={sessionTotal > sessions.length} timeZone={station.timezone} />
+      <OverviewBelow />
     </div>
   )
 }

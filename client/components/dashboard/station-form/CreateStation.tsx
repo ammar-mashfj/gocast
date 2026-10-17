@@ -122,8 +122,11 @@ export function CreateStation() {
       })
       const created: Station | undefined = res.data?.data
       toast.success(`${trimmedName} is ready. It’s off air for now.`)
+      // Refresh as well as push: the dashboard layout resolves the station
+      // on the server, and a client push alone keeps its old null — the
+      // sidebar would go on saying "create your station first".
       if (created?.slug) router.push(`/dashboard/stations/${created.slug}`)
-      else router.refresh()
+      router.refresh()
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 403) {
         // An account has one station (lib/station-server.ts); a second

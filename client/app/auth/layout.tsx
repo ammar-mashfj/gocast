@@ -22,7 +22,7 @@ export const metadata: Metadata = {
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div data-surface="marketing" className="flex min-h-screen flex-col bg-background text-foreground">
+    <div data-surface="marketing" className="flex min-h-svh flex-col bg-background text-foreground">
       <header className="mx-auto flex min-h-17 w-full max-w-page items-center justify-between gap-6 px-gutter py-2.5">
         <Link href="/" className="no-underline" aria-label="GoCast home">
           <Wordmark />
@@ -35,7 +35,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           Back to home
         </Link>
       </header>
-      <main className="flex flex-1 flex-col items-center justify-center px-gutter pt-2 pb-10">
+      {/* 24px under the card on a phone, not 40: register (the tallest card)
+          was 14px over an A55's visible height with the address bar up. */}
+      <main className="flex flex-1 flex-col items-center justify-center px-gutter pt-2 pb-6 sm:pb-10">
         {children}
       </main>
     </div>

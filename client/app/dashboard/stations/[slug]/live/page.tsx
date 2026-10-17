@@ -1,17 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { toast } from "sonner"
 import { useParams, useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
-import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { usePreflightQueue } from "@/hooks/usePreflightQueue"
 import { useMicPreview } from "@/hooks/useMicPreview"
 import api from "@/lib/axios"
-import { env } from "@/lib/env"
-import { copyText } from "@/lib/clipboard"
-import { taggedStationUrl } from "@/lib/share"
 import type { Station } from "@/interfaces/Station"
 import type { StationStatus } from "@/interfaces/StationStatus"
 import { Button } from "@/components/ds/Button"
@@ -19,14 +14,12 @@ import { ChoiceCards } from "@/components/ds/ChoiceCards"
 import { Notice } from "@/components/ds/Notice"
 import { PageHeader } from "@/components/ds/PageHeader"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CheckList } from "@/components/dashboard/golive/CheckList"
 import { MicCheckCard } from "@/components/dashboard/golive/MicCheckCard"
-import { MicPermissionLink } from "@/components/dashboard/golive/MicPermissionLink"
 import { RunningOrderCard } from "@/components/dashboard/golive/RunningOrderCard"
 
 type Mode = "mic" | "music"
 
-const isMicError = (message: string | null) => !!message && /microphone access denied|no microphone found/i.test(message)
+
 
 /**
  * Going live: pre-flight, then the checks, then on air — one press.
@@ -34,22 +27,18 @@ const isMicError = (message: string | null) => !!message && /microphone access d
  * Pre-flight is where the show is set up while nothing is going out: what
  * goes out (mic + music, or music only), the mic (picked and hear-checked —
  * the only time it can be changed), and the running order (added to,
- * trimmed, picked up where the last show stopped). "Go live on …" releases
- * the mic check, runs the checks (connection, station, mic, audio engine)
- * where the host can see them, and goes on air the moment they pass; the
- * studio takes over from there. A failed check says why, and nothing went
- * out.
+ * trimmed, picked up where the last show stopped). "Go live" releases
+ * the mic check, starts the checks (connection, station, mic, audio engine)
+ * and opens the studio straight away: they run there, in a dialog over the
+ * studio, which goes on air the moment they pass (GoLiveChecks). A failed
+ * check says why there, and nothing went out.
  *
  * Decisions: docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md (R5.2).
  */
 export default function GoLivePage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
-  const { state, steps, error, start, goLive, stop } = useBroadcast()
-  // Cancel hands back a station the checks turned on — only without AutoDJ,
-  // the same rule as End (components/studio/EndBroadcast): with a rotation,
-  // on air is the station's normal state and there is nothing to hand back.
-  const autoDjLocked = useAutoDjLocked()
+  const { state, start, stationSlug } = useBroadcast()
 
   const [station, setStation] = useState<Station | null>(null)
   // Only read to explain a refusal, so fetched once rather than polled.
@@ -57,7 +46,6 @@ export default function GoLivePage() {
   const [mode, setMode] = useState<Mode>(() => readMode(slug))
   const [resumeFromStart, setResumeFromStart] = useState(readResumeFromStart)
   const [pressed, setPressed] = useState(false)
-  const wentLive = useRef(false)
 
   const queue = usePreflightQueue(slug)
   const mic = useMicPreview(mode === "mic" && !pressed)
@@ -71,27 +59,24 @@ export default function GoLivePage() {
       .catch(() => {})
   }, [slug, router])
 
-  // One press: the checks end in `ready`, and the show goes on air from
-  // there without a second button.
+  // Go live hands over to the studio as soon as the checks are running:
+  // they run there, in a dialog over the studio, and go on air from it
+  // (components/studio/GoLiveChecks). Waiting for `connecting` rather than
+  // pushing on the press: the studio sends an idle tab straight back here.
+  // Already live in this tab (back from the studio, say): this page's Go
+  // live would restart the show, so it isn't offered — back to the studio.
   useEffect(() => {
-    if (state !== "ready" || !pressed || wentLive.current) return
-    wentLive.current = true
-    void goLive()
-  }, [state, pressed, goLive])
+    if (stationSlug === slug && (state === "live" || state === "reconnecting")) {
+      router.replace(`/dashboard/stations/${slug}/studio`)
+    }
+  }, [state, stationSlug, slug, router])
 
-  const onAir = state === "live" || state === "reconnecting"
   useEffect(() => {
-    if (onAir) router.replace(`/dashboard/stations/${slug}/studio`)
-  }, [onAir, router, slug])
-
-  // Leaving between checks and air: nothing is out yet, so let the mic go.
-  const stateRef = useRef(state)
-  useEffect(() => {
-    stateRef.current = state
-  }, [state])
-  useEffect(() => () => {
-    if (stateRef.current === "ready" || stateRef.current === "connecting") void stop()
-  }, [stop])
+    if (!pressed) return
+    if (state === "connecting" || state === "ready" || state === "live" || state === "reconnecting") {
+      router.replace(`/dashboard/stations/${slug}/studio`)
+    }
+  }, [pressed, state, router, slug])
 
   function chooseMode(next: Mode) {
     setMode(next)
@@ -102,28 +87,48 @@ export default function GoLivePage() {
 
   function begin(skipMic = mode === "music") {
     mic.release()
-    wentLive.current = false
     setPressed(true)
     void start(slug, { skipMic, resumeFromStart })
   }
 
-  // Cancel. Leaving the page instead (the unmount above) hands nothing back:
-  // the sweep takes a station nobody connected to off air by itself.
-  function back() {
-    // 'error' too: a check that failed after `POST /start` (mic denied, engine
-    // error) still turned the station on, and Back must hand it back.
-    if (state === "ready" || state === "connecting" || state === "error") {
-      void stop({ releaseStation: autoDjLocked ? "if-started-here" : false })
-    }
-    setPressed(false)
-  }
-
   if (!station) {
     return (
-      <div className="mx-auto flex w-full max-w-190 flex-col gap-5.5" aria-busy>
-        <Skeleton className="h-11 w-80" />
-        <Skeleton className="h-36 rounded-panel" />
-        <Skeleton className="h-60 rounded-card" />
+      // The pre-flight's own grid (below), block for block — change one,
+      // change the other, or the page jumps when the station lands.
+      // minmax(0,1fr): a grid's implicit column sizes to its content, so a
+      // fixed-width placeholder could push the page wider than a phone.
+      <div
+        className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 overflow-x-clip xl:max-w-page xl:grid-cols-2 xl:grid-rows-[auto_1fr_auto] xl:items-start motion-reduce:[&_[data-slot=skeleton]]:animate-none"
+        aria-busy
+      >
+        <div className="flex min-w-0 flex-col gap-2 xl:col-span-2">
+          <Skeleton className="h-10 w-72 max-w-full" />
+          <Skeleton className="h-5 w-96 max-w-full" />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5.5">
+          <div className="flex flex-col gap-2.5">
+            <Skeleton className="h-5 w-32" />
+            {/* Phones: two small cards in a row; from sm, the full cards. */}
+            <div className="grid grid-cols-2 gap-2.5 sm:hidden">
+              <Skeleton className="h-20 rounded-well" />
+              <Skeleton className="h-20 rounded-well" />
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 max-sm:hidden">
+              <Skeleton className="h-24 rounded-card" />
+              <Skeleton className="h-24 rounded-card" />
+            </div>
+          </div>
+          <Skeleton className="h-22 rounded-panel lg:h-56 lg:rounded-card" />
+        </div>
+
+        <Skeleton className="h-16 rounded-panel lg:h-80 lg:rounded-card xl:col-start-2 xl:row-start-2 xl:self-stretch" />
+
+        {/* Below lg the buttons are the pinned bar, not part of the page. */}
+        <div className="flex w-full items-center gap-2.5 max-lg:hidden xl:col-span-2 xl:mx-auto xl:max-w-160">
+          <Skeleton className="h-16 flex-1 rounded-button-xl" />
+          <Skeleton className="h-16 w-32 rounded-button-xl" />
+        </div>
       </div>
     )
   }
@@ -155,52 +160,6 @@ export default function GoLivePage() {
     )
   }
 
-  const failed = pressed && state === "error"
-  const micBlocked = failed && mode === "mic" && isMicError(error)
-  const playerUrl = `${env.appUrl}/station/${station.slug}`
-
-  if (pressed) {
-    return (
-      <div className="mx-auto flex w-full max-w-190 flex-col gap-5.5">
-        <PageHeader title={failed ? "Couldn’t go live." : `Going live on ${station.name}…`} />
-        {micBlocked ? (
-          <Notice
-            label="Mic blocked"
-            actions={
-              <>
-                <Button size="lg" onClick={() => { chooseMode("music"); begin(true) }}>Go live with music only</Button>
-                <Button size="lg" variant="ghost" onClick={() => begin(false)}>Try again</Button>
-                <MicPermissionLink />
-              </>
-            }
-          >
-            Allow the microphone for this site in your browser’s settings and try again, or go live with music only. Nobody heard anything.
-          </Notice>
-        ) : failed ? (
-          <Notice
-            label="Not live"
-            actions={
-              <>
-                <Button size="lg" onClick={() => begin()}>Try again</Button>
-                <Button size="lg" variant="ghost" onClick={back}>Back</Button>
-              </>
-            }
-          >
-            {error || "Something stopped the broadcast from starting."} Nobody heard anything.
-          </Notice>
-        ) : null}
-        <CheckList steps={steps} />
-        {failed ? (
-          <Link href="/help/go-live-from-your-browser" target="_blank" rel="noopener noreferrer" className="self-start text-body-sm text-muted-foreground hover:text-foreground">
-            What going live from a browser needs →
-          </Link>
-        ) : (
-          <Button variant="quiet" className="self-start" onClick={back}>Cancel</Button>
-        )}
-      </div>
-    )
-  }
-
   const autoDjOnAir = station.is_on_air && !station.is_live
   // From xl: the heading across the top, the setup on the left, the music on
   // the right, the button underneath. The two columns end level; the page
@@ -208,35 +167,61 @@ export default function GoLivePage() {
   // inside its card instead of the page. One column (heading, setup, music,
   // button) below that.
   return (
-    <div className="mx-auto grid w-full max-w-190 gap-5.5 xl:max-w-page xl:grid-cols-2 xl:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] xl:grid-rows-[auto_1fr_auto] xl:items-start">
+    <div className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 max-lg:pb-[4.5rem] xl:max-w-page xl:grid-cols-2 xl:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] xl:grid-rows-[auto_1fr_auto] xl:items-start">
       <PageHeader
         className="xl:col-span-2"
         title="Ready when you are."
         description={autoDjOnAir ? "AutoDJ hands over when you start, and takes back when you end." : "Nothing goes out until you press the button."}
+        // Phones: the title alone, so the page fits above the pinned Go live.
+        descriptionClassName="max-sm:hidden"
       />
 
       <div className="flex min-w-0 flex-col gap-5.5">
         <section className="flex flex-col gap-2.5" aria-labelledby="mode-label">
           <h2 id="mode-label" className="font-display text-body font-bold">What goes out</h2>
+          {/* Phones: two small cards side by side with a short line each —
+              the full cards stacked cost ~230px; these fit in one row. */}
           <ChoiceCards
+            className="grid-cols-2 sm:hidden"
+            size="sm"
             aria-label="What goes out"
             eyebrow={false}
             value={mode}
             onChange={chooseMode}
             options={[
-              { value: "mic", title: "Mic + music", description: "Talk over your tracks. The music dips while you hold to talk." },
-              { value: "music", title: "Music only", description: "Play your running order. We won’t ask for the microphone." },
+              { value: "mic", title: "Mic + music", description: "Talk over your tracks." },
+              { value: "music", title: "Music only", description: "No microphone." },
+            ]}
+          />
+          <ChoiceCards
+            className="max-sm:hidden"
+            aria-label="What goes out"
+            eyebrow={false}
+            value={mode}
+            onChange={chooseMode}
+            options={[
+              { value: "mic", title: "Mic + music", description: MODE_TEXT.mic },
+              { value: "music", title: "Music only", description: MODE_TEXT.music },
             ]}
           />
         </section>
 
-        {mode === "mic" && <MicCheckCard mic={mic} onMusicOnly={() => chooseMode("music")} />}
+        {/* Kept in Music only, dimmed: removing it shrank the column and the
+            music card beside it, which is sized to this column. */}
+        <MicCheckCard mic={mic} disabled={mode !== "mic"} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
       </div>
 
       <RunningOrderCard
-        className="xl:col-start-2 xl:row-start-2 xl:min-h-0 xl:self-stretch"
+        // h-0 + min-h-full: the left column alone sets the row's height and
+        // this card fills it, so adding tracks scrolls the list instead of
+        // growing the card.
+        className="xl:col-start-2 xl:row-start-2 xl:h-0 xl:min-h-full"
         queue={queue}
         resumeFromStart={resumeFromStart}
+        // A new order is a new show: start it from the top. On screen only —
+        // not saved, and the saved spot is untouched, so backing out of the
+        // page loses nothing.
+        onReorder={() => setResumeFromStart(true)}
         onResumeFromStartChange={(next) => {
           setResumeFromStart(next)
           try {
@@ -246,32 +231,56 @@ export default function GoLivePage() {
       />
 
       <div className="flex w-full min-w-0 flex-col gap-2.5 xl:col-span-2 xl:mx-auto xl:max-w-160">
-        <Button size="xl" full dot="live" onClick={() => begin()}>
-          Go live on {station.name}
-        </Button>
-        <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1 text-body-sm text-text-faint">
-          <span>
-            Listeners tune in at <span className="font-mono text-muted-foreground">{playerUrl.replace(/^https?:\/\//, "")}</span>{" "}
-            <CopyLink url={taggedStationUrl(env.appUrl, station.slug, "owner")} />
-          </span>
-          <span aria-hidden>·</span>
-          <Link href={`/dashboard/stations/${station.slug}`} className="text-muted-foreground hover:text-foreground">
-            Not now
+        {/* Cancel is a quiet way back: nothing has gone out yet, so it is
+            not a destructive action and must not outshout Go live. */}
+        {/* Below lg both live in the pinned bar at the end of the page. */}
+        <div className="flex items-center gap-2.5 max-lg:hidden">
+          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()}>
+            Go live
+          </Button>
+          <Button asChild size="xl" variant="ghost">
+            <Link href={`/dashboard/stations/${station.slug}`}>Cancel</Link>
+          </Button>
+        </div>
+        {/* The other way on air: BUTT or Mixxx connect to the station
+            itself. Its address, key and "Put it on air" are in settings.
+            (The listener link used to sit here too; it's on the overview's
+            Your link card, which is where sharing happens.) */}
+        {station.encoder && (
+          <Link
+            href={`/dashboard/stations/${station.slug}/settings#encoder`}
+            className="self-center text-body-sm text-muted-foreground hover:text-foreground"
+          >
+            Using DJ software instead?
           </Link>
-          {/* The other way on air: BUTT or Mixxx connect to the station
-              itself. Its address, key and "Put it on air" are in settings. */}
-          {station.encoder && (
-            <>
-              <span aria-hidden>·</span>
-              <Link href={`/dashboard/stations/${station.slug}/settings#encoder`} className="text-muted-foreground hover:text-foreground">
-                Using DJ software instead?
-              </Link>
-            </>
-          )}
+        )}
+      </div>
+
+      {/* Phones and tablets: Go live pinned to the bottom (above the home indicator),
+          so it's never below the fold, with Cancel beside it. A solid
+          background with a soft shadow above it, not a fade: content fading
+          out reads as the end of the page. */}
+      {/* Tablets too: below lg is the touch layout (tab bar, drawer sidebar,
+          one column), so the bar is pinned at every size. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 bg-background px-gutter pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-bar-up lg:hidden">
+        <div className="mx-auto flex w-full max-w-190 flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()}>
+            Go live
+          </Button>
+          <Button asChild size="md" variant="quiet">
+            <Link href={`/dashboard/stations/${station.slug}`}>Cancel</Link>
+          </Button>
+        </div>
         </div>
       </div>
     </div>
   )
+}
+
+const MODE_TEXT: Record<Mode, string> = {
+  mic: "Talk over your tracks. The music dips while you hold to talk.",
+  music: "Play your running order. We won’t ask for the microphone.",
 }
 
 /** The mode last used for this station, in this browser. A client page: storage is readable on first render. */
@@ -291,29 +300,3 @@ function readResumeFromStart(): boolean {
   }
 }
 
-/** "Copy" after the listener link, to paste it out before going on air. */
-function CopyLink({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1600)
-    return () => clearTimeout(t)
-  }, [copied])
-
-  async function copy() {
-    if (await copyText(url)) setCopied(true)
-    else toast.error(`Couldn’t copy. The link is ${url}`)
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      className="cursor-pointer font-semibold text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {copied ? "Copied" : "Copy"}
-      <span className="sr-only"> listener link</span>
-      <span className="sr-only" aria-live="polite">{copied ? "Listener link copied" : ""}</span>
-    </button>
-  )
-}

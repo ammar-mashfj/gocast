@@ -91,6 +91,12 @@ interface BroadcastContextValue {
   getTransportStats: () => TransportStats | null
   /** Run the go-live checklist. Ends in `ready`, with nothing on air yet. */
   start: (stationId: string, options?: BroadcastStartOptions) => Promise<void>
+  /**
+   * Run the checklist again with the last start's station and options —
+   * the studio's Try again, which never saw the Go Live page's choices.
+   * `overrides` changes some of them (a blocked mic → music only).
+   */
+  retry: (overrides?: BroadcastStartOptions) => Promise<void>
   /** Go on air from `ready`. See {@link BroadcastManager.goLive}. */
   goLive: () => Promise<void>
   /** Change microphone at `ready`. See {@link BroadcastManager.switchMic}. */
@@ -139,8 +145,11 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   // station on is only known once it has wound down past `POST /start`.
   const inFlightRef = useRef<Promise<void> | null>(null)
 
+  const lastStartRef = useRef<{ stationId: string; options?: BroadcastStartOptions } | null>(null)
+
   const start = useCallback(async (stationId: string, options?: BroadcastStartOptions) => {
     if (startingRef.current) return
+    lastStartRef.current = { stationId, options }
     const token = {}
     startingRef.current = token
 
@@ -198,6 +207,12 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       if (startingRef.current === token) startingRef.current = null
     }
   }, [])
+
+  const retry = useCallback(async (overrides?: BroadcastStartOptions) => {
+    const last = lastStartRef.current
+    if (!last) return
+    await start(last.stationId, { ...last.options, ...overrides })
+  }, [start])
 
   const goLive = useCallback(async () => {
     const manager = managerRef.current
@@ -306,7 +321,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, [engine])
 
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, goLive, switchMic, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, retry, goLive, switchMic, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

@@ -75,7 +75,7 @@ export function Button({ className, variant, size, full, asChild = false, dot, c
   // fragment), or asChild merges onto the fragment instead of the link.
   return (
     <Comp data-slot="ds-button" className={classes} {...props}>
-      <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", dot === "live" ? "bg-live" : "bg-current")} />
+      <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", dot === "live" ? "dot-ripple bg-live" : "bg-current")} />
       <Slot.Slottable>{children}</Slot.Slottable>
     </Comp>
   )

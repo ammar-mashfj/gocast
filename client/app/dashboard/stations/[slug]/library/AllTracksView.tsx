@@ -246,7 +246,7 @@ export function AllTracksView({
             <div
               role="region"
               aria-label="Selected tracks"
-              className="sticky bottom-4 z-20 mx-3 mb-3 flex items-center gap-1.5 rounded-panel bg-popover py-2.5 pr-2 pl-4 sm:gap-2 sm:pr-2.5 sm:pl-4.5 shadow-panel animate-in fade-in-0 slide-in-from-bottom-2 duration-150 max-sm:bottom-20"
+              className="sticky bottom-4 z-20 mx-3 mb-3 flex items-center gap-1.5 rounded-panel bg-popover py-2.5 pr-2 pl-4 sm:gap-2 sm:pr-2.5 sm:pl-4.5 shadow-panel animate-in fade-in-0 slide-in-from-bottom-2 duration-150 max-lg:bottom-20"
             >
               <span className="font-mono text-body-sm font-semibold whitespace-nowrap tabular-nums">{selected.size} selected</span>
               <span className="flex-1" />

@@ -6,7 +6,7 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import { DEFAULT_MIC_PREFS, type DuckLevel, type FadeSpeed } from "@/lib/micPrefs"
 import { Button } from "@/components/ds/Button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ds/Menu"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ds/Dialog"
 import { Switch } from "@/components/ds/Switch"
 import { cn } from "@/lib/utils"
 
@@ -73,61 +73,72 @@ function Choice<T extends string>({
  * moves, and whether the voice is cleaned up. Changes apply at once — even
  * mid-sentence — and stay in this browser for the next show.
  */
-export function MicSettings() {
+/** The settings themselves, for the dialog here and the phone's Mic & monitor sheet. */
+export function MicSettingsFields() {
   const { engine } = useBroadcast()
   useEngineVersion(engine)
   const switchId = useId()
-
   const prefs = engine?.getMicPrefs() ?? DEFAULT_MIC_PREFS
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="quiet"
-          size="icon"
-          className="size-13 rounded-button bg-card text-foreground hover:bg-card/80"
-          aria-label="Mic settings"
-          title="Mic settings"
-          disabled={!engine}
-        >
-          <IconAdjustmentsHorizontal className="size-5.5" />
+    <>
+      <Choice
+        label="Music while you talk"
+        hint={
+          prefs.duck === "silence"
+            ? "The music fades out completely and keeps playing underneath."
+            : "How far the music drops under your voice."
+        }
+        options={DUCK_OPTIONS}
+        value={prefs.duck}
+        onChange={(duck) => engine?.setMicPrefs({ duck })}
+      />
+      <Choice
+        label="Fade"
+        hint="How quickly the music goes down and comes back."
+        options={FADE_OPTIONS}
+        value={prefs.fade}
+        onChange={(fade) => engine?.setMicPrefs({ fade })}
+      />
+      <div className="flex items-start justify-between gap-4 border-t border-border pt-4">
+        <label htmlFor={switchId} className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium text-foreground">Broadcast voice</span>
+          <span className="text-xs text-muted-foreground">
+            Cuts rumble and evens out your level so you sit clearly over the music.
+          </span>
+        </label>
+        <Switch
+          tone="live"
+          id={switchId}
+          checked={prefs.broadcastVoice}
+          onCheckedChange={(broadcastVoice) => engine?.setMicPrefs({ broadcastVoice })}
+        />
+      </div>
+    </>
+  )
+}
+
+export function MicSettings() {
+  const { engine } = useBroadcast()
+
+  // A labelled button opening a dialog (a bottom sheet on a phone), at
+  // every size: an icon alone told nobody what it was, and a popover off a
+  // button at the foot of the fit-to-screen studio had nowhere good to go.
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="quiet" className="h-13 w-full gap-2 rounded-button bg-card px-4 text-foreground hover:bg-card/80" disabled={!engine}>
+          <IconAdjustmentsHorizontal className="size-5" aria-hidden />
+          Mic settings
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 gap-5 p-4">
-        <Choice
-          label="Music while you talk"
-          hint={
-            prefs.duck === "silence"
-              ? "The music fades out completely and keeps playing underneath."
-              : "How far the music drops under your voice."
-          }
-          options={DUCK_OPTIONS}
-          value={prefs.duck}
-          onChange={(duck) => engine?.setMicPrefs({ duck })}
-        />
-        <Choice
-          label="Fade"
-          hint="How quickly the music goes down and comes back."
-          options={FADE_OPTIONS}
-          value={prefs.fade}
-          onChange={(fade) => engine?.setMicPrefs({ fade })}
-        />
-        <div className="flex items-start justify-between gap-4 border-t border-border pt-4">
-          <label htmlFor={switchId} className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-foreground">Broadcast voice</span>
-            <span className="text-xs text-muted-foreground">
-              Cuts rumble and evens out your level so you sit clearly over the music.
-            </span>
-          </label>
-          <Switch
-            tone="live"
-            id={switchId}
-            checked={prefs.broadcastVoice}
-            onCheckedChange={(broadcastVoice) => engine?.setMicPrefs({ broadcastVoice })}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
+      </DialogTrigger>
+      <DialogContent size="sm" className="gap-5">
+        <DialogHeader>
+          <DialogTitle>Mic settings</DialogTitle>
+          <DialogDescription>Changes apply straight away and stay in this browser.</DialogDescription>
+        </DialogHeader>
+        <MicSettingsFields />
+      </DialogContent>
+    </Dialog>
   )
 }

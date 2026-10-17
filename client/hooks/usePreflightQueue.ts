@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { QUEUE_BYTE_LIMIT, readDurationFromFile, readTagsFromFile } from "@/lib/audioEngine"
 import { clearQueue, loadPlayback, loadQueue, savePlayback, saveQueue, type PlaybackState } from "@/lib/queueStore"
-import { fitFiles, removeTrack, type PreflightTrack } from "@/lib/preflightQueue"
+import { fitFiles, moveTrack, removeTrack, type PreflightTrack } from "@/lib/preflightQueue"
 import { formatBytes } from "@/lib/format"
 
 type QueueState = { tracks: PreflightTrack[] | null; playback: PlaybackState | null }
@@ -135,6 +135,14 @@ export function usePreflightQueue(slug: string) {
     void persist(next.tracks, next.playback)
   }
 
+  function move(from: number, to: number) {
+    const { tracks: current, playback: pb } = latest.current
+    if (!current) return
+    const next = moveTrack(current, pb, from, to)
+    if (next.tracks === current) return
+    void persist(next.tracks, next.playback)
+  }
+
   async function clear() {
     await persist([], null)
   }
@@ -145,7 +153,7 @@ export function usePreflightQueue(slug: string) {
       ? { track: tracks[playback.currentIndex], offset: Math.max(0, playback.offset) }
       : null
 
-  return { tracks, unavailable, adding, add, remove, clear, savedSpot }
+  return { tracks, unavailable, adding, add, remove, move, clear, savedSpot }
 }
 
 /**
