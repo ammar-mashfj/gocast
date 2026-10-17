@@ -31,6 +31,11 @@ class StreamSessionController extends Controller
      * it had, and had to say "your latest 20" to stay honest. Only page 1
      * carries it: it scans the station's whole history, and "Show more" pages
      * have no use for it.
+     *
+     * `recent` feeds the Your shows chart: every finished show of the last 30
+     * days, oldest first, not just page 1's 20. It is capped at the newest 300
+     * so a runaway station can't make it the heavy part of the response, and
+     * the cap drops the oldest shows rather than the days the owner looks at.
      */
     public function index(Request $request, Station $station): JsonResponse
     {
@@ -51,15 +56,14 @@ class StreamSessionController extends Controller
             ->selectRaw('COALESCE(SUM(GREATEST(TIMESTAMPDIFF(SECOND, started_at, ended_at), 0)), 0) as live_seconds')
             ->first();
 
-        // The Your shows chart: every finished show of the last 30 days, not
-        // just the first page's 20. Capped so a runaway station can't make
-        // this the heavy part of the response.
         $recent = $station->streamSessions()
             ->whereNotNull('ended_at')
             ->where('started_at', '>=', now()->subDays(30)->startOfDay())
-            ->oldest('started_at')
+            ->latest('started_at')
             ->limit(300)
-            ->get(['id', 'started_at', 'ended_at', 'peak_listeners']);
+            ->get(['id', 'started_at', 'ended_at', 'peak_listeners'])
+            ->reverse()
+            ->values();
 
         return response()->json([
             ...$page->toArray(),

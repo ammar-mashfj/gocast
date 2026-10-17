@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { airState, type AirInput } from "./airState"
 import type { StationStatus } from "@/interfaces/StationStatus"
 import type { StudioSignal } from "@/components/studio/signal"
+import { stationHero, type HeroInput } from "./stationHero"
 
 function status(over: Partial<StationStatus> = {}): StationStatus {
   return {
@@ -31,6 +32,17 @@ const signal = (over: Partial<StudioSignal>): StudioSignal => ({
   label: "Live",
   detail: "Listeners hear you about 15–20 seconds after you speak.",
   ...over,
+})
+
+const heroInput = (s: StationStatus): HeroInput => ({
+  stationState: "live",
+  status: s,
+  loading: false,
+  slow: false,
+  liveFromThisBrowser: false,
+  autoDjLocked: false,
+  lastNowPlaying: null,
+  playlistName: null,
 })
 
 function input(over: Partial<AirInput> = {}): AirInput {
@@ -116,6 +128,13 @@ describe("airState — from the poll", () => {
   it("trusts the open session when the container predates `broadcaster`", () => {
     const s = status({ state: "live", broadcaster: null, live_source: { type: "browser", client: null } })
     expect(airState(input({ status: s })).message).toBe("You’re live from another browser.")
+  })
+
+  it("says no answer, like the overview hero, when only the session says live", () => {
+    // The session row outlives an unreachable container's say-so.
+    const s = status({ state: "live", reachable: false, broadcaster: null, source: null, live_source: { type: "browser", client: null } })
+    expect(airState(input({ status: s }))).toMatchObject({ label: "NO ANSWER", onAir: false })
+    expect(stationHero(heroInput(s)).headline).toBe("no_answer")
   })
 })
 

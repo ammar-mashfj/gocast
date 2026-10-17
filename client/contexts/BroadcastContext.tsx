@@ -89,8 +89,12 @@ interface BroadcastContextValue {
    * sample it on their own cadence.
    */
   getTransportStats: () => TransportStats | null
-  /** Run the go-live checklist. Ends in `ready`, with nothing on air yet. */
-  start: (stationId: string, options?: BroadcastStartOptions) => Promise<void>
+  /**
+   * Run the go-live checklist. Ends in `ready`, with nothing on air yet.
+   * Resolves false, having done nothing, when another start still holds the
+   * provider, so a caller that changed its own state for the start can undo it.
+   */
+  start: (stationId: string, options?: BroadcastStartOptions) => Promise<boolean>
   /**
    * Run the checklist again with the last start's station and options —
    * the studio's Try again, which never saw the Go Live page's choices.
@@ -99,8 +103,6 @@ interface BroadcastContextValue {
   retry: (overrides?: BroadcastStartOptions) => Promise<void>
   /** Go on air from `ready`. See {@link BroadcastManager.goLive}. */
   goLive: () => Promise<void>
-  /** Change microphone at `ready`. See {@link BroadcastManager.switchMic}. */
-  switchMic: (deviceId: string) => Promise<void>
   /**
    * End the broadcast. `releaseStation` additionally takes the station off
    * air, and belongs to callers that know the account has no AutoDJ to hand
@@ -148,7 +150,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   const lastStartRef = useRef<{ stationId: string; options?: BroadcastStartOptions } | null>(null)
 
   const start = useCallback(async (stationId: string, options?: BroadcastStartOptions) => {
-    if (startingRef.current) return
+    if (startingRef.current) return false
     lastStartRef.current = { stationId, options }
     const token = {}
     startingRef.current = token
@@ -161,7 +163,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         try { await managerRef.current.stop() } catch { /* discard */ }
       }
       // Cancelled during that teardown: don't build a manager nobody will stop.
-      if (startingRef.current !== token) return
+      if (startingRef.current !== token) return true
 
       setError(null)
       // A new start is a new show. A broadcast that died of exhausted
@@ -185,8 +187,8 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
               toast.success("🎙️ You're live for the first time — share your link!")
             })
           } else if (s === 'ready') {
-            // For the Ready screen's mic check: the mic is open, nothing is
-            // on air, and the host should see the bars move before they go.
+            // The mic is open though nothing is on air yet: the studio's mic
+            // meter and device name can show it while goLive connects.
             setMicStream(manager.getMicStream())
           } else if (s === 'idle') {
             setMicStream(null)
@@ -203,6 +205,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       const run = manager.start(options)
       inFlightRef.current = run
       await run
+      return true
     } finally {
       if (startingRef.current === token) startingRef.current = null
     }
@@ -220,12 +223,6 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     const run = manager.goLive()
     inFlightRef.current = run
     await run
-  }, [])
-
-  const switchMic = useCallback(async (deviceId: string) => {
-    const manager = managerRef.current
-    if (!manager) return
-    setMicStream(await manager.switchMic(deviceId))
   }, [])
 
   const getTransportStats = useCallback(
@@ -321,7 +318,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, [engine])
 
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, retry, goLive, switchMic, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, retry, goLive, stop }}>
       {children}
     </BroadcastContext.Provider>
   )

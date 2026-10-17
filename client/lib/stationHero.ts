@@ -1,4 +1,5 @@
 import type { StationStatus } from "@/interfaces/StationStatus"
+import { broadcasterOnAir } from "@/lib/airState"
 
 /**
  * What the overview's hero says and offers, as one pure answer.
@@ -103,7 +104,7 @@ export function stationHero(input: HeroInput): Hero {
   // container too old to report the flag (only while the station runs).
   const broadcasterAttached =
     isRunning &&
-    (liveFromThisBrowser || (status?.reachable === true && (status.broadcaster ?? status.live_source !== null)))
+    (liveFromThisBrowser || (status !== null && broadcasterOnAir(status)))
 
   // An encoder has no studio to open: harbor takes one source per mount.
   const liveFromEncoder = broadcasterAttached && status?.live_source?.type === "external"

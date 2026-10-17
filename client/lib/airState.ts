@@ -69,6 +69,20 @@ export interface AirInput {
 const offMessage = (autoDjLocked: boolean) =>
   autoDjLocked ? "Go live to put your station on air." : "Start AutoDJ or go live to put your station on air."
 
+/**
+ * Is somebody broadcasting to the station, as far as the status poll can say?
+ * The one answer the status band and the overview hero both read, so they
+ * can't disagree.
+ *
+ * The container's `broadcaster` flag, or for a container too old to report
+ * it, the open session. Only from a container that answered: `live_source`
+ * comes from Laravel's session row, which an unreachable container can't
+ * confirm, so that is "no answer", not "live".
+ */
+export function broadcasterOnAir(status: StationStatus): boolean {
+  return status.reachable === true && (status.broadcaster ?? status.live_source !== null)
+}
+
 export function airState(input: AirInput): AirState {
   const { status, statusLoading, broadcastState, signal, micLatched, autoDjLocked, onStudio, showEnding } = input
 
@@ -138,7 +152,7 @@ export function airState(input: AirInput): AirState {
 
   // A broadcaster from somewhere other than this tab: DJ software, the app,
   // or another browser.
-  if (status.broadcaster === true || (status.broadcaster === null && status.live_source !== null)) {
+  if (broadcasterOnAir(status)) {
     const from =
       status.live_source?.type === "external"
         ? "from your DJ software"

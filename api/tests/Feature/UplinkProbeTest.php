@@ -32,6 +32,16 @@ it('refuses a body far bigger than a probe', function () {
     probe(str_repeat('x', 300 * 1024))->assertStatus(413);
 });
 
+it('refuses an oversized upload by its declared length, before reading it', function () {
+    actingAs(User::factory()->create());
+
+    call('POST', '/api/broadcast/uplink-probe', [], [], [], [
+        'CONTENT_TYPE' => 'application/octet-stream',
+        'CONTENT_LENGTH' => (string) (300 * 1024),
+        'HTTP_ACCEPT' => 'application/json',
+    ], 'x')->assertStatus(413);
+});
+
 it('needs a signed-in user', function () {
     probe('x')->assertUnauthorized();
 });

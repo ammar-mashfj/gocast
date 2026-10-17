@@ -108,6 +108,17 @@ export function useLibrary(
     setMembers((prev) => ({ ...prev, [id]: data.data }))
   }, [])
 
+  /**
+   * After a failed edit or delete. Every cached playlist got the optimistic
+   * change, not just the open one: the open one is refetched, and the rest
+   * are dropped so they load fresh when next opened.
+   */
+  const resyncMembers = useCallback(async () => {
+    const openId = currentPlaylist?.id
+    setMembers((prev) => (openId && prev[openId] ? { [openId]: prev[openId] } : {}))
+    if (openId) await refetchMembers(openId)
+  }, [currentPlaylist, refetchMembers])
+
   const refetchLibrary = useCallback(async () => {
     const { data } = await api.get<{ data: Track[]; meta: LibraryMeta }>(`/stations/${slug}/tracks`)
     setTracks(data.data)
@@ -182,10 +193,10 @@ export function useLibrary(
         await api.patch(`/tracks/${id}`, fields)
       } catch {
         toast.error("Save failed. Refreshing…")
-        await Promise.allSettled([refetchLibrary(), currentPlaylist ? refetchMembers(currentPlaylist.id) : null])
+        await Promise.allSettled([refetchLibrary(), resyncMembers()])
       }
     },
-    [refetchLibrary, refetchMembers, currentPlaylist],
+    [refetchLibrary, resyncMembers],
   )
 
   const handleDelete = useCallback(
@@ -212,10 +223,10 @@ export function useLibrary(
         toast.success("Track deleted.")
       } catch {
         toast.error("Delete failed. Refreshing…")
-        await Promise.allSettled([refetchLibrary(), currentPlaylist ? refetchMembers(currentPlaylist.id) : null])
+        await Promise.allSettled([refetchLibrary(), refetchPlaylists(), resyncMembers()])
       }
     },
-    [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchMembers, currentPlaylist, confirm],
+    [tracks, bumpPlaylist, applyStorageDelta, refetchLibrary, refetchPlaylists, resyncMembers, confirm],
   )
 
   /**
@@ -258,11 +269,7 @@ export function useLibrary(
         setMeta(data.meta)
       } catch {
         toast.error("Delete failed. Refreshing…")
-        await Promise.allSettled([
-          refetchLibrary(),
-          refetchPlaylists(),
-          currentPlaylist ? refetchMembers(currentPlaylist.id) : null,
-        ])
+        await Promise.allSettled([refetchLibrary(), refetchPlaylists(), resyncMembers()])
         return
       }
       // The delete landed. The rail's per-playlist counts and the open
@@ -284,6 +291,7 @@ export function useLibrary(
       refetchLibrary,
       refetchPlaylists,
       refetchMembers,
+      resyncMembers,
       currentPlaylist,
     ],
   )

@@ -19,8 +19,15 @@ class UplinkProbeController extends Controller
     /** The client sends 96 KB. Anything much bigger is not a probe. */
     private const MAX_BYTES = 256 * 1024;
 
+    /**
+     * Content-Length is checked before the body is read, so an oversized
+     * upload is refused without buffering it. The length after reading still
+     * guards a chunked upload, which declares none.
+     */
     public function __invoke(Request $request): JsonResponse
     {
+        abort_if((int) $request->header('Content-Length', 0) > self::MAX_BYTES, 413);
+
         $bytes = strlen($request->getContent());
 
         abort_if($bytes > self::MAX_BYTES, 413);

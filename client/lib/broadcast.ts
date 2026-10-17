@@ -1,18 +1,20 @@
-import { openMic, rememberMicDevice, savedMicDeviceId } from './mic'
+import { openMic, savedMicDeviceId } from './mic'
 import { AudioEngine, BITRATE_TIERS, DEFAULT_BITRATE, assertBroadcastSupported, type Bitrate } from './audioEngine'
 import api from './axios'
 import { captureDrop, flushDrops, resolveDrop } from './studioDropLog'
 import { MIN_UPLINK_KBPS, checkUplink, reportUplinkCheck } from './uplinkProbe'
 
 /**
- * The checklist. Connecting is not one of them: it happens on Start, after
- * the list has finished, and the lamp covers it ("Going live…").
+ * The checklist. Connecting is not one of them: it happens in
+ * {@link BroadcastManager.goLive}, after the list has finished, and the lamp
+ * covers it ("Going live…").
  */
 export type BroadcastStep = 'network' | 'station' | 'mic' | 'engine'
 export type StepStatus = 'pending' | 'active' | 'done' | 'error'
 /**
  * `ready`: every check has passed and the engine is built, but no socket is
- * open, so nothing is on air. The host goes on air with {@link BroadcastManager.goLive}.
+ * open, so nothing is on air. The studio calls {@link BroadcastManager.goLive}
+ * as soon as it sees it (GoLiveChecks); there is no second press.
  */
 export type BroadcastState = 'idle' | 'connecting' | 'ready' | 'live' | 'reconnecting' | 'error'
 
@@ -81,15 +83,11 @@ const HELLO_GRACE_MS = 600
 const STATION_READY_TIMEOUT_MS = 20000
 
 /**
- * How long a finished checklist stays good. Past this, Start runs the whole
- * checklist again before connecting: the upload measured minutes ago may not
- * be the one the show gets, and the sweep may have stopped the station.
- */
-const READY_STALE_MS = 3 * 60_000
-/**
  * A station the checklist brought up this recently is taken as still up when
- * Start goes on air. Start usually follows the checks within a second, and
- * asking again then was a second `POST /start` on every go-live.
+ * goLive connects. The station step runs before the mic prompt, so a host who
+ * takes a while to answer it reaches `ready` with a station checked long ago,
+ * which goLive asks about again; otherwise that would be a second
+ * `POST /start` on every go-live.
  */
 const STATION_FRESH_MS = 30_000
 const STATION_READY_POLL_MS = 1000
@@ -343,14 +341,12 @@ export class BroadcastManager {
    * metadata into the stream.
    */
   private sentMetadataKey: string | null = null
-  /** What {@link start} was called with, for a stale checklist to re-run. */
+  /** What {@link start} was called with, for goLive's resumePlayback. */
   private startOptions: BroadcastStartOptions | undefined
-  /** When the checklist last finished, for {@link READY_STALE_MS}. */
-  private readyAt = 0
   /** When the station was last confirmed on air, for {@link STATION_FRESH_MS}. */
   private stationCheckedAt = 0
   /**
-   * Set while Start re-checks what the host already watched pass. The steps
+   * Set while goLive re-checks what the host already watched pass. The steps
    * still update here, so a failure can name its step, but the list on screen
    * stays as it was: showing the same checks run twice reads as the page
    * repeating itself.
@@ -400,15 +396,15 @@ export class BroadcastManager {
 
   /**
    * Run the go-live checklist up to, not including, the socket: connection,
-   * station, mic, engine. Ends in `ready` with nothing on air, and the host
-   * goes on air with {@link goLive}. On any failure, calls {@link fail}.
+   * station, mic, engine. Ends in `ready` with nothing on air; the studio
+   * then calls {@link goLive}. On any failure, calls {@link fail}.
    *
-   * The split is so the moment a host goes on air is one they choose. A
-   * socket that opened the moment the checks passed put them on air on a
-   * page with no controls, with the queue already playing.
+   * The split is so the socket opens on the studio page, where the host has
+   * controls, not wherever the checks happened to finish.
    */
   async start(options?: BroadcastStartOptions): Promise<void> {
     this.stopping = false
+    this.quietSteps = false
     this.established = false
     this.reconnecting = false
     this.lastMetadata = null
@@ -422,7 +418,6 @@ export class BroadcastManager {
 
     try {
       await this.runChecks(run, options)
-      this.readyAt = Date.now()
       this.callbacks.onStateChange('ready')
     } catch (err) {
       // Cancelled: stop() has already torn down and said `idle`. A step that
@@ -440,9 +435,7 @@ export class BroadcastManager {
    * The station is checked again first, unless the checklist confirmed it
    * within {@link STATION_FRESH_MS}. `POST /start` is idempotent, so on a
    * station that is still running it costs one request; on one the sweep
-   * stopped while the host sat on the Start screen it brings it back. A
-   * checklist older than {@link READY_STALE_MS}, or a mic that has gone away
-   * since (unplugged, revoked), is run again in full instead.
+   * stopped while the host sat on the mic prompt it brings it back.
    */
   async goLive(): Promise<void> {
     if (!this.engine || this.ws) return
@@ -452,25 +445,22 @@ export class BroadcastManager {
     // and a socket opened now would sit on the harbor mount behind an `idle`.
     const cancelled = () => run !== this.checksRun
     this.callbacks.onStateChange('connecting')
-    // Inside the Start click: the one moment a resume is sure to be allowed.
+    // No user gesture here (the studio calls this from an effect), so the
+    // browser may refuse; BroadcastContext retries on the next click or key.
     void this.engine.resume().catch(() => {})
 
     try {
-      this.quietSteps = true
-      const micGone = this.micStream?.getAudioTracks().some((t) => t.readyState === 'ended') ?? false
-      if (micGone || Date.now() - this.readyAt > READY_STALE_MS) {
-        this.micStream?.getTracks().forEach((t) => t.stop())
-        this.micStream = null
-        await this.engine.destroy()
-        this.engine = null
-        await this.runChecks(run, this.startOptions)
-      } else if (Date.now() - this.stationCheckedAt > STATION_FRESH_MS) {
-        this.setActiveStep('station')
-        await this.ensureStationOnAir(run)
-        if (cancelled()) throw new ChecksCancelled()
-        this.updateStep('station', 'done')
+      if (Date.now() - this.stationCheckedAt > STATION_FRESH_MS) {
+        this.quietSteps = true
+        try {
+          this.setActiveStep('station')
+          await this.ensureStationOnAir(run)
+          if (cancelled()) throw new ChecksCancelled()
+          this.updateStep('station', 'done')
+        } finally {
+          this.quietSteps = false
+        }
       }
-      this.quietSteps = false
 
       await this.connectWebcast(run)
       if (cancelled()) throw new ChecksCancelled()
@@ -1373,21 +1363,6 @@ export class BroadcastManager {
       }
     }
     return openMic()
-  }
-
-  /**
-   * Swap to another microphone before going on air, and remember it for the
-   * next show. Only at `ready`: mid-show the swap would cut the audio.
-   * Throws if the device can't be opened, leaving the current mic in place.
-   */
-  async switchMic(deviceId: string): Promise<MediaStream> {
-    if (!this.engine || !this.micStream || this.ws) throw new Error('Not ready to change microphone')
-    const next = await openMic(deviceId)
-    this.engine.setMicStream(next)
-    this.micStream.getTracks().forEach((t) => t.stop())
-    this.micStream = next
-    rememberMicDevice(deviceId)
-    return next
   }
 
   getSessionId(): string | null {

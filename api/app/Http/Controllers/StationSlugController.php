@@ -15,11 +15,15 @@ use Illuminate\Http\Request;
  */
 class StationSlugController extends Controller
 {
+    /**
+     * Preview the link for `?name=`.
+     *
+     * `max:100` is the same bound as StoreStationRequest: a longer name would
+     * be refused on create, so there is no link to preview for it. `string`
+     * keeps an array (`?name[]=`) a 422 rather than a cast warning.
+     */
     public function __invoke(Request $request): JsonResponse
     {
-        // Same bound as StoreStationRequest: a longer name would be refused on
-        // create, so there is no link to preview for it. `string` keeps an
-        // array (`?name[]=`) a 422 rather than a cast warning.
         $validated = $request->validate(['name' => ['nullable', 'string', 'max:100']]);
         $name = trim($validated['name'] ?? '');
 

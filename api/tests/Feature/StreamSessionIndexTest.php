@@ -3,6 +3,7 @@
 use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\User;
+use Illuminate\Support\Str;
 
 /**
  * GET /stations/{slug}/sessions, as the Your shows page reads it: past shows
@@ -61,6 +62,29 @@ it('pages through past shows', function () {
         ->assertJsonPath('last_page', 2)
         // Only page 1 pays for the whole-history summary.
         ->assertJsonMissingPath('summary');
+});
+
+it('keeps the newest shows when the chart\'s cap is hit', function () {
+    $start = now()->subDays(29)->startOfDay();
+    $rows = collect(range(0, 300))->map(fn (int $i) => [
+        'id' => (string) Str::uuid(),
+        'station_id' => $this->station->id,
+        'started_at' => $start->copy()->addHours($i * 2),
+        'ended_at' => $start->copy()->addHours($i * 2)->addMinutes(30),
+        'peak_listeners' => 1,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    StreamSession::insert($rows->all());
+
+    $recent = $this->actingAs($this->station->user)
+        ->getJson('/api/stations/jazz/sessions?finished=1')
+        ->assertOk()
+        ->assertJsonCount(300, 'recent')
+        ->json('recent');
+
+    // The oldest show is the one dropped, and the rest stay oldest first.
+    expect(array_column($recent, 'id'))->toBe($rows->skip(1)->pluck('id')->values()->all());
 });
 
 it('is the owner\'s only', function () {

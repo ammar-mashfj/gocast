@@ -88,7 +88,11 @@ export default function GoLivePage() {
   function begin(skipMic = mode === "music") {
     mic.release()
     setPressed(true)
-    void start(slug, { skipMic, resumeFromStart })
+    // Another start still holds the provider: nothing ran, so give the host
+    // their mic preview and this page's panels back rather than a dead page.
+    void start(slug, { skipMic, resumeFromStart }).then((ran) => {
+      if (!ran) setPressed(false)
+    })
   }
 
   if (!station) {
