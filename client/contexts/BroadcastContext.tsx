@@ -365,3 +365,15 @@ export function useBroadcast() {
 export function useBroadcastOptional(): BroadcastContextValue | null {
   return useContext(BroadcastContext)
 }
+
+/**
+ * Whether following this in-app link in the same tab would end the show:
+ * anything outside /dashboard unmounts the provider, and the unmount stops
+ * the broadcast. Links that can take the host there mid-show (notifications)
+ * open in a new tab instead.
+ */
+export function useLinkEndsShow(href: string | null): boolean {
+  const ctx = useContext(BroadcastContext)
+  if (!href || !ctx || ctx.state === 'idle') return false
+  return !/^\/dashboard(?:[/?#]|$)/.test(href)
+}

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ds/Dialog"
 import { resolveNotificationAction } from "@/lib/notifications"
+import { useLinkEndsShow } from "@/contexts/BroadcastContext"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/interfaces/Notification"
 
@@ -47,6 +48,7 @@ export function NotificationDetailDialog({
   // this app should not link to at all, in which case the dialog is still
   // worth showing for its text and simply has no button.
   const behaviour = notification ? resolveNotificationAction(notification) : { kind: "none" as const }
+  const endsShow = useLinkEndsShow(behaviour.kind === "none" ? null : behaviour.href)
   const detail = notification?.action?.detail ?? null
   const label = notification?.action?.label ?? "Open"
 
@@ -102,7 +104,9 @@ export function NotificationDetailDialog({
 
           {behaviour.kind !== "none" && (
             <DialogFooter>
-              {behaviour.external ? (
+              {/* Out of the dashboard mid-show is a new tab too: in this
+                  one it would unmount the broadcast and end the show. */}
+              {behaviour.external || endsShow ? (
                 <Button size="lg" asChild>
                   <a href={behaviour.href} target="_blank" rel="noopener noreferrer" onClick={onClose}>
                     {label}

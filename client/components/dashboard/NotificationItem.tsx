@@ -7,6 +7,7 @@ import { resolveNotificationAction, notificationDotClass } from "@/lib/notificat
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/interfaces/Notification"
 import { NotificationIcon } from "@/components/dashboard/NotificationIcon"
+import { useLinkEndsShow } from "@/contexts/BroadcastContext"
 
 interface NotificationItemProps {
   notification: Notification
@@ -54,6 +55,7 @@ export function NotificationItem({
 }: NotificationItemProps) {
   const unread = notification.read_at === null
   const behaviour = resolveNotificationAction(notification)
+  const endsShow = useLinkEndsShow(behaviour.kind === "link" ? behaviour.href : null)
 
   // `pr-10` keeps the title clear of the dismiss button in the corner.
   const rowClass = "flex w-full gap-3 rounded-control py-3 pr-10 pl-3 text-left transition-colors hover:bg-surface-strong"
@@ -113,7 +115,9 @@ export function NotificationItem({
         <button type="button" className={rowClass} onClick={handleExpand}>
           {content}
         </button>
-      ) : behaviour.external ? (
+      ) : behaviour.external || endsShow ? (
+        // A link out of the dashboard mid-show opens a new tab: in this one
+        // it would unmount the broadcast and end the show.
         <a
           href={behaviour.href}
           target="_blank"

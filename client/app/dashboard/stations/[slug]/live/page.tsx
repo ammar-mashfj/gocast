@@ -91,6 +91,9 @@ export default function GoLivePage() {
   }
 
   function begin(skipMic = mode === "music") {
+    // Tracks still being read aren't saved yet, and the engine loads the
+    // saved queue: going live now would start the show without them.
+    if (queue.adding) return
     mic.release()
     setPressed(true)
     // Another start still holds the provider: nothing ran, so give the host
@@ -263,8 +266,8 @@ export default function GoLivePage() {
             not a destructive action and must not outshout Go live. */}
         {/* Below lg both live in the pinned bar at the end of the page. */}
         <div className="flex items-center gap-2.5 max-lg:hidden">
-          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()}>
-            Go live
+          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()} disabled={queue.adding}>
+            {queue.adding ? "Adding tracks…" : "Go live"}
           </Button>
           <Button asChild size="xl" variant="ghost">
             <Link href={`/dashboard/stations/${station.slug}`}>Cancel</Link>
@@ -293,8 +296,8 @@ export default function GoLivePage() {
       <div className="fixed inset-x-0 bottom-0 z-20 bg-background px-gutter pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-bar-up lg:hidden">
         <div className="mx-auto flex w-full max-w-190 flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()}>
-            Go live
+          <Button size="xl" dot="live" className="min-w-0 flex-1" onClick={() => begin()} disabled={queue.adding}>
+            {queue.adding ? "Adding tracks…" : "Go live"}
           </Button>
           <Button asChild size="md" variant="quiet">
             <Link href={`/dashboard/stations/${station.slug}`}>Cancel</Link>

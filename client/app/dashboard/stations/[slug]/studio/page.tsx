@@ -102,6 +102,9 @@ export default function StudioPage() {
   // that bounces to Go Live. So step off the guard first, then replace.
   useEffect(() => {
     if (state === "live") wasLive.current = true
+    // A new run (Go back on air) is a new show: if its checks fail, Back to
+    // setup belongs on Go Live, not on a wrap screen with no summary.
+    if (state === "connecting") wasLive.current = false
     if (state !== "idle") return
     const target = `/dashboard/stations/${slug}/${wasLive.current ? "studio/wrap" : "live"}`
     if (!window.history.state?.[LIVE_GUARD]) {
