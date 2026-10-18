@@ -27,6 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Notice } from "@/components/ds/Notice"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 
+/** history.state key on the extra entry the live back-guard keeps on top. */
+const LIVE_GUARD = "__gocastLiveGuard"
+
 /**
  * The studio, while you're live: the talk pad and the mic on the left; what's
  * playing, the show's numbers, the running order, your link and End show on
@@ -43,6 +46,7 @@ export default function StudioPage() {
   const { state, engine, micDisabled, liveSince } = useBroadcast()
   const station = useStationBySlug(slug)
   const wasLive = useRef(false)
+  const leavingGuard = useRef(false)
   // This show reached the air: a later `error` is the show going off air for
   // good (reconnects spent), not a check that failed. The checks dialog stays
   // closed for that, so the studio has to say it. Adjusted while rendering,
@@ -76,11 +80,10 @@ export default function StudioPage() {
   // live tab straight back here).
   useEffect(() => {
     if (!isLive) return
-    const MARK = "__gocastLiveGuard"
-    const guard = () => window.history.pushState({ ...window.history.state, [MARK]: true }, "")
-    if (!window.history.state?.[MARK]) guard()
+    const guard = () => window.history.pushState({ ...window.history.state, [LIVE_GUARD]: true }, "")
+    if (!window.history.state?.[LIVE_GUARD]) guard()
     const onPop = () => {
-      if (window.history.state?.[MARK]) return
+      if (window.history.state?.[LIVE_GUARD]) return
       guard()
       window.dispatchEvent(new Event(ASK_END_SHOW_EVENT))
     }
@@ -93,9 +96,31 @@ export default function StudioPage() {
 
   // Not live: a show that just ended goes to its wrap screen; a studio
   // opened without a show goes to pre-flight.
+  // The back-guard's extra entry is still on top when the show ends (its
+  // effect only stops listening). Replacing it would leave the studio's own
+  // entry under the wrap screen, and Back from there would land on a studio
+  // that bounces to Go Live. So step off the guard first, then replace.
   useEffect(() => {
     if (state === "live") wasLive.current = true
-    if (state === "idle") router.replace(`/dashboard/stations/${slug}/${wasLive.current ? "studio/wrap" : "live"}`)
+    if (state !== "idle") return
+    const target = `/dashboard/stations/${slug}/${wasLive.current ? "studio/wrap" : "live"}`
+    if (!window.history.state?.[LIVE_GUARD]) {
+      router.replace(target)
+      return
+    }
+    const onPop = () => {
+      window.removeEventListener("popstate", onPop)
+      leavingGuard.current = false
+      router.replace(target)
+    }
+    window.addEventListener("popstate", onPop)
+    // back() is async: an effect re-run before it lands (StrictMode, a new
+    // router) must wait for that one, not step back a second entry.
+    if (!leavingGuard.current) {
+      leavingGuard.current = true
+      window.history.back()
+    }
+    return () => window.removeEventListener("popstate", onPop)
   }, [state, slug, router])
 
   // Transport shortcuts. Only a text field, an open dialog, or a modifier

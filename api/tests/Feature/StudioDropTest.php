@@ -122,3 +122,23 @@ it('keeps the bitrate and measured upload speed', function () {
     expect($event->properties['bitrate'])->toBe(96)
         ->and($event->properties['uplink_kbps'])->toBe(170);
 });
+
+it('records a resend when the first delivery wrote no row', function () {
+    // record() swallows its own failures and returns null; fail the first write.
+    $fail = true;
+    StationEvent::creating(function () use (&$fail) {
+        if ($fail) {
+            $fail = false;
+            throw new RuntimeException('db down');
+        }
+    });
+
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed'])]])
+        ->assertJson(['recorded' => 0]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'reconnected'])]])
+        ->assertJson(['recorded' => 1]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->sole()->properties['outcome'])->toBe('reconnected');
+});

@@ -111,12 +111,15 @@ export function usePreflightQueue(slug: string) {
     try {
       const used = latest.current.tracks.reduce((s, t) => s + t.file.size, 0)
       const { fit, skipped } = fitFiles(audio, used, QUEUE_BYTE_LIMIT)
-      const read = await Promise.all(
-        fit.map(async (file) => {
-          const [duration, tags] = await Promise.all([readDurationFromFile(file).catch(() => 0), readTagsFromFile(file)])
-          return { id: crypto.randomUUID(), file, title: tags.title, artist: tags.artist, duration }
-        }),
-      )
+      // One file at a time, as AudioEngine.addFiles does: each length read
+      // holds a media element, and Chrome refuses players past ~75 a page
+      // (fewer on Android). Read all at once, a long drop records 0s for
+      // the reads that error out or miss the metadata timeout.
+      const read: PreflightTrack[] = []
+      for (const file of fit) {
+        const [duration, tags] = await Promise.all([readDurationFromFile(file).catch(() => 0), readTagsFromFile(file)])
+        read.push({ id: crypto.randomUUID(), file, title: tags.title, artist: tags.artist, duration })
+      }
       // Merged onto the list as it is now, not as it was when the files
       // were picked: the reads above take a while on a long list.
       await persist([...(latest.current.tracks ?? []), ...read], latest.current.playback)

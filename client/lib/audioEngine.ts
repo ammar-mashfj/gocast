@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs'
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback, isReadable } from './queueStore'
+import { fitFiles } from './preflightQueue'
 import { DUCK_GAIN, FADE_TIME_CONSTANT, loadMicPrefs, saveMicPrefs, type MicPrefs } from './micPrefs'
 
 export interface QueueTrack {
@@ -537,10 +538,6 @@ export class AudioEngine {
     return { channels: 2, samplerate: SAMPLE_RATE, bitrate: this.bitrate, encoder: 'libmp3lame' }
   }
 
-  getBitrate(): Bitrate {
-    return this.bitrate
-  }
-
   /**
    * Re-encode at a new bitrate from the next frame on. The worker flushes the
    * old encoder's tail first, so no audio is lost, but the seam carries a few
@@ -970,16 +967,12 @@ export class AudioEngine {
    * actual audio data is streamed from the File on demand at play time.
    */
   async addFiles(files: FileList | File[]): Promise<AddFilesResult> {
-    const skipped: File[] = []
+    const audio = Array.from(files).filter((f) => f.type.startsWith('audio/'))
+    // The same rule pre-flight applies (usePreflightQueue), so both agree on what fits.
+    const { fit, skipped } = fitFiles(audio, this.getQueueBytes(), QUEUE_BYTE_LIMIT)
     let added = 0
-    let currentBytes = this.getQueueBytes()
 
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('audio/')) continue
-      if (currentBytes + file.size > QUEUE_BYTE_LIMIT) {
-        skipped.push(file)
-        continue
-      }
+    for (const file of fit) {
       const [duration, tags] = await Promise.all([
         readDurationFromFile(file).catch(() => 0),
         readTagsFromFile(file),
@@ -991,7 +984,6 @@ export class AudioEngine {
         artist: tags.artist,
         duration,
       })
-      currentBytes += file.size
       added++
     }
     if (added > 0) {
@@ -1351,19 +1343,6 @@ export class AudioEngine {
   /** Resume the AudioContext if the browser stopped it (see isSuspended). Safe to call repeatedly. */
   async resume(): Promise<void> {
     if (this.isSuspended()) await this.ctx.resume()
-  }
-
-  /**
-   * Feed the mic chain from a different microphone. Only an engine built
-   * with a mic has a chain to feed; music-only ignores this. The caller owns
-   * both streams, including stopping the old one.
-   */
-  setMicStream(stream: MediaStream): void {
-    if (!this.micSource || !this.micVoiceIn) return
-    this.micSource.disconnect()
-    this.micSource = this.ctx.createMediaStreamSource(stream)
-    this.micSource.connect(this.micDry)
-    this.micSource.connect(this.micVoiceIn)
   }
 
   /**

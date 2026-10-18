@@ -1443,10 +1443,6 @@ export class BroadcastManager {
   }
 
   /**
-   * Tear down everything. Harbor sees the socket close as its source
-   * disconnecting and notifies Laravel, which ends the session.
-   */
-  /**
    * Stop reporting to the provider. For a manager being replaced (Try
    * again, Go back on air): its `stop()` would otherwise say `idle` between
    * the old run and the new one's `connecting`, and the studio sends an idle
@@ -1456,6 +1452,10 @@ export class BroadcastManager {
     this.callbacks = { onStepChange: () => {}, onStateChange: () => {}, onError: () => {} }
   }
 
+  /**
+   * Tear down everything. Harbor sees the socket close as its source
+   * disconnecting and notifies Laravel, which ends the session.
+   */
   async stop(): Promise<void> {
     // Set first: it is what makes an in-flight reconnect give up rather than
     // race this teardown and reopen a socket behind it.

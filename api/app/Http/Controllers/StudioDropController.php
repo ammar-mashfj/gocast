@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Station;
 use App\Models\StationEvent;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -106,39 +107,65 @@ class StudioDropController extends Controller
                 }
             }
 
-            // add() is atomic: only the first delivery of an id gets through.
-            if (Cache::add($key, ['event' => null, 'provisional' => $provisional], self::DEDUPE_SECONDS)) {
-                $event = StationEvent::record(
-                    $station,
-                    StationEvent::TYPE_STUDIO_DROP,
-                    StationEvent::SOURCE_OWNER,
-                    $properties,
-                    $request->user(),
-                );
-                // Remember which row to correct if the real outcome follows.
-                if ($event && $provisional) {
-                    Cache::put($key, ['event' => $event->getKey(), 'provisional' => true], self::DEDUPE_SECONDS);
-                }
-                $recorded++;
-
-                continue;
-            }
-
-            // A repeat. Only a definite outcome over a provisional one is news;
-            // anything else is the resend this dedupe exists for.
-            $seen = Cache::get($key);
-            if ($provisional || ! is_array($seen) || ! $seen['provisional'] || $seen['event'] === null) {
-                continue;
-            }
-
-            Cache::put($key, ['event' => $seen['event'], 'provisional' => false], self::DEDUPE_SECONDS);
-            $event = StationEvent::query()->whereKey($seen['event'])->where('station_id', $station->getKey())->first();
-            if ($event) {
-                $event->update(['properties' => $properties]);
-                $recorded++;
+            // One delivery of an id at a time. A page-close send and the
+            // resend after a back/forward-cache restore can land together, and
+            // the second must see the first's row, not a half-written entry.
+            try {
+                $recorded += Cache::lock($key.':lock', 10)->block(5, fn () => $this->apply($key, $provisional, $properties, $station, $request));
+            } catch (LockTimeoutException) {
+                // Another delivery of this id held the lock past the wait
+                // and is recording it; this copy is the repeat.
             }
         }
 
         return response()->json(['recorded' => $recorded]);
+    }
+
+    /**
+     * Records the first delivery of a report, or corrects its row when a
+     * definite outcome follows a provisional one. Returns how many rows it
+     * wrote (0 or 1). Runs under the id's lock.
+     *
+     * @param  array<string, mixed>  $properties
+     */
+    private function apply(string $key, bool $provisional, array $properties, Station $station, Request $request): int
+    {
+        $seen = Cache::get($key);
+
+        if (! is_array($seen)) {
+            $event = StationEvent::record(
+                $station,
+                StationEvent::TYPE_STUDIO_DROP,
+                StationEvent::SOURCE_OWNER,
+                $properties,
+                $request->user(),
+            );
+            // record() swallows its own failures and returns null. The id is
+            // only remembered once its row exists, so the next delivery of it
+            // (the bfcache resend after a page-close send) records it instead
+            // of being deduped against nothing.
+            if (! $event) {
+                return 0;
+            }
+            // Remember which row to correct if the real outcome follows.
+            Cache::put($key, ['event' => $event->getKey(), 'provisional' => $provisional], self::DEDUPE_SECONDS);
+
+            return 1;
+        }
+
+        // A repeat. Only a definite outcome over a provisional one is news;
+        // anything else is the resend this dedupe exists for.
+        if ($provisional || ! $seen['provisional']) {
+            return 0;
+        }
+
+        Cache::put($key, ['event' => $seen['event'], 'provisional' => false], self::DEDUPE_SECONDS);
+        $event = StationEvent::query()->whereKey($seen['event'])->where('station_id', $station->getKey())->first();
+        if (! $event) {
+            return 0;
+        }
+        $event->update(['properties' => $properties]);
+
+        return 1;
     }
 }

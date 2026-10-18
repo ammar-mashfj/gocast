@@ -4,7 +4,8 @@
  * Chrome (V8's ICU) lists and reports pre-rename names — Asia/Calcutta,
  * Europe/Kiev — while the API stores the current ones. The API maps these
  * too (NormalizesTimezone); doing it here as well means the list shows the
- * names people know and the dialog's default matches what gets saved.
+ * names people know and the dialog's default matches what gets saved. The
+ * two lists must match; timezones.test.ts fails when they drift.
  */
 export const TIMEZONE_ALIASES: Record<string, string> = {
   "Africa/Asmera": "Africa/Asmara",
