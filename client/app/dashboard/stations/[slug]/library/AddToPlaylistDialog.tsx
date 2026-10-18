@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { useParams } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,7 @@ interface Props {
  * be noise in front of a button that handles it correctly.
  */
 export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: Props) {
+  const { slug } = useParams<{ slug: string }>()
   const [saving, setSaving] = useState<string | null>(null)
 
   useEffect(() => {
@@ -63,9 +66,18 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
         <DialogHeader>
           <DialogTitle>Add {noun} to…</DialogTitle>
           <DialogDescription>
-            {playlists.length === 0
-              ? "You have no playlists yet. Create one from the rail on the left."
-              : "A track can be in as many playlists as you like. Ones already in there are skipped."}
+            {playlists.length === 0 ? (
+              // This opens from Library, which has no rail; the rail is on Playlists.
+              <>
+                You have no playlists yet. Make one on the{" "}
+                <Link href={`/dashboard/stations/${slug}/playlists`} className="font-semibold text-foreground underline underline-offset-2">
+                  Playlists page
+                </Link>
+                .
+              </>
+            ) : (
+              "A track can be in as many playlists as you like. Ones already in there are skipped."
+            )}
           </DialogDescription>
         </DialogHeader>
 

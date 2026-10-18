@@ -1,6 +1,6 @@
 ---
 feature: Authentication and sessions
-verified: 2026-10-04 against e145a37 plus uncommitted work (named route throttles, session-expiry redirect)
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Http/Controllers/AuthController.php
   - api/app/Http/Controllers/GoogleAuthController.php
@@ -52,6 +52,7 @@ sources:
   - client/app/auth/forgot/page.tsx
   - client/app/auth/callback/page.tsx
   - client/components/auth/AuthCard.tsx
+  - client/components/ds/Checkbox.tsx
   - client/lib/session.ts
   - client/lib/cookies.ts
   - client/lib/google-auth.ts
@@ -77,7 +78,7 @@ sources:
   - client/components/dashboard/account/ProfileForm.tsx
   - client/components/dashboard/account/PasswordForm.tsx
   - client/components/dashboard/account/DeleteAccount.tsx
-fingerprint: 797d611c0cfb495b
+fingerprint: 69a6e6504233f3af
 ---
 
 # Authentication and sessions
@@ -131,7 +132,7 @@ The web app and API are separate origins (`gocast.fm` and `api.gocast.fm` in pro
 - **CORS** (`config/cors.php`): paths `api/*`, `sanctum/csrf-cookie`, `broadcasting/auth`; all methods and headers; `supports_credentials` true; origins from `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173,http://localhost:3000`; production references `FRONTEND_URL`). `sanctum/csrf-cookie` is listed but that route is not part of any flow.
 - **The cookie is scoped to the parent domain** so the Next.js server sees it too. `proxy.ts`, the dashboard layout and `apiFetch` all read `token` from the incoming request on the web host. If the API were on a different registrable domain, the web host would never see `token`, and every dashboard visit would redirect to login. That deployment shape is unsupported.
 - **axios** uses `withCredentials: true`, so the browser attaches the cookie to API calls.
-- **Server-side calls** (`client/lib/api-server.ts` `apiFetch`) read `token` from `cookies()` and send it as a bearer header. Base URL is `process.env.INTERNAL_API_URL ?? NEXT_PUBLIC_API_URL`, read directly in `api-server.ts` (axios uses `env.apiUrl` in `client/lib/env.ts`, which on the server also prefers `INTERNAL_API_URL` but treats an empty string as unset; `apiFetch` does not). Timeout 10 s (`ApiTimeoutError`), `cache: "no-store"`.
+- **Server-side calls** (`client/lib/api-server.ts` `apiFetch`) read `token` from `cookies()` and send it as a bearer header. Base URL is `process.env.INTERNAL_API_URL ?? NEXT_PUBLIC_API_URL`, read directly in `api-server.ts` (axios uses `env.apiUrl` in `client/lib/env.ts`, which on the server also prefers `INTERNAL_API_URL` but treats an empty string as unset; `apiFetch` does not. In the browser under `NODE_ENV=development` only, `env.apiUrl` swaps the configured host for the page's own hostname, so `localhost` and a LAN device each call the API on the host they opened, and the `token` cookie lands where that page can see it). Timeout 10 s (`ApiTimeoutError`), `cache: "no-store"`.
 - **Google's popup** is served from the API origin, so its `Set-Cookie` lands on the API domain, which is what the parent-domain cookie needs.
 
 Because auth is cookie-borne with `SameSite=Lax` and there is no CSRF token, the defence against cross-site request forgery is SameSite plus the CORS allow-list. Requests from a sibling subdomain of `.gocast.fm` count as same-site. There is no `EnsureFrontendRequestsAreStateful` and no `ValidateCsrfToken` on API routes.
@@ -278,7 +279,7 @@ On success: `signInGoogleUser`, then `200 {data: UserResource (with plan), token
 
 There is **no standalone verify page**. The flow is `client/hooks/useEmailVerification.ts`, drawn by one ds-kit dialog, `components/dashboard/account/VerifyEmailDialog.tsx` ("Verify your email"), imported by the login and register pages and by the Account page's `ProfileForm` (the separate marketing-kit copy was removed on 2026-10-09 when the auth pages moved onto the design system: `app/auth/layout.tsx` marks itself `data-surface="marketing"`, the forms use `ds/TextField`, `ds/PasswordField` and `ds/Button`, and `components/auth/AuthCard.tsx` is the shared card shell). The dialog has no close button and cannot be dismissed by outside click or Esc. On open it calls `GET /user`, always saves the result into the `user` cookie, and if the server already says verified goes to `/dashboard`. Typing the sixth digit submits (a code typed mid-request is queued and sent after it); the "Verify email" button submits too. "Resend code" calls `/email/resend`; "Use a different account" calls `POST /logout` then `clearAuth()`.
 
-Sign-up and password reset have **no confirm-password field** since the same move: the single field has Show/Hide, and the client sends `password_confirmation: password` to satisfy the API's `confirmed` rule (a server error on `password_confirmation` is shown under the password field). Sign-up also requires a ticked "I agree to the Terms and Privacy Policy" checkbox (client-side only, "Please agree to the Terms and Privacy Policy to continue." under the box; Google sign-up is gated by the same box).
+Sign-up and password reset have **no confirm-password field** since the same move: the single field has Show/Hide, and the client sends `password_confirmation: password` to satisfy the API's `confirmed` rule (a server error on `password_confirmation` is shown under the password field). Sign-up also requires a ticked "I agree to the Terms and Privacy Policy" checkbox (`CheckboxRow`, which lives in `components/ds/Checkbox.tsx` and is re-exported from `components/auth/AuthCard.tsx`; client-side only, "Please agree to the Terms and Privacy Policy to continue." under the box). The register page's Google button is gated by the same box. Because `GoogleAuthController` creates accounts from the login page's Google button too, the login page carries a line under it instead: "By continuing with Google, you agree to the Terms and Privacy Policy." Neither consent is sent to the API (the register POST carries only `name`, `email`, `password`, `password_confirmation` and `invite_code`; `RegisterRequest` has no terms field), so nothing records that or when a user agreed.
 
 The login and register pages open the dialog when the `user` cookie shows an unverified account, so a person returning with a dangling unverified session lands on the modal, not on a form.
 
@@ -345,7 +346,7 @@ For server components (marketing navbar and hero CTA). Signed in only if **both*
 - Response interceptor: a **401** on a URL that does not contain `/login` or `/register`, when no redirect is already in flight, calls `clearAuth()` and navigates in-app (`navigate()` from `lib/navigation.ts`, backed by `RouterBridge`) to `/auth/login?expired=1`. The login page toasts "Your session expired. Please sign in again." A **403 `email_unverified`** toasts "Verify your email to continue."
 
 ### Login, register and Account UIs
-- `/auth/login`: email and password, "Forgot password?", "Continue with Google". On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).
+- `/auth/login`: email and password, "Forgot password?", "Continue with Google" with the "By continuing with Google, you agree to the Terms and Privacy Policy" line under it (no checkbox: the button signs a new visitor up as well). On load, `getUser()` redirects a verified cookie to `/dashboard/stations` or opens the verify dialog for an unverified one. Errors toast the API `message` ("Invalid credentials.", or the lockout text).
 - `/auth/register`: name, email, password (Show/Hide, no confirm field), a required Terms checkbox, Google button. Reads `?invite=` and calls `GET /invites/{code}` on load to show a banner (`valid`, `closed used/expired`, `invalid`, or `unchecked` when the lookup failed for a non-404 reason). The submit button is disabled while checking. `invite_code` is only sent when the state is `valid` or `unchecked`. The Google button passes the code on the popup URL only in those states. Field errors from the API are placed under their inputs, and an email "taken" error offers "Sign in instead". Password 8-char rule is client-validated too.
 - `/auth/layout.tsx`: `robots: noindex, follow`, `data-surface="marketing"` (the design-system palette), a slim header with the wordmark and a "Back to home" link, no menu; the card itself carries the sign-in / sign-up switch.
 - `Account` page (`/dashboard/settings`, "Account", `components/dashboard/account/`): plan card, profile (Save disabled until something changed), password ("Password": current + new, or "Set a password": new only; one new-password field with Show/Hide, `password_confirmation` sent equal to it), and "Delete account…" with a typed-email `ConfirmDialog`. It seeds its forms from the `user` cookie after mount, not from the API.
@@ -427,7 +428,8 @@ Server-to-server calls use a shared secret, not a token.
 21. **`config/auth.php` `passwords.users`** (Laravel's token broker) and the `password_reset_tokens` table are unused; do not "fix" the reset flow through them.
 22. **Cross-site cookie reliance.** No CSRF token protects cookie-authenticated POSTs. Safety rests on `SameSite=Lax` and the CORS allow-list, which a sibling subdomain of `SESSION_DOMAIN` is not subject to.
 23. **`INTERNAL_API_KEY` is one shared secret, in plain text in every rendered `.liq`,** and the Liquidsoap side compares with `==` (not constant time). Rotating it means re-rendering and restarting all stations. The native kit firewalls the internal port as a second layer.
-24. **`/auth/callback` (the no-opener fallback) is barely exercised.** The popup path is the normal one; the e2e test only checks that the popup opens and that a blocked popup surfaces an error (`auth.spec.ts`).
+24. **Terms consent is not recorded.** The register checkbox and the login page's Google line are client-only; the API stores no consent flag or timestamp, and the native Google flow (`/auth/google/native`, which also creates accounts) is covered only by the Welcome screen's "By continuing, you agree to our Terms and Privacy Policy." line (`mobile/src/app/welcome.tsx`). Proof of agreement rests on the UI having been there.
+25. **`/auth/callback` (the no-opener fallback) is barely exercised.** The popup path is the normal one; the e2e test only checks that the popup opens and that a blocked popup surfaces an error (`auth.spec.ts`).
 
 ## Tests
 

@@ -20,7 +20,7 @@ const POINTS = [
   },
   {
     title: "The room, while you’re in it",
-    body: "Your listener count moves in real time next to the deck, with the link and a QR code beside it. Hand it out without coming off air.",
+    body: "Your listener count moves in real time next to the deck, with your link one click away to copy. Hand it out without coming off air.",
   },
 ] as const
 

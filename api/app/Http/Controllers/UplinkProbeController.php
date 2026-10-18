@@ -20,9 +20,11 @@ class UplinkProbeController extends Controller
     private const MAX_BYTES = 256 * 1024;
 
     /**
-     * Content-Length is checked before the body is read, so an oversized
-     * upload is refused without buffering it. The length after reading still
-     * guards a chunked upload, which declares none.
+     * By the time this runs PHP-FPM has already read the body, so these
+     * checks bound what the controller accepts, not what the server reads:
+     * the real cap on the read is nginx's (infra/native/nginx/gocast-api.conf,
+     * `location = /api/broadcast/uplink-probe`). The length after reading
+     * also covers a chunked upload, which declares no Content-Length.
      */
     public function __invoke(Request $request): JsonResponse
     {

@@ -770,6 +770,8 @@ export class BroadcastManager {
       monitorVolume: old.getMonitorVolume(),
       latched: old.isMicLatched(),
       tracksPlayed: old.getTracksPlayed(),
+      // Counted already: the new element must not count the same song again.
+      currentCounted: old.isCurrentTrackCounted(),
     }
 
     // stop() or fail() can land at any await below. Each sets `stopping` and
@@ -800,7 +802,7 @@ export class BroadcastManager {
       const resumeAt = carry.index >= 0 ? engine.restoredIndex(carry.index) : null
       if (resumeAt && resumeAt.index >= 0) {
         const offset = resumeAt.sameTrack ? carry.offset : 0
-        void engine.cueAt(resumeAt.index, offset, carry.playing).catch((err) => {
+        void engine.cueAt(resumeAt.index, offset, carry.playing, resumeAt.sameTrack && carry.currentCounted).catch((err) => {
           console.error('[BroadcastManager] could not cue playback after rebuild:', err)
         })
       }

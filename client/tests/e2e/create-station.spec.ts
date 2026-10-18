@@ -18,7 +18,7 @@ test.describe("no station yet", () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(page.getByRole("heading", { name: "Let’s set up your station." })).toBeVisible()
 
-    for (const name of ["Studio", "Library", "Audience", "Your shows", "Settings"]) {
+    for (const name of ["Studio", "Library", "Audience", "Live history", "Station settings"]) {
       await page.getByRole("navigation", { name: "Station" }).getByRole("link", { name }).click()
       await expect(page).toHaveURL(/\/dashboard$/)
     }

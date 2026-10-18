@@ -5,7 +5,8 @@ import { env } from "@/lib/env"
 import type { Station } from "@/interfaces/Station"
 import type { StreamSession } from "@/interfaces/StreamSession"
 import { OverviewHero } from "@/components/dashboard/overview/OverviewHero"
-// YourLinkCard is off too: the link is in the hero now (StationLinkRow).
+// YourLinkCard is off too: the link is in the hero now (OverviewHeader:
+// Copy player link, QR code & embed, Open ↗).
 // ComingUpCard (components/dashboard/overview) is off for now; kept to bring back.
 // ShowsLinks (Recent shows) is off too: the sidebar has Live history, and
 // under the hero is the Pro offer's alone.

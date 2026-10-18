@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { useConfirm } from "@/components/ds/ConfirmDialog"
@@ -59,9 +59,18 @@ export function useLibrary(
         LIBRARY_KEY),
   )
   // Already on Playlists when the band's link is followed: the page stays
-  // mounted, so the initialiser above doesn't run again.
+  // mounted, so the initialiser above doesn't run again. Only to a playlist
+  // that exists: a stale id (deleted since, an old bookmark) would select
+  // nothing, read as "No playlists yet" and send uploads to the default.
+  // Read through a ref, so a rename or a reorder doesn't re-run this and
+  // pull the host back to the linked playlist.
+  const playlistsRef = useRef(playlists)
   useEffect(() => {
-    if (page === "playlists" && openPlaylistId) setSelected(openPlaylistId)
+    playlistsRef.current = playlists
+  }, [playlists])
+  useEffect(() => {
+    if (page !== "playlists" || !openPlaylistId) return
+    if (playlistsRef.current.some((p) => p.id === openPlaylistId)) setSelected(openPlaylistId)
   }, [page, openPlaylistId])
   const [savingOrder, setSavingOrder] = useState(false)
 
@@ -221,6 +230,7 @@ export function useLibrary(
         description: "It leaves every playlist too. This can't be undone.",
         confirmLabel: "Delete track",
         keepLabel: "Keep it",
+        tone: "danger",
       })
       if (!ok) return
 
@@ -518,6 +528,7 @@ export function useLibrary(
       description: `The tracks stay in your library.${slotNote}`,
       confirmLabel: "Delete playlist",
       keepLabel: "Keep playlist",
+      tone: "danger",
     })
     if (!ok) return
     setPlaylists((prev) => prev.filter((p) => p.id !== playlist.id))

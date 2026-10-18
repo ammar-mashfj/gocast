@@ -11,24 +11,28 @@ import { Button } from "@/components/ds/Button"
 import { Tag } from "@/components/ds/Tag"
 import { StationArtwork } from "@/components/StationArtwork"
 import { StationFormDialog } from "@/components/dashboard/StationFormDialog"
+import { ShareButton } from "@/components/dashboard/share/ShareButton"
 
 /**
  * Who the station is: artwork, name and genre, and how long it's been
  * around, as the first row of the hero's main panel. The artwork, with a
  * pencil over it, is the way into Edit profile. Anything that changes what
- * listeners hear is the hero's own, and the player page link is on the Your
- * link card, with the rest of the public page. The description is not shown:
+ * listeners hear is the hero's own. Under the name: Copy player link,
+ * QR code & embed (the tune-in code, the Pro embed, a phone's share sheet) and Open ↗. The description is not shown:
  * it is on the player page and in Edit profile, and two lines of it were
  * what kept the overview from fitting one screen.
  */
 export function OverviewHeader({ station, lastLive, appUrl }: { station: Station; lastLive: string | null; appUrl: string }) {
   const [editing, setEditing] = useState(false)
-  const since = new Date(station.created_at).toLocaleDateString("en-GB", { month: "short", year: "numeric" })
-  const meta = [`Since ${since}`, lastLive && station.state !== "live" ? `Last live ${formatDate(lastLive, "relative")}` : null].filter(Boolean)
+  // Drawn on the server and again in the browser, so both must agree. The
+  // month in a fixed zone (the station's, else UTC): unzoned, a station made
+  // late on the 31st was "Oct" on a UTC server and "Nov" in Asia.
+  const since = new Date(station.created_at).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: station.timezone ?? "UTC" })
+  const lastLiveAgo = lastLive && station.state !== "live" ? formatDate(lastLive, "relative") : null
 
   return (
     // The artwork, with a pencil over its corner, is Edit profile. Copy
-    // player link and Open ↗ stand in for the link itself, which isn't shown.
+    // player link, QR code & embed and Open ↗ stand in for the link itself, which isn't shown.
     // Phones (below sm): the buttons stacked right of the artwork, the name
     // on its own row underneath. From sm: a profile header — the name, then
     // the buttons in a row, beside a big artwork.
@@ -50,6 +54,7 @@ export function OverviewHeader({ station, lastLive, appUrl }: { station: Station
 
       <div className="flex min-w-0 flex-col gap-2 sm:col-start-2 sm:row-start-2 sm:flex-row sm:flex-wrap sm:items-center sm:self-start">
         <CopyLinkButton value={taggedStationUrl(appUrl, station.slug, "owner")} />
+        <ShareButton appUrl={appUrl} slug={station.slug} stationName={station.name} className="sm:w-auto" />
         <Button variant="ghost" size="md" full className="sm:w-auto" asChild>
           <a href={`${appUrl}/station/${station.slug}`} target="_blank" rel="noopener noreferrer">Open ↗</a>
         </Button>
@@ -67,7 +72,18 @@ export function OverviewHeader({ station, lastLive, appUrl }: { station: Station
           {station.genre && <>{" "}<Tag className="align-middle">{station.genre}</Tag></>}
         </div>
         {/* Live, it's only "Since …": dropped on phones, where the hero needs the line. */}
-        <p className={cn("text-body-sm text-text-faint", station.state === "live" && "max-sm:hidden")}>{meta.join(" · ")}</p>
+        <p className={cn("text-body-sm text-text-faint", station.state === "live" && "max-sm:hidden")}>
+          {`Since ${since}`}
+          {lastLiveAgo && (
+            <>
+              {" · "}
+              {/* "3m ago" by the clock at render: the browser's can be a
+                  minute on from the server's. Allowed to differ, like any
+                  relative time. */}
+              <span suppressHydrationWarning>{`Last live ${lastLiveAgo}`}</span>
+            </>
+          )}
+        </p>
       </div>
 
       <StationFormDialog open={editing} onClose={() => setEditing(false)} station={station} />

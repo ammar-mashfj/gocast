@@ -130,6 +130,7 @@ export function JinglesView({
       description: "It stops playing between tracks straight away. This can't be undone.",
       confirmLabel: "Delete jingle",
       keepLabel: "Keep it",
+      tone: "danger",
     })
     if (!ok) return
 

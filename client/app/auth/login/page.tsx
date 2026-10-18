@@ -157,6 +157,14 @@ function LoginForm() {
         <IconBrandGoogleFilled />
         {googleLoading ? "Signing in…" : "Continue with Google"}
       </Button>
+      {/* Google signs a new visitor up from here too (the API creates the
+          account), so this is where they're shown the Terms: the sign-up
+          page's checkbox never sees them. */}
+      <p className="text-center text-caption text-text-faint">
+        By continuing with Google, you agree to the{" "}
+        <AuthLink href="/terms">Terms</AuthLink> and{" "}
+        <AuthLink href="/privacy">Privacy Policy</AuthLink>.
+      </p>
 
       <AuthFooter>
         Don&apos;t have an account? <AuthLink href="/auth/register">Create one free</AuthLink>

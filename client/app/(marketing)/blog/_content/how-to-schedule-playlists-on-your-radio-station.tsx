@@ -205,23 +205,23 @@ export default function Body() {
       <h2>Setting One Up</h2>
       <ol>
         <li>
-          Open your station&#39;s <strong>AutoDJ</strong> page and make a
-          playlist from the rail on the left. <strong>Add from library</strong>{" "}
+          Open <strong>AutoDJ</strong>{" "}›{" "}<strong>Playlists</strong>{" "}from
+          the sidebar and make a playlist from the rail on the left.{" "}
+          <strong>Add from library</strong>{" "}
           pulls in tracks you&#39;ve already uploaded; you can also drop new
           files straight into it.
         </li>
         <li>
-          Open <strong>Schedule</strong>{" "}from the sidebar and check the
-          timezone under the week view. Your slots are written in that clock.
-          It&#39;s set in Station settings, next to your show times, which use
-          the same one.
+          Open <strong>AutoDJ</strong>{" "}›{" "}<strong>Schedule</strong>{" "}and
+          check the timezone at the top of the page. Your slots are written in
+          that clock; <strong>Change</strong>{" "}next to it sets another one.
         </li>
         <li>
           <strong>Add slot</strong>, pick the playlist, tap the days it runs on
           and set the start and end time. Give it a label if it helps you.
         </li>
         <li>
-          <strong>Save AutoDJ slots.</strong> Nothing restarts and no listener is
+          <strong>Save.</strong> Nothing restarts and no listener is
           dropped &mdash; the change is picked up at the next track boundary.
         </li>
       </ol>
@@ -232,26 +232,7 @@ export default function Body() {
 
       <h2>What This Isn&#39;t</h2>
       <p>
-        Two things on your station now have times attached to them, and they do
-        different jobs.
-      </p>
-      <p>
-        <strong>Show times</strong>, in Station settings, are the claim you
-        make to listeners: &ldquo;Thursdays at 8&rdquo;. They&#39;re display
-        only. Nothing about them reaches your audio.
-      </p>
-      <p>
-        <strong>Slots</strong>, under &ldquo;What AutoDJ plays&rdquo;, are what your station
-        actually plays. Listeners never see them.
-      </p>
-      <p>
-        They share a timezone and nothing else. It&#39;s fine to have both
-        &mdash; a Thursday 8pm show time telling people when you&#39;re on, and
-        a set of slots keeping the station worth tuning into the rest of the
-        week.
-      </p>
-      <p>
-        And to be straight about the edges: jingle settings are station-wide
+        To be straight about the edges: jingle settings are station-wide
         rather than per slot, and there are no one-off dated shows yet. Those
         are on the list rather than in the product.
       </p>
@@ -327,16 +308,9 @@ export default function Body() {
 
       <h3>What plays when nothing is scheduled?</h3>
       <p>
-        Your default playlist &mdash; the one with the badge in the library
-        rail. Every gap in the week falls back to it, which is why it
+        Your default playlist &mdash; the one marked <strong>Default</strong>{" "}in
+        the Playlists rail. Every gap in the week falls back to it, which is why it
         can&#39;t be deleted.
-      </p>
-
-      <h3>Is this the same as my show times?</h3>
-      <p>
-        No. Show times are what you advertise to listeners and change nothing
-        about your audio. Slots are what your station plays and are never shown
-        to listeners. They share a timezone and nothing else.
       </p>
     </>
   )

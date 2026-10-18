@@ -1,6 +1,6 @@
 ---
 feature: Mobile studio and native encoder (broadcasting from the phone)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - mobile/src/app/live/[slug].tsx
   - mobile/src/app/studio/[slug].tsx
@@ -54,7 +54,7 @@ sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/resources/views/liquidsoap/station.blade.php
   - infra/native/station-router/nginx.conf
-fingerprint: 03038713232ed6ae
+fingerprint: 607b363aebfabd8a
 ---
 
 # Mobile studio and native encoder

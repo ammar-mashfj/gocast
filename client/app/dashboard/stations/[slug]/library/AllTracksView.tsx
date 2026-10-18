@@ -144,6 +144,7 @@ export function AllTracksView({
       description: `${ids.length === 1 ? "It leaves" : "They leave"} every playlist too. This can't be undone.`,
       confirmLabel: ids.length === 1 ? "Delete track" : `Delete ${ids.length} tracks`,
       keepLabel: ids.length === 1 ? "Keep it" : "Keep them",
+      tone: "danger",
     })
     if (!ok) return
 

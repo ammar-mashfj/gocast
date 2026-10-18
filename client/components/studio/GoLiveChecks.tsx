@@ -108,7 +108,11 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
     return () => {
       mounted.current = false
       setTimeout(() => {
-        if (mounted.current || (stateRef.current !== "ready" && stateRef.current !== "connecting")) return
+        // `error` too: a check that failed after POST /start (a blocked mic)
+        // left a station on that only Back to setup handed back; leaving by
+        // the sidebar instead kept it airing silence until the sweep.
+        const s = stateRef.current
+        if (mounted.current || (s !== "ready" && s !== "connecting" && s !== "error")) return
         void stop({ releaseStation: autoDjLockedRef.current ? "if-started-here" : false })
       }, 0)
     }

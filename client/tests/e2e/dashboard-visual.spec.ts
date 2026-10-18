@@ -59,8 +59,8 @@ interface Shot {
 const SHOTS: Record<Account, Shot[]> = {
   pro: [
     { name: "overview", path: "", station: true },
-    { name: "overview-share", path: "", station: true, open: click("Share…"), expects: "dialog" },
-    { name: "overview-edit-station", path: "", station: true, open: click("Edit profile"), expects: "dialog" },
+    { name: "overview-share", path: "", station: true, open: click("QR code & embed"), expects: "dialog" },
+    { name: "overview-edit-station", path: "", station: true, open: click(/^Edit profile/), expects: "dialog" },
     { name: "studio-preflight", path: "/live", station: true },
     { name: "autodj", path: "/library", station: true },
     { name: "playlists", path: "/playlists", station: true },

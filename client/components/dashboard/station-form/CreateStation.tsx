@@ -127,7 +127,13 @@ export function CreateStation() {
       // sidebar would go on saying "create your station first".
       if (created?.slug) router.push(`/dashboard/stations/${created.slug}`)
       router.refresh()
+      // Still "Creating…" until the page changes: the move to the overview
+      // takes a server render, and a button live again in that gap sent a
+      // second create, refused with the red "one station" toast beside the
+      // green one. Only a reply without a station to go to frees it here.
+      if (!created?.slug) setSaving(false)
     } catch (err) {
+      setSaving(false)
       if (err instanceof AxiosError && err.response?.status === 403) {
         // An account has one station (lib/station-server.ts); a second
         // wouldn't even show up in the dashboard. Not something a plan sells.
@@ -137,8 +143,6 @@ export function CreateStation() {
       } else {
         toast.error((err instanceof AxiosError && err.response?.data?.message) || "Something went wrong. Nothing was saved.")
       }
-    } finally {
-      setSaving(false)
     }
   }
 

@@ -1,7 +1,9 @@
 ---
 feature: Dev environment and testing
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
+  - api/app/Console/Commands/E2ESeedCommand.php
+  - api/tests/Feature/E2ESeedCommandTest.php
   - api/tests/TestCase.php
   - api/tests/Pest.php
   - api/tests/Feature/ArchitectureTest.php
@@ -58,13 +60,14 @@ sources:
   - client/vitest.config.mts
   - client/vitest.setup.ts
   - client/tests/e2e/dashboard-visual.spec.ts
+  - client/tests/e2e/create-station.spec.ts
   - client/app/dashboard.css
-fingerprint: c8f3804c59db982f
+fingerprint: 9db4a75098233cfa
 ---
 
 # Dev environment and testing
 
-How to run GoCast on a laptop and how it is tested. The one thing people get wrong: **the tests are not all there is, and the browser (Playwright) tests are mostly broken.** The API has a large Pest suite (1,112 `it()`/`test()` blocks in 102 files) that runs against a real MySQL database and a real Redis. The web client has one Playwright auth spec that no longer matches the UI and one screenshot generator that is not a test. The mobile app has no tests at all. There is no CI in the repo (no `.github/`, no `.gitlab-ci.yml`).
+How to run GoCast on a laptop and how it is tested. The one thing people get wrong: **the tests are not all there is, and the browser (Playwright) tests are mostly broken.** The API has a large Pest suite (about 1,250 `it()`/`test()` blocks in 112 files, not counting the `E2ESeedCommandTest` another session is adding) that runs against a real MySQL database and a real Redis. The web client has Vitest unit tests for pure dashboard logic and the ds kit, a Playwright auth spec that no longer matches the UI, a small create-station spec, and two capture specs (help screenshots, dashboard visual sweep) that are not assertions about behaviour. The mobile app has no tests at all. There is no CI in the repo (no `.github/`, no `.gitlab-ci.yml`).
 
 Nothing in this doc came from the memory notes, READMEs or code comments alone; where a comment and the code disagree, the disagreement is in "Gaps and traps".
 
@@ -72,6 +75,7 @@ Nothing in this doc came from the memory notes, READMEs or code comments alone; 
 
 | Command (from `api/`) | What it does |
 |---|---|
+| `composer dev` | `artisan serve --no-reload`, `queue:listen --queue=realtime,default,analysis --tries=1 --timeout=0` (one listener for all three queues, which is fine locally; production gives each its own worker), `pail` and the admin Vite build, via `concurrently`. |
 | `composer test` | `php artisan config:clear` then `php artisan test` (`composer.json` `scripts.test`). The `config:clear` matters: a cached config would ignore `phpunit.xml`'s env overrides. |
 | `php artisan test --filter=Name` / `vendor/bin/pest path` | Targeted run. Pest 4 (`pestphp/pest`, `pest-plugin-laravel`) on PHPUnit; there is no Pest browser plugin installed, despite `tests/Browser` being mentioned in the `pest-testing` skill text. |
 
@@ -121,7 +125,7 @@ Consequences for writing tests:
 
 - Code that asks the supervisor "is it running / healthy / what state" gets `false`/empty in tests, so behaviour that depends on the daemon has to be tested by mocking the supervisor (`Mockery::mock(LiquidsoapSupervisor::class)->makePartial()` bound with `app()->instance(...)`, used in `StationObserverTest`, `DerivedStationStateTest`, ; 13 test files mock or partial-mock it and 15 reference the class in all) or, for command construction, by calling the private builders through reflection (`LiquidsoapSupervisorTest` `invokePrivate()` on `baseRunCommand`, `sandboxFlags`, `healthFlags`, `resourceFlags`, `mountFlags`).
 - `StationObserverTest` first asserts `LiquidsoapSupervisor::inTestMode()` is true. If that test fails, stop and fix the env before running anything else.
-- `telnet()` returns immediately too, so jingle-settings pushes are asserted on the command strings, not on a socket.
+- `telnet()` returns immediately too, so watermark pushes are asserted on the command strings, not on a socket. `up()` still calls `JingleClock::containerStarted()` before its test-mode return (a DB write), so jingle-clock state is reset in tests as it is in production.
 
 ## Factories and seeders
 
@@ -141,7 +145,7 @@ Consequences for writing tests:
 
 Seeders: `DatabaseSeeder` (uses `WithoutModelEvents`) creates one `Test User` (`test@example.com`, verified, free) and `StationSeeder` is an empty stub that `DatabaseSeeder` does not call. Nothing seeds plans, stations or tracks. There is no dev-data seeder: local demo data is made by hand (the screenshot spec assumes a manually "dressed" database).
 
-`E2EAuthCommand` (`e2e:auth`, in `app/Console/Commands`) is the only fixture command; see Playwright below.
+`E2EAuthCommand` (`e2e:auth`, in `app/Console/Commands`) is the fixture command the specs use; see Playwright below. `E2ESeedCommand` (`php artisan e2e:seed`, local/testing only, same guard as `e2e:auth`) rebuilds the keeper accounts the capture specs sign in as: `shell@gocast.test` (Pro, `night-shift-shell`: 24 tracks, 5 jingles, 6 playlists incl. an empty one, 5 slots incl. one past midnight, 24 past shows, 360 listener sessions with rollups), `free@gocast.test` (Free, `free-shell`) and `create@gocast.test` (no station), all with password `Password123!`. It deletes and recreates those accounts by email, so it is idempotent; it refuses to take over a slug another owner holds; every station is created stopped and nothing calls `LiquidsoapSupervisor::up()` (shows are bulk-inserted, tracks are rows with no audio files). `--clean-throwaway` also deletes `share-check@` and `dbl-check@`. Tested in `tests/Feature/E2ESeedCommandTest.php` (6 tests). Run it before `npm run test:visual` or `npm run test:help-shots`.
 
 ## API test inventory (coverage map)
 
@@ -151,22 +155,22 @@ Counts are `it()`/`test()` blocks by grep, so datasets multiply them at run time
 |---|---|
 | Auth: login, lockout, cookies | `Auth/LoginTest` (4: fresh code for unverified, cookie vs mobile-token JSON), `Auth/LoginLockoutTest` (2: five failures, counter clears), `Auth/AuthCookieShadowingTest` (4: stale duplicate cookie), `Auth/RecordUserLastLoginTest`, `Observability/AuthenticationLogTest` (5) |
 | Auth: verification & reset | `Auth/EmailVerificationCodeTest` (9), `Auth/EmailVerificationEnforcementTest` (5, datasets: the 403 `email_unverified` gate), `Auth/PasswordResetTest` (7), `Auth/ProfileEmailChangeTest` (6), `Auth/UserEntitlementsTest` (3) |
-| Auth: Google | `Auth/GoogleOAuthCallbackTest` (14: popup view, avatar overflow, invite cookie), `Auth/GoogleNativeSignInTest` (8: `GoogleIdTokenVerifier`, `POST /auth/google/native`) |
+| Auth: Google | `Auth/GoogleOAuthCallbackTest` (14: popup view, avatar overflow, invite cookie), `Auth/GoogleNativeSignInTest` (14: `GoogleIdTokenVerifier`, `POST /auth/google/native`) |
 | Account deletion / soft delete | `Account/AccountDeletionConfirmationTest` (6), `Account/AccountDeletionCascadeTest` (4), `Account/PasswordChangeNotificationTest` (3), `Models/UserSoftDeleteTest`, `Models/StationSoftDeleteTest`, `Models/StationSlugTest` (7) |
-| Invites, plans, access requests | `Auth/InviteRedemptionTest` (20), `Admin/InviteTest` (26), `Admin/AccessRequestReviewTest` (38), `Admin/AccessRequestIndexTest` (10), `WaitlistControllerTest` (12), `Console/ExpirePlansTest` (3), `Admin/StationUpgradeTest` (15), `Admin/AccountProvisionTest` (15) |
-| Admin panel | `Admin/AuthenticationTest` (13), `Admin/StationIndexTest` (13), `Admin/StationFeatureTest` (9), `Admin/StationTimelineTest` (11), `Admin/AnnouncementTest` (23), `Admin/RawEmailTest` (23), `Admin/WatermarkClipTest` (11), `Console/AdminResetPasswordCommandTest` (4), `AdminTelegramAlertTest` (5) |
-| Station power and lifecycle | `StationPowerControllerTest` (13), `StationLifecycleServiceTest` (5), `StationSweepTest` (40, the largest: auto-stop decision tree), `ReconcileStationsTest` (17), `StationObserverTest` (12), `StationStopClearsNowPlayingTest` (5), `PruneDeletedStationsTest` (7), `StationContainerIndexTest` (5), `StationContainerIpTest` (10) |
-| Derived state / status / metrics | `DerivedStationStateTest` (19), `StationStatusTest` (22), `MetricsControllerTest` (4), `StationStatsTest` (9) |
-| Liquidsoap supervisor and script | `LiquidsoapSupervisorTest` (17: docker flags, telnet strings), `LiquidsoapTemplateTest` (64: string assertions on the rendered `.liq`), `PlaylistFileWriterTest` (13), `StationHlsUrlTest` (4) |
-| Broadcasting: studio and encoder | `BroadcastTokenServiceTest` (5), `BroadcastTokenControllerTest` (5), `HarborAuthTest` (15), `EncoderSessionAttributionTest` (22), `StreamKeyRotationTest` (6), `StationEncoderResourceTest` (6) |
-| AutoDJ, playlists, schedule | `NextTrackControllerTest` (16), `AutoDjShuffleTest` (16), `AutoDjProgrammeTest` (9), `AutodjSlotTest` (14), `StationScheduleTest` (22), `PlaylistControllerTest` (26), `PlaylistBackfillMigrationTest` (1) |
-| Library and track processing | `TrackControllerTest` (30), `TrackImporterFilenameTest` (3), `TrackAnalyzerTest` (12, `Process::fake` around ffmpeg), `TrackAnalysisTest` (13, loudness plan), `TrackAnnotationTest` (10), `StationJingleSettingsTest` (20) |
+| Invites, plans, access requests | `Auth/InviteRedemptionTest` (20), `Admin/InviteTest` (26), `Admin/AccessRequestReviewTest` (63), `Admin/AccessRequestIndexTest` (10), `WaitlistControllerTest` (12), `Console/ExpirePlansTest` (4), `Admin/StationUpgradeTest` (21), `Admin/AccountProvisionTest` (15), `StationSlugPreviewTest` (6: the create page's link preview) |
+| Admin panel | `Admin/AuthenticationTest` (13), `Admin/StationIndexTest` (14), `Admin/StationFeatureTest` (9), `Admin/StationTimelineTest` (11), `Admin/AnnouncementTest` (23), `Admin/RawEmailTest` (23), `Admin/WatermarkClipTest` (11), `Console/AdminResetPasswordCommandTest` (4), `AdminTelegramAlertTest` (5) |
+| Station power and lifecycle | `StationPowerControllerTest` (13), `StationLifecycleServiceTest` (5), `StationSweepTest` (40, the largest: auto-stop decision tree), `ReconcileStationsTest` (24), `StationObserverTest` (14), `StationStopClearsNowPlayingTest` (5), `PruneDeletedStationsTest` (7), `StationContainerIndexTest` (5), `StationContainerIpTest` (10), `StreamSessionIndexTest` (5: `GET .../sessions`, Live history) |
+| Derived state / status / metrics | `DerivedStationStateTest` (19), `StationStatusTest` (23), `MetricsControllerTest` (4), `StationStatsTest` (9), `CheckQueueBacklogTest` (9: queue backlog alert), `ExpectedRefusalReportingTest` (3: 4xx lifecycle/invite refusals never reach Sentry) |
+| Liquidsoap supervisor and script | `LiquidsoapSupervisorTest` (13: docker flags, config fingerprint), `LiquidsoapTemplateTest` (60: string assertions on the rendered `.liq`), `PlaylistFileWriterTest` (11), `StationHlsUrlTest` (4) |
+| Broadcasting: studio and encoder | `BroadcastTokenServiceTest` (5), `BroadcastTokenControllerTest` (5), `UplinkProbeTest` (5), `UplinkCheckTest` (3), `StudioDropTest` (5), `HarborAuthTest` (15), `EncoderSessionAttributionTest` (26), `StreamKeyRotationTest` (6), `StationEncoderResourceTest` (6) |
+| AutoDJ, playlists, schedule | `NextTrackControllerTest` (16), `AutoDjPlanningTest` (39: on-time starts, `X-Gocast-Remaining`, set-time jingles), `AutoDjShuffleTest` (16), `AutoDjProgrammeTest` (9), `AutodjSlotTest` (16), `StationScheduleTest` (22), `PlaylistControllerTest` (26), `PlaylistBackfillMigrationTest` (1) |
+| Library and track processing | `TrackControllerTest` (32), `TrackAudioTest` (4), `TrackImporterFilenameTest` (3), `TrackAnalyzerTest` (16, `Process::fake` around ffmpeg), `TrackAnalysisTest` (13, loudness plan), `TrackAnnotationTest` (10), `StationJingleSettingsTest` (25) |
 | Now playing | `NowPlayingControllerTest` (9; real Redis) |
-| Listener analytics | `ListenerSessionTest` (14), `ListenerIdentityTest` (10), `SweepListenerSessionsTest` (16), `RollupListenerStatsTest` (7), `PruneListenerSessionsTest` (4), `SyncListenerCountsTest` (6), `AudienceControllerTest` (17) |
+| Listener analytics | `ListenerSessionTest` (14), `ListenerIdentityTest` (10), `SweepListenerSessionsTest` (18), `RollupListenerStatsTest` (7), `PruneListenerSessionsTest` (4), `SyncListenerCountsTest` (8), `AudienceControllerTest` (17) |
 | Public player, embed, SEO, featured | `PublicEmbedTest` (6), `PublicFeaturedTest` (10), `PublicStationSeoTest` (8), `StationSocialLinksTest` (9), `StationNotifySubscriptionTest` (6), `ExampleTest` (`GET /` returns 200, the Laravel welcome view) |
 | Notifications and email | `NotificationControllerTest` (18), `Notifications/BellContractTest` (12: reads source to enforce the bell base class), `PruneNotificationsTest` (4), `SendAnnouncementTest` (20), `UnsubscribeTest` (7), `ResendWebhookTest` (6), `NudgeInactiveBroadcastersTest` (7) |
-| Station event log / realtime | `StationEventLogTest` (10), `StationEventControllerTest` (8), `StationEventBroadcastTest` (8), `StationEventTrackLogTest` (3), `Console/PruneStationEventsTest` (3), `Observability/ActivityLogTest` (2), `BroadcastAuthTest` (5) |
-| Watermark | `WatermarkTest` (11), `ReloadWatermarkClipsTest` (3), `Admin/WatermarkClipTest` |
+| Station event log / realtime | `StationEventLogTest` (10), `StationEventControllerTest` (8), `StationEventBroadcastTest` (9), `StationEventTrackLogTest` (3), `Console/PruneStationEventsTest` (3), `Observability/ActivityLogTest` (2), `BroadcastAuthTest` (5) |
+| Watermark | `WatermarkTest` (12), `ReloadWatermarkClipsTest` (3), `Admin/WatermarkClipTest` |
 | Architecture | `ArchitectureTest`: four `arch()` rules (commands extend `Command`; notifications extend `Notification` except `Bell\BellPayload`; `BellNotification` is abstract; policies are classes) |
 | Placeholders | `Unit/ExampleTest` (`true is true`), `Feature/ExampleTest` |
 
@@ -176,12 +180,12 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 
 - **`POST /api/upload/{type}`** (`UploadController`, station artwork): only the "unverified users are blocked" dataset in `EmailVerificationEnforcementTest` touches it. Nothing tests the file rules, storage, or the returned URL.
 - **`DELETE /api/stations/{station}`** (`StationController@destroy`): no direct HTTP test. Deletion is exercised only through account deletion and model soft-delete tests.
-- **`GET /api/stations/{station}/sessions`, `DELETE .../sessions/{session}`** (`StreamSessionController@index/destroy`): untested. Only `POST .../sessions` (studio start) is, via `EncoderSessionAttributionTest`.
+- **`DELETE /api/stations/{station}/sessions/{session}`** (`StreamSessionController@destroy`): untested. `GET .../sessions` is covered by `StreamSessionIndexTest`, `POST .../sessions` by `EncoderSessionAttributionTest`.
 - **`GET /api/public/genres`**: untested. `GET /api/public/stations` (the list) appears only as a side-assertion in other tests (schedule, SEO, account deletion, encoder-leak), never as its own feature test.
 - **`GET /api/auth/google`** (the redirect half of web Google sign-in): only its `invite` query handling (cookie set / rejected for `<script>`) is tested in `GoogleOAuthCallbackTest`; the redirect itself is not.
 - **`POST /api/auth/register` and `POST /api/logout` as features**: registration is only exercised through the invite tests and `PasswordChangeNotificationTest`, logout only in the verification-enforcement dataset. There is no test of a plain sign-up (welcome mail, first-station creation, throttle).
 - **Commands**: `admin:create`, `tracks:analyze` (the `AnalyzeTrack` job's service is tested, the command is not), `stations:relaunch` (named only in a comment in `EncoderSessionAttributionTest`), `e2e:auth`.
-- **Real Liquidsoap**: no test runs the `.liq` through Liquidsoap. `LiquidsoapTemplateTest`'s own comment says `liquidsoap --check` "runs against the image", but no script, Makefile or workflow in the repo runs it (grep over `infra/`, `scripts/`, `api/app`). The test also builds the Blade variable array by hand (`renderStationScript()`), separately from `LiquidsoapSupervisor`'s render call (`LiquidsoapSupervisor.php` `View::make('liquidsoap.station', ...)` at about line 1131), so a variable added to one and not the other is not caught by the test failing to render.
+- **Real Liquidsoap**: no test runs the `.liq` through Liquidsoap. `LiquidsoapTemplateTest`'s own comment says `liquidsoap --check` "runs against the image", but no script, Makefile or workflow in the repo runs it (grep over `infra/`, `scripts/`, `api/app`). The test also builds the Blade variable array by hand (`renderStationScript()`), separately from `LiquidsoapSupervisor`'s render call (`LiquidsoapSupervisor::renderLiq()`, `View::make('liquidsoap.station', ...)` at about line 1142), so a variable added to one and not the other is not caught by the test failing to render.
 - **Docker behaviour**: everything behind `inTestMode()` (real start, stop, health, reconcile against a daemon) has never been exercised by the suite.
 - **Infra scripts**: `infra/native/*.sh`, the station router (`infra/native/station-router/ingest.js`), nginx and systemd units: no tests.
 - **Client (Next.js)**: no unit or component tests. Everything except the auth flows in `auth.spec.ts` (and those are stale, below) is untested: dashboard, studio, player, embed, schedule grid, help, marketing.
@@ -213,7 +217,7 @@ Found by grepping the test tree for route paths, artisan signatures and class na
 
 ## Web unit and component tests (Vitest)
 
-`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-04: pure dashboard logic in `lib/` (`airState`, `stationHero`, `comingUp`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `socialLinks`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`, `Dialog.test.tsx`), dashboard components (`station-form/StationForm.test.tsx`, `settings/ShowTimesEditor.test.tsx`, `account/PlanCard.test.ts`, `library/jinglePresets.test.ts`), and two pure studio helpers (`components/studio/FileQueue.test.ts` `secondsUntilLoop`, `NowPlaying.test.ts` `upNext`); about 110 `it`/`test` cases by static count. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
+`npm test` runs Vitest 4 (`vitest.config.mts`: jsdom, `resolve.tsconfigPaths`, setup `vitest.setup.ts` with `@testing-library/jest-dom`); `npm run test:watch` watches. Tests are colocated as `*.test.ts(x)`. As of 2026-10-18: pure logic in `lib/` (`airState`, `stationHero`, `showsTrend`, `dashboardNav`, `format`, `preflightQueue`, `socialLinks`, `uplinkProbe`, `utils`), the ds kit (`components/ds/ds.test.tsx`, `kit.test.tsx`, `ConfirmDialog.test.tsx`, `Dialog.test.tsx`), dashboard components (`station-form/StationForm.test.tsx`, `station-form/CreateStation.test.tsx`, `account/PlanCard.test.ts`, `app/dashboard/stations/[slug]/jingles/jinglePresets.test.ts`), and two pure studio helpers (`components/studio/FileQueue.test.ts` `secondsUntilLoop`, `NowPlaying.test.ts` `upNext`); 117 `it`/`test` cases by static count. Radix keyboard behaviour (arrow keys in menus) doesn't work in jsdom; test it in a browser.
 
 ## Playwright (web e2e)
 
@@ -245,15 +249,19 @@ Redirect of logged-out visitors from `/dashboard`, `/dashboard/stations`, `/dash
 - The delete-account test clicks "Delete account" and fills `#delete-password`. The page now has "Delete account…" (`components/dashboard/account/DeleteAccount.tsx`), whose `ds/ConfirmDialog` asks for the email typed into a generated-id field, and the API (`AccountController@destroy`) checks `confirmation` against the email. The test cannot reach "Delete forever" enabled.
 - The redirect test, the invalid-credentials test (it mocks the 401 and accepts either `Invalid credentials` or `Something went wrong`; the real API message is `Invalid credentials.`, `AuthController`) and the Google popup test do not depend on the dashboard and are the ones plausibly still green.
 
+### `tests/e2e/create-station.spec.ts` (3 tests)
+
+Signs in as the keeper `create@gocast.test` (Free, no station) and never presses Create: the station sidebar's links (Studio, Library, Audience, Live history, Station settings) stay on `/dashboard` and raise one "Create your station first" toast however many are clicked; Get Pro explains instead of opening the request dialog; typing a name previews the link (`night-owl-radio`) and enables "Create Night Owl Radio". Not tagged, so it runs in `npm run test:e2e`, and fails on a database without that keeper.
+
 ### `tests/e2e/help-screenshots.spec.ts` (not a test)
 
-One test, `@screenshots`, writing lossless PNGs at `deviceScaleFactor: 2` to `tests/e2e/.screenshots/` (gitignored; only the webp copies in `public/help/` are committed; its header has the conversion loop). Rewritten on 2026-10-01 for the redesigned dashboard: it signs in as the keeper account `shell@gocast.test` (`E2E_PASSWORD`), shoots station `night-shift-shell`, and stages only in the page (`dress()` swaps the factory's placeholder genre/description and drops `support/help-artwork.webp` into the artwork tile; the schedule shots draw slots and never press Save). It no longer shoots the public player page or the go-live pre-flight. Run it with `npm run test:help-shots`; its header lists the shots and the webp conversion.
+One test, `@screenshots`, writing lossless PNGs at `deviceScaleFactor: 2` to `tests/e2e/.screenshots/` (gitignored; only the webp copies in `public/help/` are committed; its header has the conversion loop). Rewritten on 2026-10-01 for the redesigned dashboard: it signs in as the keeper account `shell@gocast.test` (`E2E_PASSWORD`), shoots station `night-shift-shell`, and stages only in the page (`dress()` swaps the factory's placeholder genre/description and drops `support/help-artwork.webp` into the artwork tile; the schedule shots draw slots and never press Save). It no longer shoots the public player page or the go-live pre-flight. Updated in the working tree for the current UI: the power shot is the whole "On air now" region (off air it has no headline), the Coming up shot (`autodj-rotation`) is gone, the tune-in QR is opened through "QR code & embed", `music-library` is taken on `/playlists`, the week is found by `#schedule-week`, and the DJ-software shot is the settings tile's dialog. Run it with `npm run test:help-shots`; its header lists the shots and the webp conversion.
 
 `playwright.config.ts` sets `grepInvert: /@(screenshots|visual)/`, so neither capture spec runs in `npm run test:e2e`; `npm run test:help-shots` and `npm run test:visual` set `E2E_CAPTURE=1`, which lifts it.
 
 ### `tests/e2e/dashboard-visual.spec.ts` (`npm run test:visual`)
 
-Every dashboard page and main state at desktop 1440 and phone 390: 26 states × 2 = 52 tests, about 1.5 minutes. Each writes a full-page PNG to `tests/e2e/.visual/{desktop,phone}/` (gitignored) and fails on an uncaught page error, a missing `h1` (or open dialog, for dialog states) or a phone page that scrolls sideways. It fakes `document.visibilityState` (headless tabs are hidden, which pauses the status poll and the player) and waits for fonts, images and the end of "Checking…". Not a pixel diff: the pages show live data (clock, "today", counts). It signs in once per account (`storageState` in `.visual/.auth-*.json`) and never changes data. It uses the running dev servers; `webServer` only starts them when absent.
+Every dashboard page and main state at desktop 1440 and phone 390: 29 states × 2 = 58 tests (Pro 18, Free 9, no-station 2, including the playlists pages, "QR code & embed" and "Edit profile" dialogs, Free's "Get Pro" dialog, and a filled-in create page). Each writes a full-page PNG to `tests/e2e/.visual/{desktop,phone}/` (gitignored) and fails on an uncaught page error, a missing `h1` (or open dialog, for dialog states) or a phone page that scrolls sideways. It fakes `document.visibilityState` (headless tabs are hidden, which pauses the status poll and the player) and waits for fonts, images and the end of "Checking…". Not a pixel diff: the pages show live data (clock, "today", counts). It signs in once per account (`storageState` in `.visual/.auth-*.json`) and never changes data. It uses the running dev servers; `webServer` only starts them when absent.
 
 **Keeper accounts** (all `Password123!`; made once, read by both screenshot specs; never re-run `e2e:auth user` on them, it force-deletes the user and the station with it):
 
@@ -324,7 +332,7 @@ Each `docs/features/*.md` (except `README.md`) lists `sources:` in front matter 
 ## Gaps and traps
 
 1. **The Playwright auth suite is broken.** `expectDashboard()` targets a `/dashboard/stations` list and "Create your first station" / "Your stations" text that were removed (`client/app/dashboard/stations/page.tsx` redirects to `/dashboard`; the no-station page now says "Create your station"); the delete-account test uses a `#delete-password` field that no longer exists. `signIn()` also uses `getByLabel("Password")`, which now matches the password field and its Show button (strict-mode failure); `getByRole("textbox", { name: "Password" })` works. Fix `support/auth.ts` `expectDashboard` and the delete test before trusting any e2e result.
-2. **The capture specs need the keeper accounts.** `help-screenshots.spec.ts` and `dashboard-visual.spec.ts` sign in as `shell@gocast.test` (and the visual one also `free@gocast.test`, `create@gocast.test`); they are excluded from `test:e2e` by `grepInvert` and fail on a database without those accounts. Never run `e2e:auth user` on a keeper: it force-deletes the user and the station.
+2. **The capture specs, and now one ordinary spec, need the keeper accounts.** `help-screenshots.spec.ts` and `dashboard-visual.spec.ts` sign in as `shell@gocast.test` (and the visual one also `free@gocast.test`, `create@gocast.test`); they are excluded from `test:e2e` by `grepInvert`. `create-station.spec.ts` is not excluded and needs `create@gocast.test`. All fail on a database without those accounts. Never run `e2e:auth user` on a keeper: it force-deletes the user and the station.
 3. **E2E and the API suite hit real shared services.** Playwright users are created in the dev database (`gocast`) and never deleted; the API suite's direct `Redis::` calls hit whatever Redis `api/.env` names, with keys derived from small auto-increment station ids (`metadata:{id}`, `listeners:{id}`, live-session sets). Running the suite against the same Redis as a running dev app can clobber the dev app's keys for stations with the same ids. There is no `REDIS_*`/`REDIS_PREFIX` override in `phpunit.xml`.
 4. **`gocast_test` must be created by hand**, and uses the dev MySQL credentials. A missing database fails every Feature test, not just one.
 5. **Everything docker-related is unexercised.** `inTestMode()` short-circuits 13 supervisor methods; behaviour is tested by command-string assertions, reflection into private builders, and mocks. No test runs Liquidsoap or `liquidsoap --check`, and `LiquidsoapTemplateTest` builds its own variable array instead of using the supervisor's.

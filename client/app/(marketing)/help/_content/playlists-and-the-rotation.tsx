@@ -63,16 +63,10 @@ export default function Body() {
         Put it in its own playlist and give that playlist a slot.
       </p>
       <p>
-        Your station’s Overview shows what AutoDJ moves to next, under{" "}
-        <strong>Coming up</strong>.
+        The <strong>Right now</strong>{" "}card at the top of the{" "}
+        <strong>Schedule</strong>{" "}page says which playlist AutoDJ has lined up
+        at this moment, until when, and what takes over after it.
       </p>
-
-      <ZoomableImage
-        src="/help/autodj-rotation.webp"
-        alt="The Coming up card on a station's Overview: Morning Soul, an AutoDJ playlist, starting Wednesday at 10:15."
-        width={1220}
-        height={380}
-      />
     </>
   )
 }

@@ -355,6 +355,18 @@
   .dark:has([data-slot="tab-bar"]):not([data-studio-live]) {
     --toast-offset-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
+  /* The live studio has no tab bar, but its bottom row (Monitor, Mic, End
+     show) sits where the toast would, and an "Undo" toast covered it for six
+     seconds: above the row (52px button + the shell's 1.25rem). */
+  .dark[data-studio-live] {
+    --toast-offset-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+}
+/* Phones: above the talk button too (TalkFab, bottom-talk-fab, 56px). */
+@media (max-width: 47.99rem) {
+  .dark[data-studio-live] {
+    --toast-offset-bottom: calc(var(--spacing-talk-fab) + 4.25rem);
+  }
 }
 .dark:has([data-surface="dashboard"], [data-surface="marketing"]) [data-sonner-toast] {
   --normal-bg: var(--ds-surface-strong);
@@ -441,15 +453,20 @@ input[data-slot="ds-input"]:-webkit-autofill:focus {
    The studio alone on the screen (components/studio/FocusButton): no
    sidebar, no top bar. The status band stays — it carries the warnings.
    The shell re-measures --chrome-h, so the studio's fit-the-screen height
-   grows into the freed space by itself. */
-html[data-studio-focus] [data-slot="sidebar"],
-html[data-studio-focus] [data-slot="top-bar"] {
-  display: none;
-}
-/* …and the page's max width goes with the sidebar: the studio takes the
-   whole screen. */
-html[data-studio-focus] [data-slot="page-frame"] {
-  max-width: none;
+   grows into the freed space by itself.
+   Desktop only, like its button (max-lg:hidden): below lg the button is
+   gone, so a window narrowed in focus mode would have no way back to the
+   navigation. There the attribute does nothing. */
+@media (min-width: 64rem) {
+  html[data-studio-focus] [data-slot="sidebar"],
+  html[data-studio-focus] [data-slot="top-bar"] {
+    display: none;
+  }
+  /* …and the page's max width goes with the sidebar: the studio takes the
+     whole screen. */
+  html[data-studio-focus] [data-slot="page-frame"] {
+    max-width: none;
+  }
 }
 
 /* ── Live studio on a phone or tablet ──────────────────────────────────────

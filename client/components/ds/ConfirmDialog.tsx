@@ -80,7 +80,7 @@ export function ConfirmDialog({
         // keyboard over the consequences before they're read; it opens when
         // the field is tapped. Desktop keeps it, ready to type.
         onOpenAutoFocus={(e) => {
-          if (confirmText && window.matchMedia("(max-width: 639px)").matches) e.preventDefault()
+          if (confirmText && window.matchMedia?.("(max-width: 639px)").matches) e.preventDefault()
         }}
       >
         <DialogHeader className="pr-0">

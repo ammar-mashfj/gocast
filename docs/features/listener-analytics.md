@@ -1,6 +1,6 @@
 ---
 feature: Listener analytics (live count, sessions, Audience page)
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Http/Controllers/ListenerSessionController.php
   - api/app/Http/Controllers/ListenerCountController.php
@@ -58,7 +58,7 @@ sources:
   - client/components/dashboard/shell/StationBand.tsx
   - client/components/dashboard/shows/ShowsList.tsx
   - api/database/migrations/2026_10_01_120000_add_peak_at_to_stream_sessions_table.php
-fingerprint: 3c8985d655b7d19c
+fingerprint: 19a9fbd73a785f5d
 ---
 
 # Listener analytics
@@ -92,7 +92,7 @@ live = ZCOUNT(listeners:live:{id}:hls, now - live_window_seconds, +inf)   // HLS
 ```
 
 - **Only the `hls` set is added.** The `icecast` set is never counted, because an Icecast listener already sits inside `listeners:{id}`. A session on the Icecast transport still gets a row (country, device, duration) and is still closed on time.
-- `listeners:{id}` is written by `stations:sync-listeners` every minute with TTL **300 s** (`SyncListenerCounts::REDIS_TTL_SECONDS`). If the scheduler stalls for more than 5 minutes the Icecast half silently becomes 0. The Icecast half moves in minute-sized steps whatever the client's poll rate.
+- `listeners:{id}` is written by `stations:sync-listeners` every minute with TTL **300 s** (`SyncListenerCounts::REDIS_TTL_SECONDS`). If the scheduler stalls for more than 5 minutes the Icecast half silently becomes 0. The Icecast half moves in minute-sized steps whatever the client's poll rate. The same command also counts Icecast's mounts against `services.icecast.max_sources` and, at 80% or more (`SOURCE_WARN_RATIO`), warns the admin on Telegram (`opsAlert('icecast-sources', …)`, at most hourly); that is capacity monitoring, not analytics.
 - `liveCount` is read-only and does not trim the set; trimming is the sweep's job.
 - **Icecast listeners are per-mount from `/admin/stats`.** They include any client on the mount, including our own player when it fell back. There is no per-listener identity.
 
@@ -248,12 +248,12 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
 
 ### Web player side (reporting)
 
-`useListenerSession(slug, playing, transport)` is called from `app/station/[slug]/PlayerView.tsx`, `app/embed/[slug]/EmbedPlayer.tsx` and `components/homepage/heroSection/HeroStationPlayer.tsx`. All failures are silent; a failed open just means that listener isn't counted. There is no retry and no re-open after a 404 on a beat.
+`useListenerSession(slug, playing, transport)` is called from `app/station/[slug]/PlayerView.tsx`, `app/embed/[slug]/EmbedPlayer.tsx` and `components/homepage/heroSection/HeroStationPlayer.tsx`. All failures are silent; a failed open just means that listener isn't counted. There is no retry and no re-open after a 404 on a beat. With an empty slug (the homepage hero passes `""` when its station fetch failed) the hook does nothing.
 
 ### Web dashboard
 
-- **Overview hero** (`ListeningNow` in `components/dashboard/overview/OverviewHero.tsx`): `useListenerCount(slug, onAir)`, only while the hero isn't off air; the number counts up (`useCountUp`). `null` renders a dash, never 0. Lines: starting ("Your station is starting. Counting begins once it's on air."), off air ("Go live to start counting." on Free, else "Start AutoDJ or go live to start counting."), "Counting who's tuned in…", at 0 "Nobody right now. Your peak is {n}." when `stats.peak_listeners > 0` else "Nobody yet. Share your link below.", and a state-specific line otherwise; links to the Audience page for every plan.
-- **Status band** (top of every dashboard page): "{n} LISTENING" while the station is on air; from `useBroadcastStats` while this tab broadcasts, else `useListenerCount`.
+- **Overview hero** (`ListeningNow` in `components/dashboard/overview/OverviewHero.tsx`): `useListenerCount(slug, onAir)`, only while the hero isn't off air; the number counts up (`useCountUp`). `null` renders a dash, never 0. A strip under the hero below `xl` (hidden on phones, where the status band carries the count), the right-hand panel from `xl`. Lines: starting ("Your station is starting. Counting begins once it’s on air."), off air ("Go live to start counting." without AutoDJ, else "Start AutoDJ or go live to start counting."), "Counting who’s tuned in…", at 0 "Nobody right now." plus, below `xl`, "Your all-time record is {n} at once." when `stats.peak_listeners > 0`, else "Nobody yet. Share your link."; "Tuned in to your show right now." while live, else "On your player page and the direct stream.". From `xl` it also lists All-time record (`stats.peak_listeners`), Live shows (`stats.sessions`) and Time live (`stats.total_airtime_seconds`), live shows only since AutoDJ airtime isn't recorded. "See your audience →" for every plan, with a PRO tag when `analytics_days <= 0` (`AudienceProTag`).
+- **Status band** (top of every dashboard page): "{n} LISTENING" while the station is on air; from `useBroadcastStats` while this tab broadcasts off the studio page, else `useListenerCount` (on the studio page only below `md`, where there is no stats strip; dropped below `lg` for a fault with 0 listening).
 - **Shared polling** (`usePublicStationStats.ts`): one feed per slug per tab, 10 s interval (`POLL_MS = 10_000`), paused while the tab is hidden by default, re-read on becoming visible if the held value is 10 s or older; the feed is dropped when its last subscriber leaves. Consumers: the dashboard overview, the player page, the embed, and the homepage hero (only while its audio is playing). The studio and the status band while this tab broadcasts (`useBroadcastStats`) opt out of pausing (`pauseWhenHidden: false`).
 - **Studio milestone toasts** (`useBroadcastStats` with `lib/milestones.ts`, used by the studio page and by the status band while broadcasting outside the studio): thresholds `LISTENER_MILESTONES = [1, 5, 10, 25, 50, 100, 250, 500, 1000]`. A toast fires once per browser per broadcast per threshold (`localStorage` key `gocast:milestones-fired:v1`, entry `live:{slug}:{liveSince}:{m}`) when the polled count crosses the threshold and the session's own peak was below it. That session peak and the 24-sample sparkline (24 x 10 s, samples at least 5 s apart) are session-scoped in module memory, from the same public endpoint, so they can differ from the sweep's `stream_sessions.peak_listeners`.
 - **Audience page** `/dashboard/stations/{slug}/audience[?days=7|30|90]` (server component). Fetches the station and the audience in parallel; a 401 redirects to `/auth/login?expired=1` (`redirectIfSessionExpired`), 404/403 becomes `notFound()`. The `days` param is validated against `[7, 30, 90]` before it is echoed into links. **Title:** "{n} person is / people are listening." while `live > 0` and the station isn't off air, else "Audience". **Range:** `RangeLinks`, a link-based segmented control (7d / 30d / 90d, only windows `<= plan_days`), so the range lives in the URL and the server renders it.
@@ -285,7 +285,7 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
 8. **MaxMind is effectively off.** `geoip2/geoip2` is not in `api/composer.json`, and `GeoResolver` guards on `class_exists`, so without the package and a `.mmdb` file, country comes only from the CDN header. Production sits behind Cloudflare, so `CF-IPCountry` is present there and countries fill. On any deployment without Cloudflare in front (local dev, a bare VPS), `country` is null for every session and the countries card can never fill (the empty-state copy blames "no locations recorded", not configuration). Private and reserved IPs (local dev) are always null.
 9. **Countries lag and drop open sessions.** They are rolled up only from closed sessions, hourly at :05, over a 3-day trailing window (`--days=3`); a listen that closes more than 3 days after it started never reaches `listener_geo_daily`. A country's `sessions` therefore can be lower than `totals.sessions`; the page footnote states "Located X of Y".
 10. **Rollup columns are write-only.** `listener_stats_hourly.sessions_started`, `unique_listeners` and `qualified_listens`, and `ListenerSession::scopeQualified`, are not read by any report (`AudienceReport` reads sessions directly). `sampled_minutes` is also unread. `totals.qualified_listens` is returned by the API and typed in web and mobile but not displayed anywhere.
-11. **`AudienceReport::build` runs 11 database queries per request (daily samples, daily sessions, countries x2, session totals, three breakdowns x2, peak-all-time) plus Redis reads.** That is fine at current scale; it is throttled at 60/min per route.
+11. **`AudienceReport::build` runs 11 database queries per request (daily samples, daily sessions, countries x2, session totals, three breakdowns x2, peak-all-time) plus Redis reads.** That is fine at current scale; it is throttled at 60/min per user under its own `station-audience` prefix.
 12. **Stale/incorrect copy:**
     - Help article `read-your-audience-page` says Free sees "the live listener count ... and that is all"; the locked Audience page also shows the all-time peak.
     - The same article says today's bar is always an underestimate; listening time is sampled once a minute so today's bar is only slightly behind, while countries (closed sessions) are what lags.

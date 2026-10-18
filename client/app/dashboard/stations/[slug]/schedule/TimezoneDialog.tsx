@@ -67,7 +67,15 @@ export function TimezoneDialog({
 
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogContent>
+      <DialogContent
+        // The dialog hears Esc before the search field does (Radix listens on
+        // the document, capturing). With the field's list open, the first Esc
+        // is the list's: the field closes it, and only a second Esc closes
+        // this, rather than throwing the unsaved pick away.
+        onEscapeKeyDown={(e) => {
+          if (document.activeElement?.getAttribute("aria-expanded") === "true") e.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Station timezone</DialogTitle>
           <DialogDescription>

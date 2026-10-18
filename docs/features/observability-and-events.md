@@ -1,6 +1,6 @@
 ---
 feature: Observability and events (station timeline, audit logs, Sentry, metrics, alerts)
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Models/StationEvent.php
   - api/config/station_events.php
@@ -40,6 +40,9 @@ sources:
   - api/app/Http/Middleware/VerifyInternalKey.php
   - api/app/Services/AdminTelegram.php
   - api/app/Jobs/SendAdminTelegramAlert.php
+  - api/app/Console/Commands/CheckQueueBacklog.php
+  - api/app/Console/Commands/SyncListenerCounts.php
+  - api/config/queue.php
   - api/.env.example
   - infra/alloy/config.alloy
   - infra/native/nginx/gocast-api.conf
@@ -66,7 +69,7 @@ sources:
   - client/lib/broadcast.ts
   - api/phpunit.xml
   - api/tests/TestCase.php
-fingerprint: 3793b82cf62c9bab
+fingerprint: dcd3db972eaffea7
 ---
 
 # Observability and events
@@ -271,7 +274,7 @@ Alloy runs as a host service (apt), reading credentials from `/etc/default/alloy
 
 - Logs from Docker containers labelled `gocast.station` (relabelled with `container`, `station` slug, `service=liquidsoap`; discovery refresh 5 s, direct read-only docker socket).
 - Logs from files: `/srv/gocast/app/api/storage/logs/*.log` (laravel), `/var/log/nginx/gocast-*.log`, `/var/log/php8.4-fpm.log`, `/var/log/icecast2/*.log`.
-- Journal units `gocast-queue`, `gocast-scheduler`, `gocast-client`.
+- Journal units `gocast-queue`, `gocast-scheduler`, `gocast-client`. Not `gocast-realtime` or `gocast-analysis` (the worker split of 2026-10-10 did not touch the Alloy match list), so those two workers' output never reaches Loki.
 - Host metrics through `prometheus.exporter.unix`, job `node`, remote-written with an external label `host`.
 - The Icecast `/status-json.xsl` scrape is commented out.
 
@@ -299,7 +302,14 @@ Operator alerts to one chat. `AdminTelegram` (`api/app/Services/AdminTelegram.ph
 | Broadcast started (source, client, Listen and Admin links) | `StreamSession::created`, unthrottled on purpose |
 | Email received (from/to/subject/body, first 3000 chars, failed SPF/DKIM flags, attachment names) | Resend `email.received` webhook, `App\Webhooks\Resend\EmailReceived` |
 
-Not alerted: errors, container failures, queue failures, station stops, failed deploys. Failure alerting is Sentry only. See [admin-panel.md](admin-panel.md) and [notifications-and-email.md](notifications-and-email.md).
+Two infrastructure alerts bypass the queue: `AdminTelegram::opsAlert($key, $html, $quietMinutes = 15)` calls `SendAdminTelegramAlert::handle()` in the calling process, throttles each `$key` with `Cache::add('ops-alert:{key}')` for the quiet window (a failed send gives the slot back), and swallows every failure so the calling command still finishes.
+
+| Ops alert | Trigger |
+|---|---|
+| Queue backlog | `queue:check-backlog` (`CheckQueueBacklog`, every minute, `withoutOverlapping(5)`): the oldest pending job on a queue has waited longer than `queue.backlog_alert_seconds` (`realtime` 60 s, `default` 300 s, `analysis` 3600 s; env `QUEUE_ALERT_*_SECONDS`). Age, not length. Drivers that cannot report job age (`sync`) skip the check. |
+| Icecast near its source limit | `stations:sync-listeners`, after the counts: the number of mounts Icecast reports is at least 80% of `services.icecast.max_sources` (`ICECAST_MAX_SOURCES`, default 150). Quiet window 60 min. |
+
+Not alerted: errors, container failures, failed jobs, station stops, failed deploys. Failure alerting is Sentry only. See [admin-panel.md](admin-panel.md) and [notifications-and-email.md](notifications-and-email.md).
 
 ## Gaps and traps
 
@@ -321,6 +331,8 @@ Not alerted: errors, container failures, queue failures, station stops, failed d
 16. Clarity, GA and Umami load on every route including the dashboard and studio, with no consent gate; masking rules live outside the repo.
 17. The Google Translate patch changes global DOM prototypes for every user, not just translated sessions; a future React or browser change could interact with it.
 18. Telegram has no throttle or dedupe by design; a reconnecting encoder produces one "Broadcast started" per new `StreamSession`.
+19. Alloy's journal match list (`infra/alloy/config.alloy`) names only `gocast-queue`, `gocast-scheduler` and `gocast-client`, so the `gocast-realtime` and `gocast-analysis` workers' logs are not shipped. Their failures are visible only through `journalctl` on the box (and the backlog alert, if they stop draining).
+20. The ops alerts are sent from the scheduler process with a 10 s HTTP timeout and no retry; a Telegram outage drops them (logged at warning) and the throttle slot is released, so the next minute tries again.
 
 ## Tests
 
@@ -330,7 +342,7 @@ Not alerted: errors, container failures, queue failures, station stops, failed d
 - `api/tests/Feature/Console/PruneStationEventsTest.php`: retention, disabled, backlog over one chunk.
 - `api/tests/Feature/Admin/StationTimelineTest.php`: admin only, ordering, isolation, folding, filters, trashed stations.
 - `api/tests/Feature/Observability/ActivityLogTest.php`, `AuthenticationLogTest.php`.
-- `api/tests/Feature/MetricsControllerTest.php`, `AdminTelegramAlertTest.php`.
+- `api/tests/Feature/MetricsControllerTest.php`, `AdminTelegramAlertTest.php`, `CheckQueueBacklogTest.php`, `SyncListenerCountsTest.php` (the source-limit warning).
 - `api/tests/Feature/StudioDropTest.php`, `UplinkCheckTest.php`: the two studio-reported event endpoints.
 - No tests for the client Sentry config or the Translate patch.
 

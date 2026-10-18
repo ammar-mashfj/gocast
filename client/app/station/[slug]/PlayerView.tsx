@@ -315,21 +315,30 @@ function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElemen
     setVolume(v)
     setMuted(v === 0)
     const audio = getAudio()
-    if (audio) audio.volume = v / 100
+    if (!audio) return
+    audio.volume = v / 100
+    // Moving the slider up takes the mute off, as in every player.
+    audio.muted = v === 0
   }
 
+  // Mute is the element's own `muted`, not volume 0: iPhone and iPad ignore
+  // a page setting the volume, so volume 0 muted nothing there. The slider
+  // still shows 0 while muted and gives back the level on unmute.
   function toggleMute() {
     const audio = getAudio()
     if (muted) {
       const restore = prevVolume.current || 80
       setVolume(restore)
       setMuted(false)
-      if (audio) audio.volume = restore / 100
+      if (audio) {
+        audio.volume = restore / 100
+        audio.muted = false
+      }
     } else {
       prevVolume.current = volume
       setVolume(0)
       setMuted(true)
-      if (audio) audio.volume = 0
+      if (audio) audio.muted = true
     }
   }
 

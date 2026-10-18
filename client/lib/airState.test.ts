@@ -147,6 +147,15 @@ describe("airState — from the poll", () => {
     expect(airState(input({ status: s })).message).toBe("You’re live from another browser.")
   })
 
+  it("says the show ended, not AutoDJ, while another source's last seconds play out", () => {
+    // The broadcaster has gone; the live arm is still what's on air.
+    const draining = status({ state: "live", source: "live", broadcaster: false, live_source: null, now_playing: { title: "Live broadcast", artist: null } })
+    for (const autoDjLocked of [false, true]) {
+      expect(airState(input({ status: draining, autoDjLocked }))).toMatchObject({ label: "SHOW ENDED", tone: "off", action: null, onAir: true })
+    }
+    expect(stationHero(heroInput(draining)).title).toBe("Your show has ended.")
+  })
+
   it("says no answer, like the overview hero, when only the session says live", () => {
     // The session row outlives an unreachable container's say-so.
     const s = status({ state: "live", reachable: false, broadcaster: null, source: null, live_source: { type: "browser", client: null } })

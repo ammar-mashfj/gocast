@@ -1,6 +1,6 @@
 ---
 feature: Free-tier watermark ("powered by GoCast" clips)
-verified: 2026-10-11 against 3ccc644 plus uncommitted work (feat/dashboard-design)
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Services/WatermarkClipLibrary.php
   - api/app/Jobs/ReloadWatermarkClips.php
@@ -32,7 +32,7 @@ sources:
   - api/app/Console/Commands/ExpirePlans.php
   - api/app/Http/Controllers/PublicEmbedController.php
   - api/app/Http/Controllers/StreamKeyController.php
-fingerprint: 6b7e2d3d93868240
+fingerprint: bcd8da9ebebb41af
 ---
 
 # Free-tier watermark (voice ID clips)
@@ -96,13 +96,13 @@ The same directory is mounted read-only into every station container at `/data/s
 
 ### Reaching running stations
 
-- **Plan change (live, no restart):** `UserObserver::updated` fires when `plan_id` changed. For each of the user's `running()` stations (`desired_state = running`) it calls `LiquidsoapSupervisor::applyWatermarkSettings()`, which sends three telnet commands `var.set watermark_enabled = true|false`, `watermark_interval = <n.0>`, `watermark_duck = <n.nnn>`. It unsets the stale `plan` relation first and sets `station.user` to the updated user. Failures are logged (`Log::info` "Watermark settings not applied live", first failure aborts the rest, returns false; the observer wraps the call in try/catch with `Log::error`). A stopped station picks up the right values when its script is next rendered. Paths that change `plan_id` on an existing user and so fire it: `AccessRequestController` (approve at line 222, revoke at 287), `Admin\StationController` upgrade (line 312), `InviteRedemption` (invite redeemed by an existing account) and `plans:expire`. Admin account creation (`AccountController`) sets `plan_id` on a brand-new `User`, which fires `created`, not `updated`, and it has no stations yet.
+- **Plan change (live, no restart):** `UserObserver::updated` fires when `plan_id` changed and queues the push with `DB::afterCommit` (immediately when no transaction is open), so the admin grant paths and `plans:expire`, which write the plan inside a transaction holding the user row lock, do not hold that lock across the telnet fan-out; a push queued by an earlier save of the same model in the same transaction is dropped by comparing the captured `plan_id`. For each of the user's `running()` stations (`desired_state = running`) it calls `LiquidsoapSupervisor::applyWatermarkSettings()`, which sends three telnet commands `var.set watermark_enabled = true|false`, `watermark_interval = <n.0>`, `watermark_duck = <n.nnn>`. It unsets the stale `plan` relation first and sets `station.user` to the updated user. Failures are logged (`Log::info` "Watermark settings not applied live", first failure aborts the rest, returns false; the observer wraps the call in try/catch with `Log::error`). A stopped station picks up the right values when its script is next rendered. Paths that change `plan_id` on an existing user and so fire it: `AccessRequestController` (`grant()`, shared by approve and renew, at line 277; an extension of the plan already held changes no `plan_id` and pushes nothing; revoke at line 458), `Admin\StationController::upgrade` (line 333), `InviteRedemption` (invite redeemed by an existing account) and `plans:expire`. `User` now casts `plan_id` to integer, so these paths compare plan ids with `===`. Admin account creation (`AccountController`) sets `plan_id` on a brand-new `User`, which fires `created`, not `updated`, and it has no stations yet.
 - **Clip added or deleted:** `ReloadWatermarkClips` job (queued, `ShouldQueue`), dispatched by the admin `store` and `destroy` actions. For each `Station::running()` it sends telnet `watermark.reload` (`LIQ_SOURCE = 'watermark'`), catching per-station failures with `Log::info`. It is needed because the playlist is rendered with `reload_mode="never"`. It does nothing when the kill switch is off. Note that `telnet()` returns `''` in test mode and the job ignores the reply, so an "unknown command" answer would go unnoticed.
 - A container that is down reads the directory fresh at next boot.
 
 ## Endpoints (admin panel only)
 
-All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 96 to 98). Nothing is exposed on the public or owner API except a read-only flag (below).
+All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 98 to 100). Nothing is exposed on the public or owner API except a read-only flag (below).
 
 | Route | Name | Controller method | Does |
 |---|---|---|---|
@@ -119,13 +119,13 @@ All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 9
 - **Admin panel:** sidebar link "Watermark clips" (`admin/layout.blade.php`), page `admin/watermark.blade.php`. States: warning banner when the install switch is off ("clips are still managed here, but nothing plays them"); warning when the switch is on and no clips exist ("N stations on a watermarked plan are currently broadcasting unmarked"); error when the directory is not writable; clip table (name, length as m:ss or a dash, size, "added" from mtime, Remove with a `confirm()` prompt); upload form with an `accept` list and the size cap; "How it plays" card (feature on/off, interval, duck percent, fade); "Who hears it" card (marked stations, and those on air); "Directory" card. The accounts page (`admin/accounts.blade.php`, line 99) appends ", watermarked" to a plan's summary when its flag is set.
 - **API, owner-only read-only flag:** `StationResource` emits `watermarked` only when the requester owns the station (`$request->user()->watermarked()`); `UserResource` emits `plan`-block `watermarked` (line 66). Neither can be written. `PublicEmbedController` and `StreamKeyController` docblocks refer to it being kept off public resources; not otherwise involved.
 - **Web dashboard / mobile / player page / help:** **nothing renders it.** `client/interfaces/Station.ts` (`watermarked?: boolean`) and `client/interfaces/Plan.ts` (`watermarked: boolean`) carry comments saying the field is kept only because the API sends it and nothing should render or gate on it. A grep of `client/` and `mobile/` for "watermark", "powered by GoCast" and "voice id" finds only those two interface files and the terms page.
-- **Terms of service** (`client/app/(marketing)/terms/page.tsx`, lines 59 to 62): says the licence extends to "mixing a short audible 'powered by GoCast' identifier into free-plan streams, which we do not do today and would announce before starting." That is the only public-facing wording, and it states the feature is off.
+- **Terms of service** (`client/app/(marketing)/terms/page.tsx`, last updated October 14, 2026): section 4 (lines 59 to 62) says the licence extends to "mixing a short audible 'powered by GoCast' identifier into free-plan streams, which we do not do today and would announce before starting." Section 6, "Free and Paid Plans" (lines 97 to 101), says flatly that free plans "carry an audible GoCast identifier in the stream". Those are the only public-facing wordings, and they disagree.
 - **Email:** `ProAccessGranted` docblock says the watermark is "not a real difference today: no clips are installed", and the email does not mention it.
 
 ## Gaps and traps
 
 1. **Effectively dead in practice.** Flags say on (config default true, free plan true), but the clip directory is empty on the dev box, so nothing plays. Production contents are unverified from this repo; the `ProAccessGranted` comment says none are installed. Uploading one clip switches it on for all free stations (each on its next reload), with no further gate, so do not upload a test clip on a production admin panel casually. The terms promise an announcement first.
-2. **Copy that would be false if enabled quietly.** The terms page currently says "which we do not do today". If a clip goes live, update that sentence and add the announcement it promises.
+2. **The terms contradict themselves, and one half is false today.** Section 4 says "which we do not do today"; section 6 says free plans "carry an audible GoCast identifier in the stream", which is not true while the directory is empty (and the feature is slated for removal). If a clip goes live, section 4 and the promised announcement need updating; if it is removed, section 6's clause does.
 3. **Admin page overstates live tuning.** The "How it plays" card says "Stations pick up interval and duck live". In code, `applyWatermarkSettings()` runs only from `UserObserver::updated` (plan change). Editing the env or config does nothing to a running container until it is re-rendered and restarted, or its owner's plan changes. Fade is render-time only (the card is right about that).
 4. **Kill switch does not touch running containers.** Turning `LIQUIDSOAP_WATERMARK_ENABLED` off changes rendering and `watermarked()` for new boots and for the next plan-change push, but a container already running keeps its old script; `ReloadWatermarkClips` also stops reloading. Turning it on again needs a re-render, not a container recreate (the directory is always mounted).
 5. **Stale wording in the admin card.** "Upgrading is the only way it stops" ignores the install kill switch.
@@ -148,5 +148,5 @@ All under the `admin` prefix and `auth:admin` guard (`routes/admin.php`, lines 9
 
 ## History
 
-- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off, should never appear in user-facing copy, and was decided on 2026-10-01 to be removed system-wide (not done yet as of 2026-10-11; everything above is still in the code, and the only change since 2026-10-04 is the fingerprint exception noted under "Where it sits in the audio graph"). The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
+- Migration dated 2026-08-18 added the plan flag. Related notes in the memory index ("Voice ID shelved") record that the feature was built but is off, should never appear in user-facing copy, and was decided on 2026-10-01 to be removed system-wide (not done yet as of 2026-10-18; everything above is still in the code; changes since 2026-10-04 are the fingerprint exception noted under "Where it sits in the audio graph" and the after-commit plan push). The station-hardening and pricing docs under `docs/` mention it only in passing and are not the spec.
 - Related features: [Liquidsoap station script](liquidsoap-station-script.md), [Liquidsoap supervisor](liquidsoap-supervisor.md), [Accounts, plans and invites](accounts-plans-invites.md), [Admin panel](admin-panel.md), [AutoDJ](autodj.md).

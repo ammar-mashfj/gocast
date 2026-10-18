@@ -231,13 +231,22 @@ function bare(url: string): string {
  * Which picker platform a saved address belongs to, and its handle. Null when
  * it doesn't start with a platform's base (another host, or youtu.be, or
  * m.facebook.com): those load as Other links, unchanged.
+ *
+ * Also null for an address that isn't a profile, or that its platform's field
+ * would not give back as it is: a video or playlist (anything with `?` or
+ * `#`), or `youtube.com/OldName` (the field would make it `@OldName`). Those
+ * load as Other links too, so saving the card leaves them exactly as saved.
  */
 export function matchPickerPlatform(url: string): { platform: PickerPlatform; handle: string } | null {
   const b = bare(url)
   for (const platform of PICKER_PLATFORMS) {
     const prefix = bare(platform.base)
     if (b.toLowerCase().startsWith(prefix.toLowerCase()) && b.length > prefix.length) {
-      return { platform, handle: b.slice(prefix.length) }
+      const handle = b.slice(prefix.length)
+      if (/[?#]/.test(handle)) return null
+      const rebuilt = `${prefix}${cleanHandle(platform, handle)}`
+      if (rebuilt.replace(/\/+$/, "").toLowerCase() !== b.replace(/\/+$/, "").toLowerCase()) return null
+      return { platform, handle }
     }
   }
   return null
@@ -252,6 +261,8 @@ export function cleanHandle(platform: PickerPlatform, input: string): string {
   if (pasted.toLowerCase().startsWith(prefix.toLowerCase())) handle = pasted.slice(prefix.length)
   handle = handle.replace(/^\/+/, "")
   if (platform.at === "strip") handle = handle.replace(/^@/, "")
-  if (platform.at === "add" && handle !== "" && !handle.startsWith("@") && !handle.includes("/")) handle = `@${handle}`
+  // Only to a plain name: `watch?v=…`, `playlist?list=…` or `channel/UC…`
+  // pasted in is an address, and an @ in front of it is a dead link.
+  if (platform.at === "add" && /^[\w.-]+$/.test(handle)) handle = `@${handle}`
   return handle
 }

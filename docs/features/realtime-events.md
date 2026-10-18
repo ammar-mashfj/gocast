@@ -1,6 +1,6 @@
 ---
 feature: Realtime events and polling
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/routes/channels.php
   - api/config/broadcasting.php
@@ -57,7 +57,7 @@ sources:
   - client/components/dashboard/overview/OverviewHero.tsx
   - client/components/dashboard/shell/UpdatesMenu.tsx
   - client/contexts/BroadcastContext.tsx
-fingerprint: 048c9323aafe6674
+fingerprint: 451911e8d0954117
 ---
 
 # Realtime events and polling
@@ -139,7 +139,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 | Surface | Mechanism | Endpoint | Interval / trigger |
 |---|---|---|---|
 | Web dashboard status band, sidebar lamp, overview hero, library, Schedule "Right now", power hook, end-broadcast dialog | Poll **plus** push (`useStationStatus`; one shared poll per dashboard) | `GET /stations/{slug}/status` (auth, `throttle:120,1,station-status`, its own counter) | See below; plus the after-show re-read below |
-| Station settings encoder card, while open (`ConnectionWatcher` in `settings/EncoderCard.tsx`) | Own poll (`intervalMs`) plus the shared poll's `refresh()` | `GET /stations/{slug}/status` | 2 s while the socket is down (`WATCH_POLL_MS`), the normal pushed pacing otherwise |
+| Station settings encoder dialog, while open (`ConnectionWatcher` in `settings/EncoderCard.tsx`) | Own poll (`intervalMs`) plus the shared poll's `refresh()` | `GET /stations/{slug}/status` | 2 s while the socket is down (`WATCH_POLL_MS`), the normal pushed pacing otherwise |
 | Web dashboard listener count (overview hero `ListeningNow` and the status band, `useListenerCount`, only while on air), studio and status-band show stats (`useBroadcastStats`, while this tab broadcasts) | Poll only (`usePublicStationFeed`) | `GET /public/stations/{slug}/listeners` (`throttle:public`) | 10 s; `useBroadcastStats` keeps polling in a hidden tab |
 | Web public player page, embed | Poll only (`usePublicStationFeed`) | same | 10 s, paused when the tab is hidden |
 | Web homepage hero player | Poll only | same | 10 s, only while `playing` (and paused when hidden) |
@@ -156,7 +156,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 
 Constants: `POLL_STARTING_MS = 2000`, `POLL_STEADY_MS = 10000`, `POLL_OFFLINE_MS = 30000`, `POLL_PUSHED_MS = 30000`, `SIGNAL_COALESCE_MS = 120`, `POLL_FLOOR_MS = 3000`, `TRACK_END_GRACE_MS = 750`, `POLL_MAX_BACKOFF_MS = 30000`.
 
-Signature `useStationStatus(slug, enabled = true, intervalMs?)` (`client/hooks/useStationStatus.ts`); `enabled=false` runs no loop. It returns `{ status, loading, refresh, showEnding }`; `showEnding` comes from the shared provider and is always `false` on an own loop. The dashboard layout mounts `StationStatusProvider` (`client/contexts/StationStatusContext.tsx`), which runs **one** `useStationStatusPoll` for the account's station; any `useStationStatus(slug)` for that slug without `intervalMs` returns that shared loop instead of starting its own. Call sites: `StationBand`, the sidebar lamp (`AppSidebar`), `OverviewHero`, `useStationPower`, `useLibrary`, `ScheduleNow`, all sharing it, and `EndBroadcast` (only while its dialog is open and AutoDJ is not locked; shares the poll when enabled). A caller passing `intervalMs` or another station's slug runs its own loop; the one such caller is the encoder card's `ConnectionWatcher` (Station settings, `settings/EncoderCard.tsx`, mounted only while the card is open): `useStationStatus(slug, true, WATCH_POLL_MS)` with `WATCH_POLL_MS = 2000` watches `live_source` for the DJ software connecting, and a second, shared `useStationStatus(slug)` gives it `refresh()` to nudge the band and overview the moment it does.
+Signature `useStationStatus(slug, enabled = true, intervalMs?)` (`client/hooks/useStationStatus.ts`); `enabled=false` runs no loop. It returns `{ status, loading, refresh, showEnding }`; `showEnding` comes from the shared provider and is always `false` on an own loop. The dashboard layout mounts `StationStatusProvider` (`client/contexts/StationStatusContext.tsx`), which runs **one** `useStationStatusPoll` for the account's station; any `useStationStatus(slug)` for that slug without `intervalMs` returns that shared loop instead of starting its own. Call sites: `StationBand`, the sidebar lamp (`AppSidebar`), `OverviewHero`, `useStationPower`, `useLibrary`, `ScheduleNow`, all sharing it, and `EndBroadcast` (only while its dialog is open and AutoDJ is not locked; shares the poll when enabled). A caller passing `intervalMs` or another station's slug runs its own loop; the one such caller is the encoder card's `ConnectionWatcher` (Station settings, `settings/EncoderCard.tsx`, mounted only while its settings dialog is open): `useStationStatus(slug, true, WATCH_POLL_MS)` with `WATCH_POLL_MS = 2000` watches `live_source` for the DJ software connecting, and a second, shared `useStationStatus(slug)` gives it `refresh()` to nudge the band and overview the moment it does.
 
 The loop is `await read(); setTimeout(tick, next)`, so requests never overlap. The next delay is chosen by `intervalFor(status, pushed)`, first match wins:
 
@@ -178,7 +178,7 @@ Failure behaviour when the socket is down, in one place: `connected` is false, `
 
 #### After-show re-read (`client/contexts/StationStatusContext.tsx`)
 
-When this tab's broadcast for the station goes from `live`/`reconnecting` to anything else, `useRereadWhenShowEnds` sets `settling` and calls the shared poll's `refresh()` at once, then every 1.5 s (`AFTER_SHOW_REREAD_MS`) until a read shows `broadcaster !== true && source !== 'live'` (a failed read counts as not settled), giving up after 15 s (`AFTER_SHOW_SETTLE_MAX_MS`). This runs alongside the normal loop and is not triggered by the socket. While settling, a status whose `live_source.type` is `browser` is rewritten to `broadcaster: false, live_source: null` (it is this tab's own show, already over), so the band and overview do not say "live from another browser"; `showEnding` is exposed for the band to say the show has ended (`StationBand` passes it to its view model).
+When this tab's broadcast for the station goes from `live`/`reconnecting` to anything else, `useRereadWhenShowEnds` sets `settling` and calls the shared poll's `refresh()` at once, then every 1.5 s (`AFTER_SHOW_REREAD_MS`) until a read shows nobody connected (`broadcaster`, or `live_source !== null` for a container too old to report it) and `source !== 'live'` (a failed read counts as not settled), giving up after 15 s (`AFTER_SHOW_SETTLE_MAX_MS`). This runs alongside the normal loop and is not triggered by the socket. While settling, a status whose `live_source.type` is `browser` is rewritten to `broadcaster: false, live_source: null` (it is this tab's own show, already over), so the band and overview do not say "live from another browser"; `showEnding` is exposed for the band to say the show has ended (`StationBand` passes it to its view model).
 
 #### `usePublicStationStats` (`client/hooks/usePublicStationStats.ts`)
 
@@ -205,7 +205,7 @@ No websocket, no Echo, no pusher in `mobile/`. `useStationStatus(slug)` is a sim
 ## Gaps and traps
 
 1. **`BROADCAST_CONNECTION=log` alone: the two `.env.example` files say it is not a rollback, but the code suggests it degrades harmlessly.** Both `.env.example` files claim a browser with the key still subscribes successfully and slows to 30 s. Laravel's `LogBroadcaster::auth()` returns nothing, so `/broadcasting/auth` answers an empty 200 body; the hand-written handler in `client/lib/echo.ts` calls `response.json()`, which throws, so the channel errors and `connected` stays false (fast polling continues, at the cost of a failing auth request per attempt). This is read from code, not run against a live Ably. Either way the clean switch-off is to unset `NEXT_PUBLIC_PUSHER_KEY` in the same deploy.
-2. **Worker without `--queue=realtime` sends nothing.** No error; the queue just grows. `api/composer.json`'s `dev` script runs `queue:listen --queue=realtime,default,analysis`, so `composer dev` is fine (one shared listener is acceptable locally; see item 17); a hand-started `queue:work` with the default queue never delivers pushes. No docker-compose file in the repo starts a worker.
+2. **Worker without `--queue=realtime` sends nothing.** No error; the queue just grows. `api/composer.json`'s `dev` script runs `queue:listen --queue=realtime,default,analysis`, so `composer dev` is fine (one shared listener is acceptable locally; see item 18); a hand-started `queue:work` with the default queue never delivers pushes. No docker-compose file in the repo starts a worker.
 3. **Stale doc comments.** The `useNotifications` docblock says "the app has no Reverb or Pusher connection (BROADCAST_CONNECTION=log)": outdated, a connection exists, but the statement that the bell is poll-only is still true. `api/routes/channels.php` says the bell "moves onto this transport": future intent, not built.
 4. **Hidden-tab pacing uses a stale status.** In `tick()` a hidden tab reuses the `status` captured when the effect last ran (the effect deliberately omits `status` from its deps). It only affects the pace of a loop that is not making requests, and a visibility change forces a fresh read, so it is harmless, but it is easy to misread. (If that stale status is null, the hidden loop ticks every 2 s doing nothing.)
 5. **Signals ignored while hidden.** A signal arriving in a hidden tab updates `lastSignalAt` and is then dropped. On return the visibility handler reads anyway, so nothing is lost, but the ordering guard has already advanced past that signal.
@@ -220,7 +220,8 @@ No websocket, no Echo, no pusher in `mobile/`. `useStationStatus(slug)` is a sim
 14. **`client/.env.local` has a non-empty `NEXT_PUBLIC_PUSHER_KEY`** in this checkout, so local `next dev` opens a socket to Ably while `api/.env.example` defaults the server to `log`. That is the mismatch in item 1; whether local status polling slows to 30 s depends on whether the empty auth body counts as a subscription (see item 1).
 15. **Mobile and web disagree on the handover rule and on negative `remaining`** (see the Mobile section); the mobile copy has no `reachable` guard.
 16. **The shared poll is per dashboard tab and per station.** Outside the dashboard layout (or for another slug) every `useStationStatus` call is its own loop.
-17. **A worker shared with `realtime` starves its other queues.** Laravel's Redis queue blocks on the first queue for `block_for` (5 s) and only reaches the next after that long with nothing arriving; a job inside the window resets it. On 2026-10-10 Icecast refused stations at its 50-source limit, each retried every 5 s, and the resulting `icecast_error` broadcasts kept `realtime` from ever being quiet for 5 s: `default` (verification codes, emails, stop checks, then analysis) did not run for an hour while the worker was 97% idle. Fixed by giving each queue its own unit (`gocast-queue` for `default`, `gocast-realtime`, `gocast-analysis`); `queue:check-backlog` alerts the admin Telegram if any queue's oldest job waits past `queue.backlog_alert_seconds`.
+17. **Dev host rewrite does not reach the socket's auth URL.** In `next dev`, `env.apiUrl` swaps the configured host for the page's own (`client/lib/env.ts`, so localhost and a LAN device both reach the API with their own cookie), but `broadcastAuthUrl` is read verbatim from `NEXT_PUBLIC_BROADCAST_AUTH_URL`. On the host the URL does not name, `/broadcasting/auth` goes to the other host without the login cookie, the channel errors, and the dashboard silently stays on fast polling. Read from code; not run on a device.
+18. **A worker shared with `realtime` starves its other queues.** Laravel's Redis queue blocks on the first queue for `block_for` (5 s) and only reaches the next after that long with nothing arriving; a job inside the window resets it. On 2026-10-10 Icecast refused stations at its 50-source limit, each retried every 5 s, and the resulting `icecast_error` broadcasts kept `realtime` from ever being quiet for 5 s: `default` (verification codes, emails, stop checks, then analysis) did not run for an hour while the worker was 97% idle. Fixed by giving each queue its own unit (`gocast-queue` for `default`, `gocast-realtime`, `gocast-analysis`); `queue:check-backlog` alerts the admin Telegram if any queue's oldest job waits past `queue.backlog_alert_seconds`.
 
 ## Tests
 

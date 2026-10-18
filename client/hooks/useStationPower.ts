@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import api from "@/lib/axios"
@@ -21,15 +21,36 @@ import { useStationStatus } from "@/hooks/useStationStatus"
  * studio's own `station_is_live` is not that: its broadcast has an End
  * button, and ends cleanly there.
  */
+/**
+ * The request in flight, per station, shared by every caller: the band and
+ * the hero each hold their own hook, and with a pending flag apiece the two
+ * Start AutoDJ buttons could both be pressed at once and send two starts.
+ * Now a press in one disables both, and both show the spinner.
+ */
+type Pending = "start" | "stop" | null
+const pendingBySlug = new Map<string, Exclude<Pending, null>>()
+const listeners = new Set<() => void>()
+function setPendingFor(slug: string, value: Pending) {
+  if (value) pendingBySlug.set(slug, value)
+  else pendingBySlug.delete(slug)
+  listeners.forEach((l) => l())
+}
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
 export function useStationPower(slug: string) {
   const router = useRouter()
   const { refresh } = useStationStatus(slug)
-  const [pending, setPending] = useState<"start" | "stop" | null>(null)
+  const pending = useSyncExternalStore(subscribe, () => pendingBySlug.get(slug) ?? null, () => null)
   const [cutoff, setCutoff] = useState<string | null>(null)
 
   async function act(action: "start" | "stop", success: string, body?: Record<string, unknown>): Promise<boolean> {
-    if (pending) return false
-    setPending(action)
+    // The shared map, not this render's `pending`: the other button's press
+    // may not have re-rendered this one yet.
+    if (pendingBySlug.has(slug)) return false
+    setPendingFor(slug, action)
     try {
       await api.post(`/stations/${slug}/${action}`, body)
       setCutoff(null)
@@ -48,7 +69,7 @@ export function useStationPower(slug: string) {
       toast.error(data?.message ?? "Something went wrong — please try again")
       return false
     } finally {
-      setPending(null)
+      setPendingFor(slug, null)
     }
   }
 

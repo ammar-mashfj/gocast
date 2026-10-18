@@ -106,10 +106,15 @@ function Plot({
 }) {
   const tz = timeZone || undefined
   const dayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: tz })
-  const today = new Date()
+  // Calendar days, stepped as dates rather than as 24h of milliseconds: a
+  // 23-hour spring-forward day, stepped over by 24h, vanished from the
+  // window (its column and its shows) for the first hour of each day after
+  // it. Today's date in the station's zone, then back one date at a time;
+  // `date` is that day's noon UTC, labelled in UTC, so it names the same day.
+  const [y, m, d0] = dayKey(new Date()).split("-").map(Number)
   const days = Array.from({ length: count }, (_, i) => {
-    const d = new Date(today.getTime() - (count - 1 - i) * 86_400_000)
-    return { key: dayKey(d), date: d, shows: [] as RecentShow[] }
+    const date = new Date(Date.UTC(y, m - 1, d0 - (count - 1 - i), 12))
+    return { key: date.toISOString().slice(0, 10), date, shows: [] as RecentShow[] }
   })
   const byKey = new Map(days.map((d) => [d.key, d]))
   for (const s of shows) byKey.get(dayKey(new Date(s.started_at)))?.shows.push(s)
@@ -162,12 +167,12 @@ function Plot({
         less (tablet, phone) also get the weekday. */}
         <div className="flex gap-0.5 font-mono text-micro text-text-faint tabular-nums sm:gap-1">
           {days.map((d, i) => {
-            const n = d.date.toLocaleDateString("en-US", { day: "numeric", timeZone: tz })
-            const month = i === 0 || n === "1" ? d.date.toLocaleDateString("en-US", { month: "short", timeZone: tz }) : null
+            const n = d.date.toLocaleDateString("en-US", { day: "numeric", timeZone: "UTC" })
+            const month = i === 0 || n === "1" ? d.date.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }) : null
             return (
               <span key={d.key} className="flex min-w-0 flex-1 flex-col items-center leading-tight">
                 {count <= 14 && (
-                  <span className="text-muted-foreground">{d.date.toLocaleDateString("en-US", { weekday: "short", timeZone: tz })}</span>
+                  <span className="text-muted-foreground">{d.date.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}</span>
                 )}
                 <span>{n}</span>
                 <span className="text-muted-foreground uppercase">{month ?? "\u00a0"}</span>

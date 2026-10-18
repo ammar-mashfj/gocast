@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import { IconMinus, IconPlus } from "@tabler/icons-react"
 import type { Playlist } from "@/interfaces/Playlist"
 import { cn } from "@/lib/utils"
@@ -142,9 +143,13 @@ export function SlotPanel({ block, days, isNew, overlapping, playlists, swatchFo
 
 function TimeStepper({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const step = (by: number) => onChange(toClock(Math.round((toMinutes(value) + by) / SNAP) * SNAP + DAY_MINUTES))
+  const id = useId()
+  // A div with a label for the input, not a <label> around the row: a
+  // wrapping label's control is its first labelable child, the "earlier"
+  // button, so a click on the caption moved the time back 15 minutes.
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-body-sm font-semibold text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-body-sm font-semibold text-muted-foreground">{label}</label>
       <div className="flex h-13 items-center rounded-button bg-surface-inset">
         <button
           type="button"
@@ -155,6 +160,7 @@ function TimeStepper({ label, value, onChange }: { label: string; value: string;
           <IconMinus className="size-4" />
         </button>
         <input
+          id={id}
           type="time"
           step={SNAP * 60}
           value={value}
@@ -170,6 +176,6 @@ function TimeStepper({ label, value, onChange }: { label: string; value: string;
           <IconPlus className="size-4" />
         </button>
       </div>
-    </label>
+    </div>
   )
 }

@@ -272,7 +272,9 @@ export class AudioEngine {
    * by track id so a queue edit that moves the current index can't hand the
    * offset to a different song.
    */
-  private cued: { trackId: string; offset: number } | null = null
+  private cued: { trackId: string; offset: number; counted?: boolean } | null = null
+  /** The playing element's track has already been counted (see countPlayed). */
+  private currentCounted = false
   /** Slug of the station whose queue this engine persists. */
   private readonly station: string
   private progressTimer: ReturnType<typeof setInterval> | null = null
@@ -1123,8 +1125,8 @@ export class AudioEngine {
         }
       } else {
         const track = this.queue[this.currentIndex]
-        const offset = track && this.cued?.trackId === track.id ? this.cued.offset : 0
-        await this.playIndexAtOffset(this.currentIndex, offset)
+        const same = !!track && this.cued?.trackId === track.id
+        await this.playIndexAtOffset(this.currentIndex, same ? this.cued!.offset : 0, same && !!this.cued!.counted)
       }
     }
   }
@@ -1138,16 +1140,16 @@ export class AudioEngine {
    * Cueing paused creates no audio element: nothing reaches the mix until
    * Play, which picks the offset up from `cued`.
    */
-  async cueAt(index: number, offset: number, play: boolean): Promise<void> {
+  async cueAt(index: number, offset: number, play: boolean, alreadyCounted = false): Promise<void> {
     if (index < 0 || index >= this.queue.length) return
     if (play) {
-      await this.playIndexAtOffset(index, offset)
+      await this.playIndexAtOffset(index, offset, alreadyCounted)
       return
     }
     this.stopCurrent()
     this.currentIndex = index
     this.playing = false
-    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset) }
+    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset), counted: alreadyCounted }
     this.notify()
   }
 
@@ -1194,6 +1196,12 @@ export class AudioEngine {
     return this.tracksPlayed
   }
 
+  /** Whether the track now playing has already gone into getTracksPlayed. */
+  isCurrentTrackCounted(): boolean {
+    // A paused cue with no element yet keeps its own flag.
+    return this.currentAudio !== null ? this.currentCounted : !!this.cued?.counted
+  }
+
   /** Carry the count over from the engine this one replaces mid-show. */
   carryTracksPlayed(count: number) {
     this.tracksPlayed += count
@@ -1211,10 +1219,16 @@ export class AudioEngine {
     await this.playIndexAtOffset(index, 0)
   }
 
-  private async playIndexAtOffset(index: number, offset: number) {
+  /**
+   * @param alreadyCounted The track was counted before this element: an
+   *   engine rebuilt mid-song carries the count across (carryTracksPlayed),
+   *   and counting the same song again would make the wrap screen one high.
+   */
+  private async playIndexAtOffset(index: number, offset: number, alreadyCounted = false) {
     this.stopCurrent()
     this.currentIndex = index
     this.cued = null
+    this.currentCounted = alreadyCounted
 
     const track = this.queue[index]
     if (!track) return
@@ -1251,11 +1265,12 @@ export class AudioEngine {
     // The wrap screen's "Tracks": one that aired for TRACK_PLAYED_AFTER_S
     // from where it started, or to its end. A skip straight past it, or
     // stepping back and forth, isn't a track the audience heard.
-    let counted = false
+    let counted = alreadyCounted
     const countPlayed = () => {
       if (counted) return
       counted = true
       this.tracksPlayed++
+      if (this.currentAudio === audio) this.currentCounted = true
     }
     audio.addEventListener('timeupdate', () => {
       if (this.currentAudio === audio && audio.currentTime - offset >= TRACK_PLAYED_AFTER_S) countPlayed()

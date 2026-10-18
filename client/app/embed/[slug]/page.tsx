@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { publicApiHeaders } from "@/lib/public-api"
+import { parseEmbedOptions } from "@/lib/embed"
 import { EmbedPlayer } from "./EmbedPlayer"
 
 /**
@@ -65,8 +66,10 @@ export async function generateMetadata({
 
 export default async function EmbedPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { slug } = await params
   const station = await getEmbeddableStation(slug)
@@ -75,5 +78,6 @@ export default async function EmbedPage({
     notFound()
   }
 
-  return <EmbedPlayer station={station} />
+  // The controls the owner ticked in the Embed dialog (lib/embed.ts).
+  return <EmbedPlayer station={station} options={parseEmbedOptions(await searchParams)} />
 }

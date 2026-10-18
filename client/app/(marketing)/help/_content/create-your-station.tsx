@@ -55,12 +55,11 @@ export default function Body() {
 
       <h2>The Checklist</h2>
       <p>
-        Your station’s Overview shows what is still worth doing &mdash; artwork,
-        a description, music for AutoDJ, your links, your
-        first listener &mdash; each one a tile that takes you straight to it.
-        The list disappears once everything is done, rather than sitting there
-        as a row of ticks, and <strong>Hide for now</strong>{" "}tucks it away in
-        that browser. Music for AutoDJ only appears on Pro.
+        The <strong>set up</strong>{" "}chip in the top bar (&ldquo;2 of 5 set
+        up&rdquo;) opens what is still worth doing &mdash; artwork, a
+        description, music for AutoDJ, your links, your first listener &mdash;
+        each one a row that takes you straight to it. The chip disappears once
+        everything is done. Music for AutoDJ only appears on Pro.
       </p>
     </>
   )

@@ -1,6 +1,6 @@
 ---
 feature: Deployment and infrastructure
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - infra/native/setup-native.sh
   - infra/native/deploy-native.sh
@@ -14,6 +14,8 @@ sources:
   - infra/native/php/gocast.pool.conf
   - infra/native/systemd/gocast-client.service
   - infra/native/systemd/gocast-queue.service
+  - infra/native/systemd/gocast-realtime.service
+  - infra/native/systemd/gocast-analysis.service
   - infra/native/systemd/gocast-scheduler.service
   - infra/native/icecast/icecast.xml.tpl
   - infra/native/env/api.env.example
@@ -39,6 +41,7 @@ sources:
   - api/app/Services/TrackAnalyzer.php
   - api/app/Jobs/AnalyzeTrack.php
   - api/app/Console/Commands/SyncListenerCounts.php
+  - api/app/Console/Commands/CheckQueueBacklog.php
   - api/app/Http/Middleware/UseAuthTokenCookie.php
   - api/app/Http/Middleware/VerifyInternalKey.php
   - api/app/Http/Controllers/AuthController.php
@@ -48,7 +51,7 @@ sources:
   - client/proxy.ts
   - client/lib/env.ts
   - client/app/hls-proxy/[...path]/route.ts
-fingerprint: 5e96859b62244916
+fingerprint: c0eb64c46a33d56e
 ---
 
 # Deployment and infrastructure
@@ -114,7 +117,7 @@ Four hostnames, all rendered from `domains.env` (`APP_HOST`, `API_HOST`, `ICECAS
 | Host | Vhost | Serves |
 |---|---|---|
 | `APP_HOST` | `gocast-app.conf` | Proxies everything to `127.0.0.1:CLIENT_PORT` (keepalive 32, `proxy_read_timeout 60s`, `client_max_body_size 12M`). `www.` 301-redirects to the bare host, but only on port 80: the certbot command in `setup-native.sh` names four hosts and not `www.`, so `https://www.` has no certificate. Adds `X-Content-Type-Options` and `Referrer-Policy`. Next itself adds `X-Frame-Options: DENY` except under `/embed`. |
-| `API_HOST` | `gocast-api.conf` | Laravel `public/`. `client_max_body_size 640M`, `client_body_timeout 900s`, `fastcgi_read_timeout 900s`. `X-Frame-Options SAMEORIGIN`. `/storage/` served straight from disk with `expires 7d`. Dotfiles denied except `.well-known`. Also serves `/admin/*` (Blade admin panel), `/up`, `/broadcasting/auth` and, publicly, `/api/internal/*` (guarded only by the `X-Internal-Key` header, `VerifyInternalKey`, plus the `internal` throttle). Sends `HTTP_PROXY ""` to fastcgi. |
+| `API_HOST` | `gocast-api.conf` | Laravel `public/`. `client_max_body_size 640M`, `client_body_timeout 900s`, `fastcgi_read_timeout 900s`. `X-Frame-Options SAMEORIGIN`. `/storage/` served straight from disk with `expires 7d`. Dotfiles denied except `.well-known`. Also serves `/admin/*` (Blade admin panel), `/up`, `/broadcasting/auth` and, publicly, `/api/internal/*` (guarded only by the `X-Internal-Key` header, `VerifyInternalKey`, plus the `internal` throttle). `location = /api/broadcast/uplink-probe` (the studio's go-live connection check, `UplinkProbeController`, which uploads 96 KB) has its own fastcgi block with `client_max_body_size 256k` and `fastcgi_read_timeout 30s`, so the body cap applies where nginx reads the body rather than at the vhost's 640M. Sends `HTTP_PROXY ""` to fastcgi. |
 | `ICECAST_HOST` | `gocast-icecast.conf` | Proxies to `127.0.0.1:ICECAST_PORT` with buffering off and 24h timeouts. Answers `OPTIONS` itself (204, `Access-Control-Allow-Origin *`, allowed headers `Range, Icy-MetaData`). **`/admin/` is `deny all`.** |
 | `STREAM_HOST` | `gocast-stream.conf` | (1) `^/broadcast/{slug}$` (slug regex `[a-z0-9][a-z0-9-]{0,62}`) proxied to the router on `ROUTER_PORT` with WebSocket upgrade and 24h timeouts. (2) `*.m3u8` from `/var/gocast/hls`, `Cache-Control: no-cache`, CORS `*`. (3) `*.ts|aac|mp4|m4s` from the same directory, `public, max-age=31536000, immutable`, CORS `*`. (4) everything else 404. |
 
@@ -140,7 +143,7 @@ TLS: the templates are port 80 only. `certbot --nginx -d <four hosts>` rewrites 
 
 ## Stream output layout
 
-**Icecast.** One mount per station, `icecast_mount` = `/stream/{slug}` (model default, `Station.php` creating hook). The station container connects as SOURCE to `LIQUIDSOAP_ICECAST_HOST:LIQUIDSOAP_ICECAST_PORT` (default `host.docker.internal:8000`) with `ICECAST_SOURCE_PASSWORD`. Icecast limits: 500 clients, **50 sources**, queue 512 KB, client timeout 30s, source timeout 10s, burst 64 KB (mount burst 16 KB, queue 128 KB). No `fallback-mount`: the station container holds the source for as long as it runs. Listener counts: `stations:sync-listeners` calls `{ICECAST_INTERNAL_URL}/admin/stats` (default `http://127.0.0.1:8000`) with basic auth (5s timeout) every minute and writes `listeners:{station id}` to Redis with a 300s TTL for every non-deleted station (0 when its mount is absent from the stats). It returns failure without writing when the credentials are missing, Icecast is unreachable or answers non-2xx, so counts age out after 300s.
+**Icecast.** One mount per station, `icecast_mount` = `/stream/{slug}` (model default, `Station.php` creating hook). The station container connects as SOURCE to `LIQUIDSOAP_ICECAST_HOST:LIQUIDSOAP_ICECAST_PORT` (default `host.docker.internal:8000`) with `ICECAST_SOURCE_PASSWORD`. Icecast limits: 500 clients, **`${ICECAST_MAX_SOURCES}` sources** (rendered by `setup-native.sh` from `api/.env`, default 150; it was a literal 50 until 2026-10-10), queue 512 KB, client timeout 30s, source timeout 10s, burst 64 KB (mount burst 16 KB, queue 128 KB). No `fallback-mount`: the station container holds the source for as long as it runs. Listener counts: `stations:sync-listeners` calls `{ICECAST_INTERNAL_URL}/admin/stats` (default `http://127.0.0.1:8000`) with basic auth (5s timeout) every minute and writes `listeners:{station id}` to Redis with a 300s TTL for every non-deleted station (0 when its mount is absent from the stats). It returns failure without writing when the credentials are missing, Icecast is unreachable or answers non-2xx, so counts age out after 300s.
 
 **HLS.** Written by Liquidsoap (`output.file.hls`) into `/data/hls` inside the container = `/var/gocast/hls/{slug}/` on the host: 4s segments, 5 in the playlist, 5 extra retained, `format="adts"` (raw AAC, 128k), playlist `playlist.m3u8` (master), media playlist `{hls_variant}.m3u8` (`LIQUIDSOAP_HLS_VARIANT`, default `aac`), segment name `{stream}_{bootEpoch}_{position}.aac`, state persisted in `state.json`. nginx serves the tree from the `stream.` vhost. The public URL is `{LIQUIDSOAP_HLS_BASE_URL}/{slug}/{variant}.m3u8` (`StationResource::hlsUrl()`); with `LIQUIDSOAP_HLS_BASE_URL` empty `hls_url` is `null` and the player uses the Icecast mount. In dev the Next route `/hls-proxy/[...path]` reads the same directory and **returns 404 unless `NODE_ENV=development`**.
 
@@ -156,7 +159,7 @@ Started by `LiquidsoapSupervisor::run()` (image `LIQUIDSOAP_IMAGE`, default `goc
 | network / ip | `gocast-network` / computed, see above |
 | restart | `unless-stopped` (survives a host reboot; `stations:reconcile` removes ones that should be off) |
 | stop | `--stop-signal SIGTERM`, `--stop-timeout` = `LIQUIDSOAP_STOP_TIMEOUT` (5), clamped to at most 7 (Docker command timeout 10s minus 3) |
-| labels | `gocast.station={slug}`, `gocast.station_id={id}` |
+| labels | `gocast.station={slug}`, `gocast.station_id={id}`, `gocast.config={configFingerprint()}` (what `stations:reconcile` compares to find outdated stations) |
 | logs | json-file, `max-size=10m`, `max-file=3` |
 | security | `--cap-drop ALL`, `no-new-privileges`, `--pids-limit` `LIQUIDSOAP_CONTAINER_PIDS_LIMIT` (256), `--init` only if `LIQUIDSOAP_CONTAINER_INIT` |
 | health | probe bash `/dev/tcp` to harbor `/healthz`; interval 15s, timeout 3s, retries 3, start period 45s (config `health_*`, disable with `LIQUIDSOAP_HEALTHCHECK=false`) |
@@ -170,7 +173,7 @@ Per-station disk: `LIQUIDSOAP_STATION_STORAGE_BYTES`, code default 3 GiB; `api/.
 
 Deleted stations: soft delete, then `stations:prune-deleted` erases those older than `LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS` (30) along with the `.liq`, `hls/{slug}` and audio.
 
-Docker access from PHP: `DOCKER_HOST=tcp://127.0.0.1:2375` in three places, because `config:cache` stops Laravel loading `.env` and php-fpm clears the environment: `env[DOCKER_HOST]` and `env[PATH]` in the pool file, `Environment=DOCKER_HOST=` in the queue and scheduler units, and explicitly across `sudo` in `deploy-native.sh` `artisan()`. Keep the `api/.env` line as well. The proxy allows `CONTAINERS`, `NETWORKS`, `IMAGES` and `POST`, `EXEC=0`. It filters by path and method, not body, so anyone who can run PHP can still `POST /containers/create` with any bind mount; it keeps the `gocast` user off the raw socket but is not a sandbox. (The supervisor talks to station telnet over TCP precisely to avoid needing `EXEC`.) Track analysis also goes through it: with `LIQUIDSOAP_ANALYSIS_FFMPEG` empty, `TrackAnalyzer` runs `docker run --rm --network none --entrypoint ffmpeg` on the station image with the file mounted read-only.
+Docker access from PHP: `DOCKER_HOST=tcp://127.0.0.1:2375` in three places, because `config:cache` stops Laravel loading `.env` and php-fpm clears the environment: `env[DOCKER_HOST]` and `env[PATH]` in the pool file, `Environment=DOCKER_HOST=` in the `gocast-queue`, `gocast-analysis` and `gocast-scheduler` units (not `gocast-realtime`, whose job never touches Docker), and explicitly across `sudo` in `deploy-native.sh` `artisan()`. Keep the `api/.env` line as well. The proxy allows `CONTAINERS`, `NETWORKS`, `IMAGES` and `POST`, `EXEC=0`. It filters by path and method, not body, so anyone who can run PHP can still `POST /containers/create` with any bind mount; it keeps the `gocast` user off the raw socket but is not a sandbox. (The supervisor talks to station telnet over TCP precisely to avoid needing `EXEC`.) Track analysis also goes through it: with `LIQUIDSOAP_ANALYSIS_FFMPEG` empty, `TrackAnalyzer` runs `docker run --rm --network none --entrypoint ffmpeg` on the station image with the file mounted read-only.
 
 ## Provisioning: `setup-native.sh`
 
@@ -183,8 +186,8 @@ Root only. Reads `infra/native/env/domains.env` (required keys: `APP_HOST API_HO
 5. `docker build -t gocast/liquidsoap:latest infra/liquidsoap/`.
 6. Renders the four vhosts into `/etc/nginx/sites-available` and symlinks into `sites-enabled`; **deletes `sites-enabled/default`**.
 7. Renders the php-fpm pool to `/etc/php/{ver}/fpm/pool.d/gocast.conf` and `99-gocast.ini` into both `fpm` and `cli` `conf.d`.
-8. Renders the three systemd units into `/etc/systemd/system` and runs `daemon-reload` (does not enable or start them; the README does that).
-9. If `api/.env` exists, sources it (after `unset DOCKER_HOST`), and renders `/etc/icecast2/icecast.xml` with `envsubst` limited to the four Icecast variables (root:icecast, 0640); sets `ENABLE=true` in `/etc/default/icecast2`. Skips with a warning if `ICECAST_SOURCE_PASSWORD` is unset; hard-fails on missing `ICECAST_ADMIN_PASSWORD`. `ICECAST_RELAY_PASSWORD` defaults to the source password, `ICECAST_ADMIN_USER` to `admin`.
+8. Renders the five systemd units (`gocast-queue`, `gocast-realtime`, `gocast-analysis`, `gocast-scheduler`, `gocast-client`) into `/etc/systemd/system` and runs `daemon-reload` (does not enable or start them; the README does that, and `deploy-native.sh` enables the three queue units when it installs them).
+9. If `api/.env` exists, sources it (after `unset DOCKER_HOST`), and renders `/etc/icecast2/icecast.xml` with `envsubst` limited to five variables (`ICECAST_SOURCE_PASSWORD`, `ICECAST_RELAY_PASSWORD`, `ICECAST_ADMIN_USER`, `ICECAST_ADMIN_PASSWORD`, `ICECAST_MAX_SOURCES`, the last defaulting to 150) (root:icecast, 0640); sets `ENABLE=true` in `/etc/default/icecast2`. Skips with a warning if `ICECAST_SOURCE_PASSWORD` is unset; hard-fails on missing `ICECAST_ADMIN_PASSWORD`. `ICECAST_RELAY_PASSWORD` defaults to the source password, `ICECAST_ADMIN_USER` to `admin`.
 10. `docker compose -f docker-compose.native.yml up -d --build` (proxy + router; creates `gocast-network`).
 11. ufw (if installed): allow 80, 443; allow `ICECAST_PORT` and `INTERNAL_API_PORT` from the `gocast-network` subnet (read back from Docker) and from `172.17.0.0/16`. It never opens `INGEST_PORT` (Docker publishes it ahead of ufw, so it is public whatever ufw says). Prints a warning if ufw is missing.
 
@@ -212,30 +215,34 @@ The `realtime` queue exists only for `StationStateChanged` broadcasts (`broadcas
 
 Usage: `sudo bash infra/native/deploy-native.sh`, or `sudo FULL_DEPLOY=1 ...` to ignore the diff. Runs `git pull --ff-only` in the checkout, then diffs the last **successful** deploy (`/var/lib/gocast/deployed-ref`, override `DEPLOYED_REF_FILE`) against HEAD. No stamp means every step runs.
 
+Order, and why (header comment): new code is live the moment `git pull` writes it. So, straight after the pull, `install_worker_units` re-renders the three queue units and installs any whose text changed; then, when `api/` changed, the queue workers and scheduler are **stopped** (an `EXIT` trap starts them again on any way out). Composer runs, then `schedule:clear-cache` (a scheduler killed mid-pass leaves `withoutOverlapping` locks behind), then migrations, then the API caches, php-fpm reload and the workers' start, all **before** the slow admin-asset and client builds. php-fpm keeps serving the pulled code during the builds (opcache revalidates every 2 s), so migrations must be additive: add a column first, drop or rename it in a later deploy.
+
 | Trigger (changed since last good deploy) | Step |
 |---|---|
-| `api/database/migrations` | `mysqldump --single-transaction --routines --triggers` (as gzip, `/var/backups/gocast/pre-deploy-*.sql.gz`, keep `BACKUP_KEEP`=10) then `artisan migrate --force`. Skippable with `SKIP_DB_BACKUP=1`; refuses to migrate without `mysqldump` otherwise. |
+| the three queue unit templates | `install_worker_units`: render with the `domains.env` placeholders, write only when different, `daemon-reload`, `enable`; a unit whose template is not in the tree is disabled and removed. If nothing else in `api/` changed, the workers are restarted here. |
+| any `api/` change | stop `gocast-queue`, `gocast-realtime`, `gocast-analysis`, `gocast-scheduler` (those installed) for the deploy |
+| `api/database/migrations` | `mysqldump --single-transaction --routines --triggers` (as gzip, `/var/backups/gocast/pre-deploy-*.sql.gz`, keep `BACKUP_KEEP`=10), then, after composer and `schedule:clear-cache`, `artisan migrate --force`. Skippable with `SKIP_DB_BACKUP=1`; refuses to migrate without `mysqldump` otherwise. |
 | `api/composer.lock` or `composer.json` | `composer install --no-dev --optimize-autoloader --classmap-authoritative` |
 | any `api/` change (no composer change) | `composer dump-autoload ... --classmap-authoritative` (needed because PSR-4 lookup is off) |
 | `api/package(-lock).json` | `npm ci --include=dev` in `api/` |
 | `api/resources`, `vite.config.js`, package files | `npm run build` (admin Blade assets, `public/build`; without it `/admin` 500s) |
 | `client/package(-lock).json` | `npm ci` in `client/` |
 | any `client/` change, or `domains.env` hash changed | `next build`, then copy `public/` and `.next/static` into `.next/standalone`, and recreate `.next/standalone/.next/cache` |
-| any `api/` change | `storage:link --relative`, `view:clear`, `config:clear`, `config:cache`, `route:cache`, `event:cache`, `systemctl reload php{ver}-fpm`, `artisan queue:restart`, `systemctl restart gocast-scheduler` |
+| any `api/` change (right after migrations, before the builds) | `storage:link --relative`, `view:clear`, `config:clear`, `config:cache`, `route:cache`, `event:cache`, `systemctl reload php{ver}-fpm`, `systemctl start` the stopped workers and scheduler |
 | client rebuilt | `systemctl restart gocast-client` |
 | always | health gate: `curl http://127.0.0.1:${INTERNAL_API_PORT}/up` up to 20 tries, 3s apart; then `artisan stations:reconcile` (failure ignored); then stamp the ref and `domains.env` hash |
 
-Safety model: any failed step calls `rollback()`, which `git reset --hard` to the last good ref, rebuilds the autoloader, re-caches config, reloads fpm, restarts queue and scheduler, and rebuilds the client if a build had started. **The database is never rolled back**; it prints the pre-migration dump path instead. A deploy that touches only `client/` never reloads fpm, and an API-only deploy never restarts Next.
+Safety model: any failed step calls `rollback()`, which `git reset --hard` to the last good ref, rebuilds the autoloader, re-caches config, reloads fpm, re-renders the queue units from the rolled-back tree (`install_worker_units`) and restarts every installed worker and the scheduler, and rebuilds the client if a build had started. **The database is never rolled back**; it prints the pre-migration dump path instead. A deploy that touches only `client/` never reloads fpm, and an API-only deploy never restarts Next.
 
 Owed-manual-steps warnings it prints but does not perform: `infra/native` or `domains.env` changed (run `setup-native.sh` then certbot); `station-router` changed (`setup-native.sh` rebuilds it, and restarting it drops every encoder mid-broadcast); `infra/liquidsoap` changed (rebuild the image; reconcile then moves stations onto it). A `.liq` template or `LiquidsoapSupervisor.php` change prints nothing: reconcile handles it.
 
 ## Scheduled commands
 
-`api/routes/console.php`. Driven by the single `gocast-scheduler` unit (`schedule:work`, which runs `schedule:run` each minute). Timezone is `UTC` (`config/app.php`), so `dailyAt` times are UTC. Commands marked "background" use `runInBackground()`; all use `withoutOverlapping()`, whose lock lives in Redis.
+`api/routes/console.php`. Driven by the single `gocast-scheduler` unit (`schedule:work`, which runs `schedule:run` each minute). Timezone is `UTC` (`config/app.php`), so `dailyAt` times are UTC. Commands marked "background" use `runInBackground()`; all use `withoutOverlapping()`, whose lock lives in Redis. The four per-minute station and listener commands use `withoutOverlapping(10)` (the lock expires after 10 minutes, not the default 24 hours, so a pass killed mid-flight cannot silence a command for a day), and `queue:check-backlog` uses 5.
 
 | Command | Cadence | Mode | What it does |
 |---|---|---|---|
-| `stations:sync-listeners` | every minute | background | Polls Icecast `/admin/stats`, writes `listeners:{id}` to Redis (TTL 300s). |
+| `stations:sync-listeners` | every minute | background | Polls Icecast `/admin/stats`, writes `listeners:{id}` to Redis (TTL 300s); Telegram ops alert when Icecast holds 80% of `ICECAST_MAX_SOURCES`. |
 | `stations:reconcile` | every minute | background | Converges containers onto the station table; unhealthy passes before recreate `LIQUIDSOAP_UNHEALTHY_PASSES` (2), recreates per hour cap `LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR` (3), stranded-session strikes `LIQUIDSOAP_STRANDED_SESSION_STRIKES` (3), outdated recreates per pass `LIQUIDSOAP_OUTDATED_RECREATES_PER_PASS` (5). |
 | `stations:sweep` | every minute | background | The auto-stop decision tree (`LIQUIDSOAP_SILENT_STOP_SECONDS` 600, `LIQUIDSOAP_STUDIO_GONE_STOP_SECONDS` 150). |
 | `listeners:sweep` | every minute | background | Closes idle listener sessions and samples concurrency. One-minute cadence is load-bearing for `listener_minutes`. |
@@ -246,6 +253,7 @@ Owed-manual-steps warnings it prints but does not perform: `infra/native` or `do
 | `notifications:prune` | daily 05:00 | background | Deletes notifications older than `notifications.retention_days` (90). |
 | `app:nudge-inactive-broadcasters` | daily 16:00 UTC | **foreground** | Day-7 nudge email. |
 | `plans:expire` | hourly | **foreground** | Downgrades accounts whose `plan_expires_at` has passed. |
+| `queue:check-backlog` | every minute | background | Telegram ops alert (sent directly, not queued) when a queue's oldest pending job has waited past `queue.backlog_alert_seconds` (realtime 60 s, default 300 s, analysis 3600 s). |
 
 Commands that exist but are **not scheduled** (run by hand or by a caller): `stations:relaunch`, `tracks:analyze` (backfill), `notifications:announce` (`SendAnnouncement`), `admin:create`, `admin:reset-password`, `e2e:auth` (`E2EAuthCommand`, refuses outside local/testing). `--dry-run` exists on `stations:reconcile`, `stations:sweep`, `stations:prune-deleted`, `notifications:announce` and `app:nudge-inactive-broadcasters`.
 
@@ -266,22 +274,22 @@ Retention is left to a bucket lifecycle rule (30 days suggested). Not backed up:
 
 ## Observability: Alloy
 
-`infra/alloy/config.alloy` is a host service config, not installed by any script. It ships to Grafana Cloud using six `GRAFANA_CLOUD_*` values from `/etc/default/alloy`: Docker discovery (label `gocast.station`, refresh 5s) for station container logs with labels `station`, `container`, `service=liquidsoap`; files `/srv/gocast/app/api/storage/logs/*.log`, `/var/log/nginx/gocast-*.log`, `/var/log/php8.4-fpm.log`, `/var/log/icecast2/*.log`; journal units `gocast-queue`, `gocast-scheduler`, `gocast-client`; and host metrics via `prometheus.exporter.unix`. The Icecast status scrape is commented out. Sentry is separate (Laravel `sentry/sentry-laravel`, Next `@sentry/nextjs` with tunnel route `/monitoring`). See [Observability and events](observability-and-events.md).
+`infra/alloy/config.alloy` is a host service config, not installed by any script. It ships to Grafana Cloud using six `GRAFANA_CLOUD_*` values from `/etc/default/alloy`: Docker discovery (label `gocast.station`, refresh 5s) for station container logs with labels `station`, `container`, `service=liquidsoap`; files `/srv/gocast/app/api/storage/logs/*.log`, `/var/log/nginx/gocast-*.log`, `/var/log/php8.4-fpm.log`, `/var/log/icecast2/*.log`; journal units `gocast-queue`, `gocast-scheduler`, `gocast-client` (not `gocast-realtime` or `gocast-analysis`); and host metrics via `prometheus.exporter.unix`. The Icecast status scrape is commented out. Sentry is separate (Laravel `sentry/sentry-laravel`, Next `@sentry/nextjs` with tunnel route `/monitoring`). See [Observability and events](observability-and-events.md).
 
 ## Gaps and traps
 
 1. **`setup-native.sh` wipes certbot's TLS blocks.** It re-renders port-80-only templates over the certbot-edited vhosts. `deploy-native.sh` does **not** call it (its header says so and the code confirms), but it prints an owed manual step whenever `infra/native` or `domains.env` changes. After any run of the setup script, run `certbot --nginx --cert-name <name>` or Cloudflare Full mode returns 521. `infra/native/README.md` claims the deploy re-runs the provisioner unconditionally; that is stale, the code wins.
 2. **README says the deploy "relaunches" stations.** `deploy-native.sh` only runs `stations:reconcile` (starts missing, removes unwanted, leaves healthy ones alone). Image, `.liq` and flag changes reach stations through reconcile's Outdated pass, after each live show ends.
 3. **`request_terminate_timeout = 330s` is shorter than the rest of the upload path.** nginx `fastcgi_read_timeout 900s`, `client_body_timeout 900s`, PHP `max_execution_time 900`, but php-fpm kills a worker at 330s. The pool comment still says `memory_limit` 256M and `max_execution_time` 300s; the ini says 512M and 900s. A slow multi-hundred-MB upload can be cut at 330s with a 502 and nothing in the Laravel log.
-4. **Track analysis timeouts are coupled across three files.** `TrackAnalyzer::timeoutFor()` scales the ffmpeg process timeout with track length (floor 120 s, `duration/8`, ceiling 1500 s); `AnalyzeTrack::$timeout` adds 30 s as the worker backstop; `config/queue.php` `retry_after` (1800) must clear that. Raising `MAX_TIMEOUT_SECONDS` without raising `REDIS_QUEUE_RETRY_AFTER` brings back double analysis. If the backstop SIGKILL does fire, the `docker run --rm` ffmpeg container is not stopped by it. Also, one worker means a long mix's analysis (minutes) holds up every other job while it runs, `realtime` broadcasts included (the dashboard poll covers that gap).
+4. **Track analysis timeouts are coupled across three files.** `TrackAnalyzer::timeoutFor()` scales the ffmpeg process timeout with track length (floor 120 s, `duration/8`, ceiling 1500 s); `AnalyzeTrack::$timeout` adds 30 s as the worker backstop; `config/queue.php` `retry_after` (1800) must clear that. Raising `MAX_TIMEOUT_SECONDS` without raising `REDIS_QUEUE_RETRY_AFTER` brings back double analysis. If the backstop SIGKILL does fire, the `docker run --rm` ffmpeg container is not stopped by it. Analysis has its own worker now, so a long mix only holds up other uploads.
 5. **`ROUTER_PORT` is only half configurable.** The vhost is rendered with `ROUTER_PORT`, but compose hardcodes the publish as `127.0.0.1:8091:8091` and the router's `nginx.conf` listens on 8091. Changing `ROUTER_PORT` breaks `/broadcast/{slug}` without any error at setup time.
-6. **Icecast capacity ceiling of 50 sources** (`icecast.xml.tpl`), one per running station. Station 51 fails to connect its SOURCE. Icecast also caps 500 clients.
+6. **Icecast source ceiling, one per running station** (`<sources>${ICECAST_MAX_SOURCES}</sources>`, default 150). The station past it is refused and retries every 5 s, which on 2026-10-10 also flooded the `realtime` queue. Changing the limit needs `setup-native.sh` re-run (it renders `icecast.xml`) and then an Icecast reload or restart, which neither the script nor the Telegram alert's "re-run setup-native.sh" mentions; `config:cache` alone only moves the 80% warning. Icecast also caps 500 clients.
 7. **Icecast, the internal vhost (8081) and station telnet (1234) are exposed to all interfaces / the whole Docker network.** Only ufw protects 8000 and 8081, and only if ufw is enabled. Station telnet listens on `0.0.0.0:1234` inside `gocast-network` with no authentication, reachable from every container on the network (station containers, router, proxy).
 8. **The ingest port bypasses ufw.** Docker publishes `INGEST_PORT` in its own chain, so it is reachable from the Internet regardless of firewall state; only harbor authentication protects it. Closing it means editing the compose mapping.
 9. **Docker socket proxy is not a sandbox** (path/method filtering only; `POST /containers/create` with any body is allowed). Code execution in PHP is close to host root.
 10. **Two `api.env.example` files disagree.** `infra/native/env/api.env.example` lacks `LIQUIDSOAP_HLS_BASE_URL` (so HLS is off and the player uses Icecast), lacks `LIQUIDSOAP_CONTAINER_SUBNET` (fine, the default matches), and sets `LIQUIDSOAP_STATION_STORAGE_BYTES` to 100 MB against 3 GiB in `api/.env.example` and the code. Neither lists `BACKUP_S3_BUCKET`.
 11. **Stale comment in `config/liquidsoap.php`** says `setup-native.sh` passes `GOCAST_IPAM_RANGE`; the range is declared in the compose file. The same file's comments still reference `infra/setup-host.sh`, `docker-compose.yml` and "all-Docker" defaults that no longer exist. Also stale: `LiquidsoapSupervisor::verifyStarted()` says the reconciler retries "within five minutes"; the schedule is every minute.
-12. **Alloy misses the pool's php-fpm logs.** It tails `/var/log/php8.4-fpm.log` (the master log), but the pool writes application errors to `/var/log/php8.4-fpm-gocast.log` and slow requests to `-gocast-slow.log`, neither of which is collected. It also hardcodes `/srv/gocast/app` and PHP 8.4 instead of `APP_ROOT`/`PHP_VERSION`. Liquidsoap's own Prometheus endpoint is not scraped.
+12. **Alloy misses the pool's php-fpm logs and two of the workers.** Its journal match list has no `gocast-realtime` or `gocast-analysis`. It tails `/var/log/php8.4-fpm.log` (the master log), but the pool writes application errors to `/var/log/php8.4-fpm-gocast.log` and slow requests to `-gocast-slow.log`, neither of which is collected. It also hardcodes `/srv/gocast/app` and PHP 8.4 instead of `APP_ROOT`/`PHP_VERSION`. Liquidsoap's own Prometheus endpoint is not scraped.
 13. **`backup.sh` gaps.** No local copy, no verification, no restore script, cron path in the header does not match the documented checkout, and it misses `api/.env`, `domains.env`, Icecast config and watermark clips. It uses no lock, so two overlapping runs are possible.
 14. **`plans:expire` and `app:nudge-inactive-broadcasters` run in the foreground** of `schedule:run` (no `runInBackground()`), unlike the others, so a slow one delays later tasks in that minute.
 15. **`infra/mediamtx/mediamtx.yml/` is an empty, root-owned, untracked directory.** `infra/liquidsoap/reference-station.liq`, `infra/liquidsoap/README.md` and `standby.liq` (only the image default CMD) are not part of the running system. The Liquidsoap Dockerfile comment still mentions RTSP pull from MediaMTX.

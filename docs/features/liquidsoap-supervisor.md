@@ -1,6 +1,6 @@
 ---
 feature: Liquidsoap supervisor (station container management)
-verified: 2026-10-04 against e145a37 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Services/LiquidsoapSupervisor.php
   - api/config/liquidsoap.php
@@ -34,7 +34,7 @@ sources:
   - infra/native/docker-compose.native.yml
   - infra/native/deploy-native.sh
   - api/database/migrations/2026_08_29_090000_add_container_index_to_stations_table.php
-fingerprint: 7949282d24cfb3c7
+fingerprint: 06c2e2de3de59b2d
 ---
 
 # Liquidsoap supervisor
@@ -52,9 +52,9 @@ The second thing: the supervisor knows nothing about intent. `stations.desired_s
 | `StationLifecycleService::start()` | `isRunning()`, `up()` | Power button, studio start-before-broadcast. Skips `up()` when intent is running and the container is `running`. |
 | `StationLifecycleService::stop()` | `down()` | Power button, `StopStation` job (reason `silent`). Runs after `desired_state=stopped` is saved and open `StreamSession`s are closed; if `down()` throws, the exception skips the `stopped` event and broadcast (intent is already stopped, so reconcile removes the leftover). |
 | `StationObserver` | `up()`, `downBySlug()`, `down()`, `destroyArtifacts()` | Station row updated / renamed / deleted / restored / force-deleted. |
-| `UserObserver::updated` (`plan_id` changed) | `applyWatermarkSettings()` | Pushed over telnet to each of the owner's stations with `desired_state=running` (not stopped ones); a throw is logged at error and the loop continues. |
+| `UserObserver::updated` (`plan_id` changed) | `applyWatermarkSettings()` | Pushed over telnet to each of the owner's stations with `desired_state=running` (not stopped ones), from `DB::afterCommit` so a caller that writes the plan inside a locked transaction does not hold the lock across the fan-out; a push queued by an earlier save of the same model in the same transaction is dropped. A throw is logged at error and the loop continues. |
 | `UserObserver::deleting` | none directly | Soft-deleting a user soft-deletes each of their stations; force-deleting a user force-deletes every station including trashed ones. Both then fire `StationObserver` (`down()`, and for force `destroyArtifacts()`). |
-| `ReconcileStations` | `listContainerStates()`, `removeContainer()`, `up()`, `slugFromContainerName()` | Every minute (`routes/console.php`, `withoutOverlapping`, background). |
+| `ReconcileStations` | `listContainerStates()`, `removeContainer()`, `up()`, `slugFromContainerName()`, `configFingerprint()` | Every minute (`routes/console.php`, `withoutOverlapping(10)` so a killed pass's lock expires in 10 minutes, background). |
 | `RelaunchStations` | `up()` | Manual only. Not scheduled. |
 | `ReloadWatermarkClips` job | `telnet()` | Every `running()` station, `watermark.reload`; skipped when `liquidsoap.watermark_enabled` is false; per-station failures logged at info. Dispatched by `Admin\WatermarkClipController` (two call sites). |
 | `StationPowerController::skip` | `telnet()` | `playlist_m3u.skip`; 409 `station_not_running` if intent is stopped, 503 `station_unreachable` if telnet throws. |
@@ -66,14 +66,14 @@ The second thing: the supervisor knows nothing about intent. `stations.desired_s
 
 `up(Station)` is the only creation path. In order:
 
-1. Returns immediately in test mode (see below).
+1. Calls `JingleClock::containerStarted()` (a DB write, so it runs in tests too), then returns immediately in test mode (see below).
 2. `renderLiqFile()`: renders `resources/views/liquidsoap/station.blade.php` and writes `{liq_dir}/{slug}.liq` with `File::put` (not atomic, no temp file). `File::ensureDirectoryExists(liq_dir)` first.
 3. `ensureDirectories()`: creates `{playlists_dir}/{slug}`, `{hls_dir}/{slug}` and the shared `system_dir`, then `chmod 0777` on the two per-station dirs (the API may run as root and create them root:root 0755; Liquidsoap is UID 100 inside the container and must write HLS).
 4. If `isRunning()` (Docker `.State.Status == running`): calls `restart()` and returns. `restart()` is `down()` then `run()`. Note `restart()` does not re-render; `up()` already did.
-5. Otherwise, if any container of that name exists in any state (`docker ps -a --filter name=`), `docker rm -f` it (a SIGKILL, not the graceful path), then `run()`.
-6. `run()` concatenates flag groups and calls `docker run -d ...`, then `verifyStarted()`.
+5. Otherwise, if a container of exactly that name exists in any state (`docker ps -a --filter name=^{name}$`), `docker rm -f` it (a SIGKILL, not the graceful path), then `run()`.
+6. `run()` concatenates flag groups (plus `--label gocast.config={configFingerprint()}` when the fingerprint can be computed) and calls `docker run -d ...`, then `verifyStarted()`.
 
-So `up()` is deliberately blunt: on an already-running container it stops and recreates it, which drops every listener and any live broadcaster. Callers that only want "be on air" must go through `StationLifecycleService::start()`, which skips `up()` when the container is already running. `ReconcileStations` (missing and recreate branches), `RelaunchStations` and `StationObserver` call `up()` directly.
+So `up()` is deliberately blunt: on an already-running container it stops and recreates it, which drops every listener and any live broadcaster. Callers that only want "be on air" must go through `StationLifecycleService::start()`, which skips `up()` when the container is already running. `ReconcileStations` (missing, unhealthy-recreate and outdated branches), `RelaunchStations` and `StationObserver` call `up()` directly.
 
 ### Flags on every `docker run`
 
@@ -87,7 +87,7 @@ From `baseRunCommand()`, `sandboxFlags()`, `healthFlags()`, `resourceFlags()`, `
 | `--restart` | `unless-stopped` | supervisor |
 | `--add-host` | `host.docker.internal:host-gateway` | supervisor |
 | `--stop-signal` / `--stop-timeout` | `SIGTERM` / `stopTimeout()` | see below |
-| `--label` | `gocast.station={slug}`, `gocast.station_id={id}` | supervisor |
+| `--label` | `gocast.station={slug}`, `gocast.station_id={id}`, and `gocast.config={fingerprint}` (omitted when the image ID cannot be read) | supervisor |
 | `--log-opt` | `max-size=10m`, `max-file=3` | supervisor |
 | `--cap-drop ALL`, `--security-opt no-new-privileges` | always | supervisor |
 | `--pids-limit` | `LIQUIDSOAP_CONTAINER_PIDS_LIMIT`, default 256; omitted if 0 | config `container_pids_limit` |
@@ -119,7 +119,7 @@ Consequences to know:
 
 `down(Station)` and `downBySlug(string)` both call `removeContainer($name)`. It:
 
-1. Returns if `containerExistsByName()` is false. That runs `docker ps -a --filter name={name}` and compares the trimmed output to the name. Docker's `name` filter is a substring match (checked: `name=gocast` lists `gocast-liquidsoap-test`), so when another container's name contains this one (slugs `jazz` and `jazz-fm`), the output has two lines, the comparison fails and the method reports "absent" (see traps).
+1. Returns if `containerExistsByName()` is false. That runs `docker ps -a --filter name=^{name}$` (anchored, so `jazz` no longer matches `jazz-fm`) and compares the trimmed output to the name.
 2. Runs `docker stop --timeout N`. Failure is logged (`Graceful stop failed, forcing removal`) and ignored.
 3. Runs `docker rm -f`. This one is not wrapped; a daemon error propagates.
 
@@ -140,12 +140,12 @@ There is no registry. Identity is the container name plus two labels.
 | `containerState($name)` | `{exists, status, health, exit_code, oom_killed, restart_count}` | `docker inspect -f` (3 s). Non-zero exit maps to `exists=false, status='absent'`. |
 | `isRunning($station)` | `status === 'running'` | via `containerState`. `restarting` is not running, on purpose: the old `docker ps --filter status=running` reported a crash loop as running 5 samples out of 5. |
 | `isHealthy($station)` | running and health in `healthy` or `none` | via `containerState`. **No caller in `app/`.** |
-| `exists($station)` | any state | `docker ps -a`, same substring-filter comparison as `removeContainer()` |
-| `listContainerStates()` | `name => {status, health}` for every `gocast-liquidsoap-*` container in one `docker ps -a` | health parsed from the `Status` column with a regex on `(healthy)`, `(unhealthy)`, `(health: starting)` |
+| `exists($station)` | any state | `docker ps -a`, same anchored-filter comparison as `removeContainer()` |
+| `listContainerStates()` | `name => {status, health, config}` for every `gocast-liquidsoap-*` container in one `docker ps -a` (format `Names|State|Label "gocast.config"|Status`) | health parsed from the `Status` column with a regex on `(healthy)`, `(unhealthy)`, `(health: starting)` |
 | `listManagedContainers()` | names only (all states, `-a`) | **Dead.** No caller in `app/`. `ReconcileStations` and `MetricsController` use `listContainerStates()`; two tests still mock `listManagedContainers`, which is stale. |
 | `logTail($name, 20)` | stdout + stderr of `docker logs --tail` | only used by `verifyStarted()` |
 
-Health constants: `healthy`, `unhealthy`, `starting`, `none` (no healthcheck configured). Note `listContainerStates()` filters by `name=` substring and then re-filters by prefix, so a container that merely contains the prefix is dropped.
+Health constants: `healthy`, `unhealthy`, `starting`, `none` (no healthcheck configured). Note `listContainerStates()` filters by `name=` substring (unanchored, on purpose: it wants every prefixed name) and then re-filters by prefix, so a container that merely contains the prefix is dropped.
 
 `gocast.config` carries `configFingerprint()` as of `docker run` and is read by the reconciler (Outdated) through `listContainerStates()`, which returns it as `config` ('' when absent). `gocast.station` / `gocast.station_id` are not read: the reconciler recovers the slug by parsing the container name. Renames therefore depend on the observer tearing the old name down (see Rename).
 
@@ -163,16 +163,16 @@ The subnet must equal the one the network is really created with. In the native 
 
 ### Talking to a running container
 
-- `telnet($station, $command)`: plain `fsockopen` to `containerHost:1234` (`TELNET_PORT`, must match `settings.server.telnet.port` in the blade), 3 s connect and read timeout, sends `{command}\nquit\n`, reads to EOF, returns trimmed text. CR/LF in the command are stripped. Throws `RuntimeException` if the connect fails. It deliberately avoids `docker exec` because the socket proxy denies EXEC. It does **not** inspect the reply: a Liquidsoap `ERROR: unknown command` (source not present in an older script, or jingles disabled) comes back as ordinary text and callers treat it as success.
+- `telnet($station, $command)`: plain `fsockopen` to `containerHost:1234` (`TELNET_PORT`, must match `settings.server.telnet.port` in the blade), 3 s connect and read timeout, sends `{command}\nquit\n`, reads to EOF, returns trimmed text. CR/LF in the command are stripped. Throws `RuntimeException` if the connect fails. It deliberately avoids `docker exec` because the socket proxy denies EXEC. It does **not** inspect the reply: a Liquidsoap `ERROR: unknown command` (source not present in an older script, or the watermark machinery switched off) comes back as ordinary text and callers treat it as success.
 - Harbor HTTP (`/status`, `/healthz` on `LIQUIDSOAP_HARBOR_PORT`, default 8080) is called by `StationStatusService`, not by the supervisor. The container's own healthcheck probes `/healthz`.
 - `applyWatermarkSettings()` sends `watermark_enabled` (owner's plan `watermarked()`, false if user/plan is unresolved), `watermark_interval` (min 60.0), `watermark_duck` (clamped 0.01 to 1.0).
 - The variable names live in `VAR_*` constants and are passed into the blade so both sides agree. The same values are rendered as the script's initial state, so telnet is a fast path; a stopped or unreachable container is correct at next boot.
 
 ## What the rendered script depends on
 
-`renderLiqFile()` passes these into the blade (see [station script](liquidsoap-station-script.md) for behaviour). Everything here is baked in at render time and reaches the container only on the next `up()` or `restart`.
+`renderLiq()` passes these into the blade (see [station script](liquidsoap-station-script.md) for behaviour); `renderLiqFile()` writes the result and `configFingerprint()` hashes it. Everything here is baked in at render time and reaches the container only on the next `up()` or `restart`.
 
-- Station: `station` (slug, name, description, genre, mount, artwork), `nextTrackUrl` (`{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`).
+- Station: `station` (slug, name, description, genre, mount; artwork and the per-station Icecast password are not read), `nextTrackUrl` (`{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`).
 - Secrets: `icecastPassword` from `services.icecast.source_password`, `internalApiKey` from `services.internal_api_key`. The `.liq` file on disk therefore contains both, and the harbor-auth call sends the key as `X-Internal-Key`.
 - Addresses from the container's point of view: `LIQUIDSOAP_ICECAST_HOST` / `_PORT` (default `host.docker.internal`:8000), `LIQUIDSOAP_API_URL` (default `http://host.docker.internal:8081`, trailing slash trimmed).
 - Harbor: `harbor_port`, `harbor_input_port`, `harbor_input_timeout` (10.0 s), `rms_window_seconds` (2), `hls_variant` (`aac`).
@@ -186,7 +186,7 @@ The subnet must equal the one the network is really created with. In the native 
 ### PlaylistFileWriter (the parts that touch the supervisor)
 
 - `ensureDirectory($station)`: ensures `{playlists_dir}/{slug}` exists, before a container starts (it is bind-mounted; Docker would create it owned by root). Called by the lifecycle start, reconcile and relaunch. No playlist files are written.
-- `annotateTrack()` / `annotateUri()` build `annotate:` URIs (jingle flag, `liq_cue_in/out`, `liq_amplify` with a `dB` suffix, `duration` with 3 decimals, title, artist, playlist) with `"` and `\` escaped. Used by `NextTrackController`. Only the leaf of `Track::path` is joined under `/data/playlists`.
+- `annotateTrack()` / `annotateUri()` build `annotate:` URIs (jingle flag, `liq_cue_in/out`, `liq_fade_out` for a planner cut, `liq_amplify` with a `dB` suffix, `duration` with 3 decimals, title, artist, playlist) with `"` and `\` escaped. Used by `NextTrackController`. Only the leaf of `Track::path` is joined under `/data/playlists`.
 - `stationDir()` = `rtrim(playlists_dir) / slug`.
 
 ## Test-environment guard
@@ -216,17 +216,17 @@ Things that are **not** in `LIQ_RELEVANT_COLUMNS` but are rendered into the scri
 
 ## Reconcile: what converges the daemon onto intent
 
-`php artisan stations:reconcile [--dry-run]`, scheduled every minute (`withoutOverlapping`, `runInBackground`). One `docker ps -a` (`listContainerStates()`) plus DB queries. Intent is `Station::running()` (global soft-delete scope excludes trashed stations); known slugs come from `withTrashed()`.
+`php artisan stations:reconcile [--dry-run]`, scheduled every minute (`withoutOverlapping(10)`, `runInBackground`). One `docker ps -a` (`listContainerStates()`) plus DB queries. Intent is `Station::running()` (global soft-delete scope excludes trashed stations); known slugs come from `withTrashed()`.
 
 | Class | Condition | Action |
 |---|---|---|
 | Orphan | container slug matches no station row (even trashed) | `removeContainer()` |
 | Unwanted | station exists but is stopped or soft-deleted | `removeContainer()` (this is what makes the power button survive `--restart unless-stopped` and a host reboot) |
-| Missing | wanted station with no container | `playlistWriter->write()`, `up()`, broadcast `StationStateChanged` reason `reconciled`, log warning |
+| Missing | wanted station with no container | `playlistWriter->ensureDirectory()`, `up()`, broadcast `StationStateChanged` reason `reconciled`, log warning |
 | Unhealthy | wanted container whose status is `restarting`, `exited`, `dead` or `paused`, or health is `unhealthy` (`starting` is NOT unhealthy) | Counted per pass in cache; see below |
 | Outdated | healthy wanted container (health not `starting`) whose `gocast.config` label differs from `supervisor->configFingerprint()` (hash of the rendered `.liq` with the watermark forced off, the image ID, and every `docker run` flag); unlabelled containers always differ | only if nobody is broadcasting (no open `StreamSession`, and a reachable container whose `broadcaster`, fallback `source === 'live'`, is false; unreachable waits): `ensureDirectory` + `up()`, `reconciled` event. At most `LIQUIDSOAP_OUTDATED_RECREATES_PER_PASS` (5) per pass; a failed recreate sets cache key `stations-outdated-halt` for 1 h, during which no outdated station is touched and the command exits FAILURE |
 
-Unhealthy handling: cache key `station-unhealthy-passes:{slug}` counts consecutive bad passes (TTL 6 h; forgotten on any clean pass). Recreate when passes >= `LIQUIDSOAP_UNHEALTHY_PASSES` (default 2; `max(1, ...)`). Recreates are capped by `station-recreates:{slug}` (TTL 1 h) at `LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR` (default 3); past the cap the station is left alone with an error log and counts as a failure. A recreate is `removeContainer()` + `playlistWriter->write()` + `up()`, then cache bookkeeping and a `reconciled` broadcast. Dry run reports without touching containers or the recreate/pass counters it would increment, but a clean pass still calls `Cache::forget` on the pass and live-strike keys, and `reconcileLiveFlags()` still runs its status fetches. The recreate counter's TTL restarts from one hour after each recreate (sliding, not a fixed hourly window).
+Unhealthy handling: cache key `station-unhealthy-passes:{slug}` counts consecutive bad passes (TTL 6 h; forgotten on any clean pass). Recreate when passes >= `LIQUIDSOAP_UNHEALTHY_PASSES` (default 2; `max(1, ...)`). Recreates are capped by `station-recreates:{slug}` (TTL 1 h) at `LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR` (default 3); past the cap the station is left alone with an error log and counts as a failure. A recreate is `removeContainer()` + `playlistWriter->ensureDirectory()` + `up()`, then cache bookkeeping and a `reconciled` broadcast. Dry run reports without touching containers or the recreate/pass counters it would increment, but a clean pass still calls `Cache::forget` on the pass and live-strike keys, and `reconcileLiveFlags()` still runs its status fetches. The recreate counter's TTL restarts from one hour after each recreate (sliding, not a fixed hourly window).
 
 Also, every pass, `reconcileLiveFlags()`: for each `running()->live()` station it pulls a fresh `StationStatusService::fetch()`; unreachable is ignored; if the container's `broadcaster` flag (falling back to `source === 'live'` when absent) says nobody is attached, it counts strikes in `station-live-strikes:{id}` (TTL 1 h) and after `LIQUIDSOAP_STRANDED_SESSION_STRIKES` (default 3) closes all open `StreamSession`s with `ended_at = now()`. (Session semantics belong to [Station lifecycle](station-lifecycle.md) and [Observability](observability-and-events.md).)
 
@@ -234,7 +234,7 @@ Exit code is FAILURE if any remove/start/recreate failed or a station is over it
 
 ## Other commands
 
-- `php artisan stations:relaunch [--slug=] [--include-trashed]`: for every `running()` station, `playlistWriter->write()` then `up()`. Because `up()` restarts a healthy container, each station blips (the deploy script says about 3 s; in code it is graceful stop up to 5 s, `docker run`, 750 ms verify) and live broadcasters are disconnected. Not scheduled and not run by `deploy-native.sh`, which runs only `stations:reconcile` (`|| true`); that pass, and every one after it, moves outdated stations onto the new script, image or flags once nobody is broadcasting. `deploy-native.sh` still prints a manual image rebuild when `infra/liquidsoap` changed. Relaunch is the force, for when waiting for shows to end is wrong. No lifecycle lock, no `StationEvent`, no broadcast. `--include-trashed` also starts soft-deleted stations that are marked running; the next `stations:reconcile` pass will remove them again as unwanted.
+- `php artisan stations:relaunch [--slug=] [--include-trashed]`: for every `running()` station, `playlistWriter->ensureDirectory()` then `up()`. Because `up()` restarts a healthy container, each station blips (the deploy script says about 3 s; in code it is graceful stop up to 5 s, `docker run`, 750 ms verify) and live broadcasters are disconnected. Not scheduled and not run by `deploy-native.sh`, which runs only `stations:reconcile` (`|| true`); that pass, and every one after it, moves outdated stations onto the new script, image or flags once nobody is broadcasting. `deploy-native.sh` prints only a manual image rebuild (`docker build`) when `infra/liquidsoap` changed, and no step at all for a template or supervisor change. Relaunch is the force, for when waiting for shows to end is wrong. No lifecycle lock, no `StationEvent`, no broadcast. `--include-trashed` also starts soft-deleted stations that are marked running; the next `stations:reconcile` pass will remove them again as unwanted.
 - `php artisan stations:prune-deleted [--days=N] [--dry-run]`: scheduled daily 04:40. Retention `LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS` (default 30); `<= 0` disables (prints a message, exits 0). Selects `onlyTrashed()` with `deleted_at < now - N days`, oldest first, and calls `forceDelete()` on each model one at a time (mass delete would skip the observer and strand files). Each failure is reported and retried next run; the command still exits SUCCESS. Force delete triggers `deleting` (`down()`, a no-op when no container) and `forceDeleted` (playlist tree, `.liq`, HLS dir); `tracks` rows go by FK cascade.
 - `App\Jobs\StopStation` (dispatched by `stations:sweep`, see [AutoDJ](autodj.md) and [Station lifecycle](station-lifecycle.md)): one try, `WithoutOverlapping($stationId)->dontRelease()`. Reloads the station with `user.plan`, exits if gone or not intended-running, re-asks `StationAudioPolicy::verdict()` against `pullFresh()` and only calls `lifecycle->stop($station, reason: 'silent')` (force false) if it is still `Stop`. A `StationLifecycleException` (someone went live in the meantime) is logged and dropped. On success it clears `silent_since`. It is a job so a stalled `docker stop` only blocks itself.
 
@@ -254,8 +254,8 @@ All in `api/config/liquidsoap.php`. Defaults as read from code.
 | `LIQUIDSOAP_CONTAINER_PIDS_LIMIT` / `_INIT` | `256` / false | |
 | `LIQUIDSOAP_STOP_TIMEOUT` | 5 (clamped to at most 7) | |
 | `LIQUIDSOAP_START_VERIFY_DELAY_MS` | 750 | 0 skips verification. |
-| `LIQUIDSOAP_HEALTHCHECK`, `_HEALTH_INTERVAL`, `_HEALTH_TIMEOUT`, `_HEALTH_RETRIES`, `_HEALTH_START_PERIOD` | true, 15 s, 3 s, 3, 45 s | Probe is `bash -c` over `/dev/tcp/127.0.0.1:{harbor_port}` requesting `/healthz` and grepping for ` 200 ` (the image has no curl). Healthy means audio graph producing frames AND Icecast connected. Docker does not restart unhealthy containers; only the reconciler acts on it. |
-| `LIQUIDSOAP_UNHEALTHY_PASSES`, `_UNHEALTHY_RECREATES_PER_HOUR`, `_STRANDED_SESSION_STRIKES` | 2, 3, 3 | Reconciler. Counted in passes; the schedule is one minute. |
+| `LIQUIDSOAP_HEALTHCHECK`, `_HEALTH_INTERVAL`, `_HEALTH_TIMEOUT`, `_HEALTH_RETRIES`, `_HEALTH_START_PERIOD` | true, 15 s, 3 s, 3, 45 s | Probe is `bash -c` over `/dev/tcp/127.0.0.1:{harbor_port}` requesting `/healthz` and grepping for ` 200 ` (the image has no curl). Healthy means the audio graph is producing frames; the template deliberately leaves Icecast out of the verdict (the `healthFlags()` docblock wrongly says it is in). Docker does not restart unhealthy containers; only the reconciler acts on it. |
+| `LIQUIDSOAP_UNHEALTHY_PASSES`, `_UNHEALTHY_RECREATES_PER_HOUR`, `_STRANDED_SESSION_STRIKES`, `_OUTDATED_RECREATES_PER_PASS` | 2, 3, 3, 5 | Reconciler. Counted in passes; the schedule is one minute. |
 | `LIQUIDSOAP_CONTAINER_SUBNET` | `172.28.0.0/16` | Must match the real network. |
 | `LIQUIDSOAP_TELNET_RESOLVE` | `ip` | `ip` or anything-else-means-name. |
 | `LIQUIDSOAP_HARBOR_PORT` / `_HARBOR_TIMEOUT` / `_STATUS_TTL` / `_STATUS_DOWN_TTL` | 8080, 1.5 s, 2 s, 15 s | Status path (used by `StationStatusService`). |
@@ -267,17 +267,18 @@ Other keys in the same file (crossfade, limiter, loudness, silence trimming, wat
 
 ## Drift: what stays wrong until something recreates the container
 
-A container's settings are frozen at `docker run` time. Nothing compares a live container against current config.
+A container's settings are frozen at `docker run` time. The reconciler's Outdated pass compares each healthy container's `gocast.config` label with a fresh `configFingerprint()` and recreates the ones that differ once nobody is broadcasting.
 
 | Changed | Who notices | Result |
 |---|---|---|
-| `.liq` template, or any config rendered into it (crossfade, limiter, charset, GC, hls variant, api/icecast address) | Nobody | Running stations keep the old script (the file is bind-mounted and rewritten in place, but Liquidsoap does not reload). Applied on next `up()`: `stations:relaunch`, a lifecycle start, or a station edit that restarts it. |
-| `LIQUIDSOAP_IMAGE`, memory, cpus, pids, health flags, stop timeout, log opts | Nobody | Same. Only `stations:relaunch` (or stop/start) applies them. |
+| `.liq` template, or any config rendered into it (crossfade, limiter, charset, GC, hls variant, api/icecast address) | `stations:reconcile` (Outdated) | Liquidsoap does not reload the bind-mounted file. Recreated at most 5 per pass once nobody is live; config changes need a `config:cache` to be seen. `stations:relaunch` forces it. |
+| `LIQUIDSOAP_IMAGE` (or a rebuilt image under the same tag: the fingerprint uses the image ID), memory, cpus, pids, health flags, stop timeout, log opts | `stations:reconcile` (Outdated) | Same: every flag group goes into the fingerprint. |
 | Health flags baked into an old container | | A container started before healthchecks reports health `none`, treated as healthy. |
 | Container deleted, killed, or host reboot | `stations:reconcile` | Missing or unhealthy branch. Up to about a minute of silence plus `up()` time. |
 | Owner stops the station | `StationLifecycleService::stop` then reconcile as backstop | Unwanted container removed. |
 | Docker `rm` fails during stop | Reconcile | Intent is already `stopped`, so the leftover is removed next pass. |
 | Station renamed while running | `StationObserver` | Old container removed by old slug, playlist dir renamed, new container started. |
+| A script column edited while someone is live | `stations:reconcile` (Outdated) | The observer skips the restart; the station is recreated in the first pass after the broadcast. |
 | Owner's plan (watermark) | `UserObserver` | Over telnet, best-effort; a failed push is corrected at next boot. Jingle settings need nothing: Laravel reads them at every `next-track` ask. |
 | Plan-derived state while the container is stopped | Nobody needed | `up()` renders current values. |
 | Container in `starting` health for the whole start period | Not drift | Reconciler ignores `starting`. |
@@ -286,30 +287,30 @@ A container's settings are frozen at `docker run` time. Nothing compares a live 
 ## Gaps and traps
 
 1. **No modes.** The brief's "docker / native / hybrid" split does not exist in this class. It is all env (`DOCKER_HOST`, dirs, hosts, `LIQUIDSOAP_TELNET_RESOLVE`). The class docblock still says `--restart=always` while the code uses `unless-stopped`.
-2. **`up()` on a healthy container restarts it.** `RelaunchStations`, `ReconcileStations`, and the observer call `up()` directly and can drop live listeners and a live broadcaster. Only `StationLifecycleService::start()` guards this.
+2. **`up()` on a healthy container restarts it.** `RelaunchStations` and the reconciler's unhealthy branch call `up()` directly and can drop live listeners and a live broadcaster. The Outdated pass and the observer (non-rename edits) now skip live stations; `StationLifecycleService::start()` skips `up()` for a running container.
 3. **No lock outside the lifecycle service.** Reconcile, relaunch and the observer call `up()`/`removeContainer()` without `Cache::lock("station-lifecycle:{id}")`, so they can interleave a `docker run` and `docker rm -f` on the same name with a power-button press.
 4. **The observer restart path does not call `ensureDirectory()`**; `up()` renders the `.liq` and creates its own directories, so this is harmless.
 5. **A failed start leaves the container behind and skips the start event.** See Start verification. The same `verifyStarted()` exception also bubbles out of reconcile/relaunch as a per-station failure line.
 6. **Rename leaks and can lose files.** The old slug's `.liq` and HLS directory are not removed (only `destroyArtifacts` at force-delete, and only for the final slug). If the playlist dir rename fails (logged, swallowed), `ensureDirectories()` creates an empty new dir and the library is orphaned under the old slug. If the new dir already exists the rename is silently skipped. The container labels carry the old slug until recreate.
 7. **Deleted-and-running stations keep `desired_state=running`.** Soft delete calls `down()` but does not change intent. Restore then brings the station back (`restored` hook). Reconcile ignores trashed stations for intent, so any container for one is "unwanted".
-8. **Direct row edits bypass everything.** Mass updates, raw SQL, and `withoutEvents` skip the observer; only reconcile (within about a minute) catches container-side drift, and it never re-renders scripts for a healthy container.
-9. **Dead code.** `listManagedContainers()` and `isHealthy()` have no callers in `app/`. `exists()` is used only inside `up()`, and `restart()` only inside `up()`. Two tests mock `listManagedContainers` (`ReconcileStationsTest`, `MetricsControllerTest`) although nothing calls it. The `gocast.station` and `gocast.station_id` labels are written and never read. The docblock on `listManagedContainers` says "running" though it uses `-a`.
-10. **Telnet success is not verified.** `telnet()` returns the reply text and nobody checks for `ERROR`, so `applyWatermarkSettings()` can return true against a container whose script predates the variables. Fix by relaunching.
-11. **`docker rm -f` on the "exists but not running" branch of `up()`** is a SIGKILL, skipping the graceful HLS/Icecast shutdown that `removeContainer()` provides.
-12. **`.liq` contains secrets** (Icecast source password, internal API key) in a host file under `liq_dir`, mounted read-only into the container. `File::put` is not atomic.
-13. **Address arithmetic depends on external setup.** `LIQUIDSOAP_CONTAINER_SUBNET` must equal the subnet in `infra/native/docker-compose.native.yml`, whose `ip_range` confines Docker's IPAM; the supervisor checks neither, so a mismatch surfaces as `docker run` "address already in use" or a status that never answers. The network itself is not created here and its absence fails `docker run`.
-14. **`isRunning()` is intent on the model but daemon truth on the supervisor.** `Station::isRunning()` reads `desired_state`; `LiquidsoapSupervisor::isRunning($station)` asks Docker. They are easy to confuse in a code review.
-15. **Prune** exits SUCCESS even when some stations failed (they are retried tomorrow); `--days` beats config and `0` or negative disables it, silently.
-16. **Verify delay runs inline.** Every start blocks the HTTP request for at least the graceful stop (when recreating) plus 750 ms plus `docker run`. Lock TTL in the lifecycle service is 30 s and wait is 8 s; a stalled daemon (10 s per docker call, several calls per `up()`) can exceed both.
-17. **Proxy does not contain PHP RCE.** The docblock is candid: the socket proxy filters by path and method only, and `POST /containers/create` with an arbitrary HostConfig is allowed, so a compromised PHP process is effectively root on the host. EXEC is denied, which is why telnet is a raw TCP socket.
-18. **Substring name filter breaks container lookup when one slug contains another.** `containerExistsByName()` compares the whole `docker ps --filter name=` output to the name, but the filter is a substring match. With containers for stations `jazz` and `jazz-fm`, asking about `gocast-liquidsoap-jazz` returns two lines, so `removeContainer()` and `exists()` treat it as absent. A stop then leaves the container running (reconcile's `removeContainer` has the same blind spot, so it never converges), and `up()` on a running `jazz` does `restart()` (no-op `down`) then `docker run` into a name conflict. Derived from the code plus the observed substring behaviour of the filter; whether slug rules allow prefix slugs to coexist was not checked.
+8. **Direct row edits bypass the observer.** Mass updates, raw SQL, and `withoutEvents` skip it; the reconciler's Outdated pass picks up any edit to a column the script reads (the fingerprint changes) and recreates the station within about a minute once nobody is live.
+9. **Fingerprint is null whenever `docker image inspect` fails** (daemon timeout, image mid-rebuild): the container is started with no `gocast.config` label, and an unlabelled container always reads as outdated, so it is recreated once more on the first idle pass after that. The same null makes the pass judge no station outdated.
+10. **Dead code.** `listManagedContainers()` and `isHealthy()` have no callers in `app/`. `exists()` is used only inside `up()`, and `restart()` only inside `up()`. Two tests mock `listManagedContainers` (`ReconcileStationsTest`, `MetricsControllerTest`) although nothing calls it. The `gocast.station` and `gocast.station_id` labels are written and never read. The docblock on `listManagedContainers` says "running" though it uses `-a`.
+11. **Telnet success is not verified.** `telnet()` returns the reply text and nobody checks for `ERROR`, so `applyWatermarkSettings()` can return true against a container whose script predates the variables. Fix by relaunching.
+12. **`docker rm -f` on the "exists but not running" branch of `up()`** is a SIGKILL, skipping the graceful HLS/Icecast shutdown that `removeContainer()` provides.
+13. **`.liq` contains secrets** (Icecast source password, internal API key) in a host file under `liq_dir`, mounted read-only into the container. `File::put` is not atomic.
+14. **Address arithmetic depends on external setup.** `LIQUIDSOAP_CONTAINER_SUBNET` must equal the subnet in `infra/native/docker-compose.native.yml`, whose `ip_range` confines Docker's IPAM; the supervisor checks neither, so a mismatch surfaces as `docker run` "address already in use" or a status that never answers. The network itself is not created here and its absence fails `docker run`.
+15. **`isRunning()` is intent on the model but daemon truth on the supervisor.** `Station::isRunning()` reads `desired_state`; `LiquidsoapSupervisor::isRunning($station)` asks Docker. They are easy to confuse in a code review.
+16. **Prune** exits SUCCESS even when some stations failed (they are retried tomorrow); `--days` beats config and `0` or negative disables it, silently.
+17. **Verify delay runs inline.** Every start blocks the HTTP request for at least the graceful stop (when recreating) plus 750 ms plus `docker run`. Lock TTL in the lifecycle service is 30 s and wait is 8 s; a stalled daemon (10 s per docker call, several calls per `up()`) can exceed both.
+18. **Proxy does not contain PHP RCE.** The docblock is candid: the socket proxy filters by path and method only, and `POST /containers/create` with an arbitrary HostConfig is allowed, so a compromised PHP process is effectively root on the host. EXEC is denied, which is why telnet is a raw TCP socket.
 19. **Stale config comment.** `config/liquidsoap.php` still names `GOCAST_SUBNET` in `domains.env`; the subnet now lives in `docker-compose.native.yml`. The `verifyStarted()` docblock likewise says the reconciler retries "within five minutes"; the schedule is every minute.
 
 ## Tests
 
-- `tests/Feature/LiquidsoapSupervisorTest.php`: flag construction (stop signal/timeout, cap-drop, labels, health probe, start period, health omission, image from config, stop-timeout clamp, mounts) and jingle/telnet var commands. No test runs a real container, and none covers `verifyStarted()`, `removeContainer()` ordering, `telnet()` itself, or `ingestUrl()`.
-- `tests/Feature/ReconcileStationsTest.php`: orphan/unwanted/missing/dry-run/naming filter, unhealthy debounce, health period, hourly budget, stranded-session strikes, and the `reconciled` broadcast.
-- `tests/Feature/StationObserverTest.php`: test-mode guard, no container on create, no restart when stopped, restart when running, ignored columns, rename teardown, artifact wipe on hard delete only, jingle settings over telnet.
+- `tests/Feature/LiquidsoapSupervisorTest.php`: flag construction (stop signal/timeout, cap-drop, labels, health probe, start period, health omission, image from config, stop-timeout clamp, mounts) and the config fingerprint (changes for a script column, not for artwork or a watermark plan flip). No test runs a real container, and none covers `verifyStarted()`, `removeContainer()` ordering, `telnet()` itself, or `ingestUrl()`.
+- `tests/Feature/ReconcileStationsTest.php`: orphan/unwanted/missing/dry-run/naming filter, unhealthy debounce, health period, hourly budget, stranded-session strikes, the `reconciled` broadcast, and the Outdated pass (recreate when idle, skip on open session / reported broadcaster / unreachable container / uninspectable image, halt after a failure, per-pass spread).
+- `tests/Feature/StationObserverTest.php`: test-mode guard, no container on create, no restart when stopped, restart when running, ignored columns (artwork, password), no restart while live, rename teardown, artifact wipe on hard delete only, jingle settings never touch the container, restore with a session left open.
 - `tests/Feature/PruneDeletedStationsTest.php`, `tests/Feature/PlaylistFileWriterTest.php`.
 - `tests/Feature/StationContainerIpTest.php`: address arithmetic (reserved offset, octet carry, block ceiling, no duplicates, throw at exhaustion, subnet change keeps addresses, bad CIDR, `--ip` on the run command, telnet by IP).
 - `tests/Feature/MetricsControllerTest.php` (mocks the supervisor's `listManagedContainers`, which the controller never calls), `tests/Feature/ReloadWatermarkClipsTest.php`, and `tests/Feature/StationSweepTest.php` (`new StopStation(...)->handle` at lines ~414-455).

@@ -1,6 +1,6 @@
 ---
 feature: Mobile app shell and sign-in
-verified: 2026-10-04 against e145a37 plus uncommitted work (feat/design-system)
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - mobile/package.json
   - mobile/app.json
@@ -40,7 +40,7 @@ sources:
   - api/app/Http/Controllers/GoogleAuthController.php
   - api/app/Services/GoogleIdTokenVerifier.php
   - api/app/Http/Middleware/EnsureEmailIsVerified.php
-fingerprint: de8e083fa137c1bd
+fingerprint: c0647c3e89643020
 ---
 
 # Mobile app shell and sign-in

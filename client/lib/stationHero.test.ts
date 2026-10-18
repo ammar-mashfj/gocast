@@ -44,7 +44,8 @@ describe("stationHero — off air", () => {
   it("offers Go live then Start AutoDJ", () => {
     const h = stationHero(input({ stationState: "offline", status: offline }))
     expect(h).toMatchObject({ tone: "off", label: "OFF AIR", actions: ["go-live", "start-autodj"], nowPlaying: null })
-    expect(h.text).toContain("Start AutoDJ")
+    // Mid-sentence, so lowercase; the button itself is the "start-autodj" action above.
+    expect(h.text).toContain("or start AutoDJ to keep your music playing")
   })
 
   it("offers only Go live on a plan without AutoDJ", () => {

@@ -17,7 +17,7 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-on-now.webp"
-        alt="The Right now and Your next show cards at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15 — and the next of your own show times."
+        alt="The Right now card at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15."
         width={2480}
         height={214}
        

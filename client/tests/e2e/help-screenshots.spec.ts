@@ -236,19 +236,17 @@ test.describe("@screenshots", () => {
     await dress(page)
 
     // The hero: what's on air, the buttons that change it, listening now.
-    const hero = page.getByRole("heading", { name: "Your station is quiet." })
-    await shot(page, "station-power", padded(page, await cardBox(hero, 1000, 180), 0))
+    // The section itself: its headline depends on the state, and off air
+    // it has none.
+    const hero = page.getByRole("region", { name: "On air now" })
+    await shot(page, "station-power", padded(page, (await hero.boundingBox())!, 0))
 
     const header = page.locator("header").filter({ has: page.locator("h1") }).first()
     await shot(page, "station-header", await clipOf(page, [header.locator("button").first(), header.locator("h1").locator("xpath=../..")], 18))
 
-    // Was the AutoDJ rotation card, which no longer exists: Coming up names
-    // the playlist AutoDJ moves to next and when.
-    await shot(page, "autodj-rotation", padded(page, await cardBox(page.getByText("Coming up").first(), 500, 150), 0))
-
     // ---- tune-in QR -------------------------------------------------------
-    // Inside Share… since the link card became one line.
-    await page.getByRole("button", { name: "Share…" }).click()
+    // Inside QR code & embed, beside Copy player link.
+    await page.getByRole("button", { name: "QR code & embed" }).click()
     await page.getByRole("button", { name: "Tune-in code" }).click()
     const qr = page.getByRole("dialog")
     await expect(qr).toBeVisible()
@@ -291,7 +289,7 @@ test.describe("@screenshots", () => {
     await done(page)
     await page.waitForTimeout(400)
 
-    const week = page.getByRole("heading", { name: "This week" })
+    const week = page.locator("#schedule-week")
     await week.scrollIntoViewIfNeeded()
     await page.waitForTimeout(300)
     await shot(page, "schedule-week", padded(page, await cardBox(week, 1100, 400), 0))
@@ -302,22 +300,13 @@ test.describe("@screenshots", () => {
     await page.goto(at("/settings"))
     await settle(page)
     await page.getByRole("button", { name: /Use your own DJ software/ }).click()
+    // The tile opens a dialog now, not a card that unfolds in the page.
+    const djCard = page.getByRole("dialog", { name: "Use your own DJ software" })
+    await expect(djCard).toBeVisible()
     await page.waitForTimeout(400)
-    const djCard = page.getByRole("button", { name: /Use your own DJ software/ })
-    await djCard.scrollIntoViewIfNeeded()
-    await page.waitForTimeout(300)
-    // From the card's top to the end of the five values.
     await dress(page)
-    // The open card is taller than what's left below it: bring its top up so
-    // the five values fit in the viewport the clip is clamped to.
-    const top = (await cardBox(djCard, 500, 200)).y
-    // Below the sticky top bar and status band (--chrome-h), not under them.
-    await page.evaluate((y) => {
-      const chrome = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--chrome-h")) || 112
-      window.scrollBy(0, y - chrome - 24)
-    }, top)
-    await page.waitForTimeout(300)
-    const cardTop = await cardBox(djCard, 500, 200)
+    // From the dialog's top to the end of the five values.
+    const cardTop = (await djCard.boundingBox())!
     const keyHint = (await page.getByText("Also called the stream key or source password.").boundingBox())!
     await shot(page, "encoder-connection", padded(page, { ...cardTop, height: keyHint.y + keyHint.height + 28 - cardTop.y }, 0))
 

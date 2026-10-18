@@ -57,6 +57,9 @@ function toLink(row: Row): SocialLink | string {
   if (row.kind === "platform") {
     const handle = cleanHandle(row.platform, row.handle)
     if (handle === "") return `Fill in your ${row.platform.name}, or remove it.`
+    // An address can't hold a space, and the API's refusal named the field
+    // path ("social_links.0.url"), which no one can map to a row.
+    if (/\s/.test(handle)) return `Your ${row.platform.name} name can’t have spaces.`
     return { label: row.label, url: `${row.platform.base}${handle}` }
   }
   const url = normalizeSocialUrl(row.url)

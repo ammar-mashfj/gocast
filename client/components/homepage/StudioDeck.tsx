@@ -127,11 +127,15 @@ export function StudioDeck() {
     if (!el) return
     const io = new IntersectionObserver(
       ([entry]) => {
-        setInView(entry.isIntersecting)
+        // Half the deck on screen, or half the screen filled by it: a deck
+        // taller than two screens (a phone held sideways) never reaches half
+        // its own height, and the demo stayed frozen there.
+        const seen = entry.isIntersecting && (entry.intersectionRatio >= 0.5 || entry.intersectionRect.height >= window.innerHeight * 0.5)
+        setInView(seen)
         // Scrolling the deck away with the mic held: let go.
-        if (!entry.isIntersecting) release()
+        if (!seen) release()
       },
-      { threshold: 0.5 },
+      { threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] },
     )
     io.observe(el)
     return () => io.disconnect()
@@ -173,8 +177,13 @@ export function StudioDeck() {
   useEffect(() => {
     if (!inView) return
     const onKey = (e: KeyboardEvent) => {
-      const tag = (document.activeElement as HTMLElement | null)?.tagName ?? ""
+      const active = document.activeElement as HTMLElement | null
+      const tag = active?.tagName ?? ""
       if (/INPUT|TEXTAREA|SELECT/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return
+      // A focused button, link or dialog owns Space (and the letters): the
+      // deck's own Copy link, the QR dialog's close, anything on the page.
+      // Taking them made those unpressable from the keyboard.
+      if (active?.closest("button, a[href], [role=button], [contenteditable=''], [contenteditable=true], [role=dialog]")) return
       if (e.code === "Space") {
         e.preventDefault()
         if (e.type === "keydown" && !e.repeat) press()

@@ -117,11 +117,6 @@ export const ARTICLES: Article[] = [
         answer:
           "Yes, and it only takes up space once. Your 3 GB allowance is counted per file, not per playlist entry.",
       },
-      {
-        question: "Is scheduling the same as the show times on my settings page?",
-        answer:
-          "No. Show times are what you advertise to listeners and change nothing about your audio. Slots are what your station actually plays and are never shown to listeners. They share a timezone and nothing else.",
-      },
     ],
   },
   {

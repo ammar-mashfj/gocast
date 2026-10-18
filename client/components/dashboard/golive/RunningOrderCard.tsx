@@ -157,8 +157,12 @@ function QueueCard({
                 </span>
               </div>
             </div>
+            {/* Labels may wrap: on a 320px phone the two don't fit on one
+                line, and nowrap ran "From the top" out of the well. They
+                only wrap when they have to. */}
             <Segmented
               size="sm"
+              className="[&>button]:h-auto [&>button]:min-h-7.5 [&>button]:py-1 [&>button]:whitespace-normal [&>button]:text-center"
               aria-label="Where the show starts"
               value={resumeFromStart ? "top" : "pick-up"}
               onChange={(v) => onResumeFromStartChange(v === "top")}

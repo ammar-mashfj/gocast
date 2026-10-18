@@ -169,6 +169,23 @@ export function airState(input: AirInput): AirState {
     return { ...idle, tone: "off", label: "NO ANSWER", message: "Your station isn’t answering. Trying again.", short: "Station not answering.", action: null }
   }
 
+  // The live feed is still what listeners hear, but nobody is connected: a
+  // show from DJ software, the app or another browser has just ended, and the
+  // station is playing out its last few seconds before handing over. Without
+  // this the read fell through to "AutoDJ is playing", on Free too. Same
+  // words as the overview hero's liveTailDraining (lib/stationHero).
+  if (status.source === "live") {
+    return {
+      onAir: true,
+      broadcasting: false,
+      tone: "off",
+      label: "SHOW ENDED",
+      message: "Your show has ended. Listeners are hearing its last few seconds.",
+      short: "Show ended.",
+      action: null,
+    }
+  }
+
   if (status.source === "silence") {
     // The checklist turned the station on and the host is about to go live:
     // the silence is the gap before their show, not AutoDJ running dry (an

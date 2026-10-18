@@ -13,9 +13,12 @@ export default function Body() {
 
       <h2>From the Dashboard</h2>
       <p>
-        The <strong>Your link</strong>{" "}card on your station’s Overview has the
-        link with Copy, <strong>Share…</strong>{" "}for WhatsApp, email and X, and{" "}
-        <strong>Tune-in code</strong>: a QR code you can download as a PNG.
+        On your station’s Overview,{" "}
+        <strong>Copy player link</strong>{" "}copies it, ready to paste into any
+        chat, post or email. Next to it,{" "}
+        <strong>QR code &amp; embed</strong>{" "}has the{" "}
+        <strong>Tune-in code</strong>: a QR code you can download as a PNG. On a
+        phone it also has <strong>Send with…</strong>, for any app on it.
         The QR is the underrated one &mdash; it goes on a poster, a flyer, a
         sticker on a record sleeve, the corner of a video &mdash; and it is
         rendered to scan reliably off a cheap phone camera in bad light rather

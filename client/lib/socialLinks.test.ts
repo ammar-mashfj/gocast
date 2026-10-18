@@ -44,4 +44,26 @@ describe("picker platforms", () => {
     expect(cleanHandle(platform("youtube"), "channel/UC123")).toBe("channel/UC123")
     expect(cleanHandle(platform("tiktok"), "")).toBe("")
   })
+
+  it("never puts an @ in front of an address pasted into the field", () => {
+    expect(cleanHandle(platform("youtube"), "https://www.youtube.com/watch?v=abc123")).toBe("watch?v=abc123")
+    expect(cleanHandle(platform("youtube"), "playlist?list=PL9x")).toBe("playlist?list=PL9x")
+    expect(cleanHandle(platform("youtube"), "@nightshift")).toBe("@nightshift")
+    expect(cleanHandle(platform("youtube"), "night.shift_fm-1")).toBe("@night.shift_fm-1")
+  })
+
+  it("loads a saved link that isn't a profile as an Other link, so saving keeps it", () => {
+    expect(matchPickerPlatform("https://www.youtube.com/watch?v=abc123")).toBeNull()
+    expect(matchPickerPlatform("https://youtube.com/playlist?list=PL9x")).toBeNull()
+    expect(matchPickerPlatform("https://www.youtube.com/live/NegzSl4HDuI?si=EOcAIZWJ")).toBeNull()
+    // The field would turn this into @OldName.
+    expect(matchPickerPlatform("https://youtube.com/OldName")).toBeNull()
+  })
+
+  it("still loads profiles into their platform's field", () => {
+    expect(matchPickerPlatform("https://youtube.com/@nightshift")).toMatchObject({ platform: { key: "youtube" }, handle: "@nightshift" })
+    expect(matchPickerPlatform("https://www.youtube.com/channel/UC9Y4C12oCF6MGOFOpA6ljcw")).toMatchObject({ platform: { key: "youtube" } })
+    expect(matchPickerPlatform("https://tiktok.com/@nightshift/")).toMatchObject({ platform: { key: "tiktok" } })
+    expect(matchPickerPlatform("https://vm.tiktok.com/ZS9AGv11YUuau-i2r4K/")).toBeNull()
+  })
 })

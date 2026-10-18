@@ -38,6 +38,21 @@ export function FocusButton({ className }: { className?: string }) {
     return () => document.removeEventListener("fullscreenchange", onChange)
   }, [])
 
+  // Where full screen was refused there's no browser Esc to follow, so Esc
+  // is ours: it leaves focus mode either way. Not from a field or a dialog,
+  // whose own Esc it would steal.
+  useEffect(() => {
+    if (!on) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || document.fullscreenElement) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest("input, textarea, select, [contenteditable], [role=dialog]")) return
+      setOn(false)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [on])
+
   // Leaving the studio leaves focus mode.
   useEffect(
     () => () => {

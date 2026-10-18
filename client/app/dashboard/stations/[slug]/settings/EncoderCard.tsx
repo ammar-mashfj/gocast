@@ -25,6 +25,8 @@ import api from "@/lib/axios"
  * The route allows 120/min and answers from a short server-side cache.
  */
 const WATCH_POLL_MS = 2000
+/** A start the poll never sees come up is given up on after this; a normal one takes seconds. */
+const START_GIVE_UP_MS = 30_000
 
 interface EncoderCardProps {
   slug: string
@@ -279,9 +281,24 @@ function ConnectionWatcher({ slug }: { slug: string }) {
   // Covers the gap between a start being accepted and the poll noticing:
   // /start answers before the container is up, and without this the card
   // would snap back to "off air" right after the click.
+  // Cleared once a read sees the station running, so a stop later (another
+  // tab, the sweep) shows OFF AIR and its button again; and after
+  // START_GIVE_UP_MS if it never comes up, which says so.
   const [startRequested, setStartRequested] = useState(false)
+  const [startFailed, setStartFailed] = useState(false)
 
   const running = status !== null && status.state !== "offline"
+  if (startRequested && running) setStartRequested(false)
+  if (startFailed && running) setStartFailed(false)
+
+  useEffect(() => {
+    if (!startRequested) return
+    const t = setTimeout(() => {
+      setStartRequested(false)
+      setStartFailed(true)
+    }, START_GIVE_UP_MS)
+    return () => clearTimeout(t)
+  }, [startRequested])
   const live = status?.live_source ?? null
   const connected = running && live?.type === "external"
   const otherLive = running && live !== null && live.type !== "external"
@@ -301,6 +318,7 @@ function ConnectionWatcher({ slug }: { slug: string }) {
   }, [connected, refreshShared, router])
 
   async function putOnAir() {
+    setStartFailed(false)
     if (await power.start()) setStartRequested(true)
   }
 
@@ -336,8 +354,17 @@ function ConnectionWatcher({ slug }: { slug: string }) {
           </Button>
         }
       >
-        <span className="font-semibold text-foreground">This station is off air.</span>{" "}
-        Your software connects to the station itself, so there is nothing listening until it is on.
+        {startFailed ? (
+          <>
+            <span className="font-semibold text-foreground">The station didn’t start.</span>{" "}
+            Try again.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-foreground">This station is off air.</span>{" "}
+            Your software connects to the station itself, so there is nothing listening until it is on.
+          </>
+        )}
       </Watch>
     )
   }

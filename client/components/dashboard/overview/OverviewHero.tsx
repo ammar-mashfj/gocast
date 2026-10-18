@@ -53,7 +53,10 @@ export function OverviewHero({ station, lastLive, appUrl }: { station: Station; 
     liveFromThisBrowser,
     autoDjLocked,
     lastNowPlaying,
-    playlistName: station.programme?.playlist?.name ?? null,
+    // The poll's, which follows a slot boundary while the page is open; the
+    // page-load programme only until the first read, or from a container
+    // too old to say (`playlist` absent, not null).
+    playlistName: status && status.playlist !== undefined ? (status.playlist?.name ?? null) : (station.programme?.playlist?.name ?? null),
   })
 
   const power = useStationPower(station.slug)
