@@ -13,7 +13,7 @@ import { taggedStationUrl } from "@/lib/share"
 import { copyText } from "@/lib/clipboard"
 import { toast } from "sonner"
 import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
-import { ASK_END_SHOW_EVENT, EndBroadcastButton, endShow } from "@/components/studio/EndBroadcast"
+import { ASK_END_SHOW_EVENT, EndBroadcastButton, endShow, endShowFailed } from "@/components/studio/EndBroadcast"
 import { FileQueue } from "@/components/studio/FileQueue"
 import { MusicOnlyPad, NowPlaying } from "@/components/studio/NowPlaying"
 import { PushToTalk, isOverlayTarget, isTypingTarget } from "@/components/studio/PushToTalk"
@@ -45,7 +45,6 @@ export default function StudioPage() {
   const router = useRouter()
   const { state, engine, micDisabled, liveSince } = useBroadcast()
   const station = useStationBySlug(slug)
-  const wasLive = useRef(false)
   const leavingGuard = useRef(false)
   // This show reached the air: a later `error` is the show going off air for
   // good (reconnects spent), not a check that failed. The checks dialog stays
@@ -101,12 +100,13 @@ export default function StudioPage() {
   // entry under the wrap screen, and Back from there would land on a studio
   // that bounces to Go Live. So step off the guard first, then replace.
   useEffect(() => {
-    if (state === "live") wasLive.current = true
-    // A new run (Go back on air) is a new show: if its checks fail, Back to
-    // setup belongs on Go Live, not on a wrap screen with no summary.
-    if (state === "connecting") wasLive.current = false
     if (state !== "idle") return
-    const target = `/dashboard/stations/${slug}/${wasLive.current ? "studio/wrap" : "live"}`
+    // The only navigation off the studio when a show ends: End show leaves it
+    // to this effect. Its own replace raced the step off the guard below and,
+    // landing first, left Back to reach a studio that bounced to Go Live.
+    // `aired` is reset by a new run (Go back on air), so checks that fail
+    // there go back to Go Live, not to a wrap screen with no summary.
+    const target = `/dashboard/stations/${slug}/${aired ? "studio/wrap" : "live"}`
     if (!window.history.state?.[LIVE_GUARD]) {
       router.replace(target)
       return
@@ -124,7 +124,7 @@ export default function StudioPage() {
       window.history.back()
     }
     return () => window.removeEventListener("popstate", onPop)
-  }, [state, slug, router])
+  }, [state, slug, router, aired])
 
   // Transport shortcuts. Only a text field, an open dialog, or a modifier
   // held for a browser shortcut keeps them out.
@@ -283,7 +283,6 @@ export default function StudioPage() {
  * order was; End show is End show, wrap screen and all.
  */
 function ShowLost({ slug }: { slug: string }) {
-  const router = useRouter()
   const { error, retry, stop, liveSince, getTransportStats, engine } = useBroadcast()
   const autoDjLocked = useAutoDjLocked()
   const [ending, setEnding] = useState(false)
@@ -302,7 +301,9 @@ function ShowLost({ slug }: { slug: string }) {
         stop,
         autoDjLocked,
       })
-      router.replace(`/dashboard/stations/${slug}/studio/wrap`)
+      // Idle takes the studio to the wrap screen (StudioPage).
+    } catch {
+      endShowFailed()
     } finally {
       setEnding(false)
     }

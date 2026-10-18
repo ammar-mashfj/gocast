@@ -3,6 +3,7 @@
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 
 use function Pest\Laravel\actingAs;
 
@@ -69,6 +70,17 @@ it('records a resent report only once', function () {
     actingAs($this->owner)->postJson('/api/stations/jazz/studio-drops', $payload)->assertJson(['recorded' => 0]);
 
     expect(StationEvent::query()->where('station_id', $this->station->id)->count())->toBe(2);
+});
+
+it('treats an id the previous release recorded as already seen', function () {
+    // Before the deploy, Cache::add stored a plain 1 under the same key.
+    Cache::put('studio-drop:'.$this->station->getKey().':abc123', 1, 3600);
+
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]])
+        ->assertJson(['recorded' => 0]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->count())->toBe(0);
 });
 
 it('lets the real outcome replace a page-close report of the same drop', function () {

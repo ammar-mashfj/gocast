@@ -126,13 +126,20 @@ class StudioDropController extends Controller
      * definite outcome follows a provisional one. Returns how many rows it
      * wrote (0 or 1). Runs under the id's lock.
      *
+     * A non-array value is the `1` an earlier release stored for an id it
+     * recorded: seen, with nothing kept to correct it by.
+     *
      * @param  array<string, mixed>  $properties
      */
     private function apply(string $key, bool $provisional, array $properties, Station $station, Request $request): int
     {
         $seen = Cache::get($key);
 
-        if (! is_array($seen)) {
+        if ($seen !== null && ! is_array($seen)) {
+            return 0;
+        }
+
+        if ($seen === null) {
             $event = StationEvent::record(
                 $station,
                 StationEvent::TYPE_STUDIO_DROP,

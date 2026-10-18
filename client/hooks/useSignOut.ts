@@ -37,6 +37,7 @@ export function useSignOut() {
   // Optional — UserMenu renders on the marketing nav, outside the provider.
   const broadcast = useBroadcastOptional()
   const state = broadcast?.state
+  const liveSince = broadcast?.liveSince ?? null
   const isBroadcasting = state === "live" || state === "reconnecting" || state === "connecting"
   const stopBroadcast = broadcast?.stop
   const hasBroadcast = !!state && state !== "idle"
@@ -67,7 +68,11 @@ export function useSignOut() {
     // way to stop them, and the revoked token only ended it at the next drop.
     if (hasBroadcast && stopBroadcast) {
       try {
-        await stopBroadcast({ releaseStation: autoDjLocked })
+        // On air, as End show; still in the checks, as Cancel: only a station
+        // this run turned on is handed back. A lost show (an `error` that
+        // aired) ends as ShowLost's End show does.
+        const onAir = state === "live" || state === "reconnecting" || (state === "error" && liveSince !== null)
+        await stopBroadcast({ releaseStation: !autoDjLocked ? false : onAir ? true : "if-started-here" })
       } catch {
         // Signing out goes ahead; the provider's unmount stops what's left.
       }
@@ -86,7 +91,7 @@ export function useSignOut() {
     // permanently-disabled button. The brief flash before the redirect
     // unmounts the button is invisible in practice.
     setSigningOut(false)
-  }, [isBroadcasting, hasBroadcast, stopBroadcast, autoDjLocked, router])
+  }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked, router])
 
   return { signOut, signingOut, isBroadcasting }
 }

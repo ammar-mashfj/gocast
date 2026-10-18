@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { getSessionPeak } from "@/hooks/useBroadcastStats"
@@ -68,19 +68,21 @@ export async function endShow({ slug, liveSince, getTransportStats, engine, afte
   } catch {
     // Storage blocked — the show still ends; the wrap screen falls back to the overview.
   }
-  try {
-    await stop({ releaseStation: autoDjLocked })
-  } catch (err) {
-    try { sessionStorage.removeItem(signOffKey(slug)) } catch {}
-    throw err
-  }
+  // Not removed if this throws: stop() may already have gone idle and sent
+  // the studio to the wrap screen, which reads the summary as it opens. A
+  // leftover is overwritten by the next End show and goes stale in 30 min.
+  await stop({ releaseStation: autoDjLocked })
+}
+
+/** What End show tells the host when ending it threw (stop() or the release). */
+export function endShowFailed() {
+  toast.error("Something went wrong ending your show. Check on the overview that your station is off air.")
 }
 
 /** Opens End show's confirmation from elsewhere: the studio's back-gesture guard. */
 export const ASK_END_SHOW_EVENT = "gocast:ask-end-show"
 
 export function EndBroadcastButton({ className }: { className?: string }) {
-  const router = useRouter()
   const { stop, stationSlug, liveSince, getTransportStats, engine } = useBroadcast()
   // No AutoDJ means there is nothing for the station to fall back to, so
   // ending the broadcast takes the station off air too. With AutoDJ it is a
@@ -120,8 +122,11 @@ export function EndBroadcastButton({ className }: { className?: string }) {
     if (!stationSlug) return
     setEnding(true)
     try {
+      // Idle takes the studio to the wrap screen (StudioPage); a replace here
+      // raced its step off the back-guard.
       await endShow({ slug: stationSlug, liveSince, getTransportStats, engine, after, stop, autoDjLocked })
-      router.replace(`/dashboard/stations/${stationSlug}/studio/wrap`)
+    } catch {
+      endShowFailed()
     } finally {
       setEnding(false)
     }

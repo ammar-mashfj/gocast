@@ -74,6 +74,10 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   // failed start. liveSince outlives `error`; a new run clears it.
   const [everLive, setEverLive] = useState(() => liveSince !== null || state === "live" || state === "reconnecting")
   const [slow, setSlow] = useState(false)
+  const everLiveRef = useRef(everLive)
+  useEffect(() => {
+    everLiveRef.current = everLive
+  }, [everLive])
   if (seen.state !== state || seen.activeId !== activeId) {
     if (seen.state !== state) {
       if (state === "live" && (seen.state === "ready" || seen.state === "connecting")) setOnAirShown(true)
@@ -116,8 +120,11 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
         // `error` too: a check that failed after POST /start (a blocked mic)
         // left a station on that only Back to setup handed back; leaving by
         // the sidebar instead kept it airing silence until the sweep.
+        // Not an `error` that aired, though: that is a lost show, and coming
+        // back to the studio must still offer Go back on air and End show.
         const s = stateRef.current
         if (mounted.current || (s !== "ready" && s !== "connecting" && s !== "error")) return
+        if (s === "error" && everLiveRef.current) return
         void stop({ releaseStation: autoDjLockedRef.current ? "if-started-here" : false })
       }, 0)
     }

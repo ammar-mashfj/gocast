@@ -210,7 +210,9 @@ function QueueCard({
             Add files
           </Button>
           {tracks && tracks.length > 0 && (
-            <Button variant="quiet" onClick={() => setClearing(true)}>
+            // Not mid-add: the batch still reading would land in the list
+            // just cleared, its byte cap measured against the old one.
+            <Button variant="quiet" onClick={() => setClearing(true)} disabled={queue.adding}>
               Clear
             </Button>
           )}

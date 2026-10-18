@@ -67,67 +67,103 @@ export function usePreflightQueue(slug: string) {
     }
   }, [slug, commit])
 
-  const persist = useCallback(
-    async (next: PreflightTrack[], nextPlayback: PlaybackState | null) => {
-      commit(next, nextPlayback)
-      try {
-        if (next.length === 0) {
-          await clearQueue(slug)
-          return
-        }
-        const { unreadable, unsaved } = await saveQueue(slug, next)
-        if (nextPlayback) await savePlayback(slug, nextPlayback)
+  /**
+   * Writes land in the order they were made. A Remove while an add is still
+   * saving would otherwise race it, and whichever write finished last won:
+   * the saved queue could keep a track the list no longer shows.
+   */
+  const writes = useRef<Promise<void>>(Promise.resolve())
 
-        // The store left these out of the saved order, so the list drops
-        // them too: a track shown here that isn't there when the show
-        // starts would be a lie. Taken out one by one so the saved spot
-        // keeps pointing at the same song.
-        const skipped = new Set([...unreadable, ...unsaved])
-        if (skipped.size === 0) return
-        let state = { tracks: latest.current.tracks ?? [], playback: latest.current.playback }
-        const dropped = state.tracks.filter((t) => skipped.has(t.id))
-        if (dropped.length === 0) return
-        for (const t of dropped) state = removeTrack(state.tracks, state.playback, t.id)
-        const playbackMoved = state.playback !== latest.current.playback
-        commit(state.tracks, state.playback)
-        if (playbackMoved && state.playback) await savePlayback(slug, state.playback)
+  function persist(next: PreflightTrack[], nextPlayback: PlaybackState | null) {
+    commit(next, nextPlayback)
+    const run = writes.current.then(() => write(next, nextPlayback))
+    writes.current = run
+    return run
+  }
 
-        toast.warning(skippedMessage(dropped, new Set(unreadable)))
-      } catch {
-        toast.error("Couldn’t save your running order in this browser")
+  async function write(next: PreflightTrack[], nextPlayback: PlaybackState | null) {
+    try {
+      if (next.length === 0) {
+        await clearQueue(slug)
+        return
       }
-    },
-    [slug, commit],
-  )
+      const { unreadable, unsaved } = await saveQueue(slug, next)
+      if (nextPlayback) await savePlayback(slug, nextPlayback)
 
-  async function add(files: FileList | File[]) {
-    if (!latest.current.tracks) return
+      // The store left these out of the saved order, so the list drops
+      // them too: a track shown here that isn't there when the show
+      // starts would be a lie. Taken out one by one so the saved spot
+      // keeps pointing at the same song.
+      const skipped = new Set([...unreadable, ...unsaved])
+      if (skipped.size === 0) return
+      let state = { tracks: latest.current.tracks ?? [], playback: latest.current.playback }
+      const dropped = state.tracks.filter((t) => skipped.has(t.id))
+      if (dropped.length === 0) return
+      for (const t of dropped) state = removeTrack(state.tracks, state.playback, t.id)
+      const playbackMoved = state.playback !== latest.current.playback
+      commit(state.tracks, state.playback)
+      if (playbackMoved && state.playback) await savePlayback(slug, state.playback)
+
+      toast.warning(skippedMessage(dropped, new Set(unreadable)))
+    } catch {
+      toast.error("Couldn’t save your running order in this browser")
+    }
+  }
+
+  /**
+   * Batches run one after another. A drop onto the list while an add is
+   * still reading would otherwise race it: the first to finish turned
+   * `adding` off (and Go live on) with the second still unsaved, and both
+   * measured the byte cap from the same starting total.
+   */
+  const addChain = useRef<Promise<void>>(Promise.resolve())
+  const addsPending = useRef(0)
+
+  function add(files: FileList | File[]) {
+    if (!latest.current.tracks) {
+      // A drop onto the card while the saved list is still loading. (With no
+      // storage at all the card already says it can't keep a list.)
+      if (!unavailable) toast.error("Your running order is still loading. Add the files again in a moment.")
+      return Promise.resolve()
+    }
+    // Copied now: the file input clears its FileList right after this call.
     const audio = Array.from(files).filter((f) => f.type.startsWith("audio/"))
     if (audio.length === 0) {
       toast.error("Those aren’t audio files. Add MP3, M4A, AAC, FLAC, OGG or WAV.")
-      return
+      return Promise.resolve()
     }
+    addsPending.current += 1
     setAdding(true)
-    try {
-      const used = latest.current.tracks.reduce((s, t) => s + t.file.size, 0)
-      const { fit, skipped } = fitFiles(audio, used, QUEUE_BYTE_LIMIT)
-      // One file at a time, as AudioEngine.addFiles does: each length read
-      // holds a media element, and Chrome refuses players past ~75 a page
-      // (fewer on Android). Read all at once, a long drop records 0s for
-      // the reads that error out or miss the metadata timeout.
-      const read: PreflightTrack[] = []
-      for (const file of fit) {
-        const [duration, tags] = await Promise.all([readDurationFromFile(file).catch(() => 0), readTagsFromFile(file)])
-        read.push({ id: crypto.randomUUID(), file, title: tags.title, artist: tags.artist, duration })
-      }
-      // Merged onto the list as it is now, not as it was when the files
-      // were picked: the reads above take a while on a long list.
-      await persist([...(latest.current.tracks ?? []), ...read], latest.current.playback)
-      if (skipped.length > 0) {
-        toast.error(`${skipped.length} ${skipped.length === 1 ? "file" : "files"} left out: the running order holds up to ${formatBytes(QUEUE_BYTE_LIMIT)}.`)
-      }
-    } finally {
-      setAdding(false)
+    // Caught here: every caller drops the promise, so a throw would only
+    // reach Sentry as an unhandled rejection, with the files silently gone.
+    const run = addChain.current.then(() => addBatch(audio)).catch(() => {
+      toast.error("Couldn’t add those files. Try adding them again.")
+    })
+    addChain.current = run
+    return run.finally(() => {
+      addsPending.current -= 1
+      if (addsPending.current === 0) setAdding(false)
+    })
+  }
+
+  async function addBatch(audio: File[]) {
+    if (!latest.current.tracks) return
+    const used = latest.current.tracks.reduce((s, t) => s + t.file.size, 0)
+    const { fit, skipped } = fitFiles(audio, used, QUEUE_BYTE_LIMIT)
+    // One file at a time, as AudioEngine.addFiles does: each length read
+    // holds a media element, and Chrome refuses players past ~75 a page
+    // (fewer on Android). Read all at once, a long drop records 0s for
+    // the reads that error out or miss the metadata timeout.
+    const read: PreflightTrack[] = []
+    for (const file of fit) {
+      const [duration, tags] = await Promise.all([readDurationFromFile(file).catch(() => 0), readTagsFromFile(file)])
+      read.push({ id: crypto.randomUUID(), file, title: tags.title, artist: tags.artist, duration })
+    }
+    // Merged onto the list as it is now, not as it was when the files
+    // were picked: the reads above take a while on a long list.
+    await persist([...(latest.current.tracks ?? []), ...read], latest.current.playback)
+    if (skipped.length > 0) {
+      toast.error(`${skipped.length} ${skipped.length === 1 ? "file" : "files"} left out: the running order holds up to ${formatBytes(QUEUE_BYTE_LIMIT)}.`)
     }
   }
 
