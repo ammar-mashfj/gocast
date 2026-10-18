@@ -156,11 +156,16 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     startingRef.current = token
 
     try {
-      if (managerRef.current) {
+      const previous = managerRef.current
+      // Try again after a run that turned the station on: the new manager
+      // will find it running and think it was already on, so a Back to setup
+      // after the retry would leave it up. The station is still this show's.
+      const carriedStart = !!previous?.startedStationThisRun && stationIdRef.current === stationId
+      if (previous) {
         // Don't let a tear-down failure on the previous (possibly errored)
         // manager block a fresh start — Try again must always reach the new
         // manager.start() below.
-        try { await managerRef.current.stop() } catch { /* discard */ }
+        try { await previous.stop() } catch { /* discard */ }
       }
       // Cancelled during that teardown: don't build a manager nobody will stop.
       if (startingRef.current !== token) return true
@@ -198,6 +203,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         },
         onError: setError,
       })
+      manager.startedStationThisRun = carriedStart
       managerRef.current = manager
       stationIdRef.current = stationId
       setStationSlug(stationId)

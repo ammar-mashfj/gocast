@@ -96,13 +96,20 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   // checks are already running, and React's development double-mount (mount,
   // unmount, mount) would otherwise stop them on the fake unmount and send
   // the host straight back to the Go Live page.
+  // A station the checks turned on is handed back, as Stop does (back()):
+  // read through a ref, so the plan loading doesn't re-run this effect.
   const mounted = useRef(false)
+  const autoDjLockedRef = useRef(autoDjLocked)
+  useEffect(() => {
+    autoDjLockedRef.current = autoDjLocked
+  }, [autoDjLocked])
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
       setTimeout(() => {
-        if (!mounted.current && (stateRef.current === "ready" || stateRef.current === "connecting")) void stop()
+        if (mounted.current || (stateRef.current !== "ready" && stateRef.current !== "connecting")) return
+        void stop({ releaseStation: autoDjLockedRef.current ? "if-started-here" : false })
       }, 0)
     }
   }, [stop])

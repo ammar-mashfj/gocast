@@ -93,6 +93,14 @@ const STATION_FRESH_MS = 30_000
 const STATION_READY_POLL_MS = 1000
 
 /**
+ * The checklist's audio step: how long the context may stay suspended before
+ * the step asks for a tap, and how often it looks. See waitForAudio.
+ */
+const AUDIO_TAP_PROMPT_MS = 1500
+const AUDIO_POLL_MS = 150
+const ENGINE_STEP_LABEL = 'Setting up audio engine'
+
+/**
  * How long to keep trying to get back on air after a mid-broadcast drop.
  *
  * This number is set by `input.harbor`'s own `timeout`, which defaults to 30s
@@ -242,12 +250,17 @@ export class BroadcastManager {
   // checks can't later open the mic, build an engine and land in `ready`.
   // Not `stopping`: a fresh start() clears that while the old run is in flight.
   private checksRun = 0
+  /** A goLive() is in flight. */
+  private goingLive = false
   /**
    * Did this manager's checklist turn the station on — was it off when
    * {@link ensureStationOnAir} read it, just before `POST /start`? Read by
    * BroadcastContext.stop() when a Cancel asks it to hand back only what the
    * cancelled run took: a station the host had left running stays running.
-   * Never cleared by stop(), which is when it is read.
+   * Never cleared by stop(), which is when it is read. Set by BroadcastContext
+   * before start() for a Try again whose failed run turned the station on:
+   * the new manager's own read finds it running, and without the carry a
+   * Back to setup after the retry would leave it on.
    */
   startedStationThisRun = false
   // True once the server has accepted the hello frame and kept the connection.
@@ -367,7 +380,7 @@ export class BroadcastManager {
     if (!skipMic) {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
-    steps.push({ id: 'engine', label: 'Setting up audio engine', status: 'pending' })
+    steps.push({ id: 'engine', label: ENGINE_STEP_LABEL, status: 'pending' })
     return steps
   }
 
@@ -412,7 +425,6 @@ export class BroadcastManager {
     this.emptyDrops = 0
     this.parkedDrop = null
     this.startOptions = options
-    this.startedStationThisRun = false
     const run = ++this.checksRun
     this.callbacks.onStateChange('connecting')
 
@@ -438,7 +450,20 @@ export class BroadcastManager {
    * stopped while the host sat on the mic prompt it brings it back.
    */
   async goLive(): Promise<void> {
-    if (!this.engine || this.ws) return
+    // `this.ws` alone doesn't guard it: it stays null through the station
+    // re-check and the token request, and a second call in that window would
+    // open a second socket, which harbor refuses with Mount_taken.
+    if (!this.engine || this.ws || this.goingLive) return
+    this.goingLive = true
+    try {
+      await this.goLiveOnce()
+    } finally {
+      this.goingLive = false
+    }
+  }
+
+  private async goLiveOnce(): Promise<void> {
+    if (!this.engine) return
     const run = this.checksRun
     // stop() bumps checksRun. Every await below is a place it can land, and
     // past it this method must not touch `this` again: the engine is gone,
@@ -569,7 +594,13 @@ export class BroadcastManager {
     // reached in between, stop() has already released.)
     this.setActiveStep('engine')
     const engine = await this.createEngine()
-    if (!cancelled()) await engine.restoreQueue()
+    try {
+      await this.waitForAudio(engine, cancelled)
+      if (!cancelled()) await engine.restoreQueue()
+    } catch (err) {
+      await engine.destroy().catch(() => {})
+      throw err
+    }
     if (cancelled()) {
       await engine.destroy()
       throw new ChecksCancelled()
@@ -617,22 +648,17 @@ export class BroadcastManager {
   }
 
   /**
-   * Build an engine on the current mic stream, running and wired to harbor's
-   * metadata.
-   *
-   * @param awaitResume False for a rebuild. Outside a user gesture the
-   *   browser may refuse to start the context, and then resume() stays
-   *   pending until the next tap; awaiting it would hang the rebuild. The
-   *   studio's "Audio paused" notice asks for that tap instead.
+   * Build an engine on the current mic stream, wired to harbor's metadata,
+   * and ask its context to start. Not awaited: outside a user gesture the
+   * browser may refuse, and then resume() stays pending until the next tap.
+   * The checklist waits for it with {@link waitForAudio}; a rebuild leaves
+   * it to the studio's "Audio paused" notice.
    */
-  private async createEngine(awaitResume = true, signal?: AbortSignal): Promise<AudioEngine> {
+  private async createEngine(signal?: AbortSignal): Promise<AudioEngine> {
     const engine = await AudioEngine.create(this.micStream, this.handleChunk, this.stationSlug, this.bitrate, signal)
     // The context starts suspended under the autoplay policy, and a
     // suspended context produces no frames for the worklet to capture.
-    // Resume now — on a first start we are inside the user gesture that
-    // triggered start().
-    if (awaitResume) await engine.resume()
-    else void engine.resume().catch(() => {})
+    void engine.resume().catch(() => {})
     // Keep harbor's metadata in step with whatever the queue is playing.
     engine.subscribe(() => {
       if (this.engine !== engine) return
@@ -641,6 +667,39 @@ export class BroadcastManager {
       this.sendMetadata(track.title, track.artist)
     })
     return engine
+  }
+
+  /**
+   * The checklist's wait for the engine's context to run. By the time the
+   * engine exists, the Go live press is the far side of the connection
+   * check, POST /start and the mic prompt, and a browser without sticky
+   * activation (Safari, iOS) no longer counts it: resume() then waits for
+   * the next tap. So after a moment the step asks for one, and any tap or
+   * key on the page resumes. Ends in {@link ChecksCancelled} on stop().
+   */
+  private async waitForAudio(engine: AudioEngine, cancelled: () => boolean): Promise<void> {
+    const deadline = Date.now() + AUDIO_TAP_PROMPT_MS
+    while (engine.isSuspended() && Date.now() < deadline) {
+      if (cancelled()) throw new ChecksCancelled()
+      await new Promise((resolve) => setTimeout(resolve, AUDIO_POLL_MS))
+    }
+    if (!engine.isSuspended()) return
+
+    this.updateStep('engine', 'active', undefined, 'Tap anywhere to turn on audio')
+    const onGesture = () => { void engine.resume().catch(() => {}) }
+    // Capture: the checks dialog sits over the page and swallows clicks.
+    window.addEventListener('pointerdown', onGesture, true)
+    window.addEventListener('keydown', onGesture, true)
+    try {
+      while (engine.isSuspended()) {
+        if (cancelled()) throw new ChecksCancelled()
+        await new Promise((resolve) => setTimeout(resolve, AUDIO_POLL_MS))
+      }
+    } finally {
+      window.removeEventListener('pointerdown', onGesture, true)
+      window.removeEventListener('keydown', onGesture, true)
+    }
+    this.updateStep('engine', 'active', undefined, ENGINE_STEP_LABEL)
   }
 
   /** Watch for the engine going quiet — see FRAME_STALL_WAKE_MS. */
@@ -769,7 +828,7 @@ export class BroadcastManager {
     const abort = new AbortController()
     const timer = setTimeout(() => abort.abort(), ms)
     try {
-      return await this.createEngine(false, abort.signal)
+      return await this.createEngine(abort.signal)
     } catch (err) {
       throw abort.signal.aborted ? new Error(`audio engine took longer than ${ms}ms to build`) : err
     } finally {

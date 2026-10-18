@@ -71,12 +71,17 @@ export default function GoLivePage() {
     }
   }, [state, stationSlug, slug, router])
 
+  // This tab's broadcast belongs to another station: Go live here would
+  // end that show without asking (start() stops the running manager), so
+  // the page offers the way back to it instead.
+  const busyElsewhere = !!stationSlug && stationSlug !== slug && state !== "idle" && state !== "error"
+
   useEffect(() => {
-    if (!pressed) return
+    if (!pressed || stationSlug !== slug) return
     if (state === "connecting" || state === "ready" || state === "live" || state === "reconnecting") {
       router.replace(`/dashboard/stations/${slug}/studio`)
     }
-  }, [pressed, state, router, slug])
+  }, [pressed, state, stationSlug, router, slug])
 
   function chooseMode(next: Mode) {
     setMode(next)
@@ -133,6 +138,24 @@ export default function GoLivePage() {
           <Skeleton className="h-16 flex-1 rounded-button-xl" />
           <Skeleton className="h-16 w-32 rounded-button-xl" />
         </div>
+      </div>
+    )
+  }
+
+  if (busyElsewhere && !pressed) {
+    return (
+      <div className="mx-auto flex w-full max-w-190 flex-col gap-5.5">
+        <PageHeader title="You’re already broadcasting" />
+        <Notice
+          label="On air"
+          actions={
+            <Button size="lg" asChild>
+              <Link href={`/dashboard/stations/${stationSlug}/studio`}>Back to that show</Link>
+            </Button>
+          }
+        >
+          This tab is on air with another station. End that show from its studio, then go live here.
+        </Notice>
       </div>
     )
   }

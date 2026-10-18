@@ -13,7 +13,7 @@ import { taggedStationUrl } from "@/lib/share"
 import { copyText } from "@/lib/clipboard"
 import { toast } from "sonner"
 import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
-import { ASK_END_SHOW_EVENT, EndBroadcastButton } from "@/components/studio/EndBroadcast"
+import { ASK_END_SHOW_EVENT, EndBroadcastButton, endShow } from "@/components/studio/EndBroadcast"
 import { FileQueue } from "@/components/studio/FileQueue"
 import { MusicOnlyPad, NowPlaying } from "@/components/studio/NowPlaying"
 import { PushToTalk, isOverlayTarget, isTypingTarget } from "@/components/studio/PushToTalk"
@@ -24,6 +24,8 @@ import { MicSheet, TalkFab } from "@/components/studio/TalkFab"
 import { useTransportHealth } from "@/components/studio/signal"
 import { GoLiveChecks } from "@/components/studio/GoLiveChecks"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Notice } from "@/components/ds/Notice"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 
 /**
  * The studio, while you're live: the talk pad and the mic on the left; what's
@@ -41,6 +43,13 @@ export default function StudioPage() {
   const { state, engine, micDisabled } = useBroadcast()
   const station = useStationBySlug(slug)
   const wasLive = useRef(false)
+  // This show reached the air: a later `error` is the show going off air for
+  // good (reconnects spent), not a check that failed. The checks dialog stays
+  // closed for that, so the studio has to say it. Adjusted while rendering,
+  // as GoLiveChecks does; a new run (`connecting`) is a new show.
+  const [aired, setAired] = useState(false)
+  if (state === "live" && !aired) setAired(true)
+  if (state === "connecting" && aired) setAired(false)
 
   const isLive = state === "live" || state === "reconnecting"
   const stats = useBroadcastStats(slug, isLive)
@@ -122,6 +131,7 @@ export default function StudioPage() {
     return (
       <>
         {checks}
+        {state === "error" && aired && <ShowLost slug={slug} />}
         <Skeleton aria-hidden className="mb-5 h-26 rounded-card opacity-40 animate-none" />
         <div
           aria-hidden
@@ -230,6 +240,61 @@ export default function StudioPage() {
       </div>
     </div>
     </>
+  )
+}
+
+/**
+ * A show that went off air for good: the reconnects ran out, the manager has
+ * torn down, and nothing else on the page would say so or offer a way out.
+ * Try again goes through the checks again and carries on where the running
+ * order was; End show is End show, wrap screen and all.
+ */
+function ShowLost({ slug }: { slug: string }) {
+  const router = useRouter()
+  const { error, retry, stop, liveSince, getTransportStats, engine } = useBroadcast()
+  const autoDjLocked = useAutoDjLocked()
+  const [ending, setEnding] = useState(false)
+
+  async function end() {
+    setEnding(true)
+    try {
+      await endShow({
+        slug,
+        liveSince,
+        getTransportStats,
+        engine,
+        // The rotation's length isn't polled here; AutoDJ wording, as End show
+        // uses while it's unknown.
+        after: autoDjLocked ? "off_air" : "autodj",
+        stop,
+        autoDjLocked,
+      })
+      router.replace(`/dashboard/stations/${slug}/studio/wrap`)
+    } finally {
+      setEnding(false)
+    }
+  }
+
+  return (
+    <Notice
+      className="mb-5"
+      label="Off air"
+      title="Your show went off air"
+      actions={
+        <>
+          {/* Not from the top, whatever the Go Live page chose: this is the
+              same show, picking up where the running order was. */}
+          <Button size="lg" onClick={() => void retry({ resumeFromStart: false })} disabled={ending}>
+            Go back on air
+          </Button>
+          <Button size="lg" variant="ghost" onClick={() => void end()} disabled={ending}>
+            End show
+          </Button>
+        </>
+      }
+    >
+      {error || "The connection to your station was lost and couldn’t be brought back."}
+    </Notice>
   )
 }
 

@@ -35,6 +35,47 @@ export const signOffKey = (slug: string) => `gocast:signoff:${slug}`
  * the wrap screen (studio/wrap). The summary is written before the stop,
  * because the studio moves to the wrap screen the moment the socket closes.
  */
+type Broadcast = ReturnType<typeof useBroadcast>
+
+/**
+ * End the show and leave its summary for the wrap screen. Also the studio's
+ * way out of a show that went off air for good (reconnects spent), where the
+ * manager has already torn down but the station may still be up.
+ */
+export async function endShow({ slug, liveSince, getTransportStats, engine, after, stop, autoDjLocked }: {
+  slug: string
+  liveSince: number | null
+  getTransportStats: Broadcast["getTransportStats"]
+  engine: Broadcast["engine"]
+  after: ShowSummary["after"]
+  stop: Broadcast["stop"]
+  autoDjLocked: boolean
+}): Promise<void> {
+  const summary: ShowSummary = {
+    slug,
+    endedAt: Date.now(),
+    durationSeconds: liveSince ? Math.round((Date.now() - liveSince) / 1000) : 0,
+    peakListeners: getSessionPeak(slug, liveSince),
+    lostSeconds: (getTransportStats()?.droppedMs ?? 0) / 1000,
+    tracksPlayed: engine?.getTracksPlayed() ?? 0,
+    after,
+  }
+  // Written BEFORE stop(): stop() goes idle first and the studio moves to
+  // the wrap screen on that — on Free, long before stop() returns from
+  // releasing the station.
+  try {
+    sessionStorage.setItem(signOffKey(slug), JSON.stringify(summary))
+  } catch {
+    // Storage blocked — the show still ends; the wrap screen falls back to the overview.
+  }
+  try {
+    await stop({ releaseStation: autoDjLocked })
+  } catch (err) {
+    try { sessionStorage.removeItem(signOffKey(slug)) } catch {}
+    throw err
+  }
+}
+
 /** Opens End show's confirmation from elsewhere: the studio's back-gesture guard. */
 export const ASK_END_SHOW_EVENT = "gocast:ask-end-show"
 
@@ -78,32 +119,9 @@ export function EndBroadcastButton({ className }: { className?: string }) {
   async function end() {
     if (!stationSlug) return
     setEnding(true)
-    const slug = stationSlug
-    const summary: ShowSummary = {
-      slug,
-      endedAt: Date.now(),
-      durationSeconds: liveSince ? Math.round((Date.now() - liveSince) / 1000) : 0,
-      peakListeners: getSessionPeak(slug, liveSince),
-      lostSeconds: (getTransportStats()?.droppedMs ?? 0) / 1000,
-      tracksPlayed: engine?.getTracksPlayed() ?? 0,
-      after,
-    }
-    // Written BEFORE stop(): stop() goes idle first and the studio moves to
-    // the wrap screen on that — on Free, long before stop() returns from
-    // releasing the station.
     try {
-      sessionStorage.setItem(signOffKey(slug), JSON.stringify(summary))
-    } catch {
-      // Storage blocked — the show still ends; the wrap screen falls back to the overview.
-    }
-    try {
-      try {
-        await stop({ releaseStation: autoDjLocked })
-      } catch (err) {
-        try { sessionStorage.removeItem(signOffKey(slug)) } catch {}
-        throw err
-      }
-      router.replace(`/dashboard/stations/${slug}/studio/wrap`)
+      await endShow({ slug: stationSlug, liveSince, getTransportStats, engine, after, stop, autoDjLocked })
+      router.replace(`/dashboard/stations/${stationSlug}/studio/wrap`)
     } finally {
       setEnding(false)
     }

@@ -91,8 +91,11 @@ function useRereadWhenShowEnds(
       const status = await refreshRef.current()
       if (cancelled) return
       // Settled: nobody is connected and the live source is no longer the
-      // one on air. A failed read (null) counts as not yet.
-      const settled = status !== null && status.broadcaster !== true && status.source !== "live"
+      // one on air. A failed read (null) counts as not yet. A container too
+      // old to report `broadcaster` is read from live_source, as
+      // broadcasterOnAir (lib/airState) does.
+      const connected = status?.broadcaster ?? (status?.live_source != null)
+      const settled = status !== null && !connected && status.source !== "live"
       if (settled || Date.now() >= giveUpAt) {
         setSettling(false)
         return
