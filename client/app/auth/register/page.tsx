@@ -388,7 +388,7 @@ function RegisterForm() {
 
       <OrRule />
 
-      <Button type="button" variant="ghost" size="lg" full onClick={handleGoogle} disabled={googleLoading}>
+      <Button type="button" variant="ghost" size="lg" full onClick={handleGoogle} disabled={googleLoading || inviteChecking}>
         <IconBrandGoogleFilled />
         {googleLoading ? "Signing up…" : "Continue with Google"}
       </Button>

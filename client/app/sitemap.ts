@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next"
 import { env } from "@/lib/env"
 import { ARTICLES } from "./(marketing)/blog/_content/articles"
 import { HELP_ARTICLES } from "./(marketing)/help/_content/articles"
+import { LEGAL_UPDATED } from "@/lib/legal"
 
 /**
  * The site's own pages: home, blog, help, legal.
@@ -25,9 +26,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/`, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/blog`, lastModified: newestPost, changeFrequency: "weekly", priority: 0.6 },
     { url: `${base}/help`, lastModified: newestHelp, changeFrequency: "weekly", priority: 0.6 },
-    // The "Last updated" line on each page — bump both together.
-    { url: `${base}/privacy`, lastModified: new Date("2026-09-08"), changeFrequency: "yearly", priority: 0.3 },
-    { url: `${base}/terms`, lastModified: new Date("2026-09-08"), changeFrequency: "yearly", priority: 0.3 },
+    // The same dates the pages print as "Last updated".
+    { url: `${base}/privacy`, lastModified: new Date(LEGAL_UPDATED.privacy), changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/terms`, lastModified: new Date(LEGAL_UPDATED.terms), changeFrequency: "yearly", priority: 0.3 },
   ]
 
   // Derived from the article registry so publishing a post is a one-file

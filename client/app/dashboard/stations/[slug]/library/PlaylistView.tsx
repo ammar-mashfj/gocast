@@ -135,10 +135,15 @@ export function PlaylistView({
   const canReorder =
     sort === "order" && q === "" && shown.length === members.length && playlist.order === "sequential"
 
+  // Each reason names the one thing still in the way: past 50 tracks the
+  // list is cut short, and telling someone already in Play order with no
+  // search to switch to Play order sends them looking for nothing.
   const reorderHint =
     playlist.order === "shuffle"
       ? "· shuffle ignores manual order — switch it off to reorder"
-      : "· switch to Play order with search cleared to reorder"
+      : sort !== "order" || q !== ""
+        ? "· switch to Play order with search cleared to reorder"
+        : "· show all to reorder"
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useResyncOnHistoryNav } from "@/hooks/useResyncOnHistoryNav"
 import { toast } from "sonner"
 import { IconLoader2, IconPlus } from "@tabler/icons-react"
 import api from "@/lib/axios"
@@ -124,6 +125,10 @@ export function JinglesView({
     }
   }
 
+  // Back/forward re-seeds this page from its first props: a jingle deleted
+  // before leaving would be listed again.
+  useResyncOnHistoryNav(() => void refetch())
+
   async function handleDelete(track: Track) {
     const ok = await confirm({
       title: `Delete “${track.title}”?`,
@@ -139,6 +144,7 @@ export function JinglesView({
 
     try {
       await api.delete(`/tracks/${track.id}`)
+      toast.success("Jingle deleted.")
     } catch {
       toast.error("Delete failed. Refreshing…")
       void refetch()

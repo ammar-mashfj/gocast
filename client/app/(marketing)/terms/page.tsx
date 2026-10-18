@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { pageMetadata } from "@/lib/seo"
+import { LEGAL_UPDATED, formatLegalDate } from "@/lib/legal"
 import Link from "next/link"
 
 export const metadata: Metadata = pageMetadata({
@@ -13,7 +14,7 @@ export default function TermsPage() {
     <main className="max-w-2xl mx-auto px-6 py-16">
       <h1 className="font-display text-3xl font-semibold mb-2">Terms of Service</h1>
       <p className="text-sm text-text-muted mb-12">
-        Last updated: October 14, 2026
+        Last updated: {formatLegalDate(LEGAL_UPDATED.terms)}
       </p>
 
       <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">

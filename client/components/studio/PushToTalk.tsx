@@ -113,7 +113,10 @@ export function PushToTalk({
   const look = micOpen
     ? {
         title: latched ? "Mic open" : "You\u2019re on",
-        hint: latched ? "Press L, or switch off Keep mic open, to close it" : "Let go to close the mic",
+        // No keyboard to press L on, on a phone or tablet.
+        hint: latched
+          ? touch ? "Switch off Keep mic open to close it" : "Press L, or switch off Keep mic open, to close it"
+          : "Let go to close the mic",
       }
     : {
         title: "Hold anywhere here to talk",

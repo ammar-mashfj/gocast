@@ -16,6 +16,8 @@ const SLOW_STEP_MS = 5_000
 const ON_AIR_MS = 1_200
 
 const isMicError = (message: string | null) => !!message && /microphone access denied|no microphone found/i.test(message)
+/** No device at all, as opposed to a refused permission: different advice. */
+const isNoMic = (message: string | null) => !!message && /no microphone found/i.test(message)
 
 /** What to say under a step that's taking a while. */
 const SLOW_HINT: Record<string, string> = {
@@ -36,7 +38,7 @@ const SLOW_HINT: Record<string, string> = {
  * screenshot to say where it got stuck.
  */
 export function GoLiveChecks({ stationName }: { stationName: string }) {
-  const { state, steps, error, goLive, retry, stop, micDisabled } = useBroadcast()
+  const { state, steps, error, goLive, retry, stop, micDisabled, liveSince } = useBroadcast()
   const autoDjLocked = useAutoDjLocked()
   const stateRef = useRef(state)
   useEffect(() => {
@@ -67,7 +69,10 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   const activeId = active?.id ?? null
   const [seen, setSeen] = useState({ state, activeId })
   const [onAirShown, setOnAirShown] = useState(false)
-  const [everLive, setEverLive] = useState(false)
+  // From the provider when this mounts mid-show: back in the studio after a
+  // trip to Library, a show that then fails for good is a lost show, not a
+  // failed start. liveSince outlives `error`; a new run clears it.
+  const [everLive, setEverLive] = useState(() => liveSince !== null || state === "live" || state === "reconnecting")
   const [slow, setSlow] = useState(false)
   if (seen.state !== state || seen.activeId !== activeId) {
     if (seen.state !== state) {
@@ -129,6 +134,7 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   const doneCount = steps.filter((s) => s.status === "done").length
   const stepNo = Math.min(steps.length, doneCount + 1)
   const micBlocked = failed && !micDisabled && isMicError(error)
+  const noMic = micBlocked && isNoMic(error)
 
   // Every check passed but not on air yet: a blink. Never "You're on air"
   // until it is.
@@ -170,16 +176,18 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
 
         {micBlocked ? (
           <Notice
-            label="Mic blocked"
+            label={noMic ? "No microphone" : "Mic blocked"}
             actions={
               <>
                 <Button size="lg" onClick={() => void retry({ skipMic: true })}>Go live with music only</Button>
                 <Button size="lg" variant="ghost" onClick={() => void retry()}>Try again</Button>
-                <MicPermissionLink />
+                {!noMic && <MicPermissionLink />}
               </>
             }
           >
-            Allow the microphone for this site in your browser’s settings and try again, or go live with music only.
+            {noMic
+              ? "This device has no microphone. Plug one in and try again, or go live with music only."
+              : "Allow the microphone for this site in your browser’s settings and try again, or go live with music only."}
           </Notice>
         ) : failed ? (
           <>

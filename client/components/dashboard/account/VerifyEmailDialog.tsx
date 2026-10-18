@@ -1,6 +1,7 @@
 "use client"
 
 import { useEmailVerification } from "@/hooks/useEmailVerification"
+import type { User } from "@/interfaces/User"
 import { Button } from "@/components/ds/Button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { Input } from "@/components/ds/Field"
@@ -12,8 +13,19 @@ import { Input } from "@/components/ds/Field"
  * verified code): an accidental Esc would leave the account signed in but
  * unverified, with gated actions failing.
  */
-export function VerifyEmailDialog({ open, email, onCancel }: { open: boolean; email: string; onCancel: () => void }) {
-  const { code, onCodeChange, error, submitting, resending, inputRef, submit, resend, dismiss } = useEmailVerification({ open, onCancel })
+export function VerifyEmailDialog({
+  open,
+  email,
+  onCancel,
+  onVerified,
+}: {
+  open: boolean
+  email: string
+  onCancel: () => void
+  /** Where a verified code goes instead of the dashboard (see useEmailVerification). */
+  onVerified?: (user: User) => void
+}) {
+  const { code, onCodeChange, error, submitting, resending, inputRef, submit, resend, dismiss } = useEmailVerification({ open, onCancel, onVerified })
 
   return (
     <Dialog open={open}>

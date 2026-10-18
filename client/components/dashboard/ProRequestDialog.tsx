@@ -25,15 +25,15 @@ export function ProRequestDialog({
   onSubmitted?: () => void
 }) {
   const form = useAccessRequest({ plan: "pro", onSubmitted })
+  // Every way out (Escape, X, overlay, the Close button) goes through here so
+  // the next open starts on the form, not on the last request's "Thanks".
+  const handleOpenChange = (next: boolean) => {
+    onOpenChange(next)
+    if (!next) form.reset()
+  }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) form.reset()
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Get Pro</DialogTitle>
@@ -48,7 +48,7 @@ export function ProRequestDialog({
               Thanks — we’ve got it. We’ll be in touch by email with how to pay.
             </p>
             <DialogFooter>
-              <Button size="lg" variant="subtle" onClick={() => onOpenChange(false)}>
+              <Button size="lg" variant="subtle" onClick={() => handleOpenChange(false)}>
                 Close
               </Button>
             </DialogFooter>

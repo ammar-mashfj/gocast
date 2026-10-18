@@ -243,7 +243,11 @@ function computeSignal(
         ? input === "keys"
           ? "Mic stays open. Switch off Keep mic open (L) to close."
           : "Mic stays open. Switch off Keep mic open to close."
-        : "You\u2019re talking. Music dips under you. Let go to close.",
+        // "Silent" in the mic settings takes the music right out; saying it
+        // dips would describe the wrong mix.
+        : engine?.getMicPrefs().duck === "silence"
+          ? "You\u2019re talking. Music is off while you talk. Let go to close."
+          : "You\u2019re talking. Music dips under you. Let go to close.",
     }
   }
   return liveSignal(touch)

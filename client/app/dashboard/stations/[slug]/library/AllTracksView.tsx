@@ -81,7 +81,9 @@ export function AllTracksView({
     const ordered = [...filtered]
     if (sort === "title") ordered.sort((a, b) => a.title.localeCompare(b.title))
     else if (sort === "length") ordered.sort((a, b) => b.duration_seconds - a.duration_seconds)
-    else ordered.sort((a, b) => a.position - b.position)
+    // Newest first: by position (upload order) ascending, the newest uploads
+    // landed at the bottom, behind "Show all" once past the first 50.
+    else ordered.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.position - a.position)
 
     return ordered
   }, [tracks, q, sort])
@@ -212,7 +214,7 @@ export function AllTracksView({
                   onAir={track.id === nowPlayingId}
                   onEdit={onEdit}
                   onDelete={onDelete}
-                  chips={(track.playlist_ids ?? []).map((id) => playlistNames.get(id) ?? "…")}
+                  chips={(track.playlist_ids ?? []).map((id) => ({ id, name: playlistNames.get(id) ?? "…" }))}
                   selectable
                   selected={selected.has(track.id)}
                   onSelectChange={toggleOne}

@@ -40,7 +40,7 @@ export default function HelpIndexPage() {
         <h1 className="font-display text-section">Help</h1>
         <p className="text-section-lead text-muted-foreground text-pretty">
           Short answers to the things people actually ask. If none of these cover it,{" "}
-          <a href="mailto:support@gocast.fm" className="font-semibold text-on-air-text no-underline hover:text-foreground">
+          <a href="mailto:hello@gocast.fm" className="font-semibold text-on-air-text no-underline hover:text-foreground">
             email us
           </a>{" "}
           — a real person reads it.

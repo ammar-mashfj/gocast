@@ -15,11 +15,11 @@ import { cn } from "@/lib/utils"
 /**
  * One height for every state (off, opening, on with the picker): the music
  * card beside it is sized to this column, so a card that changes height as
- * the mic opens makes that one jump too. Only from xl, where they sit side
+ * the mic opens makes that one jump too. Only from lg, where they sit side
  * by side; stacked, the extra height was just blank space. Fits the tallest state — header,
  * device picker, meter.
  */
-const CARD_HEIGHT = "xl:min-h-56"
+const CARD_HEIGHT = "lg:min-h-56"
 
 /**
  * Pick the microphone and hear-check it before the show — the only time it

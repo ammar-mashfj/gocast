@@ -104,7 +104,10 @@ function Plot({
   timeZone?: string | null
   className: string
 }) {
-  const tz = timeZone || undefined
+  // UTC without a station zone, as the list below does: `undefined` meant
+  // the server's zone on the server render and the viewer's in the browser,
+  // so the bars moved at hydration and disagreed with the list's days.
+  const tz = timeZone || "UTC"
   const dayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: tz })
   // Calendar days, stepped as dates rather than as 24h of milliseconds: a
   // 23-hour spring-forward day, stepped over by 24h, vanished from the

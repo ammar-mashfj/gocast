@@ -234,7 +234,7 @@ function PlanCard() {
           {proRequest.requested ? (
             <>
               <IconCheck className="size-3.5" aria-hidden />
-              Requested
+              Request sent
             </>
           ) : (
             "Get Pro"
@@ -243,7 +243,7 @@ function PlanCard() {
       </div>
       <p className="text-caption text-muted-foreground">
         {proRequest.requested
-          ? "Request sent — we’ll be in touch by email."
+          ? "We’ll be in touch by email."
           : "Your station goes silent when you stop broadcasting."}
       </p>
     </div>

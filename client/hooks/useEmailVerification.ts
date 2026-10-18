@@ -20,8 +20,20 @@ type VerifyResponse = { data?: User; message?: string }
  * (admin flag, another tab) goes straight to the dashboard. The sixth digit
  * submits; a code typed while a check is in flight is queued, not dropped.
  * "Use a different account" signs out, then calls `onCancel`.
+ *
+ * A verified address goes to the dashboard (the sign-up and sign-in case)
+ * unless the caller passes `onVerified`: the Account page does, so a changed
+ * email lands back where the person was editing it.
  */
-export function useEmailVerification({ open, onCancel }: { open: boolean; onCancel: () => void }) {
+export function useEmailVerification({
+  open,
+  onCancel,
+  onVerified,
+}: {
+  open: boolean
+  onCancel: () => void
+  onVerified?: (user: User) => void
+}) {
   const router = useRouter()
   const [code, setCode] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +42,12 @@ export function useEmailVerification({ open, onCancel }: { open: boolean; onCanc
   const queuedCodeRef = useRef<string | null>(null)
   const [resending, setResending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Read through a ref so a caller's inline callback doesn't re-run the
+  // on-open /user check every render.
+  const onVerifiedRef = useRef(onVerified)
+  useEffect(() => {
+    onVerifiedRef.current = onVerified
+  })
 
   // Cookie-vs-server reconciliation: if the user is already verified on the
   // server (admin flag, another tab), bail straight to the dashboard instead
@@ -41,7 +59,8 @@ export function useEmailVerification({ open, onCancel }: { open: boolean; onCanc
       const fresh = res.data.data
       saveAuth(null, fresh)
       if (fresh.email_verified_at) {
-        router.replace("/dashboard")
+        if (onVerifiedRef.current) onVerifiedRef.current(fresh)
+        else router.replace("/dashboard")
       }
     }).catch(() => {
       // Transient; stay on the form.
@@ -59,7 +78,8 @@ export function useEmailVerification({ open, onCancel }: { open: boolean; onCanc
 
     saveAuth(null, data.data)
     toast.success("Email verified")
-    router.replace("/dashboard")
+    if (onVerified) onVerified(data.data)
+    else router.replace("/dashboard")
 
     return true
   }

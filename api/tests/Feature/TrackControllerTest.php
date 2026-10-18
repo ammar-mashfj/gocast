@@ -216,6 +216,30 @@ it('titles an upload from the name sent alongside the file', function () {
         ->assertJsonPath('data.0.original_filename', 'أم Song.mp3');
 });
 
+it('titles an upload from its ID3 tags over the filename', function () {
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    $user = User::factory()->create(['plan_id' => $plan->id]);
+    $station = Station::factory()->for($user, 'user')->create();
+
+    // A bare ID3v2.3 tag (TIT2 + TPE1) followed by one silent MPEG-1
+    // Layer III frame is enough for getID3 to read the tags.
+    $frame = fn (string $id, string $text) => $id.pack('N', strlen($text) + 1)."\x00\x00\x00".$text;
+    $frames = $frame('TIT2', 'Tagged Title').$frame('TPE1', 'Tagged Artist');
+    $size = strlen($frames);
+    $synchsafe = chr(($size >> 21) & 0x7F).chr(($size >> 14) & 0x7F).chr(($size >> 7) & 0x7F).chr($size & 0x7F);
+    $mp3 = "ID3\x03\x00\x00".$synchsafe.$frames."\xFF\xFB\x90\x00".str_repeat("\x00", 413);
+
+    actingAs($user)
+        ->postJson("/api/stations/{$station->slug}/tracks", [
+            'files' => [UploadedFile::fake()->createWithContent('Some Artist - Some File.mp3', $mp3)],
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.0.title', 'Tagged Title')
+        ->assertJsonPath('data.0.artist', 'Tagged Artist');
+});
+
 it('keeps the part filename when no name is sent', function () {
     $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
     $plan->update(['autodj_enabled' => true]);

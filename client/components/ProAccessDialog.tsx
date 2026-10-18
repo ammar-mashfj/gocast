@@ -166,7 +166,7 @@ export function ProAccessDialog({
                 maxLength={2000}
               />
               <p id={`${fieldId}-message-hint`} className="text-xs leading-relaxed text-text-faint">
-                What you broadcast, how often, and what you need from Pro.
+                What you broadcast, how often, and what you need from us.
               </p>
             </div>
 

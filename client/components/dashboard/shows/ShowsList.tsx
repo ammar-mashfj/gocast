@@ -186,7 +186,6 @@ function ShowRow({
             className="bg-surface-inset"
             label="From"
             value={from(show)}
-            sub={show.source_type === "external" && show.client ? show.client : undefined}
           />
         </div>
       )}

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { TextAreaField, TextField } from "@/components/ds/Field"
 import { ArtworkDrop } from "./ArtworkDrop"
+import { DESCRIPTION_MAX } from "./CreateStation"
 
 /**
  * The station's profile: artwork, name, genre, description, edited in
@@ -128,7 +129,16 @@ export function StationForm({
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Two lines telling listeners what you play."
+        // maxLength without the create form's slice: an older description
+        // past the limit can still be trimmed down here, not cut on the first
+        // keystroke. The counter shows how far over it is.
+        maxLength={DESCRIPTION_MAX}
         error={errors.description?.[0]}
+        trailing={
+          <span className="font-mono text-micro text-text-faint" aria-live="polite">
+            {description.length}/{DESCRIPTION_MAX}
+          </span>
+        }
       />
       <span className="font-mono text-caption text-text-faint">
         {host}/station/{station.slug} · the link never changes

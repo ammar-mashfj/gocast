@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Cache;
  * the studio writes a report at the drop, keeps it on the device, and sends it
  * here once it knows how the reconnect ended. Reports can therefore arrive in
  * batches, late, and more than once (a page-close send can't be confirmed);
- * the per-report `id` is what makes a repeat harmless.
+ * the per-report `id` is what makes a repeat harmless. The one repeat that
+ * changes the row is a definite outcome arriving after a provisional one.
  *
  * Admin monitoring only, like every StationEvent. Nothing branches on these
  * rows, and a report that fails validation is simply not recorded.
@@ -28,6 +29,14 @@ class StudioDropController extends Controller
 
     /** One report per id is kept for this long; resends after it are rare. */
     private const DEDUPE_SECONDS = 86400 * 2;
+
+    /**
+     * Outcomes sent before the reconnect has finished: a flush of a report
+     * still in progress, or the page-close send. A phone that fires pagehide
+     * and then comes back from the back/forward cache sends the same id again
+     * with the real outcome, and that one should win.
+     */
+    private const PROVISIONAL_OUTCOMES = ['unknown', 'page_closed'];
 
     /**
      * Property whitelist, in display order. Anything not listed here is
@@ -87,10 +96,8 @@ class StudioDropController extends Controller
         $recorded = 0;
 
         foreach ($validated['drops'] as $drop) {
-            // add() is atomic: only the first delivery of an id gets through.
-            if (! Cache::add('studio-drop:'.$station->getKey().':'.$drop['id'], 1, self::DEDUPE_SECONDS)) {
-                continue;
-            }
+            $key = 'studio-drop:'.$station->getKey().':'.$drop['id'];
+            $provisional = in_array($drop['outcome'], self::PROVISIONAL_OUTCOMES, true);
 
             $properties = [];
             foreach (self::FIELDS as $field) {
@@ -99,14 +106,37 @@ class StudioDropController extends Controller
                 }
             }
 
-            StationEvent::record(
-                $station,
-                StationEvent::TYPE_STUDIO_DROP,
-                StationEvent::SOURCE_OWNER,
-                $properties,
-                $request->user(),
-            );
-            $recorded++;
+            // add() is atomic: only the first delivery of an id gets through.
+            if (Cache::add($key, ['event' => null, 'provisional' => $provisional], self::DEDUPE_SECONDS)) {
+                $event = StationEvent::record(
+                    $station,
+                    StationEvent::TYPE_STUDIO_DROP,
+                    StationEvent::SOURCE_OWNER,
+                    $properties,
+                    $request->user(),
+                );
+                // Remember which row to correct if the real outcome follows.
+                if ($event && $provisional) {
+                    Cache::put($key, ['event' => $event->getKey(), 'provisional' => true], self::DEDUPE_SECONDS);
+                }
+                $recorded++;
+
+                continue;
+            }
+
+            // A repeat. Only a definite outcome over a provisional one is news;
+            // anything else is the resend this dedupe exists for.
+            $seen = Cache::get($key);
+            if ($provisional || ! is_array($seen) || ! $seen['provisional'] || $seen['event'] === null) {
+                continue;
+            }
+
+            Cache::put($key, ['event' => $seen['event'], 'provisional' => false], self::DEDUPE_SECONDS);
+            $event = StationEvent::query()->whereKey($seen['event'])->where('station_id', $station->getKey())->first();
+            if ($event) {
+                $event->update(['properties' => $properties]);
+                $recorded++;
+            }
         }
 
         return response()->json(['recorded' => $recorded]);

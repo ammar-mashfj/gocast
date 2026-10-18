@@ -45,6 +45,19 @@ export const MIN_UPLINK_KBPS = BITRATE_TIERS[BITRATE_TIERS.length - 1] * HEADROO
 export const UPLINK_CHECK_FAILED =
   "Couldn't check your connection. Make sure you're online, then try again."
 
+/**
+ * The probe endpoint is rate limited, and each check makes three requests, so
+ * Try again pressed every few seconds runs into it. Being online won't help;
+ * waiting will.
+ */
+export const UPLINK_CHECK_THROTTLED =
+  "Too many connection checks in a row. Wait a minute, then try again."
+
+function checkFailed(err: unknown): Error {
+  const throttled = axios.isAxiosError(err) && err.response?.status === 429
+  return new Error(throttled ? UPLINK_CHECK_THROTTLED : UPLINK_CHECK_FAILED)
+}
+
 export interface UplinkCheck {
   /** Measured upload speed. */
   kbps: number
@@ -76,7 +89,10 @@ async function timedPost(body: Uint8Array, timeout: number): Promise<number> {
   return performance.now() - startedAt
 }
 
-/** Upload speed in kbps. Throws {@link UPLINK_CHECK_FAILED} when it can't be measured. */
+/**
+ * Upload speed in kbps. Throws {@link UPLINK_CHECK_FAILED} when it can't be
+ * measured, or {@link UPLINK_CHECK_THROTTLED} when the probe is rate limited.
+ */
 export async function measureUplink(): Promise<number> {
   let overheadMs: number
   try {
@@ -86,8 +102,8 @@ export async function measureUplink(): Promise<number> {
     // mobile. So warm up untimed, then time a second empty request.
     await timedPost(new Uint8Array(0), PROBE_TIMEOUT_MS)
     overheadMs = await timedPost(new Uint8Array(0), PROBE_TIMEOUT_MS)
-  } catch {
-    throw new Error(UPLINK_CHECK_FAILED)
+  } catch (err) {
+    throw checkFailed(err)
   }
 
   const bits = PROBE_BYTES * 8
@@ -102,7 +118,7 @@ export async function measureUplink(): Promise<number> {
     if (axios.isAxiosError(err) && (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')) {
       return Math.round(bits / PROBE_TIMEOUT_MS)
     }
-    throw new Error(UPLINK_CHECK_FAILED)
+    throw checkFailed(err)
   }
 }
 

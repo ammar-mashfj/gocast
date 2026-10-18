@@ -39,7 +39,8 @@ import { ArtworkDrop } from "./ArtworkDrop"
 /** The most common genres on existing stations, as quick picks. "Something else" opens a text field. */
 const GENRES = ["Talk", "Jazz", "Pop", "Rock", "Hip-hop", "Gospel", "Country", "Lo-fi", "Sports", "News"] as const
 
-const DESCRIPTION_MAX = 160
+/** Shared with the edit form (StationForm), so a description that fits here fits there. */
+export const DESCRIPTION_MAX = 160
 const PREVIEW_DELAY_MS = 400
 
 export function CreateStation() {
@@ -149,10 +150,7 @@ export function CreateStation() {
   const link = `${linkPrefix}${slug ?? "your-link"}`
 
   return (
-    // The shell pads every page 120px at the bottom for the phone tab bar,
-    // which this page has none of (no station yet), and that padding alone
-    // gave it a scrollbar at 900px. Pulled back to 16px here only.
-    <div className="-mb-26 flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title="Let’s set up your station." description="A name is all it takes. Everything else can wait." />
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-6">

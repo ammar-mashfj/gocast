@@ -90,7 +90,12 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
    * The server-side fetch already gave us a state to paint, and it is shared
    * across visitors by Next's 30s revalidate rather than paid per head.
    */
-  usePublicStationFeed(station?.slug ?? null, setStats, { enabled: playing && !!station })
+  // A failure is only evidence until the API says the mount is up again.
+  const onStats = useCallback((next: PublicStationStats) => {
+    setStats(next)
+    if (next.is_on_air === true) setFailed(false)
+  }, [])
+  usePublicStationFeed(station?.slug ?? null, onStats, { enabled: playing && !!station })
   useListenerSession(station?.slug ?? "", playing, transport)
 
   const teardown = useCallback(() => {
@@ -124,7 +129,8 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       // Only reachable when the API answered — the Icecast host is the one
       // piece of this that genuinely is deployment-specific.
       if (!station || !env.icecastUrl) {
-        setLoading(false)
+        teardown()
+        setPlaying(false)
         setFailed(true)
         return
       }
@@ -154,7 +160,9 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
           // A 404 on the manifest is not a blip — it is what an off-air mount
           // looks like from here, and the only off-air signal available when
           // the API is unreachable.
-          if (data.response?.code === 404) { hls.destroy(); setLoading(false); setFailed(true) }
+          // Destroying hls.js mid-play fires no `pause`, so the full teardown
+          // and an explicit stop are what leave the button pressable again.
+          if (data.response?.code === 404) { teardown(); setPlaying(false); setFailed(true) }
           else retryNetwork()
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
         else playIcecast()
@@ -174,7 +182,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
     }
 
     playIcecast()
-  }, [station])
+  }, [station, teardown])
 
   const toggle = useCallback(() => {
     // `playing` is only ever set by the <audio> element's own `playing`
@@ -276,7 +284,9 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
         <button
           type="button"
           onClick={toggle}
-          disabled={offAir}
+          // Not `offAir`: a failed attempt must stay retryable, and only the
+          // API saying the mount is down is reason enough to refuse a press.
+          disabled={known === false && !playing && !loading}
           aria-label={playing ? `Pause ${name}` : `Play ${name}`}
           className="flex size-14 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-[opacity,transform] duration-150 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.96] disabled:opacity-45"
         >

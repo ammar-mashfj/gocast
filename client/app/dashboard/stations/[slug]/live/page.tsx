@@ -107,10 +107,10 @@ export default function GoLivePage() {
       // minmax(0,1fr): a grid's implicit column sizes to its content, so a
       // fixed-width placeholder could push the page wider than a phone.
       <div
-        className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 overflow-x-clip xl:max-w-page xl:grid-cols-2 xl:grid-rows-[auto_1fr_auto] xl:items-start motion-reduce:[&_[data-slot=skeleton]]:animate-none"
+        className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 overflow-x-clip lg:max-w-page lg:grid-cols-2 lg:grid-rows-[auto_1fr_auto] lg:items-start motion-reduce:[&_[data-slot=skeleton]]:animate-none"
         aria-busy
       >
-        <div className="flex min-w-0 flex-col gap-2 xl:col-span-2">
+        <div className="flex min-w-0 flex-col gap-2 lg:col-span-2">
           <Skeleton className="h-10 w-72 max-w-full" />
           <Skeleton className="h-5 w-96 max-w-full" />
         </div>
@@ -131,10 +131,10 @@ export default function GoLivePage() {
           <Skeleton className="h-22 rounded-panel lg:h-56 lg:rounded-card" />
         </div>
 
-        <Skeleton className="h-16 rounded-panel lg:h-80 lg:rounded-card xl:col-start-2 xl:row-start-2 xl:self-stretch" />
+        <Skeleton className="h-16 rounded-panel lg:h-80 lg:rounded-card lg:col-start-2 lg:row-start-2 lg:self-stretch" />
 
         {/* Below lg the buttons are the pinned bar, not part of the page. */}
-        <div className="flex w-full items-center gap-2.5 max-lg:hidden xl:col-span-2 xl:mx-auto xl:max-w-160">
+        <div className="flex w-full items-center gap-2.5 max-lg:hidden lg:col-span-2 lg:mx-auto lg:max-w-160">
           <Skeleton className="h-16 flex-1 rounded-button-xl" />
           <Skeleton className="h-16 w-32 rounded-button-xl" />
         </div>
@@ -188,15 +188,15 @@ export default function GoLivePage() {
   }
 
   const autoDjOnAir = station.is_on_air && !station.is_live
-  // From xl: the heading across the top, the setup on the left, the music on
+  // From lg (1024): the heading across the top, the setup on the left, the music on
   // the right, the button underneath. The two columns end level; the page
   // grows to the window's height and no further, so a long list scrolls
   // inside its card instead of the page. One column (heading, setup, music,
   // button) below that.
   return (
-    <div className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 max-lg:pb-[4.5rem] xl:max-w-page xl:grid-cols-2 xl:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] xl:grid-rows-[auto_1fr_auto] xl:items-start">
+    <div className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 max-lg:pb-[4.5rem] lg:max-w-page lg:grid-cols-2 lg:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] lg:grid-rows-[auto_1fr_auto] lg:items-start">
       <PageHeader
-        className="xl:col-span-2"
+        className="lg:col-span-2"
         title="Ready when you are."
         description={autoDjOnAir ? "AutoDJ hands over when you start, and takes back when you end." : "Nothing goes out until you press the button."}
         // Phones: the title alone, so the page fits above the pinned Go live.
@@ -206,10 +206,11 @@ export default function GoLivePage() {
       <div className="flex min-w-0 flex-col gap-5.5">
         <section className="flex flex-col gap-2.5" aria-labelledby="mode-label">
           <h2 id="mode-label" className="font-display text-body font-bold">What goes out</h2>
-          {/* Phones: two small cards side by side with a short line each —
-              the full cards stacked cost ~230px; these fit in one row. */}
+          {/* Phones, and wide screens short on height: two small cards side
+              by side with a short line each — the full cards stacked cost
+              ~230px; these fit in one row. */}
           <ChoiceCards
-            className="grid-cols-2 sm:hidden"
+            className="hidden grid-cols-2 max-sm:grid desk-short:grid"
             size="sm"
             aria-label="What goes out"
             eyebrow={false}
@@ -221,7 +222,7 @@ export default function GoLivePage() {
             ]}
           />
           <ChoiceCards
-            className="max-sm:hidden"
+            className="max-sm:hidden desk-short:hidden"
             aria-label="What goes out"
             eyebrow={false}
             value={mode}
@@ -242,7 +243,7 @@ export default function GoLivePage() {
         // h-0 + min-h-full: the left column alone sets the row's height and
         // this card fills it, so adding tracks scrolls the list instead of
         // growing the card.
-        className="xl:col-start-2 xl:row-start-2 xl:h-0 xl:min-h-full"
+        className="lg:col-start-2 lg:row-start-2 lg:h-0 lg:min-h-full"
         queue={queue}
         resumeFromStart={resumeFromStart}
         // A new order is a new show: start it from the top. On screen only —
@@ -257,7 +258,7 @@ export default function GoLivePage() {
         }}
       />
 
-      <div className="flex w-full min-w-0 flex-col gap-2.5 xl:col-span-2 xl:mx-auto xl:max-w-160">
+      <div className="flex w-full min-w-0 flex-col gap-2.5 lg:col-span-2 lg:mx-auto lg:max-w-160">
         {/* Cancel is a quiet way back: nothing has gone out yet, so it is
             not a destructive action and must not outshout Go live. */}
         {/* Below lg both live in the pinned bar at the end of the page. */}

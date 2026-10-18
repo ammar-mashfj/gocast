@@ -259,14 +259,18 @@ export function SchedulePlanner({ station, playlists }: Props) {
     "no-timezone": { text: "Not saved: no timezone", tone: "warn" },
   }
   const line = saveLine[saveState]
-  const saveLamp = !locked && (
-    <span role="status" className={cn("inline-flex items-center gap-2 eyebrow", line.tone === "ok" ? "text-ok" : line.tone === "warn" ? "text-fault-text" : "text-muted-foreground")}>
+  // Below md the sticky bar at the foot carries Save and the status while
+  // there is something to save; the header's copies would make it twice.
+  const stickyBar = !locked && (dirty || Boolean(saveError))
+  const headerOnly = stickyBar ? "max-md:hidden" : undefined
+  const saveLamp = (className?: string) => !locked && (
+    <span role="status" className={cn("inline-flex items-center gap-2 eyebrow", className, line.tone === "ok" ? "text-ok" : line.tone === "warn" ? "text-fault-text" : "text-muted-foreground")}>
       <span aria-hidden className="size-1.75 rounded-full bg-current" />
       {line.text}
     </span>
   )
-  const saveButton = !locked && (
-    <Button onClick={save} disabled={!dirty || saving || blockedBy !== null}>
+  const saveButton = (className?: string) => !locked && (
+    <Button className={className} onClick={save} disabled={!dirty || saving || blockedBy !== null}>
       {saving ? "Saving…" : "Save"}
     </Button>
   )
@@ -282,7 +286,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
         description="What AutoDJ plays when you’re not live. Going live always takes over."
         actions={
           <>
-            {saveLamp}
+            {saveLamp(headerOnly)}
             <span className="inline-flex items-center gap-2 font-mono text-caption tracking-widest text-text-faint uppercase">
               {timezone ?? "No timezone"}
               {!locked && (
@@ -302,7 +306,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
                 Add slot
               </Button>
             )}
-            {saveButton}
+            {saveButton(headerOnly)}
           </>
         }
       />
@@ -417,10 +421,10 @@ export function SchedulePlanner({ station, playlists }: Props) {
         )}
       </Card>
 
-      {!locked && (dirty || saveError) && (
+      {stickyBar && (
         <div className="sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-panel bg-popover px-4.5 py-3 shadow-panel md:hidden">
-          {saveLamp}
-          {saveButton}
+          {saveLamp()}
+          {saveButton()}
         </div>
       )}
     </div>

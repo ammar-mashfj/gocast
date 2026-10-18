@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import axios from "axios"
 import api from "@/lib/axios"
@@ -15,6 +16,7 @@ import {
 } from "@/components/ds/Dialog"
 import type { Station } from "@/interfaces/Station"
 import { TimezoneCombobox } from "./TimezoneCombobox"
+import { browserZone } from "@/lib/timezones"
 
 /**
  * The station timezone's only editor. It lives here because only AutoDJ
@@ -36,9 +38,10 @@ export function TimezoneDialog({
   current: string | null
   onSaved: (station: Station) => void
 }) {
+  const router = useRouter()
   const [chosen, setChosen] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const zone = chosen ?? current ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+  const zone = chosen ?? current ?? browserZone()
 
   function change(next: boolean) {
     if (saving) return
@@ -52,6 +55,9 @@ export function TimezoneDialog({
     try {
       const { data } = await api.patch<{ data: Station }>(`/stations/${slug}`, { timezone: zone })
       onSaved(data.data)
+      // The top bar's station clock is rendered by the dashboard layout on
+      // the server; without this it keeps the old zone until a reload.
+      router.refresh()
       toast.success("Timezone saved")
       setChosen(null)
       onOpenChange(false)

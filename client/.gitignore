@@ -19,6 +19,8 @@
 /tests/e2e/.screenshots/
 # `npm run test:visual` screenshots and the keeper accounts' saved logins.
 /tests/e2e/.visual/
+# The pre-merge sweep (playwright.sweep.config.ts): screenshots, results and saved logins.
+/tests/e2e/.sweep/
 
 # next.js
 /.next/

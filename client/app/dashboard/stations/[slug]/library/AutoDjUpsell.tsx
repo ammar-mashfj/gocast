@@ -65,19 +65,14 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
               : "We'll email you how to pay. Cancel any time, and your uploads stay yours either way."}
           </p>
 
-          {request.requested ? (
-            <div className="mt-4 flex items-center gap-2 text-sm text-ok">
-              <IconCheck size={16} />
-              Request sent
-            </div>
-          ) : (
-            // The page's one filled button and its only request action (the
-            // header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
-            // the amber Pro tag). Opens the request form — payment is by email.
-            <Button variant="pro" full className="mt-4" onClick={request.open}>
-              Get Pro
-            </Button>
-          )}
+          {/* The page's one filled button and its only request action (the
+              header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
+              the amber Pro tag). Opens the request form — payment is by email.
+              Once sent it stays a disabled button, as on every other upsell. */}
+          <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
+            {request.requested && <IconCheck />}
+            {request.requested ? "Request sent" : "Get Pro"}
+          </Button>
         </div>
     </Card>
   )

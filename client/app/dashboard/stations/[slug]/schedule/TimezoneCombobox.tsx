@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { IconCheck, IconSelector } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
+import { supportedZones } from "@/lib/timezones"
 
 /** How many matches to draw. The list is ~400 zones; nobody scrolls past 50. */
 const MAX_RESULTS = 50
@@ -13,13 +14,8 @@ const MAX_RESULTS = 50
  * the zone they are in, which is the only value most owners will ever pick.
  */
 function allZones(current: string | null): string[] {
-  let zones: string[] = []
-
-  try {
-    zones = Intl.supportedValuesOf("timeZone")
-  } catch {
-    zones = [Intl.DateTimeFormat().resolvedOptions().timeZone]
-  }
+  // By current names: Chrome lists Asia/Calcutta, not Asia/Kolkata.
+  const zones = supportedZones()
 
   return current && !zones.includes(current) ? [current, ...zones] : zones
 }
@@ -78,22 +74,16 @@ export function TimezoneCombobox({
   }, [zones, query])
 
   useEffect(() => {
-    if (!open) return
-
-    function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener("pointerdown", onPointerDown)
-
-    return () => document.removeEventListener("pointerdown", onPointerDown)
-  }, [open])
-
-  useEffect(() => {
     listRef.current?.children[highlighted]?.scrollIntoView({ block: "nearest" })
   }, [highlighted])
+
+  // Every way in starts a fresh search from the top of the list.
+  function openList() {
+    if (open) return
+    setQuery("")
+    setHighlighted(0)
+    setOpen(true)
+  }
 
   function commit(zone: string) {
     onChange(zone)
@@ -110,7 +100,11 @@ export function TimezoneCombobox({
 
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
-      setOpen(true)
+      if (!open) {
+        openList()
+
+        return
+      }
       setHighlighted((current) => {
         const next = event.key === "ArrowDown" ? current + 1 : current - 1
 
@@ -127,7 +121,15 @@ export function TimezoneCombobox({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div
+      ref={rootRef}
+      className="relative"
+      // Closes when focus leaves the field (Tab, or a click anywhere else),
+      // not only on Escape — a list left open over the dialog's Save hides it.
+      onBlur={(e) => {
+        if (!rootRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false)
+      }}
+    >
       <div className="relative">
         <input
           id={id}
@@ -151,15 +153,12 @@ export function TimezoneCombobox({
             setHighlighted(0)
             setOpen(true)
           }}
-          onFocus={() => {
-            setQuery("")
-            setHighlighted(0)
-            setOpen(true)
-          }}
-          // Escape closes the list without moving focus, so onFocus will not
-          // fire again — without this, clicking the field afterwards does
-          // nothing and the only way back in is Tab or an arrow key.
-          onClick={() => setOpen(true)}
+          // Focus alone doesn't open the list: the Timezone dialog focuses
+          // this field as it opens, and the list would pop up over Save. The
+          // text is selected instead, so typing replaces the zone name and
+          // starts a search; a click or an arrow key opens the full list.
+          onFocus={(e) => e.target.select()}
+          onClick={openList}
           onKeyDown={onKeyDown}
           className="h-11 w-full rounded-control bg-surface-control px-3.5 pr-10 text-sm font-medium text-foreground outline-none placeholder:text-text-faint focus-visible:ring-2 focus-visible:ring-ring"
         />
@@ -175,6 +174,9 @@ export function TimezoneCombobox({
           ref={listRef}
           id={listboxId}
           role="listbox"
+          // Keeps focus in the field while picking or scrolling the list, so
+          // the blur above doesn't close it before the click lands.
+          onMouseDown={(e) => e.preventDefault()}
           className="absolute z-50 mt-1.5 max-h-64 w-full list-none overflow-y-auto rounded-well bg-surface-control p-1.5 text-foreground shadow-panel"
         >
           {matches.length === 0 && (

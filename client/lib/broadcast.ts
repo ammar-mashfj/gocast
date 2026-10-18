@@ -986,7 +986,17 @@ export class BroadcastManager {
       if (status === 403) {
         throw new Error('You do not own this station')
       }
-      throw new Error('Not signed in — please sign in and try again')
+      // Only a 401 means the session is gone. Anything else (offline, a 5xx,
+      // a timeout) is worth another try, and this text also ends up inside the
+      // reconnect give-up message, so it must not send a signed-in host off
+      // to sign in again.
+      if (status === 401) {
+        throw new Error('Not signed in — please sign in and try again')
+      }
+      if (status === 429) {
+        throw new Error('Too many tries — wait a moment and try again')
+      }
+      throw new Error("Couldn't reach GoCast — check your connection and try again")
     }
 
     if (!ingestUrl) {
@@ -1436,6 +1446,16 @@ export class BroadcastManager {
    * Tear down everything. Harbor sees the socket close as its source
    * disconnecting and notifies Laravel, which ends the session.
    */
+  /**
+   * Stop reporting to the provider. For a manager being replaced (Try
+   * again, Go back on air): its `stop()` would otherwise say `idle` between
+   * the old run and the new one's `connecting`, and the studio sends an idle
+   * tab away — taking the retry with it.
+   */
+  detach(): void {
+    this.callbacks = { onStepChange: () => {}, onStateChange: () => {}, onError: () => {} }
+  }
+
   async stop(): Promise<void> {
     // Set first: it is what makes an in-flight reconnect give up rather than
     // race this teardown and reopen a socket behind it.

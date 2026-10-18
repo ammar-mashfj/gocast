@@ -19,7 +19,7 @@ export default function CtaSection({ isAuthed = false }: CtaSectionProps) {
             : "Create your station in under a minute. Free forever."}
         </p>
         <Button asChild size="xl" className="w-full sm:w-auto">
-          <Link href={isAuthed ? "/dashboard/stations" : "/auth/register"} className="no-underline">
+          <Link href={isAuthed ? "/dashboard" : "/auth/register"} className="no-underline">
             {isAuthed ? "Open dashboard" : "Start broadcasting free"}
           </Link>
         </Button>

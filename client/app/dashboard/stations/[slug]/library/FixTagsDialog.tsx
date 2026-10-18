@@ -75,7 +75,17 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
     }
 
     setSaving(false)
-    if (saved.length > 0) onSaved(saved)
+    if (saved.length > 0) {
+      onSaved(saved)
+      // The saved rows leave the list, but their typed values would stay in
+      // `filled`: a retry after a partial failure re-PATCHed them and counted
+      // them again in the toast.
+      setValues((prev) => {
+        const next = { ...prev }
+        for (const entry of saved) delete next[entry.id]
+        return next
+      })
+    }
 
     if (failed === 0) {
       toast.success(`Tagged ${saved.length} track${saved.length === 1 ? "" : "s"}.`)

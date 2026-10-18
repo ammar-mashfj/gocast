@@ -162,6 +162,13 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       // after the retry would leave it up. The station is still this show's.
       const carriedStart = !!previous?.startedStationThisRun && stationIdRef.current === stationId
       if (previous) {
+        // Silenced first: its `idle` would land before the new manager's
+        // `connecting`, and the studio sends an idle tab to pre-flight —
+        // Try again would leave the studio instead of retrying. What `idle`
+        // would have cleared is cleared here instead.
+        previous.detach()
+        setMicStream(null)
+        setEngine(null)
         // Don't let a tear-down failure on the previous (possibly errored)
         // manager block a fresh start — Try again must always reach the new
         // manager.start() below.
@@ -252,10 +259,12 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       if (managerRef.current !== manager) return
       managerRef.current = null
     }
-    if (stationIdRef.current) {
-      try { localStorage.removeItem(`broadcast:micDisabled:${stationIdRef.current}`) } catch {}
-      stationIdRef.current = null
-    }
+    // `broadcast:micDisabled:{slug}` is deliberately left alone: it is the
+    // "Music only" choice the go-live page remembers for the next show.
+    stationIdRef.current = null
+    // The manager says `idle` itself, unless start() detached it for a retry
+    // and this Cancel caught it mid-teardown.
+    setState('idle')
     setStationSlug(null)
     setLiveSince(null)
     setMicStream(null)
@@ -280,6 +289,18 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
       if (managerRef.current) return
     }
     await releaseStation(slug)
+  }, [])
+
+  // Leaving the dashboard in this tab (sign-out, the logo, any link out of
+  // /dashboard) unmounts the provider: end the show with it. Left running,
+  // the socket, mic and engine kept broadcasting with nothing on screen to
+  // stop them. A Free station left on is the sweep's to turn off.
+  useEffect(() => () => {
+    const manager = managerRef.current
+    if (!manager) return
+    managerRef.current = null
+    manager.detach()
+    void manager.stop().catch(() => {})
   }, [])
 
   // Warn before a refresh or tab close takes the broadcast down. Lives here,

@@ -5,6 +5,10 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+/* A wide screen without the height for a page's full-size layout: tablets in
+   landscape, small laptops. Pages that must fit the window (Go live) switch
+   to their compact pieces here, as a phone does. */
+@custom-variant desk-short (@media (min-width: 64rem) and (max-height: 56rem));
 
 @theme inline {
   --color-background: var(--background);

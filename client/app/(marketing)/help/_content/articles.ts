@@ -121,7 +121,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Signing up with email or with Google, and why you have to verify your address before you can broadcast.",
     category: "getting-started",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     Body: CreateAccountBody,
     related: ["create-your-station", "free-and-pro"],
   },
@@ -131,7 +131,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Naming it, giving it artwork and a description, and what your station's address will be.",
     category: "getting-started",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     Body: CreateStationBody,
     related: ["your-player-page", "turning-your-station-on-and-off"],
   },
@@ -141,7 +141,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "The page listeners land on, what it shows when you are off air, and the link you hand out.",
     category: "getting-started",
-    updated: "2026-09-23",
+    updated: "2026-10-18",
     Body: PlayerPageBody,
     related: ["share-your-station", "embed-the-player"],
   },
@@ -163,7 +163,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "What the power button does, what each status means, and why going live switches the station on for you.",
     category: "going-live",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     Body: TurnStationOnBody,
     related: ["go-live-from-your-browser", "my-station-went-off-air"],
   },
@@ -183,7 +183,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "The mic meter, the file queue, push-to-talk, and the encoder health readout that tells you whether your audio is actually leaving.",
     category: "going-live",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     Body: StudioBody,
     related: ["go-live-from-your-browser", "nobody-can-hear-my-station"],
   },
@@ -193,7 +193,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Connecting desktop broadcast software to your station over the Icecast 2 source protocol.",
     category: "going-live",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     pro: true,
     Body: EncoderBody,
     related: ["my-encoder-wont-connect", "turning-your-station-on-and-off"],
@@ -217,7 +217,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Building playlists out of your library, shuffle, the default playlist, and what plays when nothing is scheduled.",
     category: "autodj",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     pro: true,
     Body: PlaylistsBody,
     related: ["schedule-playlists-by-time", "upload-your-music"],
@@ -241,7 +241,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "The link, how it looks when somebody pastes it somewhere, and the notify list for people who arrive while you are off air.",
     category: "listeners",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     Body: ShareBody,
     related: ["your-player-page", "embed-the-player"],
   },
@@ -251,7 +251,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Putting a working player on your own page with a snippet of HTML.",
     category: "listeners",
-    updated: "2026-09-21",
+    updated: "2026-10-18",
     pro: true,
     Body: EmbedBody,
     related: ["share-your-station", "free-and-pro"],

@@ -136,9 +136,9 @@ interface TrackRowProps {
    * Names of the playlists this track is in, for the library view; the
    * playlist view leaves it out and shows the date added there instead. An
    * empty array is the one state worth flagging: a track in no playlist
-   * never plays.
+   * never plays. Ids ride along because two playlists may share a name.
    */
-  chips?: string[]
+  chips?: Array<{ id: string; name: string }>
   /**
    * Multi-select. When true the leading column carries a checkbox instead of
    * the drag handle or its spacer, so the grid is unchanged and the library
@@ -360,8 +360,17 @@ export function TrackRow({
           {track.title}
           {onAir && <span className="sr-only"> (playing now)</span>}
         </span>
-        <span className={cn("truncate text-body-sm", track.artist ? "text-muted-foreground" : "text-text-faint italic")}>
-          {track.artist ?? "Unknown artist"}
+        <span className="flex min-w-0 items-baseline gap-1.5 text-body-sm">
+          <span className={cn("truncate", track.artist ? "text-muted-foreground" : "text-text-faint italic")}>
+            {track.artist ?? "Unknown artist"}
+          </span>
+          {/* Phones have no Length column either; the artist truncates
+              first so the time is never the part cut off. */}
+          {track.duration_seconds > 0 && (
+            <span className="shrink-0 font-mono text-muted-foreground tabular-nums md:hidden">
+              · {formatTrackTime(Math.round(track.duration_seconds))}
+            </span>
+          )}
         </span>
         {/* Phones have no playlists column, so the chips sit under the
             title: "not in a playlist" is the one thing a row must say. */}
@@ -426,12 +435,12 @@ export function TrackRow({
 }
 
 /** The playlists a track is in, or the warning that it is in none. */
-function PlaylistChips({ chips }: { chips: string[] }) {
+function PlaylistChips({ chips }: { chips: Array<{ id: string; name: string }> }) {
   // A track in no playlist never plays: the one state worth flagging.
   if (chips.length === 0) {
     return <Tag variant="warn" title="A track in no playlist never plays.">Not in a playlist</Tag>
   }
-  return chips.map((name) => (
-    <Tag key={name} className="max-w-40 truncate">{name}</Tag>
+  return chips.map(({ id, name }) => (
+    <Tag key={id} className="max-w-40 truncate">{name}</Tag>
   ))
 }

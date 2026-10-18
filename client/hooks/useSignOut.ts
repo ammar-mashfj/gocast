@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useBroadcastOptional } from "@/contexts/BroadcastContext"
+import { useAutoDjLocked } from "@/contexts/AccountContext"
 import api from "@/lib/axios"
 import { clearAuth } from "@/actions/auth"
 
@@ -37,6 +38,10 @@ export function useSignOut() {
   const broadcast = useBroadcastOptional()
   const state = broadcast?.state
   const isBroadcasting = state === "live" || state === "reconnecting" || state === "connecting"
+  const stopBroadcast = broadcast?.stop
+  const hasBroadcast = !!state && state !== "idle"
+  // As End show does: a station without AutoDJ has nothing to fall back to.
+  const autoDjLocked = useAutoDjLocked()
 
   const [signingOut, setLocal] = useState(isSigningOutGlobal)
   useEffect(() => {
@@ -57,6 +62,16 @@ export function useSignOut() {
       if (!confirmed) return
     }
     setSigningOut(true)
+    // End the show while the token still works. Leaving it to the redirect
+    // kept the socket, the mic and the engine alive on the homepage with no
+    // way to stop them, and the revoked token only ended it at the next drop.
+    if (hasBroadcast && stopBroadcast) {
+      try {
+        await stopBroadcast({ releaseStation: autoDjLocked })
+      } catch {
+        // Signing out goes ahead; the provider's unmount stops what's left.
+      }
+    }
     try {
       await api.post("/logout")
     } catch {
@@ -71,7 +86,7 @@ export function useSignOut() {
     // permanently-disabled button. The brief flash before the redirect
     // unmounts the button is invisible in practice.
     setSigningOut(false)
-  }, [isBroadcasting, router])
+  }, [isBroadcasting, hasBroadcast, stopBroadcast, autoDjLocked, router])
 
   return { signOut, signingOut, isBroadcasting }
 }

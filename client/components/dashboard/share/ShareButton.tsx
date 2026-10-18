@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { useEmbedLocked } from "@/contexts/AccountContext"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { Button } from "@/components/ds/Button"
@@ -29,7 +30,13 @@ export function ShareButton({
   const embedLocked = useEmbedLocked()
   const proRequest = useProRequest()
   const close = (next: boolean) => !next && setOpen(null)
-  const pick = (what: "qr" | "embed") => (what === "embed" && embedLocked ? proRequest.open() : setOpen(what))
+  const pick = (what: "qr" | "embed") => {
+    if (what !== "embed" || !embedLocked) return setOpen(what)
+    // Already asked this session: every other Get Pro button is disabled at
+    // this point, so say so rather than offering the same form again.
+    if (proRequest.requested) toast("Request sent — we’ll be in touch by email.", { id: "pro-requested" })
+    else proRequest.open()
+  }
   const url = `${appUrl}/station/${slug}`
 
   return (

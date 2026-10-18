@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Requests\UpdateStationRequest;
 use App\Models\AutodjSlot;
 use App\Models\Station;
 use App\Models\StationSchedule;
@@ -248,6 +249,30 @@ it('rejects offset spellings of a timezone', function () {
         ->patchJson("/api/stations/{$station->slug}", ['timezone' => 'Europe/Madrid'])
         ->assertOk()
         ->assertJsonPath('data.timezone', 'Europe/Madrid');
+});
+
+it('accepts the old names Chrome still reports and stores the current one', function (string $alias, string $current) {
+    $owner = scheduleOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patchJson("/api/stations/{$station->slug}", ['timezone' => $alias])
+        ->assertOk()
+        ->assertJsonPath('data.timezone', $current);
+
+    expect($station->fresh()->timezone)->toBe($current);
+})->with([
+    'India' => ['Asia/Calcutta', 'Asia/Kolkata'],
+    'Ukraine' => ['Europe/Kiev', 'Europe/Kyiv'],
+    'Argentina' => ['America/Buenos_Aires', 'America/Argentina/Buenos_Aires'],
+]);
+
+it('maps every old name to a timezone PHP accepts', function () {
+    $valid = DateTimeZone::listIdentifiers();
+
+    foreach (UpdateStationRequest::TIMEZONE_ALIASES as $alias => $current) {
+        expect($valid)->toContain($current)->not->toContain($alias);
+    }
 });
 
 it('rejects malformed rows', function (array $row, string $field) {

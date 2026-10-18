@@ -92,6 +92,14 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * "1,500" — a count of people or listens. The locale is pinned so a server
+ * render and the browser's hydration agree on the separator.
+ */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US")
+}
+
+/**
  * "3:07" — a position or length INSIDE a track.
  *
  * Distinct from formatClock: a track is minutes long, and padding it out to

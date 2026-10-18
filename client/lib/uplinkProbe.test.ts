@@ -4,7 +4,7 @@ import { AxiosError } from "axios"
 const post = vi.fn()
 vi.mock("./axios", () => ({ default: { post: (...a: unknown[]) => post(...a) } }))
 
-import { measureUplink } from "./uplinkProbe"
+import { UPLINK_CHECK_FAILED, UPLINK_CHECK_THROTTLED, measureUplink } from "./uplinkProbe"
 
 describe("measureUplink", () => {
   afterEach(() => {
@@ -24,5 +24,20 @@ describe("measureUplink", () => {
     await measureUplink()
 
     expect(post.mock.calls[2][2]).toMatchObject({ timeout: 12000 })
+  })
+
+  it("says to wait, not to check you're online, when the probe is rate limited", async () => {
+    const throttled = new AxiosError("Too Many Requests", "ERR_BAD_REQUEST", undefined, undefined, {
+      status: 429,
+    } as never)
+    post.mockRejectedValueOnce(throttled)
+
+    await expect(measureUplink()).rejects.toThrow(UPLINK_CHECK_THROTTLED)
+  })
+
+  it("still says to check you're online when the request never got an answer", async () => {
+    post.mockRejectedValueOnce(new AxiosError("Network Error", "ERR_NETWORK"))
+
+    await expect(measureUplink()).rejects.toThrow(UPLINK_CHECK_FAILED)
   })
 })

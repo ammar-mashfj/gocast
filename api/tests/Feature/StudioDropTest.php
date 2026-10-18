@@ -71,6 +71,33 @@ it('records a resent report only once', function () {
     expect(StationEvent::query()->where('station_id', $this->station->id)->count())->toBe(2);
 });
 
+it('lets the real outcome replace a page-close report of the same drop', function () {
+    // pagehide sent it as page_closed; the page came back and reconnected.
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed', 'down_ms' => null])]])
+        ->assertJson(['recorded' => 1]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'reconnected', 'down_ms' => 9000])]])
+        ->assertJson(['recorded' => 1]);
+
+    $event = StationEvent::query()->where('station_id', $this->station->id)->sole();
+
+    expect($event->properties['outcome'])->toBe('reconnected')
+        ->and($event->properties['down_ms'])->toBe(9000);
+});
+
+it('never lets a late page-close report replace a definite outcome', function () {
+    actingAs($this->owner)->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed'])]])
+        ->assertJson(['recorded' => 0]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'stopped'])]])
+        ->assertJson(['recorded' => 0]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->sole()->properties['outcome'])->toBe('gave_up');
+});
+
 it('refuses someone who does not own the station', function () {
     actingAs(User::factory()->create())
         ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]])

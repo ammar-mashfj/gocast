@@ -38,7 +38,7 @@ import { getMyStation } from "@/lib/station-server"
  * announcement is a 404 for the entire platform at once. An unrecognised path
  * lands on the station instead, which is wrong but not broken.
  */
-const STATION_PAGES = ["studio", "live", "library", "audience", "settings"]
+const STATION_PAGES = ["studio", "live", "library", "playlists", "jingles", "schedule", "audience", "settings"]
 
 export default async function MyStationPage({
   params,

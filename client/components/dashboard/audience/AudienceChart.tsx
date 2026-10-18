@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AudienceDay } from "@/interfaces/Audience"
-import { formatAirtime } from "@/lib/format"
+import { formatAirtime, formatCount } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
@@ -38,6 +38,18 @@ const MIN_BAR_PX = 2
 
 export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
   const [hovered, setHovered] = useState<number | null>(null)
+  const barsRef = useRef<HTMLDivElement>(null)
+
+  // A touch has no "leave": a tapped day stayed picked until another bar
+  // was tapped. A tap anywhere outside the bars puts the range back.
+  useEffect(() => {
+    if (hovered === null) return
+    const clear = (e: PointerEvent) => {
+      if (!barsRef.current?.contains(e.target as Node)) setHovered(null)
+    }
+    document.addEventListener("pointerdown", clear)
+    return () => document.removeEventListener("pointerdown", clear)
+  }, [hovered])
 
   // Never zero, so an empty window divides cleanly and draws a flat floor
   // rather than NaN-height bars.
@@ -67,9 +79,9 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
           {day ? (
             <span className="text-foreground">
               {label(day.day)} — {formatAirtime(day.listener_minutes * 60)}
-              {day.peak > 0 && <span className="text-muted-foreground"> · peak {day.peak}</span>}
+              {day.peak > 0 && <span className="text-muted-foreground"> · peak {formatCount(day.peak)}</span>}
               {day.listeners > 0 && (
-                <span className="text-muted-foreground"> · {day.listeners} listener{day.listeners === 1 ? "" : "s"}</span>
+                <span className="text-muted-foreground"> · {formatCount(day.listeners)} listener{day.listeners === 1 ? "" : "s"}</span>
               )}
             </span>
           ) : (
@@ -80,7 +92,10 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
 
       <div
         className={cn("flex h-50 items-end border-b border-line", daily.length > 60 ? "gap-0.5" : daily.length > 20 ? "gap-1" : "gap-2.5")}
-        onMouseLeave={() => setHovered(null)}
+        ref={barsRef}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") setHovered(null)
+        }}
         role="img"
         aria-label={`Listening time per day over the last ${rangeDays} days. Full figures in the table below.`}
       >
@@ -91,7 +106,16 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
             // day is a 2px sliver, and requiring the pointer to find it would
             // make exactly the days worth investigating the hardest to read.
             className="flex-1 h-full flex items-end min-w-0 cursor-default"
-            onMouseEnter={() => setHovered(i)}
+            // Pointer events rather than mouse ones: a tap would otherwise
+            // fire an emulated mouseenter, and then no way to undo it. Mouse
+            // follows the pointer; a tap picks the day, and a second tap on
+            // it lets it go.
+            onPointerEnter={(e) => {
+              if (e.pointerType === "mouse") setHovered(i)
+            }}
+            onPointerDown={(e) => {
+              if (e.pointerType !== "mouse") setHovered((cur) => (cur === i ? null : i))
+            }}
           >
             <div
               className={cn(
@@ -148,8 +172,8 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
               <tr key={d.day}>
                 <th scope="row">{label(d.day)}</th>
                 <td>{formatAirtime(d.listener_minutes * 60)}</td>
-                <td>{d.peak}</td>
-                <td>{d.listeners}</td>
+                <td>{formatCount(d.peak)}</td>
+                <td>{formatCount(d.listeners)}</td>
               </tr>
             ))}
           </tbody>

@@ -12,6 +12,7 @@ import type { Track, LibraryMeta } from "@/interfaces/Track"
 import { LIBRARY_KEY } from "./PlaylistRail"
 import type { TrackEditFields } from "./TrackRow"
 import { useTrackUpload } from "./useTrackUpload"
+import { useResyncOnHistoryNav } from "@/hooks/useResyncOnHistoryNav"
 
 /** Renumber a member list after anything that changes it, so `position` stays what the # column shows. */
 function renumber(list: Track[]): Track[] {
@@ -151,6 +152,12 @@ export function useLibrary(
     const { data } = await api.get<{ data: Playlist[] }>(`/stations/${slug}/playlists`)
     setPlaylists(data.data)
   }, [slug])
+
+  // Back/forward re-seeds this page from its first props: fetch them fresh,
+  // or a track deleted before leaving is listed again.
+  useResyncOnHistoryNav(() => {
+    void Promise.allSettled([refetchLibrary(), refetchPlaylists()])
+  })
 
   const applyStorageDelta = useCallback((deltaBytes: number) => {
     setMeta((prev) => ({ ...prev, storage_used_bytes: prev.storage_used_bytes + deltaBytes }))
@@ -495,6 +502,7 @@ export function useLibrary(
   const renamePlaylist = useCallback(async (playlist: Playlist, name: string) => {
     const { data } = await api.patch<{ data: Playlist }>(`/playlists/${playlist.id}`, { name })
     setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, name: data.data.name } : p)))
+    toast.success(`Renamed to ${data.data.name}.`)
   }, [])
 
   const setDefault = useCallback(async () => {

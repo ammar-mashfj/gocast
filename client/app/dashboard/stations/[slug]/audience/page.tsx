@@ -12,7 +12,7 @@ import { AudienceBreakdown as Breakdown } from "@/components/dashboard/audience/
 import { NoListenersYet } from "./NoListenersYet"
 import { HowWeCount } from "./HowWeCount"
 import { AudienceUpsell } from "@/components/dashboard/audience/AudienceUpsell"
-import { formatAirtime, formatDuration, countryName } from "@/lib/format"
+import { formatAirtime, formatCount, formatDuration, countryName } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { env } from "@/lib/env"
@@ -229,7 +229,7 @@ function AudienceReportView({
           />
           <StatTile
             label="Daily listeners"
-            value={String(totals.listeners)}
+            value={formatCount(totals.listeners)}
             // "Daily" because that is exactly what it is. The visitor hash is
             // re-keyed daily so nobody can be followed between days, which
             // means a returning listener genuinely counts once per day and a
@@ -243,11 +243,11 @@ function AudienceReportView({
           />
           <StatTile
             label="Peak at once"
-            value={unsampled && totals.peak === 0 ? "—" : String(totals.peak)}
+            value={unsampled && totals.peak === 0 ? "—" : formatCount(totals.peak)}
             sub={
               unsampled && totals.peak === 0
                 ? "not measured yet"
-                : `most listening together · ${peakAllTime} all time`
+                : `most listening together · ${formatCount(peakAllTime)} all time`
             }
           />
           <StatTile
@@ -255,7 +255,7 @@ function AudienceReportView({
             value={totals.avg_listen_seconds > 0 ? formatDuration(totals.avg_listen_seconds) : "—"}
             sub={
               totals.finished_listens > 0
-                ? `across ${totals.finished_listens} finished listen${totals.finished_listens === 1 ? "" : "s"}`
+                ? `across ${formatCount(totals.finished_listens)} finished listen${totals.finished_listens === 1 ? "" : "s"}`
                 : coverage === "listens"
                   ? "no listen has finished yet"
                   : "player page only"

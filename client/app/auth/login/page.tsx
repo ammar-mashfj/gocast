@@ -44,7 +44,7 @@ function LoginForm() {
     if (!existingUser) return
 
     if (existingUser.email_verified_at) {
-      router.replace("/dashboard/stations")
+      router.replace("/dashboard")
       return
     }
 
@@ -82,7 +82,7 @@ function LoginForm() {
       const userRes = await axios.get("/user")
       saveAuth(null, userRes.data.data)
       toast.success("Welcome back")
-      router.push("/dashboard/stations")
+      router.push("/dashboard")
     } catch {
       toast.error("Something went wrong. Please try again.")
     } finally {
@@ -104,7 +104,7 @@ function LoginForm() {
         const verified = Boolean(response.data.data?.email_verified_at)
         if (verified) {
           toast.success("Welcome back")
-          router.push("/dashboard/stations")
+          router.push("/dashboard")
           return
         }
         // Unverified: stay on the login page and surface the modal so the

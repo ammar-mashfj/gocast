@@ -95,7 +95,22 @@ export function ProfileForm({ user, onUpdated }: { user: User; onUpdated: (user:
       </Card>
       {/* Outside the form: React events bubble through portals, so a submit
           inside the dialog would otherwise reach this form's onSubmit. */}
-      <VerifyEmailDialog open={verifyOpen} email={user.email} onCancel={() => setVerifyOpen(false)} />
+      {/* "Use a different account" has signed out by the time onCancel runs,
+          so leave the Account page for sign-in. A verified code stays here:
+          this is where the email was being changed. */}
+      <VerifyEmailDialog
+        open={verifyOpen}
+        email={user.email}
+        onCancel={() => {
+          setVerifyOpen(false)
+          router.replace("/auth/login")
+        }}
+        onVerified={(verified) => {
+          setVerifyOpen(false)
+          onUpdated(verified)
+          router.refresh()
+        }}
+      />
     </>
   )
 }

@@ -40,14 +40,17 @@ import { useAutoDjLocked } from "@/contexts/AccountContext"
 export default function StudioPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
-  const { state, engine, micDisabled } = useBroadcast()
+  const { state, engine, micDisabled, liveSince } = useBroadcast()
   const station = useStationBySlug(slug)
   const wasLive = useRef(false)
   // This show reached the air: a later `error` is the show going off air for
   // good (reconnects spent), not a check that failed. The checks dialog stays
   // closed for that, so the studio has to say it. Adjusted while rendering,
   // as GoLiveChecks does; a new run (`connecting`) is a new show.
-  const [aired, setAired] = useState(false)
+  // Seeded from the provider: opened mid-show (back from Library, say) the
+  // studio never sees the switch to live, and a show lost after that would
+  // otherwise show no ShowLost.
+  const [aired, setAired] = useState(() => liveSince !== null || state === "live" || state === "reconnecting")
   if (state === "live" && !aired) setAired(true)
   if (state === "connecting" && aired) setAired(false)
 
@@ -104,9 +107,11 @@ export default function StudioPage() {
       const queueLen = engine!.getQueue().length
       switch (e.code) {
         case "KeyK": engine!.togglePlay(); break
-        // The queue always wraps, so anything longer than one track can step either way.
+        // The queue always wraps, so anything longer than one track can step
+        // either way. With one track, Previous takes it back to the start
+        // (the same as the Previous button); Next has nowhere to go.
         case "KeyN": if (queueLen > 1) engine!.next(); break
-        case "KeyP": if (queueLen > 1) engine!.prev(); break
+        case "KeyP": if (queueLen > 0) engine!.prev(); break
         case "KeyR": engine!.cycleRepeat(); break
         case "KeyM": engine!.setMonitorEnabled(!engine!.isMonitorEnabled()); break
         case "KeyL": if (!micDisabled) engine!.setMicLatched(!engine!.isMicLatched()); break
