@@ -7,14 +7,14 @@ import { cn } from "@/lib/utils"
 const COLUMNS = "grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_2.5rem] gap-4 px-5.5 md:grid-cols-[10rem_7rem_minmax(0,1fr)_4rem]"
 
 /**
- * Your shows while the list loads, in the page's geometry: the title, the
+ * Live history while the list loads, in the page's geometry: the title, the
  * summary line, and the table card with its column heads drawn for real.
  */
-export default function YourShowsLoading() {
+export default function LiveHistoryLoading() {
   return (
     <div className="flex flex-col gap-5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
       <div className="flex flex-col gap-2">
-        <PageHeader title="Your shows" />
+        <PageHeader title="Live history" />
         <Skeleton className="h-6 w-80 max-w-full" />
       </div>
       {/* ShowsChart: the switch row, then the bars. */}

@@ -7,7 +7,6 @@ import { DeleteStation } from "./DeleteStation"
 import { EncoderSection } from "./EncoderSection"
 import { LinksCard } from "./LinksCard"
 import { ProfileCard } from "./ProfileCard"
-import { ShowTimesSection } from "./ShowTimesSection"
 import { StreamCard } from "./StreamCard"
 
 export const metadata: Metadata = { title: "Station settings" }
@@ -15,9 +14,10 @@ export const metadata: Metadata = { title: "Station settings" }
 /**
  * Everything about a station you set once and then stop thinking about.
  *
- * Left: what listeners see (profile, links, show times). Right: how audio
- * gets out and in (stream addresses, your own DJ software), and delete,
- * last and quiet. One column below xl.
+ * The profile spans the top, as the Overview header does. Then the stream
+ * addresses (the link people come here to copy) beside two tiles that
+ * open in dialogs, links and your own DJ software. Delete last, set apart. One
+ * column below xl, in the same order.
  */
 export default async function StationSettingsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
@@ -35,17 +35,18 @@ export default async function StationSettingsPage({ params }: { params: Promise<
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Station settings" />
+      <ProfileCard station={station} />
       <div className="grid items-start gap-5 xl:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
-          <ProfileCard station={station} />
+        <StreamCard station={station} />
+        {/* On xl the two tiles share the stream card's height. They open in
+            dialogs, so they never grow and the columns stay in line. */}
+        <div className="flex min-w-0 flex-col gap-5 xl:self-stretch xl:*:flex-1">
           <LinksCard station={station} />
-          <ShowTimesSection station={station} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
-          <StreamCard station={station} />
           <EncoderSection station={station} />
-          <DeleteStation slug={station.slug} name={station.name} />
         </div>
+      </div>
+      <div className="mt-4">
+        <DeleteStation slug={station.slug} name={station.name} />
       </div>
     </div>
   )

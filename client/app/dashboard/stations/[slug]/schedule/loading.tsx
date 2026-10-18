@@ -39,7 +39,7 @@ export default function ScheduleLoading() {
       </div>
 
       <Card>
-        <CardHeader title="This week" />
+        <CardHeader title="Every week" />
         <div className="flex flex-col gap-4 md:hidden">
           <div className="grid grid-cols-7 gap-1.5">
             {DAYS.map((day) => (

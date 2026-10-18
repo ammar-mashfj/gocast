@@ -72,7 +72,17 @@ export function ConfirmDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent size="sm" showCloseButton={false} swipeToClose>
+      <DialogContent
+        size="sm"
+        showCloseButton={false}
+        swipeToClose
+        // Phones: no focus on the type-to-confirm field. It would raise the
+        // keyboard over the consequences before they're read; it opens when
+        // the field is tapped. Desktop keeps it, ready to type.
+        onOpenAutoFocus={(e) => {
+          if (confirmText && window.matchMedia("(max-width: 639px)").matches) e.preventDefault()
+        }}
+      >
         <DialogHeader className="pr-0">
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}

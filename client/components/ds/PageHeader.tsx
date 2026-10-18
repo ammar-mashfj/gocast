@@ -12,6 +12,7 @@ export function PageHeader({
   actions,
   className,
   descriptionClassName,
+  actionsClassName,
 }: {
   title: React.ReactNode
   description?: React.ReactNode
@@ -20,6 +21,8 @@ export function PageHeader({
   actions?: React.ReactNode
   className?: string
   descriptionClassName?: string
+  /** E.g. `max-sm:w-full` to let a lone action span a phone's width. */
+  actionsClassName?: string
 }) {
   return (
     <header className={cn("flex flex-wrap items-start justify-between gap-x-6 gap-y-4", className)}>
@@ -30,7 +33,7 @@ export function PageHeader({
         </div>
         {description && <p className={cn("max-w-[65ch] text-lead text-pretty text-muted-foreground", descriptionClassName)}>{description}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className={cn("flex flex-wrap items-center gap-2", actionsClassName)}>{actions}</div>}
     </header>
   )
 }

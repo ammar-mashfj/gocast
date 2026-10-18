@@ -106,7 +106,8 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
             Every track in view has an artist now.
           </p>
         ) : (
-          <div className="flex max-h-[50vh] flex-col divide-y divide-line overflow-y-auto">
+          // -mx/px: overflow-y-auto also clips x, which ate the inputs' focus ring.
+          <div className="-mx-1.5 flex max-h-[50vh] flex-col divide-y divide-line overflow-y-auto px-1.5">
             {tracks.map((track) => (
               <div key={track.id} className="flex items-center gap-3 py-2">
                 <div className="min-w-0 flex-1">

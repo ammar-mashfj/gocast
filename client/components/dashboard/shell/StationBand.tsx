@@ -105,7 +105,12 @@ function Band({ slug }: { slug: string }) {
             <span className="text-meter-sm tracking-normal">{formatClock((now - liveSince) / 1000)}</span>
           )}
           {/* On the studio, phones only: from md the stats strip has it. */}
-          {air.onAir && listeners !== null && <span className={cn(onStudio && "md:hidden")}>{listeners} LISTENING</span>}
+          {/* Below lg a fault with nobody listening drops "0 LISTENING":
+              it says nothing the fault doesn't, and it pushed the band's
+              button onto a second row. */}
+          {air.onAir && listeners !== null && (
+            <span className={cn(onStudio && "md:hidden", air.tone === "warn" && listeners === 0 && "max-lg:hidden")}>{listeners} LISTENING</span>
+          )}
         </>
       }
     >
@@ -136,6 +141,7 @@ function Band({ slug }: { slug: string }) {
           action={air.action}
           tone={air.tone}
           slug={slug}
+          playlistId={air.playlistId}
           busy={power.pending === "start"}
           onStartAutoDj={power.start}
           onCloseMic={() => engine?.setMicLatched(false)}
@@ -157,6 +163,7 @@ function BandAction({
   action,
   tone,
   slug,
+  playlistId,
   busy,
   onStartAutoDj,
   onCloseMic,
@@ -164,6 +171,7 @@ function BandAction({
   action: AirAction
   tone: AirTone
   slug: string
+  playlistId?: string
   busy: boolean
   onStartAutoDj: () => void
   onCloseMic: () => void
@@ -197,6 +205,12 @@ function BandAction({
       return (
         <Button {...props} asChild>
           <Link href={`/dashboard/stations/${slug}/library`}>{label}</Link>
+        </Button>
+      )
+    case "open-playlist":
+      return (
+        <Button {...props} asChild>
+          <Link href={`/dashboard/stations/${slug}/playlists${playlistId ? `?playlist=${encodeURIComponent(playlistId)}` : ""}`}>{label}</Link>
         </Button>
       )
   }

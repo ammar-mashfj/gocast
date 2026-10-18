@@ -187,9 +187,71 @@ export function normalizeSocialUrl(input: string): string {
   return `https://${trimmed}`
 }
 
-/** Prefill for the label field: the platform name, else the hostname. */
-export function suggestSocialLabel(url: string): string {
-  const resolved = resolveSocialLink({ label: null, url })
+/**
+ * The platforms the links editor offers by name: pick one, type the handle.
+ * Anything else goes in as an "Other link" (full address, optional name) and
+ * still gets its icon from PLATFORMS above, so a Patreon or PayPal added that
+ * way shows its glyph. Mixcloud is missing only because Tabler has no glyph.
+ *
+ * `base` is the fixed part of the address, shown before the field; the handle
+ * is whatever follows it. `at`: "add" puts the @ that the address needs
+ * (tiktok.com/@name), "strip" drops one typed out of habit (instagram.com/name).
+ */
+export interface PickerPlatform {
+  key: string
+  name: string
+  icon: IconComponent
+  base: string
+  placeholder: string
+  at?: "add" | "strip"
+}
 
-  return resolved?.name ?? ""
+export const PICKER_PLATFORMS: PickerPlatform[] = [
+  { key: "instagram", name: "Instagram", icon: IconBrandInstagram, base: "https://instagram.com/", placeholder: "yourstation", at: "strip" },
+  { key: "facebook", name: "Facebook", icon: IconBrandFacebook, base: "https://facebook.com/", placeholder: "yourstation" },
+  { key: "youtube", name: "YouTube", icon: IconBrandYoutube, base: "https://youtube.com/", placeholder: "@yourstation", at: "add" },
+  { key: "tiktok", name: "TikTok", icon: IconBrandTiktok, base: "https://tiktok.com/", placeholder: "@yourstation", at: "add" },
+  { key: "x", name: "X", icon: IconBrandX, base: "https://x.com/", placeholder: "yourstation", at: "strip" },
+  { key: "threads", name: "Threads", icon: IconBrandThreads, base: "https://threads.com/", placeholder: "@yourstation", at: "add" },
+  { key: "whatsapp", name: "WhatsApp", icon: IconBrandWhatsapp, base: "https://wa.me/", placeholder: "15551234567" },
+  { key: "telegram", name: "Telegram", icon: IconBrandTelegram, base: "https://t.me/", placeholder: "yourstation", at: "strip" },
+  { key: "discord", name: "Discord", icon: IconBrandDiscord, base: "https://discord.gg/", placeholder: "invitecode" },
+  { key: "spotify", name: "Spotify", icon: IconBrandSpotify, base: "https://open.spotify.com/", placeholder: "show/…" },
+  { key: "soundcloud", name: "SoundCloud", icon: IconBrandSoundcloud, base: "https://soundcloud.com/", placeholder: "yourstation" },
+  { key: "twitch", name: "Twitch", icon: IconBrandTwitch, base: "https://twitch.tv/", placeholder: "yourstation", at: "strip" },
+  { key: "bluesky", name: "Bluesky", icon: IconBrandBluesky, base: "https://bsky.app/profile/", placeholder: "yourstation.bsky.social" },
+]
+
+/** "instagram.com/x" from any of "https://www.instagram.com/x", "http://instagram.com/x"… */
+function bare(url: string): string {
+  return url.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "")
+}
+
+/**
+ * Which picker platform a saved address belongs to, and its handle. Null when
+ * it doesn't start with a platform's base (another host, or youtu.be, or
+ * m.facebook.com): those load as Other links, unchanged.
+ */
+export function matchPickerPlatform(url: string): { platform: PickerPlatform; handle: string } | null {
+  const b = bare(url)
+  for (const platform of PICKER_PLATFORMS) {
+    const prefix = bare(platform.base)
+    if (b.toLowerCase().startsWith(prefix.toLowerCase()) && b.length > prefix.length) {
+      return { platform, handle: b.slice(prefix.length) }
+    }
+  }
+  return null
+}
+
+/** What was typed or pasted into a platform's field, as the handle alone. */
+export function cleanHandle(platform: PickerPlatform, input: string): string {
+  let handle = input.trim()
+  const prefix = bare(platform.base)
+  const pasted = bare(handle)
+  // A whole address pasted in: keep what follows the base.
+  if (pasted.toLowerCase().startsWith(prefix.toLowerCase())) handle = pasted.slice(prefix.length)
+  handle = handle.replace(/^\/+/, "")
+  if (platform.at === "strip") handle = handle.replace(/^@/, "")
+  if (platform.at === "add" && handle !== "" && !handle.startsWith("@") && !handle.includes("/")) handle = `@${handle}`
+  return handle
 }

@@ -28,7 +28,9 @@ const content = cva(
   [
     "fixed z-50 flex flex-col gap-4.5 overflow-y-auto overscroll-contain bg-popover text-popover-foreground shadow-panel outline-none",
     // Phone: bottom sheet.
-    "inset-x-0 bottom-0 max-h-[90dvh] rounded-t-hero px-5 pt-2.5 pb-[calc(1.375rem+env(safe-area-inset-bottom))]",
+    // --kb: the on-screen keyboard's height (useKeyboardInset), so the sheet
+    // sits above it instead of under it.
+    "inset-x-0 bottom-[var(--kb,0px)] max-h-[calc(90dvh-var(--kb,0px))] rounded-t-hero px-5 pt-2.5 pb-[calc(1.375rem+env(safe-area-inset-bottom))]",
     "data-open:animate-in data-open:slide-in-from-bottom data-closed:animate-out data-closed:slide-out-to-bottom duration-200",
     // From 640px: a centred card.
     "sm:inset-x-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:w-[calc(100%-2.5rem)] sm:-translate-x-1/2 sm:-translate-y-1/2",
@@ -117,6 +119,35 @@ function useSwipeToClose(enabled: boolean) {
   return { contentRef, closeRef, handleProps }
 }
 
+/**
+ * Phones lay the keyboard over the page without shrinking it, so a sheet
+ * pinned to the bottom ends up under the keyboard, along with the field being
+ * typed in. The visual viewport does shrink: the gap between it and the
+ * window is the keyboard, written to --kb on the dialog for the sheet's
+ * bottom offset. Desktop dialogs ignore it (sm:bottom-auto).
+ */
+export function useKeyboardInset() {
+  const cleanup = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => () => cleanup.current?.(), [])
+  return React.useCallback((node: HTMLDivElement | null) => {
+    cleanup.current?.()
+    cleanup.current = null
+    const vv = typeof window === "undefined" ? null : window.visualViewport
+    if (!node || !vv) return
+    const update = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      node.style.setProperty("--kb", `${Math.round(inset)}px`)
+    }
+    update()
+    vv.addEventListener("resize", update)
+    vv.addEventListener("scroll", update)
+    cleanup.current = () => {
+      vv.removeEventListener("resize", update)
+      vv.removeEventListener("scroll", update)
+    }
+  }, [])
+}
+
 function DialogContent({
   className,
   children,
@@ -132,9 +163,11 @@ function DialogContent({
     swipeToClose?: boolean
   }) {
   const swipe = useSwipeToClose(swipeToClose)
+  const keyboard = useKeyboardInset()
   const contentRef = React.useCallback(
     (node: HTMLDivElement | null) => {
       swipe.contentRef.current = node
+      keyboard(node)
       if (typeof ref === "function") ref(node)
       else if (ref) ref.current = node
     },

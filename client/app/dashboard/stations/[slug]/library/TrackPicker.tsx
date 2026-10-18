@@ -123,7 +123,9 @@ export function TrackPicker({ open, onClose, playlistName, candidates, onAdd, li
                   placeholder="Search title or artist"
                   aria-label="Search your library"
                   className="h-11 bg-surface-inset pl-10"
-                  autoFocus
+                  // Not on phones: the keyboard would take half the sheet
+                  // from the list, and most picks are by scrolling it.
+                  autoFocus={typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches}
                 />
               </div>
               <Button variant="quiet" onClick={toggleAllVisible} disabled={visible.length === 0}>

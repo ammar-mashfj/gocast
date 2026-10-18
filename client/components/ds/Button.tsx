@@ -41,6 +41,9 @@ export const buttonVariants = cva(
         // The quiet way in to a permanent delete ("Delete station…"): the
         // red is in the words, the action itself is behind a ConfirmDialog.
         "danger-quiet": "bg-foreground/6 text-error hover:bg-foreground/10",
+        // Taking the station off air (drops listeners, but nothing is lost):
+        // the onair outline in the error red — a warning, not a delete.
+        stop: "border-stroke border-error/40 bg-transparent text-error hover:bg-error/10",
         ink: "bg-(--ink) text-(--paper) hover:opacity-90",
       },
       size: {

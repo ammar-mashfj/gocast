@@ -263,7 +263,7 @@ Also read: `services.icecast.url/admin_user/admin_password` (`ICECAST_ADMIN_PASS
   - **Breakdown empty states** all follow `coverage` (`nobody`, or "Everyone in this window listened on the direct stream. Devices, browsers and locations are only recorded for your player page."). Countries show a mono two-letter code chip (no emoji flags) before the name; bars are neutral grey. The countries footnote is "Located {countries.total} of {sessions} listens. The rest are still in progress or couldn't be placed."; referrers "Only the site name is recorded, never the full address."
   - `HowWeCount` says listening time and peak include direct-stream listeners, the rest is player-page only, days are UTC, records are deleted after 90 days (hard-coded text; it does not follow `ANALYTICS_RETENTION_DAYS`).
 - **Sidebar** shows a lock on Audience when `plan.analytics_days <= 0` (`useAudienceLocked`); that is only a badge, the payload is the real gate.
-- **Other peaks:** the overview's checklist uses the hourly-rollup peak (`stats.peak_listeners`); Your shows, Recent shows and Your live shows show each broadcast's own `stream_sessions.peak_listeners`, and Your shows also shows `stream_sessions.peak_at` (the minute the peak was first reached, stamped by `SweepListenerSessions::recordPeak` in the same conditional UPDATE).
+- **Other peaks:** the overview's checklist uses the hourly-rollup peak (`stats.peak_listeners`); Live history, Recent shows and Your live shows show each broadcast's own `stream_sessions.peak_listeners`, and Live history also shows `stream_sessions.peak_at` (the minute the peak was first reached, stamped by `SweepListenerSessions::recordPeak` in the same conditional UPDATE).
 
 ### Mobile
 

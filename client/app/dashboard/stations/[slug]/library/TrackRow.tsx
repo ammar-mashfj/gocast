@@ -9,10 +9,12 @@ import {
   IconPlayerPlayFilled,
   IconPlayerPauseFilled,
   IconLoader2,
+  IconDots,
 } from "@tabler/icons-react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { Button } from "@/components/ds/Button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ds/Menu"
 import { Input } from "@/components/ds/Field"
 import { Tag } from "@/components/ds/Tag"
 import { cn } from "@/lib/utils"
@@ -22,12 +24,14 @@ import type { Track } from "@/interfaces/Track"
 /**
  * Column track shared by the header row and every track row, so they line
  * up: select / drag, #, title + artist, playlists (library) or date added
- * (playlist), length, actions. The fourth column hides below md.
+ * (playlist), length, actions. The second column is the preview button
+ * (the # when a list has no preview). Below md the fourth and fifth columns
+ * hide and the actions fold into one ⋯, so the title gets the width.
  */
 export const ROW_GRID =
   "grid grid-cols-[1.25rem_2rem_minmax(0,1fr)_auto] " +
   "md:grid-cols-[1.25rem_2rem_minmax(0,1fr)_minmax(0,0.8fr)_4rem_auto] " +
-  "gap-3 items-center px-5.5"
+  "gap-2 md:gap-3 items-center px-5.5"
 
 /**
  * The checkbox used by both the rows and the header row.
@@ -101,7 +105,8 @@ export function TrackListHeader({ selectable = false, allSelected = false, someS
       ) : (
         <span />
       )}
-      <span className="text-right">#</span>
+      {/* The preview column: a button on every row, no heading needed. */}
+      <span />
       <span>Title</span>
       <span className="hidden md:block">{fourth}</span>
       <span className="hidden text-right md:block">Length</span>
@@ -234,13 +239,13 @@ export function TrackRow({
 
   if (editing) {
     return (
-      <div ref={setNodeRef} style={style} className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-raised px-5.5 py-2.5">
+      <div ref={setNodeRef} style={style} className="flex flex-col gap-2 border-t border-line bg-surface-raised px-5.5 py-2.5 sm:flex-row sm:flex-wrap sm:items-center">
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Title"
           aria-label="Title"
-          className="h-10 min-w-40 flex-1"
+          className="h-10 sm:min-w-40 sm:flex-1"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter") commit()
@@ -252,13 +257,14 @@ export function TrackRow({
           onChange={(e) => setArtist(e.target.value)}
           placeholder="Artist (optional)"
           aria-label="Artist"
-          className="h-10 min-w-36 flex-1"
+          className="h-10 sm:min-w-36 sm:flex-1"
           onKeyDown={(e) => {
             if (e.key === "Enter") commit()
             if (e.key === "Escape") cancel()
           }}
         />
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Phones: title, artist, then Save and Cancel sharing a row. */}
+        <div className="flex shrink-0 items-center gap-1.5 max-sm:*:flex-1">
           <Button size="sm" onClick={commit}>Save</Button>
           <Button size="sm" variant="quiet" onClick={cancel}>Cancel</Button>
         </div>
@@ -276,7 +282,9 @@ export function TrackRow({
               // Only the row body. Buttons, links and inputs inside the row
               // handle themselves, and a click on them must not also flip
               // the selection underneath.
-              if ((e.target as HTMLElement).closest("button, a, input, [role=button]")) return
+              // The ⋯ menu's items are portalled, but React still bubbles
+              // their clicks up to this row, so they're excluded too.
+              if ((e.target as HTMLElement).closest("button, a, input, [role=button], [role=menuitem], [role=menu]")) return
               onRowClick()
             }
           : undefined
@@ -310,43 +318,31 @@ export function TrackRow({
       )}
 
       {onPreview ? (
-        // The number is the resting state; the play control takes its place
-        // on hover, on focus, and for as long as the track is being heard,
-        // so the column never has to grow to fit a second glyph.
+        // Always a play button, not a number that turns into one on hover:
+        // a phone has no hover, and on a computer nobody found it. The row
+        // order already says the position.
         <button
           type="button"
           onClick={() => onPreview(track.id)}
           aria-label={previewing ? `Stop previewing ${track.title}` : `Preview ${track.title}`}
           aria-pressed={previewing}
           className={cn(
-            "relative h-6 cursor-pointer rounded-tag text-right font-mono text-body-sm font-semibold tabular-nums",
+            "flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            onAir ? "text-on-air" : "text-text-faint",
+            previewing
+              ? "bg-foreground text-background"
+              : onAir
+                ? "text-on-air hover:bg-surface-strong"
+                : "text-muted-foreground hover:bg-surface-strong hover:text-foreground",
           )}
         >
-          <span
-            className={cn(
-              "block",
-              previewing ? "invisible" : "group-hover:invisible group-focus-within:invisible",
-            )}
-          >
-            {number}
-          </span>
-          <span
-            className={cn(
-              "absolute inset-0 flex items-center justify-end text-foreground",
-              previewing ? "" : "invisible group-hover:visible group-focus-within:visible",
-            )}
-            aria-hidden="true"
-          >
-            {previewing && previewBuffering ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : previewing ? (
-              <IconPlayerPauseFilled size={14} />
-            ) : (
-              <IconPlayerPlayFilled size={14} />
-            )}
-          </span>
+          {previewing && previewBuffering ? (
+            <IconLoader2 size={14} className="animate-spin" />
+          ) : previewing ? (
+            <IconPlayerPauseFilled size={14} />
+          ) : (
+            <IconPlayerPlayFilled size={14} />
+          )}
         </button>
       ) : (
         <span
@@ -388,8 +384,10 @@ export function TrackRow({
         {track.duration_seconds > 0 ? formatTrackTime(Math.round(track.duration_seconds)) : "—"}
       </span>
 
-      {/* Words, not icons you have to guess (prototype). */}
-      <div className="flex items-center justify-end gap-0.5">
+      {/* Words, not icons you have to guess (prototype), from md. On a
+          phone the words took a third of the row from the title, so they
+          fold into one ⋯ there. */}
+      <div className="hidden items-center justify-end gap-0.5 md:flex">
         <Button size="sm" variant="quiet" className="px-2.5" onClick={startEditing} aria-label={`Edit ${track.title}`}>
           Edit
         </Button>
@@ -411,6 +409,18 @@ export function TrackRow({
           </Button>
         )}
       </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="icon-sm" variant="quiet" className="md:hidden" aria-label={`Actions for ${track.title}`}>
+            <IconDots />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={startEditing}>Edit title and artist</DropdownMenuItem>
+          {onRemove && <DropdownMenuItem onSelect={() => onRemove(track.id)}>Remove from playlist</DropdownMenuItem>}
+          {onDelete && <DropdownMenuItem variant="danger" onSelect={() => onDelete(track.id)}>Delete file</DropdownMenuItem>}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

@@ -34,7 +34,7 @@ export function LibrarySkeleton({ page }: { page: LibraryPage }) {
       </div>
       <div className={`${ROW_GRID} border-t border-line py-2.5 eyebrow text-text-faint`}>
         <span />
-        <span className="text-right">#</span>
+        <span />
         <span>Title</span>
         <span className="hidden md:block">Added</span>
         <span className="hidden text-right md:block">Length</span>
@@ -43,7 +43,7 @@ export function LibrarySkeleton({ page }: { page: LibraryPage }) {
       {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className={`${ROW_GRID} border-t border-line py-3`}>
           <span />
-          <Skeleton className="ml-auto h-3.5 w-4" />
+          <Skeleton className="size-8 rounded-full" />
           <div className="flex flex-col gap-1.5">
             <Skeleton className="h-4 w-48" />
             <Skeleton className="h-3 w-28" />
@@ -68,7 +68,7 @@ export function LibrarySkeleton({ page }: { page: LibraryPage }) {
             : "What AutoDJ plays, in order or shuffled. The default playlist plays whenever nothing else is scheduled."
         }
       />
-      <Skeleton className="-mt-3.5 h-4 w-64" />
+      {page === "library" && <Skeleton className="-mt-3.5 h-4 w-64" />}
 
       {locked && station && (
         <>
@@ -83,8 +83,10 @@ export function LibrarySkeleton({ page }: { page: LibraryPage }) {
       {page === "library" ? (
         table
       ) : (
-        <div className="flex min-w-0 flex-col gap-5 md:flex-row md:items-start">
-          <div className="flex shrink-0 flex-col gap-1 md:w-60">
+        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:gap-5">
+          {/* PlaylistRail: the picker button below lg, the column from lg. */}
+          <Skeleton className="h-24 rounded-control lg:hidden" />
+          <div className="hidden w-60 shrink-0 flex-col gap-1 lg:flex">
             <Skeleton className="h-12 rounded-control" />
             <Skeleton className="h-12 rounded-control" />
             <Skeleton className="h-12 rounded-control" />

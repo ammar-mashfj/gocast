@@ -40,7 +40,7 @@ interface Props {
   onBulkAdd: (ids: string[]) => void
   /** Storage meter and the tag banner, owned by the shell, shown under the toolbar. */
   belowToolbar?: React.ReactNode
-  /** Library-wide items (Jingles, Fix tags) for this view's ⋯ menu. */
+  /** Library-wide items (Fix tags) for this view's ⋯ menu. */
   menuItems?: React.ReactNode
 }
 

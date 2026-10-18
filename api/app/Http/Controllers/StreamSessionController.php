@@ -23,7 +23,7 @@ class StreamSessionController extends Controller
     /**
      * The station's broadcasts, newest first, 20 a page.
      *
-     * `?finished=1` leaves out the show on air right now, so the Your shows
+     * `?finished=1` leaves out the show on air right now, so the Live history
      * page can page through past shows without one page coming up short.
      *
      * `summary` covers every finished show, not just this page: the page's
@@ -32,7 +32,7 @@ class StreamSessionController extends Controller
      * carries it: it scans the station's whole history, and "Show more" pages
      * have no use for it.
      *
-     * `recent` feeds the Your shows chart: every finished show of the last 30
+     * `recent` feeds the Live history chart: every finished show of the last 30
      * days, oldest first, not just page 1's 20. It is capped at the newest 300
      * so a runaway station can't make it the heavy part of the response, and
      * the cap drops the oldest shows rather than the days the owner looks at.

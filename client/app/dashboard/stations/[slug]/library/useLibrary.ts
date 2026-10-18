@@ -36,6 +36,8 @@ export function useLibrary(
   initialTracks: Track[],
   initialMeta: LibraryMeta,
   initialPlaylists: Playlist[],
+  /** Playlists: open this one rather than the default, if it exists. */
+  openPlaylistId?: string,
 ) {
   const [confirm, confirmDialog] = useConfirm()
   const slug = station.slug
@@ -46,10 +48,21 @@ export function useLibrary(
   // Playlists whose member fetch failed. Without this the entry stays
   // undefined, the effect below never retries, and the view spins forever.
   const [memberErrors, setMemberErrors] = useState<Set<string>>(() => new Set())
-  // Library is always the whole library; Playlists opens on the default.
+  // Library is always the whole library; Playlists opens on the one asked
+  // for (?playlist=, from the status band), else the default.
   const [selected, setSelected] = useState<string>(() =>
-    page === "library" ? LIBRARY_KEY : (initialPlaylists.find((p) => p.is_default)?.id ?? initialPlaylists[0]?.id ?? LIBRARY_KEY),
+    page === "library"
+      ? LIBRARY_KEY
+      : (initialPlaylists.find((p) => p.id === openPlaylistId)?.id ??
+        initialPlaylists.find((p) => p.is_default)?.id ??
+        initialPlaylists[0]?.id ??
+        LIBRARY_KEY),
   )
+  // Already on Playlists when the band's link is followed: the page stays
+  // mounted, so the initialiser above doesn't run again.
+  useEffect(() => {
+    if (page === "playlists" && openPlaylistId) setSelected(openPlaylistId)
+  }, [page, openPlaylistId])
   const [savingOrder, setSavingOrder] = useState(false)
 
   /**

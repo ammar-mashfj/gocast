@@ -123,7 +123,7 @@ fingerprint: 810f2016894417bc
 
 # Station management dashboard
 
-The signed-in web shell for one broadcaster: the sidebar, top bar, status band and phone tab bar, the station Overview, Your shows, station create/edit/delete, and the Station settings and Account pages. Everything is drawn with the dashboard design system (`components/ds/`, tokens in `client/app/dashboard.css`); `components/ui` is the marketing kit and only five of its primitives (skeleton, sidebar, slider, scroll-area, avatar) are used here, enforced by lint (see [Dev environment and testing](dev-environment-and-testing.md)). **A user has one station.** The client enforces that by always resolving "the" station as the oldest one the account owns (`client/lib/station-server.ts` `getMyStation`). The API does **not** enforce it: the plan row still allows one station on Free and five on Pro (`plans.max_stations`, created in `2026_04_16_131050_create_plans_table.php`, never lowered by a later migration). The UI hides that, so a second station made by API is invisible in the dashboard.
+The signed-in web shell for one broadcaster: the sidebar, top bar, status band and phone tab bar, the station Overview, Live history, station create/edit/delete, and the Station settings and Account pages. Everything is drawn with the dashboard design system (`components/ds/`, tokens in `client/app/dashboard.css`); `components/ui` is the marketing kit and only five of its primitives (skeleton, sidebar, slider, scroll-area, avatar) are used here, enforced by lint (see [Dev environment and testing](dev-environment-and-testing.md)). **A user has one station.** The client enforces that by always resolving "the" station as the oldest one the account owns (`client/lib/station-server.ts` `getMyStation`). The API does **not** enforce it: the plan row still allows one station on Free and five on Pro (`plans.max_stations`, created in `2026_04_16_131050_create_plans_table.php`, never lowered by a later migration). The UI hides that, so a second station made by API is invisible in the dashboard.
 
 Other things that surprise people:
 
@@ -147,11 +147,11 @@ All under `client/app/dashboard/`. Every route is inside `layout.tsx` and `error
 | `/dashboard/stations/{slug}/settings` | `.../settings/page.tsx` | Station settings (below). Anchors `#links` and `#show-times` are deep-linked from the top bar's setup menu and elsewhere. |
 | `/dashboard/stations/{slug}/live`, `/studio`, `/studio/wrap` | own docs | Go live, the studio and "That's a wrap". The sidebar's Studio item and the band link here. |
 | `.../library`, `.../playlists`, `.../schedule`, `.../audience` | own docs | Library, Playlists, Schedule, Audience. Library and Playlists are the two AutoDJ pages ([Library and playlists](library-and-playlists.md)). |
-| `/dashboard/broadcasts` | `broadcasts/page.tsx` | **Your shows** (below). |
+| `/dashboard/broadcasts` | `broadcasts/page.tsx` | **Live history** (below). |
 | `/dashboard/settings` | `settings/page.tsx` | **Account** page (not station settings). Tab title "Account" via `settings/layout.tsx`. |
 | `/dashboard/design-system` | `design-system/page.tsx` | The ds component gallery; `notFound()` in production. |
 
-Per-station pages call `apiFetch('/stations/{slug}')` themselves and treat **403 and 404 the same**: `notFound()`. Rationale in code: a 403 from `StationPolicy::view` should not confirm that someone else's slug exists. A 401 goes to `/auth/login?expired=1` through `redirectIfSessionExpired(err)` (`client/lib/api-server.ts`), which the dashboard layout, the Overview, Station settings and Your shows call in their catch blocks; it is deliberately not inside `apiFetch`, because the public station page shares it and a listener must never land on a login form. `?expired=1` also gets past the proxy's "already signed in" bounce. Any other failure (timeout after 10 s, 5xx) is logged and rethrown to `error.tsx` (`apiFetch`: `TIMEOUT_MS = 10_000`, `no-store`, bearer token from the `token` cookie). The browser-side axios instance (`client/lib/axios.ts`) does: any 401 outside `/login`/`/register` runs `clearAuth()` and navigates in-app (`lib/navigation.ts` `navigate`, no reload) to `/auth/login?expired=1`, at most once per 2 s; a 403 with `code: "email_unverified"` toasts "Verify your email to continue.".
+Per-station pages call `apiFetch('/stations/{slug}')` themselves and treat **403 and 404 the same**: `notFound()`. Rationale in code: a 403 from `StationPolicy::view` should not confirm that someone else's slug exists. A 401 goes to `/auth/login?expired=1` through `redirectIfSessionExpired(err)` (`client/lib/api-server.ts`), which the dashboard layout, the Overview, Station settings and Live history call in their catch blocks; it is deliberately not inside `apiFetch`, because the public station page shares it and a listener must never land on a login form. `?expired=1` also gets past the proxy's "already signed in" bounce. Any other failure (timeout after 10 s, 5xx) is logged and rethrown to `error.tsx` (`apiFetch`: `TIMEOUT_MS = 10_000`, `no-store`, bearer token from the `token` cookie). The browser-side axios instance (`client/lib/axios.ts`) does: any 401 outside `/login`/`/register` runs `clearAuth()` and navigates in-app (`lib/navigation.ts` `navigate`, no reload) to `/auth/login?expired=1`, at most once per 2 s; a 403 with `code: "email_unverified"` toasts "Verify your email to continue.".
 
 ## The shell (`layout.tsx`)
 
@@ -191,10 +191,10 @@ One list, `NAV_ITEMS`, drives the sidebar, the phone tab bar and the top bar's b
 | AutoDJ › Playlists | `.../playlists` | `/dashboard` | (group) AutoDJ |
 | AutoDJ › Schedule | `.../schedule` (AutoDJ slots only; show times are in Station settings) | `/dashboard` | (group) AutoDJ |
 | Audience | `.../audience` | `/dashboard` | Audience |
-| Your shows | `/dashboard/broadcasts` | same | |
+| Live history | `/dashboard/broadcasts` | same | |
 | Settings (station) | `.../settings` | `/dashboard` | |
 
-`activeNav(pathname)` maps `/dashboard` and a bare station path to Overview, `/dashboard/library` to Library, `/dashboard/broadcasts` to Your shows, and the station sub-segment through `SEGMENT_TO_KEY` (`live`/`studio` Studio, `library`, `playlists`, `schedule`, `audience`, `settings`); anything else is null (no item lit). `inAutoDj(key)` says whether a key is one of the three AutoDJ sections (`AUTODJ_ITEMS`). `pageLabel` gives the breadcrumb's page name: null on the overview, "Account" for `/dashboard/settings`, "Design system" for the gallery, else the item's label. Covered by `lib/dashboardNav.test.ts`.
+`activeNav(pathname)` maps `/dashboard` and a bare station path to Overview, `/dashboard/library` to Library, `/dashboard/broadcasts` to Live history, and the station sub-segment through `SEGMENT_TO_KEY` (`live`/`studio` Studio, `library`, `playlists`, `schedule`, `audience`, `settings`); anything else is null (no item lit). `inAutoDj(key)` says whether a key is one of the three AutoDJ sections (`AUTODJ_ITEMS`). `pageLabel` gives the breadcrumb's page name: null on the overview, "Account" for `/dashboard/settings`, "Design system" for the gallery, else the item's label. Covered by `lib/dashboardNav.test.ts`.
 
 ### Sidebar (`AppSidebar.tsx`)
 
@@ -281,9 +281,9 @@ Controls: **Go live now** (to `.../live`; disabled while running and the status 
 
 The next three things on the station (`lib/comingUp.ts`, `comingUp.test.ts`): each show time's next occurrence (yours, live) and AutoDJ's next slot change (`programme.next`, violet), in the station's timezone as "Today 21:00" / "Tomorrow 09:00" / "Fri 18:00". Rendered after mount (the clock). The header link goes to Show times when there are none, else to Schedule.
 
-## Your shows (`/dashboard/broadcasts`)
+## Live history (`/dashboard/broadcasts`)
 
-Server component (`broadcasts/page.tsx`, tab title "Your shows"). Fetches `/stations/{slug}/sessions?finished=1` for the resolved station; **any** failure becomes `notFound()`. Empty (or no station): the page title, "Nothing here yet…" and a **Go live** button (or "Create your station").
+Server component (`broadcasts/page.tsx`, tab title "Live history"). Fetches `/stations/{slug}/sessions?finished=1` for the resolved station; **any** failure becomes `notFound()`. Empty (or no station): the page title, "Nothing here yet…" and a **Go live** button (or "Create your station").
 
 Otherwise the header reads "{n} shows · {airtime} live in total." from the API's `summary` (every finished show, not just the page; only page 1 of the paginator carries it), followed by one trend sentence from `lib/showsTrend.ts` (`showsTrend.test.ts`): the latest ≤5 shows against the ≤5 before, only with at least 3 on each side and a change of 15% or more (a peak change must also be at least one listener), e.g. "Your recent shows run shorter but draw more listeners at their peak." Nothing is said about how long people stay; that isn't measured.
 
@@ -463,7 +463,7 @@ Model `App\Models\Station` (`HasUuids` string primary key, `SoftDeletes`, `LogsA
 | `GET /stations/{slug}` | `show` | owner (`view`) | Loads `streamSessions` (all rows, to compute stats), `schedules`, `autodjSlots.playlist`, `defaultPlaylist`; adds `encoder`, `programme`, `stats` |
 | `PUT /stations/{slug}` (also PATCH) | `update` | owner | Profile, links, timezone, jingles |
 | `DELETE /stations/{slug}` | `destroy` | owner | Soft delete |
-| `GET /stations/{slug}/sessions` | `StreamSessionController::index` | owner | `latest('started_at')->paginate(20)`; `?finished=1` leaves out the open session. Paginator JSON (top-level `data`, `total`, `current_page`, `last_page`) plus, **on page 1 only**, `summary: { shows, live_seconds }` over every finished session (it scans the whole history, and "Show more" pages have no use for it). Used by the Overview, Your shows and the mobile station screen |
+| `GET /stations/{slug}/sessions` | `StreamSessionController::index` | owner | `latest('started_at')->paginate(20)`; `?finished=1` leaves out the open session. Paginator JSON (top-level `data`, `total`, `current_page`, `last_page`) plus, **on page 1 only**, `summary: { shows, live_seconds }` over every finished session (it scans the whole history, and "Show more" pages have no use for it). Used by the Overview, Live history and the mobile station screen |
 | `POST /stations/{slug}/sessions`, `DELETE /stations/{slug}/sessions/{id}` | `store`, `destroy` | owner (`update`) | Routed but **called by nothing in the web client or mobile app** (reserved for a desktop client): `store` refuses with 409 `station_already_live` when another device or an encoder session holds the mount and dispatches the live notification after 2 minutes; `destroy` ends the session and clears `metadata:{id}` |
 | `POST /upload/{type}` (`images` or `sounds`) | `UploadController` | sanctum, verified, `throttle:uploads` (20/min per user, `AppServiceProvider`) | Artwork file to `storage/uploads/images`, returns `data.url`. `sounds` (mp3/wav/ogg/flac/aac, 50 MB) is the same endpoint; the dashboard only uses `images` |
 | `GET /stations/{slug}/status`, `POST .../start`, `.../stop` | other controllers | owner | [Station lifecycle](station-lifecycle.md) |

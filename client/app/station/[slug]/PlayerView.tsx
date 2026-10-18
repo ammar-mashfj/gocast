@@ -14,7 +14,6 @@ import {
   IconBroadcast,
   IconHeart,
   IconHeartFilled,
-  IconCalendarClock,
   IconRosetteDiscountCheckFilled,
   IconX,
 } from "@tabler/icons-react"
@@ -33,7 +32,6 @@ import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
 import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
 import { NotifyMeForm } from "./NotifyMeForm"
-import { ScheduleList } from "./ScheduleBlock"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -375,10 +373,9 @@ const PANEL_SURFACE = "border border-[#2a2344] bg-[#161228]/95 text-sm text-fore
  * Which form depends on the screen, because the right answer genuinely
  * differs. On a phone a centred box puts its content and its close button in
  * the middle and top of a tall screen, the two places a thumb reaches worst,
- * so the panel is anchored to the bottom edge instead — beside the dock the
- * schedule was opened from. On a laptop that same panel would stretch the full
- * width of the window to hold three rows of a timetable, so there it is a
- * centred dialog sized to its contents.
+ * so the panel is anchored to the bottom edge instead, beside the dock. On a
+ * laptop that same panel would stretch the full width of the window to hold a
+ * few rows, so there it is a centred dialog sized to its contents.
  *
  * Both are the same Radix primitive underneath — `Sheet` is `Dialog` anchored
  * to an edge — so focus trapping, Escape, and the overlay behave identically
@@ -473,7 +470,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const [recentTracks, setRecentTracks] = useState<{ title: string; artist: string | null; at: number }[]>([])
   const [justPlayedOpen, setJustPlayedOpen] = useState(false)
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [descOpen, setDescOpen] = useState(false)
   const [descClamped, setDescClamped] = useState(false)
   const descRef = useRef<HTMLParagraphElement | null>(null)
@@ -1121,10 +1117,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         </p>
       </StationSheet>
 
-      <StationSheet open={scheduleOpen} onOpenChange={setScheduleOpen} title="Weekly schedule">
-        <ScheduleList schedules={station.schedules ?? []} timezone={station.timezone} />
-      </StationSheet>
-
       <StationSheet open={justPlayedOpen} onOpenChange={setJustPlayedOpen} title="Just played">
         <ol className="flex list-none flex-col gap-0 pl-0">
           {recentTracks.slice(0, MAX_RECENT_TRACKS).map((t, i) => (
@@ -1208,30 +1200,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
               <VolumeControl audioRef={audioRef} />
             </div>
 
-            {/* The way into the schedule, at every width — no next-live line
-                beside it any more. That line was a second date and time on a
-                bar whose job is the current track, and it had to be arranged
-                differently at each breakpoint to fit. What a reader wants from
-                it is the week, which is one press away either way.
-
-                Label collapses to the icon below 520px: spelled out it costs
-                roughly a third of the dock's width, and the track title is
-                what should have that room. */}
-            {(station.schedules ?? []).length > 0 && (
-              <button
-                type="button"
-                onClick={() => setScheduleOpen(true)}
-                aria-label="Full schedule"
-                // Collapsed to its icon, the hit area would be 16×24 — well
-                // under the ~44px a thumb needs, and on the one layout that is
-                // only ever touched. The square below 520px is the tap target,
-                // not the glyph.
-                className={`${MICRO} flex cursor-pointer items-center gap-2 border-0 border-l border-[#2a2344] bg-transparent py-1 pl-5 tracking-[0.14em] text-violet-muted transition-colors hover:text-violet @max-[520px]/player:size-11 @max-[520px]/player:justify-center @max-[520px]/player:border-l-0 @max-[520px]/player:p-0`}
-              >
-                <IconCalendarClock size={16} stroke={1.75} />
-                <span className="@max-[520px]/player:sr-only">Full schedule</span>
-              </button>
-            )}
           </div>
 
           <div className="flex items-center justify-between gap-3 px-1.5 text-[13px] text-muted-foreground @max-[520px]/player:justify-center">

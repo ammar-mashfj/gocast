@@ -66,8 +66,7 @@ export default function Body() {
       <h2>Jingles</h2>
       <p>
         Station idents, liners and stings are uploaded as jingles rather than
-        as music, from the <strong>Jingles</strong>{" "}button on the Library
-        page. They are not playlist members and have no running order: they
+        as music, on the <strong>Jingles</strong>{" "}page under AutoDJ. They are not playlist members and have no running order: they
         drop in between songs, picked at random, as often as you set &mdash;
         every few songs, every so many minutes, or at set times past the hour.
       </p>

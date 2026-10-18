@@ -11,12 +11,12 @@ import { PageHeader } from "@/components/ds/PageHeader"
 import { ShowsList, type ShowsPage } from "@/components/dashboard/shows/ShowsList"
 import { ShowsChart, type RecentShow } from "@/components/dashboard/shows/ShowsChart"
 
-export const metadata: Metadata = { title: "Your shows" }
+export const metadata: Metadata = { title: "Live history" }
 
 type SessionsResponse = ShowsPage & { summary: { shows: number; live_seconds: number }; recent?: RecentShow[] }
 
 /**
- * Your shows: every time someone was on the mic, newest first. AutoDJ airs
+ * Live history: every time someone was on the mic, newest first. AutoDJ airs
  * write no rows (see StreamSession), so this is live time only.
  *
  * The summary counts every past show (the API adds it up), and the trend
@@ -42,7 +42,7 @@ export default async function YourShowsPage() {
     return (
       <div className="flex flex-col items-start gap-5">
         <PageHeader
-          title="Your shows"
+          title="Live history"
           description="Nothing here yet. Every time you go live, the show lands here with how long you were on and the most people listening at once."
         />
         <Button asChild>
@@ -63,9 +63,10 @@ export default async function YourShowsPage() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title="Your shows"
+        title="Live history"
         description={
           <>
+            Every time you went live (not AutoDJ).{" "}
             <span className="tabular-nums">
               {shows} {shows === 1 ? "show" : "shows"} · {formatAirtime(live_seconds)} live in total.
             </span>

@@ -362,3 +362,18 @@ html, body, #root {
   border-top: 1px solid var(--border);
   padding-top: 1.5rem;
 }
+
+/* Radix locks page scroll while a menu, select or sheet is open
+   (react-remove-scroll) and pads the body by innerWidth − clientWidth to
+   stand in for the scrollbar it hides. A phone has no scrollbar to stand in
+   for, but on some Android Chrome setups that difference still comes out
+   around 30–40px, so every open menu shrank the page and pushed full-width
+   sheets off the right edge. Touch screens use overlay scrollbars, so the
+   pad is never right there. `html body` outranks the injected rule, which
+   is added after this stylesheet. */
+@media (pointer: coarse) {
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
+}

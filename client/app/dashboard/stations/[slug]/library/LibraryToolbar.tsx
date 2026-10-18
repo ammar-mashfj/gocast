@@ -44,17 +44,23 @@ export function LibraryToolbar<S extends string>({
         />
         {found !== null && <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{found} found</span>}
       </label>
-      <Select aria-label="Sort tracks" value={sort} onChange={onSort} options={sorts} className="h-11 w-44" />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="subtle" size="icon" className="size-11" aria-label={menuLabel}>
-            <IconDots />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {menu}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Below sm the sort and ⋯ get a row of their own, so the sort fills it. */}
+      <div className="flex gap-2.5 max-sm:w-full">
+        <Select aria-label="Sort tracks" value={sort} onChange={onSort} options={sorts} className="h-11 flex-1 sm:w-44 sm:flex-none" />
+        {/* Nothing to offer (no untagged tracks), no ⋯ at all. */}
+        {menu && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="subtle" size="icon" className="size-11 shrink-0" aria-label={menuLabel}>
+                <IconDots />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              {menu}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </div>
   )
 }

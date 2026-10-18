@@ -102,20 +102,17 @@ export default function Body() {
 
       <h2>Timezone</h2>
       <p>
-        Slots use your station’s timezone, which you set in Station settings,
-        under <strong>When you’re usually live</strong>. The Schedule page
-        shows it, with a <strong>Change</strong>{" "}link that takes you there. Set it before you build a schedule;
-        changing it afterwards moves every slot at once.
+        Slots use your station’s timezone, shown at the top of the Schedule
+        page. Press <strong>Change</strong>{" "}beside it to pick another. Set
+        it before you build a schedule; changing it afterwards moves every slot
+        at once.
       </p>
 
-      <h2>This Is Not Show Times</h2>
+      <h2>Your Live Shows</h2>
       <p>
-        Show times live in Station settings, not here. They are advertising
-        &mdash; text listeners read on your player page. Slots are what your
-        station actually plays, and listeners never see them. You don&#39;t
-        need to add your live shows to the schedule: going live takes over from
-        any slot, and they appear on the week view anyway, as grey dashed
-        marks labelled YOU.
+        Slots are what your station plays when you&#39;re not live, and
+        listeners never see them. You don&#39;t need to add your live shows to
+        the schedule: going live takes over from any slot.
       </p>
       <p>
         There is a{" "}

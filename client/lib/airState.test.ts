@@ -77,15 +77,32 @@ describe("airState — from the poll", () => {
     expect(airState(input({ status: off, autoDjLocked: true }))).toMatchObject({ action: "go-live" })
   })
 
-  it("names the AutoDJ track and offers Go live", () => {
+  it("names the AutoDJ track and offers no action", () => {
     expect(airState(input())).toMatchObject({
       tone: "onair",
       label: "ON AIR · AUTODJ",
       message: "AutoDJ is playing Neon Rain by Koto Blue.",
-      action: "go-live",
+      action: null,
       onAir: true,
     })
     expect(airState(input({ status: status({ now_playing: null }) })).message).toBe("AutoDJ is playing.")
+  })
+
+  it("names the empty default playlist and opens it", () => {
+    const quiet = status({ source: "silence", now_playing: null, playlist: { id: "p1", name: "Test", scheduled: false }, playlist_length: 0 })
+    expect(airState(input({ status: quiet }))).toMatchObject({
+      tone: "warn",
+      label: "SILENCE",
+      message: "Your default playlist, Test, is empty. Listeners hear silence.",
+      short: "Playlist is empty.",
+      action: "open-playlist",
+      playlistId: "p1",
+    })
+  })
+
+  it("names an empty scheduled playlist as scheduled", () => {
+    const quiet = status({ source: "silence", now_playing: null, playlist: { id: "p2", name: "Morning drive", scheduled: true }, playlist_length: 0 })
+    expect(airState(input({ status: quiet })).message).toBe("The scheduled playlist, Morning drive, is empty. Listeners hear silence.")
   })
 
   it("warns when AutoDJ has nothing to play", () => {

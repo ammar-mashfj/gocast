@@ -24,6 +24,7 @@ export type AirAction =
   | "open-studio"
   | "close-mic"
   | "add-tracks"
+  | "open-playlist"
 
 export interface AirState {
   tone: AirTone
@@ -40,6 +41,8 @@ export interface AirState {
   short?: string
   /** The band's button, if it has one. */
   action: AirAction | null
+  /** For "open-playlist": the playlist to open. */
+  playlistId?: string
   /** On air in any form: the listener count means something. */
   onAir: boolean
   /** This tab is broadcasting: the band shows the uptime and the transport. */
@@ -197,13 +200,36 @@ export function airState(input: AirInput): AirState {
         action: "go-live",
       }
     }
+    // The playlist AutoDJ should be playing is empty: name it, and open it.
+    // Not "add tracks": the library may be full and the default (or a slot)
+    // pointed at an empty playlist. An empty library lands here too, and the
+    // playlist page's Add tracks uploads straight into it.
+    const playlist = status.playlist
+    if (playlist && status.playlist_length === 0) {
+      return {
+        onAir: true,
+        broadcasting: false,
+        tone: "warn",
+        label: "SILENCE",
+        message: playlist.scheduled
+          ? `The scheduled playlist, ${playlist.name}, is empty. Listeners hear silence.`
+          : `Your default playlist, ${playlist.name}, is empty. Listeners hear silence.`,
+        // Phones and tablets: a name can be any length, and the page the
+        // button opens shows it.
+        short: "Playlist is empty.",
+        action: "open-playlist",
+        playlistId: playlist.id,
+      }
+    }
     return {
       onAir: true,
       broadcasting: false,
       tone: "warn",
       label: "SILENCE",
       message: "AutoDJ is on but has nothing to play. Listeners hear silence.",
-      short: "AutoDJ has nothing to play.",
+      // Phones and tablets: the lamp says SILENCE and the button says Add
+      // tracks, so two words carry the rest and the band stays one row.
+      short: "Nothing to play.",
       action: "add-tracks",
     }
   }
@@ -215,7 +241,10 @@ export function airState(input: AirInput): AirState {
       : np?.title
         ? `AutoDJ is playing ${np.title}.`
         : "AutoDJ is playing."
-  return { onAir: true, broadcasting: false, tone: "onair", label: "ON AIR · AUTODJ", message, short: "AutoDJ is playing.", action: "go-live" }
+  // short "": the lamp already says AUTODJ; on phones the sentence only crowded the row.
+  // No action: "Go live" beside an on-air lamp reads as "you're not on air";
+  // the Overview card offers "Go live over AutoDJ" instead.
+  return { onAir: true, broadcasting: false, tone: "onair", label: "ON AIR · AUTODJ", message, short: "", action: null }
 }
 
 /** Button text for each band action. */
@@ -225,4 +254,5 @@ export const AIR_ACTION_LABEL: Record<AirAction, string> = {
   "open-studio": "Open studio",
   "close-mic": "Close mic",
   "add-tracks": "Add tracks",
+  "open-playlist": "Open playlist",
 }

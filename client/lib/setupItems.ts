@@ -26,7 +26,6 @@ export function setupItems(station: Station, trackCount: number, hasListeners: b
     ...(autoDjLocked
       ? []
       : [{ key: "tracks", done: trackCount > 0, title: "Fill AutoDJ’s playlist", hint: "It plays whenever you’re not live. Empty, the station plays silence.", href: `${base}/library` }]),
-    { key: "schedule", done: (station.schedules?.length ?? 0) > 0, title: "Set your show times", hint: "So listeners know when to come back.", href: `${base}/settings#show-times` },
     { key: "links", done: (station.social_links?.length ?? 0) > 0, title: "Add your social links", hint: "So listeners can follow you between shows.", href: `${base}/settings#links` },
     { key: "listener", done: hasListeners, title: "Get your first listener", hint: "Share your link. Nobody has tuned in yet." },
   ]

@@ -64,7 +64,7 @@ interface Props {
   onSetDefault: () => void
   onDelete: () => void
   belowToolbar?: React.ReactNode
-  /** Library-wide items (Jingles, Fix tags) appended to this view's ⋯ menu. */
+  /** Library-wide items (Fix tags) appended to this view's ⋯ menu. */
   menuItems?: React.ReactNode
 }
 

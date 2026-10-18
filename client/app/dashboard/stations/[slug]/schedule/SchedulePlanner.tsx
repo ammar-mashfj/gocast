@@ -23,8 +23,8 @@ import { AutoDjUpsell } from "../library/AutoDjUpsell"
 import { DayList } from "./DayList"
 import { ScheduleNow } from "./ScheduleNow"
 import { SlotPanel } from "./SlotPanel"
-import { DAY_SHORT, SWATCHES, WEEK_ORDER, WeekGrid } from "./WeekGrid"
-import { weekDates } from "./weekDates"
+import { TimezoneDialog } from "./TimezoneDialog"
+import { DAY_SHORT, SWATCHES, WeekGrid } from "./WeekGrid"
 import {
   DAY_MINUTES,
   explode,
@@ -84,9 +84,8 @@ function stationNow(timeZone: string): { day: number; minute: number; label: str
  * Nothing saves until Save is pressed, then as the same full-list PUT as
  * before — see weekModel for how blocks become rows.
  *
- * Show times are not edited here. They only tell listeners when you're on and
- * program nothing, so they live in Station settings with the timezone and are
- * drawn here as dashed marks: going live takes over from any slot.
+ * The station timezone is edited here (TimezoneDialog), its only editor: only
+ * AutoDJ depends on it.
  *
  * Below `md` the grid gives way to the phone layout the Android app uses, a
  * day strip and the chosen day's rows (DayList); the blocks, the dialog and
@@ -97,8 +96,8 @@ function stationNow(timeZone: string): { day: number; minute: number; label: str
 export function SchedulePlanner({ station, playlists }: Props) {
   const locked = useAutoDjLocked()
   const mounted = useMounted()
-  const timezone = station.timezone
-  const settingsHref = `/dashboard/stations/${station.slug}/settings#show-times`
+  const [timezone, setTimezone] = useState(station.timezone)
+  const [zoneOpen, setZoneOpen] = useState(false)
 
   const [blocks, setBlocks] = useState<Block[]>(() => explode(station.autodj_slots ?? []))
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -149,8 +148,8 @@ export function SchedulePlanner({ station, playlists }: Props) {
     setSaveError(null)
     try {
       const { data } = await api.put<{ data: Station }>(`/stations/${station.slug}/autodj-slots`, {
-        // No `timezone`: it is set in Station settings, and the API keeps
-        // the station's when this is omitted.
+        // No `timezone`: TimezoneDialog saves it on its own, and the API
+        // keeps the station's when this is omitted.
         slots: merge(sending),
       })
       setSaved(snapshot(sending))
@@ -272,12 +271,6 @@ export function SchedulePlanner({ station, playlists }: Props) {
     </Button>
   )
 
-  // Day labels' dates, on the station's calendar, for the grid.
-  const dates = mounted
-    ? Object.fromEntries(
-        weekDates(timezone).map((d, i) => [WEEK_ORDER[i], d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }).toUpperCase()]),
-      )
-    : undefined
   const usedPlaylists = playlists.filter((p) => !p.is_default && blocks.some((b) => b.playlistId === p.id))
 
   return (
@@ -292,9 +285,11 @@ export function SchedulePlanner({ station, playlists }: Props) {
             {saveLamp}
             <span className="inline-flex items-center gap-2 font-mono text-caption tracking-widest text-text-faint uppercase">
               {timezone ?? "No timezone"}
-              <Link href={settingsHref} className="font-sans text-body-sm font-semibold tracking-normal text-violet-muted normal-case hover:underline">
-                {timezone ? "Change" : "Set timezone"}
-              </Link>
+              {!locked && (
+                <button type="button" onClick={() => setZoneOpen(true)} className="cursor-pointer font-sans text-body-sm font-semibold tracking-normal text-violet-muted normal-case hover:underline">
+                  {timezone ? "Change" : "Set timezone"}
+                </button>
+              )}
             </span>
             {!locked && (
               <Button
@@ -318,11 +313,22 @@ export function SchedulePlanner({ station, playlists }: Props) {
       {saveState === "no-timezone" && (
         <Notice label="No timezone">
           Your station needs a timezone before slots can be saved.{" "}
-          <Link href={settingsHref} className="underline underline-offset-2">Set it in Station settings</Link>.
+          <button type="button" onClick={() => setZoneOpen(true)} className="cursor-pointer underline underline-offset-2">Set it now</button>.
         </Notice>
       )}
 
-      <ScheduleNow slug={station.slug} locked={locked} programme={programme} timezone={timezone} defaultName={defaultPlaylist?.name ?? null} shows={station.schedules ?? []} settingsHref={settingsHref} />
+      <TimezoneDialog
+        open={zoneOpen}
+        onOpenChange={setZoneOpen}
+        slug={station.slug}
+        current={timezone}
+        onSaved={(saved) => {
+          setTimezone(saved.timezone)
+          setProgramme(saved.programme ?? null)
+        }}
+      />
+
+      <ScheduleNow slug={station.slug} locked={locked} programme={programme} timezone={timezone} defaultName={defaultPlaylist?.name ?? null} />
 
       <Dialog open={selected !== null && !locked} onOpenChange={(open) => !open && setSelectedKey(null)}>
         <DialogContent>
@@ -346,7 +352,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
 
       <Card aria-labelledby="schedule-week">
         <CardHeader
-          title={<span id="schedule-week">This week</span>}
+          title={<span id="schedule-week">Every week</span>}
           aside={!locked && <span className="hidden md:inline">Click an empty hour to add a slot, or drag to draw one. Click a slot to change it.</span>}
         />
 
@@ -355,14 +361,11 @@ export function SchedulePlanner({ station, playlists }: Props) {
         <div className="md:hidden">
           <DayList
             blocks={locked ? [] : blocks}
-            shows={station.schedules ?? []}
-            showsHref={settingsHref}
             playlists={playlists}
             swatchFor={swatchFor}
             nameFor={nameFor}
             overlaps={overlaps}
             now={mounted && now ? { day: now.day, minute: now.minute } : null}
-            timezone={timezone}
             mounted={mounted}
             locked={locked}
             readOnly={locked || noPlaylists}
@@ -373,15 +376,12 @@ export function SchedulePlanner({ station, playlists }: Props) {
         <div className="hidden md:block">
           <WeekGrid
             blocks={locked ? [] : blocks}
-            shows={station.schedules ?? []}
-            showsHref={settingsHref}
             swatchFor={swatchFor}
             nameFor={nameFor}
             selectedKey={selectedKey}
             siblings={siblings}
             overlaps={overlaps}
             now={mounted && now ? { day: now.day, minute: now.minute } : null}
-            dates={dates}
             readOnly={locked || noPlaylists}
             onSelect={setSelectedKey}
             onCreate={create}
@@ -401,13 +401,6 @@ export function SchedulePlanner({ station, playlists }: Props) {
               {p.name}
             </span>
           ))}
-          {(station.schedules ?? []).length > 0 && (
-            <span className="inline-flex items-center gap-2">
-              <span aria-hidden className="size-3 rounded-swatch border-stroke border-dashed border-foreground/40" />
-              Your show times ·{" "}
-              <Link href={settingsHref} className="text-violet-muted hover:underline">edit</Link>
-            </span>
-          )}
         </div>
 
         {!locked && noPlaylists && (

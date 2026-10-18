@@ -1,9 +1,7 @@
 "use client"
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
-import Link from "next/link"
 import { cn } from "@/lib/utils"
-import type { StationSchedule } from "@/interfaces/Station"
 import { SWATCHES, type Swatch } from "@/lib/playlistSwatches"
 import {
   DAY_MINUTES,
@@ -14,7 +12,6 @@ import {
   fromSpan,
   segments,
   toClock,
-  toMinutes,
   weekSpan,
   type Block,
 } from "./weekModel"
@@ -30,8 +27,6 @@ export { SWATCHES, type Swatch }
 
 interface Props {
   blocks: Block[]
-  shows: StationSchedule[]
-  showsHref: string
   swatchFor: (playlistId: string) => Swatch
   nameFor: (block: Block) => string
   selectedKey: string | null
@@ -40,8 +35,6 @@ interface Props {
   overlaps: Set<string>
   /** Station-clock "now", or null before mount / without a timezone. */
   now: { day: number; minute: number } | null
-  /** "1 OCT" under each weekday, on the station's clock; absent before mount. */
-  dates?: Record<number, string>
   readOnly: boolean
   onSelect: (key: string) => void
   /** A new slot on `day`, as a week-minute span. */
@@ -88,21 +81,15 @@ type CreateDrag = {
  * mornings and weekend mornings can differ without any setting for it.
  * Everything snaps to 15 minutes and stops at the neighbouring slot, because
  * the server refuses overlaps.
- *
- * Show times are drawn as dashed marks for context — going live takes over
- * from any slot — and link to Station settings, where they are edited.
  */
 export function WeekGrid({
   blocks,
-  shows,
-  showsHref,
   swatchFor,
   nameFor,
   selectedKey,
   siblings,
   overlaps,
   now,
-  dates,
   readOnly,
   onSelect,
   onCreate,
@@ -238,7 +225,9 @@ export function WeekGrid({
                 <span className={cn("font-mono text-caption font-semibold tracking-widest uppercase", isToday ? "text-foreground" : "text-muted-foreground")}>
                   {DAY_SHORT[day]}
                 </span>
-                {dates?.[day] && <span className="font-mono text-micro text-text-faint">{dates[day]}</span>}
+                {/* No dates: slots repeat every week, and "20 OCT" read as a
+                    one-off. Today is the one tie to the calendar. */}
+                {isToday && <span className="font-mono text-micro font-semibold tracking-widest text-on-air-text uppercase">Today</span>}
               </span>
               <div
                 data-day-row
@@ -347,22 +336,6 @@ export function WeekGrid({
                     {toClock(ghost.from)}–{toClock(ghost.to)}
                   </div>
                 )}
-
-                {shows
-                  .filter((show) => show.days.includes(day))
-                  .map((show) => (
-                    <Link
-                      key={`${show.id}-${day}`}
-                      href={showsHref}
-                      title={`${show.label ?? "Show time"} · ${show.start_time}. Edit in Station settings.`}
-                      // Your show times: a dashed outline marked YOU (the prototype's),
-                      // not red — red is "live right now", and these are plans.
-                      className="absolute inset-y-1.25 z-20 flex min-w-10 items-center justify-center rounded-chip border-stroke border-dashed border-foreground/40 bg-surface-inset/85 px-1 eyebrow-sm text-muted-foreground hover:border-foreground/70"
-                      style={{ left: pct(toMinutes(show.start_time)) }}
-                    >
-                      YOU
-                    </Link>
-                  ))}
 
                 {isToday && now && (
                   <span

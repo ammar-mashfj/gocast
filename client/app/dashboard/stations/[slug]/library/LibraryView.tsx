@@ -18,7 +18,6 @@ import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { AllTracksView } from "./AllTracksView"
 import { AutoDjUpsell } from "./AutoDjUpsell"
 import { FixTagsDialog } from "./FixTagsDialog"
-import { JinglesDialog } from "./JinglesDialog"
 import { PlaylistNameDialog, type NameDialog } from "./PlaylistNameDialog"
 import { PlaylistRail } from "./PlaylistRail"
 import { PlaylistView } from "./PlaylistView"
@@ -43,17 +42,19 @@ export function LibraryView({
   initialTracks,
   initialMeta,
   initialPlaylists,
+  openPlaylistId,
 }: {
   page: LibraryPage
+  /** Playlists: open this one rather than the default. */
+  openPlaylistId?: string
   station: Station
   initialTracks: Track[]
   initialMeta: LibraryMeta
   initialPlaylists: Playlist[]
 }) {
-  const lib = useLibrary(page, station, initialTracks, initialMeta, initialPlaylists)
+  const lib = useLibrary(page, station, initialTracks, initialMeta, initialPlaylists, openPlaylistId)
   const { locked, currentPlaylist, defaultPlaylist } = lib
 
-  const [jinglesOpen, setJinglesOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [nameDialog, setNameDialog] = useState<NameDialog>(null)
   /** The library selection waiting for a playlist to be chosen; null = closed. */
@@ -63,21 +64,15 @@ export function LibraryView({
   const fileInput = useRef<HTMLInputElement>(null)
 
   const trackCount = `${lib.tracks.length} ${lib.tracks.length === 1 ? "track" : "tracks"}`
-  const stats = (
-    page === "library"
-      ? [
-          trackCount,
-          lib.totalSeconds > 0 ? formatAirtime(Math.round(lib.totalSeconds)) : null,
-          // Free can hold a library but AutoDJ won't play it: said where the counts are.
-          locked ? "plays only on Pro" : null,
-          `${formatBytes(lib.meta.storage_used_bytes)} of ${formatBytes(lib.meta.storage_cap_bytes)}`,
-        ]
-      : [
-          `${lib.playlists.length} ${lib.playlists.length === 1 ? "playlist" : "playlists"}`,
-          `from ${trackCount}`,
-          locked ? "plays only on Pro" : null,
-        ]
-  ).filter(Boolean)
+  // Library only. Playlists had "2 playlists · from 2 tracks", which read as
+  // nonsense; the picker and the playlist's own header carry its numbers.
+  const stats = [
+    trackCount,
+    lib.totalSeconds > 0 ? formatAirtime(Math.round(lib.totalSeconds)) : null,
+    // Free can hold a library but AutoDJ won't play it: said where the counts are.
+    locked ? "plays only on Pro" : null,
+    `${formatBytes(lib.meta.storage_used_bytes)} of ${formatBytes(lib.meta.storage_cap_bytes)}`,
+  ].filter(Boolean)
 
   const untagged = lib.untaggedInView.length
 
@@ -93,32 +88,30 @@ export function LibraryView({
         className="h-0.75 rounded-none"
       />
       {untagged > 0 && !tagNoteDismissed && (
-        <div className="flex flex-wrap items-center gap-3 border-t border-line px-5.5 py-3 text-body-sm">
-          <span className="min-w-55 flex-1 text-muted-foreground">
+        // Phones: the sentence, then the two buttons sharing a row beneath it.
+        // From sm: one row, buttons on the right.
+        <div className="flex flex-col gap-3 border-t border-line px-5.5 py-3 text-body-sm sm:flex-row sm:items-center">
+          <span className="flex-1 text-pretty text-muted-foreground">
             {untagged} {untagged === 1 ? "track" : "tracks"}
             {currentPlaylist ? " in this playlist" : ""} {untagged === 1 ? "has" : "have"} no artist. Listeners see “Unknown artist”.
           </span>
-          <Button size="sm" variant="subtle" onClick={() => setFixTagsOpen(true)}>Fix tags</Button>
-          <Button size="sm" variant="quiet" onClick={() => setTagNoteDismissed(true)}>Dismiss</Button>
+          <div className="flex shrink-0 gap-2 max-sm:*:flex-1">
+            <Button size="sm" variant="subtle" onClick={() => setFixTagsOpen(true)}>Fix tags</Button>
+            <Button size="sm" variant="quiet" onClick={() => setTagNoteDismissed(true)}>Dismiss</Button>
+          </div>
         </div>
       )}
     </>
   )
 
-  // Library-wide actions, in each view's ⋯ menu.
-  const menuItems = (
-    <>
-      <DropdownMenuItem onClick={() => setJinglesOpen(true)} disabled={locked}>
-        Jingles
-        <span className="ml-auto">{locked ? <ProTag /> : station.jingles_enabled && <span className="text-caption text-text-faint">On</span>}</span>
-      </DropdownMenuItem>
-      {untagged > 0 && (
-        <DropdownMenuItem onClick={() => setFixTagsOpen(true)}>
-          Fix artist tags
-          <span className="ml-auto font-mono text-caption text-text-faint tabular-nums">{untagged}</span>
-        </DropdownMenuItem>
-      )}
-    </>
+  // Library-wide actions, in each view's ⋯ menu. Null when there are none,
+  // so the menu (or its separator) isn't drawn empty. Jingles moved to their
+  // own page.
+  const menuItems = untagged > 0 && (
+    <DropdownMenuItem onClick={() => setFixTagsOpen(true)}>
+      Fix artist tags
+      <span className="ml-auto font-mono text-caption text-text-faint tabular-nums">{untagged}</span>
+    </DropdownMenuItem>
   )
 
   return (
@@ -141,11 +134,12 @@ export function LibraryView({
             ? "Every track you’ve uploaded. AutoDJ plays them from your playlists whenever you’re not live."
             : "What AutoDJ plays, in order or shuffled. The default playlist plays whenever nothing else is scheduled."
         }
+        // Phones: Add tracks sits on its own row under the description, so
+        // it spans it.
+        actionsClassName="max-sm:w-full max-sm:*:flex-1"
         actions={
           !locked && (
             <>
-              {/* Jingles are uploaded files, so they sit with the library. */}
-              {page === "library" && <Button variant="ghost" onClick={() => setJinglesOpen(true)}>Jingles</Button>}
               <Button
                 onClick={() => fileInput.current?.click()}
                 disabled={lib.uploading}
@@ -158,7 +152,7 @@ export function LibraryView({
           )
         }
       />
-      <p className="-mt-3.5 font-mono text-body-sm tracking-wider text-text-faint uppercase">{stats.join(" · ")}</p>
+      {page === "library" && <p className="-mt-3.5 font-mono text-body-sm tracking-wider text-text-faint uppercase">{stats.join(" · ")}</p>}
 
       <input
         ref={fileInput}
@@ -199,7 +193,7 @@ export function LibraryView({
           />
         </DropZone>
       ) : (
-        <div className="flex min-w-0 flex-col items-stretch gap-5 md:flex-row md:items-start">
+        <div className="flex min-w-0 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:gap-5">
           <PlaylistRail
             playlists={lib.playlists}
             selected={lib.selected}
@@ -246,7 +240,6 @@ export function LibraryView({
         <HelpLink article="upload-your-music" label="file formats and size limits for uploads" className="align-middle" />
       </p>
 
-      <JinglesDialog open={jinglesOpen} onClose={() => setJinglesOpen(false)} station={station} onStorageChange={lib.applyStorageDelta} />
       <FixTagsDialog open={fixTagsOpen} onClose={() => setFixTagsOpen(false)} tracks={lib.untaggedInView} onSaved={lib.applyTagFixes} />
       {currentPlaylist && (
         <TrackPicker

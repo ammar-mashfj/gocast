@@ -36,7 +36,7 @@ export interface StatusBandProps {
   tone: AirTone
   label: string
   message: string
-  /** Used below sm in place of `message`, so the band stays one row. "" shows none there. */
+  /** Used below lg (phones and tablets) in place of `message`, so the band stays one row. "" shows none there. */
   shortMessage?: string
   /** Right-hand readouts: uptime, listener count. Mono. */
   meta?: React.ReactNode
@@ -71,8 +71,8 @@ export function StatusBand({ tone, label, message, shortMessage, meta, children,
       >
         {shortMessage !== undefined ? (
           <>
-            <span className="sm:hidden">{shortMessage}</span>
-            <span className="max-sm:hidden">{message}</span>
+            <span className="lg:hidden">{shortMessage}</span>
+            <span className="max-lg:hidden">{message}</span>
           </>
         ) : (
           message

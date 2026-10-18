@@ -63,6 +63,8 @@ export interface Hero {
   actions: HeroAction[]
   /** The stop button's words, and whether it asks first. */
   stop: { label: string; confirm: boolean }
+  /** Go live's words: over AutoDJ it takes over a station already on air. */
+  goLiveLabel: string
   /** Go live is offered but can't be used yet (status unknown while running). */
   goLiveDisabled: boolean
   /** Stop is offered but can't be used yet. */
@@ -187,7 +189,9 @@ export function stationHero(input: HeroInput): Hero {
               : null
       break
     case "on_air":
-      title = liveTailDraining ? "Your show has ended." : "Your station is playing itself."
+      // No AutoDJ headline: the lamp says ON AIR · AUTODJ and the track is
+      // right below, so the sentence (under the buttons) does the explaining.
+      title = liveTailDraining ? "Your show has ended." : null
       text = liveTailDraining
         ? "Listeners are hearing its last few seconds."
         : `AutoDJ is on${input.playlistName ? ` ${input.playlistName}` : ""}. It hands over when you go live, and takes back when you end.`
@@ -277,6 +281,7 @@ export function stationHero(input: HeroInput): Hero {
       // a silent station has nothing to cut off.
       confirm: headline === "on_air" && isAutoDj && !liveTailDraining,
     },
+    goLiveLabel: headline === "on_air" && isAutoDj ? "Go live over AutoDJ" : "Go live now",
     goLiveDisabled: isRunning && statusUnknown,
     stopDisabled: statusUnknown,
   }

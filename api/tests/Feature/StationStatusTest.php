@@ -232,8 +232,28 @@ it('serves the queue from the playlist a slot has put on air, not the default', 
         ->getJson("/api/stations/{$station->slug}/status")
         ->assertOk()
         ->assertJsonPath('data.playlist_length', 1)
+        // Named, so a silent station can say which playlist is empty.
+        ->assertJsonPath('data.playlist.id', $evening->id)
+        ->assertJsonPath('data.playlist.name', 'Evening')
+        ->assertJsonPath('data.playlist.scheduled', true)
         ->assertJsonPath('data.up_next.0.id', $slotTrack->id)
         ->assertJsonCount(1, 'data.up_next');
+});
+
+it('names the default playlist when no slot is on, even an empty one', function () {
+    $user = User::factory()->create();
+    $station = runningStation($user);
+    $default = $station->defaultPlaylist()->firstOrFail();
+
+    harborReturns(['ready' => true, 'source' => 'silence', 'title' => null, 'artist' => null]);
+
+    actingAs($user)
+        ->getJson("/api/stations/{$station->slug}/status")
+        ->assertOk()
+        ->assertJsonPath('data.playlist.id', $default->id)
+        ->assertJsonPath('data.playlist.name', $default->name)
+        ->assertJsonPath('data.playlist.scheduled', false)
+        ->assertJsonPath('data.playlist_length', 0);
 });
 
 it('serves a shuffled queue from the head of the deck', function () {

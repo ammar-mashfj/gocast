@@ -29,7 +29,7 @@ describe("pageLabel", () => {
     expect(pageLabel("/dashboard/stations/night/live")).toBe("Studio")
     expect(pageLabel("/dashboard/stations/night/library")).toBe("Library")
     expect(pageLabel("/dashboard/stations/night/playlists")).toBe("Playlists")
-    expect(pageLabel("/dashboard/broadcasts")).toBe("Your shows")
+    expect(pageLabel("/dashboard/broadcasts")).toBe("Live history")
     expect(pageLabel("/dashboard/settings")).toBe("Account")
   })
 })

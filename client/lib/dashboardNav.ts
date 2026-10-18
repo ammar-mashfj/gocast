@@ -1,7 +1,7 @@
 /**
  * The dashboard's places, in one list: the sidebar draws it and the top
  * bar's breadcrumb names the current page from it, so a page can't be
- * "Broadcasts" in one and "Your shows" in the other.
+ * "Broadcasts" in one and "Live history" in the other.
  *
  * Every page belongs to the account's one station, so most destinations need
  * its slug. `href` is the slugless fallback — /dashboard resolves the station
@@ -10,7 +10,7 @@
  * old bookmarks.
  */
 
-export type NavKey = "overview" | "studio" | "library" | "playlists" | "schedule" | "audience" | "shows" | "settings"
+export type NavKey = "overview" | "studio" | "library" | "playlists" | "jingles" | "schedule" | "audience" | "shows" | "settings"
 
 export interface NavItem {
   key: NavKey
@@ -24,7 +24,7 @@ export interface NavItem {
 }
 
 /**
- * AutoDJ is a heading, not a page: its three sections sit under it, and the
+ * AutoDJ is a heading, not a page: its four sections sit under it, and the
  * heading itself opens the first one. The plan lock and the on-air lamp are
  * the heading's, so the children don't repeat them.
  */
@@ -37,14 +37,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: "studio", label: "Studio", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/live` },
   { key: "library", label: "Library", href: "/dashboard/library", stationHref: (s) => `/dashboard/stations/${s}/library`, group: "autodj" },
   { key: "playlists", label: "Playlists", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/playlists`, group: "autodj" },
-  // AutoDJ slots only. Show times live in station settings
-  // (docs/features/schedule.md).
+  { key: "jingles", label: "Jingles", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/jingles`, group: "autodj" },
+  // AutoDJ slots only, and the station timezone (docs/features/schedule.md).
   { key: "schedule", label: "Schedule", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/schedule`, group: "autodj" },
   { key: "audience", label: "Audience", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/audience`, lock: "audience" },
-  { key: "shows", label: "Your shows", href: "/dashboard/broadcasts" },
+  // Past live sessions only (AutoDJ writes none); was "Your shows", which
+  // read as AutoDJ programming or something upcoming.
+  { key: "shows", label: "Live history", href: "/dashboard/broadcasts" },
   // Station settings. Account settings (/dashboard/settings) are in the
   // account menu, labelled "Account", so the two never share a name.
-  { key: "settings", label: "Settings", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/settings` },
+  { key: "settings", label: "Station settings", href: "/dashboard", stationHref: (s) => `/dashboard/stations/${s}/settings` },
 ]
 
 const STATION_PAGE = /^\/dashboard\/stations\/[^/]+(?:\/([^/]+))?/
@@ -54,6 +56,7 @@ const SEGMENT_TO_KEY: Record<string, NavKey> = {
   studio: "studio",
   library: "library",
   playlists: "playlists",
+  jingles: "jingles",
   schedule: "schedule",
   audience: "audience",
   settings: "settings",

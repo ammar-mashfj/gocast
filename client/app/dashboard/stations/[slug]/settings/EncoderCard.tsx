@@ -8,6 +8,7 @@ import Link from "next/link"
 import { IconLoader2 } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { Disclosure } from "@/components/ds/Disclosure"
+import { SettingsTile } from "./SettingsTile"
 import { StatusLamp } from "@/components/ds/StatusLamp"
 import { ProTag } from "@/components/ds/Tag"
 import { EncoderConnection } from "@/components/dashboard/EncoderConnection"
@@ -42,11 +43,12 @@ interface EncoderCardProps {
 /**
  * Everything a DJ types into BUTT, Mixxx or RadioDJ.
  *
- * It is a settings CARD rather than a dialog because it is not a one-off: the
- * same five values get retyped on a second machine, after a reinstall, and
- * whenever somebody's encoder forgets them. That is also why the key is
- * redisplayed rather than shown once — see the migration that added the
- * column.
+ * A settings tile that opens in a dialog, so the two-column page stays in
+ * line. It stays on the page rather than being a one-off because it is not
+ * one: the same five values get retyped on a second machine, after a
+ * reinstall, and whenever somebody's encoder forgets them. That is also why
+ * the key is redisplayed rather than shown once — see the migration that
+ * added the column.
  *
  * The prose here is not decoration. Every line of it is a support ticket that
  * has already been paid for somewhere: the wrong server type, a station that
@@ -56,6 +58,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
   const [confirm, confirmDialog] = useConfirm()
   const router = useRouter()
   const proRequest = useProRequest()
+  const [open, setOpen] = useState(false)
   const [revealed, setRevealed] = useState(false)
   const [rotating, setRotating] = useState(false)
   /**
@@ -134,32 +137,51 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
   // a feature nobody can see sells nothing.
   if (locked) {
     return (
-      <Disclosure
-        variant="card"
+      <SettingsTile
+        id="encoder"
         title={
           <span className="inline-flex items-center gap-2">
             Use your own DJ software <ProTag />
           </span>
         }
         description="Go live from BUTT, Mixxx or RadioDJ instead of the browser."
+        open={open}
+        onOpenChange={setOpen}
       >
-        <div className="flex flex-col items-start gap-3">
+        <div className="flex flex-col items-start gap-4 text-body-sm text-muted-foreground">
           <p>
             Any software that can send to an Icecast server can go live on {stationName}, with its own server address and stream key, so you keep
             broadcasting with the tools you already know.
           </p>
           {/* Opens the request form — payment is arranged by email. */}
-          <Button variant="pro" onClick={proRequest.open} disabled={proRequest.requested}>
+          {/* Closed first: the request form is a dialog of its own. */}
+          <Button
+            variant="pro"
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              setOpen(false)
+              proRequest.open()
+            }}
+            disabled={proRequest.requested}
+          >
             {proRequest.requested ? "Request sent" : "Get Pro"}
           </Button>
         </div>
-      </Disclosure>
+      </SettingsTile>
     )
   }
 
   return (
     // The id is the pre-flight page's "Using DJ software instead?" anchor.
-    <Disclosure id="encoder" variant="card" title="Use your own DJ software" description="Optional. Skip this if you go live from the browser.">
+    <SettingsTile
+      id="encoder"
+      title="Use your own DJ software"
+      description="Optional. Skip this if you go live from the browser."
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <div className="text-body-sm text-muted-foreground">
       {!encoder ? (
         // The plan allows it, but this deployment has no ingest router
         // published, so there is no honest address to print.
@@ -173,10 +195,10 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
 
           <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
 
-          {/* Mounted only while the card is open: Collapsible unmounts its
-              content when closed, so the 2s poll runs only while someone is
+          {/* Mounted only while the dialog is open (its content unmounts
+              when closed), so the 2s poll runs only while someone is
               looking at the values and waiting for their software. */}
-          <ConnectionWatcher slug={slug} stationName={stationName} />
+          <ConnectionWatcher slug={slug} />
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-body-sm text-text-faint">Pasted your key somewhere public? Make a new one.</span>
@@ -205,8 +227,9 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
           </Link>
         </div>
       )}
+      </div>
       {confirmDialog}
-    </Disclosure>
+    </SettingsTile>
   )
 }
 
@@ -245,7 +268,7 @@ const TIPS = [
  * session row can outlive its container when a `live_disconnected` is lost,
  * and a stopped station cannot have anyone on air whatever its rows claim.
  */
-function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: string }) {
+function ConnectionWatcher({ slug }: { slug: string }) {
   const router = useRouter()
   const { status } = useStationStatus(slug, true, WATCH_POLL_MS)
   // The dashboard's shared poll feeds the band and the overview; nudged when
@@ -287,7 +310,7 @@ function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: s
     return (
       <Watch tone="live" label="CONNECTED">
         <span className="font-semibold text-foreground">{live?.client ? `${live.client} is connected.` : "Your encoder is connected."}</span>{" "}
-        {stationName} is live.
+        This station is live.
       </Watch>
     )
   }
@@ -296,7 +319,7 @@ function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: s
     return (
       <Watch tone="warn" label="TAKEN">
         <span className="font-semibold text-foreground">Something else is already broadcasting.</span>{" "}
-        {stationName} takes one source at a time, so your software is turned away until that show ends.
+        This station takes one source at a time, so your software is turned away until that show ends.
       </Watch>
     )
   }
@@ -313,7 +336,7 @@ function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: s
           </Button>
         }
       >
-        <span className="font-semibold text-foreground">{stationName} is off air.</span>{" "}
+        <span className="font-semibold text-foreground">This station is off air.</span>{" "}
         Your software connects to the station itself, so there is nothing listening until it is on.
       </Watch>
     )
@@ -322,7 +345,7 @@ function ConnectionWatcher({ slug, stationName }: { slug: string; stationName: s
   const starting = !running || settling
   return (
     <Watch tone="onair" label={starting ? "STARTING" : "WAITING"} bar={!starting}>
-      {starting ? `Starting ${stationName}. Give it a few seconds, then connect.` : `${stationName} is on air. Waiting for your software to connect.`}
+      {starting ? "Starting the station. Give it a few seconds, then connect." : "This station is on air. Waiting for your software to connect."}
     </Watch>
   )
 }

@@ -172,10 +172,10 @@ function HeroButton({
     case "go-live":
       // Phones and tablets: the whole width of the hero, the other buttons under it.
       return hero.goLiveDisabled ? (
-        <Button size="lg" dot="live" className="max-lg:w-full lg:flex-1" disabled>Go live now</Button>
+        <Button size="lg" dot="live" className="max-lg:w-full lg:flex-1" disabled>{hero.goLiveLabel}</Button>
       ) : (
         <Button size="lg" dot="live" className="max-lg:w-full lg:flex-1" asChild>
-          <Link href={`/dashboard/stations/${slug}/live`}>Go live now</Link>
+          <Link href={`/dashboard/stations/${slug}/live`}>{hero.goLiveLabel}</Link>
         </Button>
       )
     case "open-studio":
@@ -187,14 +187,15 @@ function HeroButton({
       )
     case "start-autodj":
       return (
-        <Button size="lg" variant="onair" onClick={onStart} disabled={pending !== null}>
+        // Matches Go live: full width stacked below lg, an equal half beside it from lg.
+        <Button size="lg" variant="onair" className="max-lg:w-full lg:flex-1" onClick={onStart} disabled={pending !== null}>
           {pending === "start" && <IconLoader2 className="animate-spin" />}
           Start AutoDJ
         </Button>
       )
     case "stop":
       return (
-        <Button size="lg" variant="ghost" onClick={onStop} disabled={pending !== null || hero.stopDisabled}>
+        <Button size="lg" variant="stop" className="max-lg:w-full" onClick={onStop} disabled={pending !== null || hero.stopDisabled}>
           {pending === "stop" && <IconLoader2 className="animate-spin" />}
           {hero.stop.label}
         </Button>
@@ -248,7 +249,9 @@ function ListeningNow({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-6 py-4 sm:px-7",
+        // Phones: hidden — the status band carries the same count, and this
+        // strip was what pushed the Overview into scrolling.
+        "flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-6 py-4 max-sm:hidden sm:px-7",
         "xl:flex-[1_1_16rem] xl:flex-col xl:flex-nowrap xl:items-start xl:gap-2.5 xl:p-7",
         className,
       )}

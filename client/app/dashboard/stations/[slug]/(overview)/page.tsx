@@ -7,7 +7,7 @@ import type { StreamSession } from "@/interfaces/StreamSession"
 import { OverviewHero } from "@/components/dashboard/overview/OverviewHero"
 // YourLinkCard is off too: the link is in the hero now (StationLinkRow).
 // ComingUpCard (components/dashboard/overview) is off for now; kept to bring back.
-// ShowsLinks (Recent shows) is off too: the sidebar has Your shows, and
+// ShowsLinks (Recent shows) is off too: the sidebar has Live history, and
 // under the hero is the Pro offer's alone.
 import { OverviewBelow } from "@/components/dashboard/overview/OverviewBelow"
 
