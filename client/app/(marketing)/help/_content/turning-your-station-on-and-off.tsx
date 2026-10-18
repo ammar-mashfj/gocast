@@ -36,9 +36,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/station-power.webp"
-        alt="The top card of a station's Overview while it is off air: Off air, Nothing's playing right now, with Go live now and Start AutoDJ buttons, and Listening now beside it."
+        alt="The top card of a station&apos;s Overview while it is off air: the station&apos;s artwork and name, Copy player link, QR code &amp; embed and Open, then the Go live now and Start AutoDJ buttons, with Listening now and the station&apos;s totals beside it."
         width={2480}
-        height={448}
+        height={660}
        
       />
 

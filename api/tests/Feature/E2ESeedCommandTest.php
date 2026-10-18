@@ -11,12 +11,18 @@ use App\Services\LiquidsoapSupervisor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * e2e:seed rebuilds the keeper accounts the Playwright capture specs sign in
  * as. What matters: the data those specs click on exists, a rerun lands on
  * the same state, and nothing ever asks Docker for a container.
  */
+beforeEach(function () {
+    // The help station's artwork is written to the public disk.
+    Storage::fake('public');
+});
+
 function seededCounts(): array
 {
     return [
@@ -160,4 +166,44 @@ it('refuses outside local and testing', function () {
     }
 
     expect(User::where('email', 'shell@gocast.test')->exists())->toBeFalse();
+});
+
+it('seeds the help account the /help screenshots are taken from, with real names and artwork', function () {
+    $this->artisan('e2e:seed')
+        ->expectsOutputToContain('seeded:help@gocast.test pro station=night-shift-radio')
+        ->assertSuccessful();
+
+    $user = User::where('email', 'help@gocast.test')->firstOrFail();
+    $station = $user->stations()->sole();
+
+    expect($user->plan->slug)->toBe('pro')
+        ->and($user->name)->toBe('Sam Rivera')
+        ->and($station->name)->toBe('Night Shift Radio')
+        ->and($station->desired_state)->toBe(Station::STATE_STOPPED)
+        ->and($station->artwork_url)->toEndWith('storage/uploads/images/e2e-night-shift-radio.webp');
+    Storage::disk('public')->assertExists('uploads/images/e2e-night-shift-radio.webp');
+
+    // Every track has an artist: these are the rows a reader sees.
+    expect($station->tracks()->where('kind', Track::KIND_MUSIC)->whereNull('artist')->count())->toBe(0)
+        ->and($station->playlists()->pluck('name')->all())->toContain('Morning Soul', 'Main rotation');
+
+    // help-screenshots clicks the unlabelled Wednesday Morning Soul slot.
+    $morning = $station->autodjSlots()->whereNull('label')->sole();
+    expect($morning->playlist->name)->toBe('Morning Soul')->and($morning->days)->toBe([3]);
+});
+
+it('seeds the station the scheduling blog post is shot from, with the week its text describes', function () {
+    $this->artisan('e2e:seed')
+        ->expectsOutputToContain('seeded:blog@gocast.test pro station=riverside-radio')
+        ->assertSuccessful();
+
+    $station = User::where('email', 'blog@gocast.test')->firstOrFail()->stations()->sole();
+
+    expect($station->desired_state)->toBe(Station::STATE_STOPPED)
+        ->and($station->autodjSlots()->pluck('label')->all())->toEqualCanonicalizing([
+            'Breakfast', 'Drive time', 'News at Six', 'Podcast replay', 'After hours', 'Weekend brunch',
+        ]);
+    // The post points at Friday and Saturday night crossing midnight.
+    $late = $station->autodjSlots()->where('label', 'After hours')->sole();
+    expect($late->days)->toBe([5, 6])->and($late->end_time)->toBe('02:00:00');
 });

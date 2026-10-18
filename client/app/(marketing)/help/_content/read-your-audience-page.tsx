@@ -59,7 +59,7 @@ export default function Body() {
         src="/help/audience-breakdowns.webp"
         alt="The Countries and Devices cards: each country with its two-letter code, listening time and share, a footnote naming how many listens could be placed, and the share of mobile, tablet and desktop."
         width={2480}
-        height={726}
+        height={750}
        
       />
 

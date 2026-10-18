@@ -17,7 +17,7 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-on-now.webp"
-        alt="The Right now card at the top of the Schedule page: what AutoDJ has lined up at this moment — here nothing until Morning Soul on Wednesday at 10:15."
+        alt="The Right now card at the top of the Schedule page: what AutoDJ has lined up at this moment — here the default, Main rotation, with Lofi Afternoon starting at 12:00."
         width={2480}
         height={214}
        
@@ -47,7 +47,7 @@ export default function Body() {
         src="/help/schedule-slots.webp"
         alt="The slot dialog: the name Breakfast, Morning Soul chosen to play, 06:00 to 10:00, and Monday to Friday ticked."
         width={1000}
-        height={1398}
+        height={1782}
       />
 
       <h2>Slots That Cross Midnight</h2>
@@ -62,9 +62,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/schedule-week.webp"
-        alt="The week, Monday to Sunday from midnight to midnight: Breakfast every weekday morning, Drive time every weekday afternoon, and After hours starting at the right edge of Friday and carrying on at the left edge of Saturday, where it crosses midnight."
+        alt="The week, Monday to Sunday from midnight to midnight: Breakfast every weekday morning, Lunch at midday, Drive time every weekday afternoon, After hours starting at the right edge of Friday and carrying on at the left edge of Saturday, where it crosses midnight, and Saturday Night and Sunday Ambient at the weekend."
         width={2480}
-        height={1252}
+        height={1290}
        
       />
 

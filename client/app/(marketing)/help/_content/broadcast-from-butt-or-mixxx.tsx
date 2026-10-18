@@ -41,8 +41,8 @@ export default function Body() {
       <ZoomableImage
         src="/help/encoder-connection.webp"
         alt="Use your own DJ software, opened in Station settings: Server, Port, Mount, Username and a hidden Password, each with a Copy button, and Show beside the password."
-        width={1220}
-        height={974}
+        width={1200}
+        height={952}
       />
 
       <h2>Set the Type to Icecast 2</h2>

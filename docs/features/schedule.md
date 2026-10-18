@@ -45,7 +45,7 @@ sources:
   - mobile/src/components/station/overview.tsx
   - mobile/src/app/show-times/[slug].tsx
   - mobile/src/app/station/[slug]/index.tsx
-fingerprint: ff6f939376b27ec6
+fingerprint: 5c2b6d6ef0760898
 ---
 
 # Schedule
@@ -177,16 +177,15 @@ These are real as of the verified commit. Fix them or delete them from this list
 2. **Show-time rows are now invisible on the web but still enforced.** Clearing the timezone is refused while any show time exists (`UpdateStationRequest`, `ReplaceAutodjSlotsRequest`), with an error that tells a web user to remove show times they have no way to see. The web never sends null, so this only bites API and mobile callers today.
 3. **The public API still ships `schedules` with `next_occurrence`** (`PublicStationController::show` eager-loads them) though nothing on the web reads them: wasted queries and a public field for a retired feature.
 4. **The top-bar clock keeps the old zone after a timezone change.** `TopBar` reads `StationContext`, set once by the dashboard layout; `TimezoneDialog.onSaved` only updates the planner's state and doesn't refresh the router, so the clock is stale until a reload (inferred from the code, not reproduced).
-5. **The help screenshot is stale.** `public/help/schedule-on-now.webp` (shot 2026-10-15, used by `schedule-playlists-by-time`) still shows the removed "Your next show · Add show times" card beside Right now. The blog post's screenshots (`public/blog/schedule/`, 2026-09-21) show an older Schedule page.
-6. **The mobile timezone is implicit.** There's no picker, the phone's zone is stamped on the first show-time save, and the "Times are in X" footer only appears once one is set. Changing it means using the web.
-7. **The mobile day strip uses the phone's calendar.** The selected day and "today" come from `new Date()` on the phone, but the rows are station-timezone weekdays. If the phone and station are in different zones, the NOW badge and "today" can be a day off near midnight.
-8. **The mobile day view isn't the real day.** A slot crossing midnight isn't shown on the day it spills into. The "All day" default row only appears when *no* slot starts that day, so the gaps around a partial-day slot aren't shown.
-9. **Mobile saves are read-modify-write from the last loaded station.** A full-list PUT built from a stale copy overwrites edits made on the web in between. The web page has the same exposure if two tabs are open.
-10. **The slot API has no plan check.** A Free owner can PUT slots via the API. It's harmless because `next()` gates playback, but the rows exist.
-11. **Some prod show times were probably meant as AutoDJ slots.** On 2026-09-29, 4 Pro stations had show times with zero live sessions since, and each had only one playlist. Those rows no longer show anywhere on the web, so this now only matters if show times come back.
-12. **The grid can't move a whole block by dragging its middle**, only its edges. Moving one means changing its times in the dialog.
-13. **Between `md` (768px) and the grid's 44rem minimum the web grid is a sideways scroll.** The phone day list only replaces it below `md`.
-14. **Naming:** don't call anything slot-related "schedule". `station_schedules`/`schedules()` is the advertising table.
+5. **The mobile timezone is implicit.** There's no picker, the phone's zone is stamped on the first show-time save, and the "Times are in X" footer only appears once one is set. Changing it means using the web.
+6. **The mobile day strip uses the phone's calendar.** The selected day and "today" come from `new Date()` on the phone, but the rows are station-timezone weekdays. If the phone and station are in different zones, the NOW badge and "today" can be a day off near midnight.
+7. **The mobile day view isn't the real day.** A slot crossing midnight isn't shown on the day it spills into. The "All day" default row only appears when *no* slot starts that day, so the gaps around a partial-day slot aren't shown.
+8. **Mobile saves are read-modify-write from the last loaded station.** A full-list PUT built from a stale copy overwrites edits made on the web in between. The web page has the same exposure if two tabs are open.
+9. **The slot API has no plan check.** A Free owner can PUT slots via the API. It's harmless because `next()` gates playback, but the rows exist.
+10. **Some prod show times were probably meant as AutoDJ slots.** On 2026-09-29, 4 Pro stations had show times with zero live sessions since, and each had only one playlist. Those rows no longer show anywhere on the web, so this now only matters if show times come back.
+11. **The grid can't move a whole block by dragging its middle**, only its edges. Moving one means changing its times in the dialog.
+12. **Between `md` (768px) and the grid's 44rem minimum the web grid is a sideways scroll.** The phone day list only replaces it below `md`.
+13. **Naming:** don't call anything slot-related "schedule". `station_schedules`/`schedules()` is the advertising table.
 
 ## Tests
 

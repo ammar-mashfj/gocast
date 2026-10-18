@@ -36,9 +36,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/music-library.webp"
-        alt="The AutoDJ page: All tracks and two playlists down the left; on the right three tracks with their title, playlists and length, and a note that they have no artist, with a Fix tags button."
+        alt="The Playlists page: Main rotation, Morning Soul, Lofi Afternoon, Night Ambient and Weekend Mix down the left; on the right Main rotation&apos;s tracks, each with its title, artist, when it was added and its length."
         width={2552}
-        height={1054}
+        height={1628}
        
       />
 

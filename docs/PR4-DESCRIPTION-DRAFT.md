@@ -21,6 +21,10 @@ The dashboard, studio, auth pages and homepage rebuilt on the design system in `
 - A station save (`PATCH /stations/{slug}`) now answers with `programme`, so the Schedule page's "Right now" stays right after a timezone change.
 - `php artisan e2e:seed` (local only) recreates the keeper accounts the Playwright specs sign in as.
 
+### Help
+- Every dashboard help screenshot retaken from a realistic seeded station ("Night Shift Radio", `help@gocast.test`), with the articles' alt texts and image sizes updated to match.
+- The scheduling blog post's pictures retaken from a seeded station with the week it describes ("Riverside Radio", `blog@gocast.test`), its hero rebuilt, and three sentences brought up to date (one slot dialog instead of a slot list, the Playlists rail, the Overview and status band instead of the removed rotation card).
+
 ### Deploy notes
 - **nginx:** `infra/native/nginx/gocast-api.conf` adds `location = /api/broadcast/uplink-probe` capped at 256k. It only takes effect once the file is copied to the server and nginx is reloaded.
 

@@ -26,27 +26,27 @@ export default function Body() {
 
       <h2>What a Schedule Looks Like</h2>
       <p>
-        A schedule is a list of slots. Each slot is a playlist, a set of days
-        and a start and end time &mdash; and an optional label, because
+        A schedule is a set of slots. Each slot is a playlist, a set of days
+        and a start and end time &mdash; and an optional name, because
         &ldquo;Drive time&rdquo; is easier to scan than 16:00.
       </p>
       <ZoomableImage
         src="/blog/schedule/slots.webp"
-        alt="Six scheduled slots: Breakfast, Drive time, a News at Six bulletin on weekdays from 6pm, a Podcast replay on Wednesday evenings, After hours on Friday and Saturday nights, and Weekend brunch."
-        width={1558}
-        height={778}
+        alt="One slot, opened: named News at Six, playing the News Bulletin playlist from 6pm to 6:30pm, Monday to Friday, set to start exactly on time."
+        width={1000}
+        height={2014}
        
       />
       <p>
-        Underneath, the same week is drawn out so you can see the shape of it
-        rather than read it. Gaps are where nothing is scheduled, and your
+        The Schedule page draws the whole week out, so you can see the shape
+        of it rather than read it. Gaps are where nothing is scheduled, and your
         default playlist fills them.
       </p>
       <ZoomableImage
         src="/blog/schedule/week.webp"
-        alt="A week grid from midnight to midnight, with coloured bars showing when each playlist plays: music through the day, a short news block every weekday evening, a podcast on Wednesday, and a late-night slot that wraps past midnight into the following day."
-        width={1558}
-        height={309}
+        alt="The week from midnight to midnight: Breakfast every weekday morning, Drive time and a short News at Six block every weekday evening, a Podcast replay on Wednesday, After hours late on Friday and Saturday carrying on past midnight, and Weekend brunch on Saturday and Sunday."
+        width={2480}
+        height={1290}
        
       />
       <p>
@@ -58,15 +58,15 @@ export default function Body() {
 
       <h2>Playlists Come First</h2>
       <p>
-        Slots point at playlists, so playlists are where you start. Your
-        library now has a rail down the side: every playlist you&#39;ve made,
+        Slots point at playlists, so playlists are where you start. The
+        Playlists page has a rail down the side: every playlist you&#39;ve made,
         how many tracks are in each and how long each one runs.
       </p>
       <ZoomableImage
         src="/blog/schedule/library.webp"
-        alt="The music library with a playlist rail on the left listing Main rotation, Morning Coffee, Afternoon Drive, News Bulletin, The Long Way Round, Late Night and Weekend Sessions, and the tracks of the selected playlist on the right."
-        width={1562}
-        height={673}
+        alt="The Playlists page with a rail on the left listing Main rotation, Morning Coffee, Afternoon Drive, News Bulletin, Podcasts, Late Night and Weekends, and the tracks of the selected playlist on the right."
+        width={2552}
+        height={1592}
        
       />
       <p>
@@ -136,23 +136,17 @@ export default function Body() {
       </p>
       <ZoomableImage
         src="/blog/schedule/on-now.webp"
-        alt="An On now bar reading: News Bulletin, until 18:30, then Main rotation."
-        width={1565}
-        height={88}
+        alt="The Right now card: Main rotation, with Morning Coffee starting at 06:00."
+        width={2480}
+        height={214}
        
       />
       <p>
-        The same line shows on your station page, above the tracks that are
-        actually queued &mdash; so you can tell at a glance whether the station
-        is running the playlist you meant it to.
+        Once the station is on, your Overview says which playlist AutoDJ is on,
+        and the status band across the top of every dashboard page names the
+        track it is playing &mdash; so you can tell at a glance whether the
+        station is running the playlist you meant it to.
       </p>
-      <ZoomableImage
-        src="/blog/schedule/rotation.webp"
-        alt="The AutoDJ rotation card on the station page, showing News Bulletin playing until 18:30 then Main rotation, with the two bulletins queued underneath."
-        width={1186}
-        height={169}
-       
-      />
 
       <h2>How the Switch Actually Happens</h2>
       <p>

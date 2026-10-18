@@ -12,9 +12,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/music-library.webp"
-        alt="The AutoDJ page: All tracks and the playlists Main rotation and Morning Soul down the left, and on the right the track list, with a note that three tracks have no artist and a Fix tags button."
+        alt="The Playlists page: Main rotation, Morning Soul, Lofi Afternoon, Night Ambient and Weekend Mix down the left, each with its track count and running time; on the right the open playlist, Main rotation, which plays when nothing is scheduled."
         width={2552}
-        height={1054}
+        height={1628}
        
       />
 

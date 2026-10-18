@@ -35,9 +35,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/station-header.webp"
-        alt="A station's header on its Overview: artwork, the name Night Shift Radio, a genre tag, a one-line description, and when it started and was last live."
-        width={1996}
-        height={280}
+        alt="A station&apos;s header on its Overview: artwork, the name Night Shift Radio, a genre tag, when it started and was last live, and Copy player link, QR code &amp; embed and Open."
+        width={1546}
+        height={424}
        
       />
 

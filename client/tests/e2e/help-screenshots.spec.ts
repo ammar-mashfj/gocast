@@ -18,11 +18,12 @@ import { E2E_PASSWORD } from "./support/auth"
  * of silently slicing it. Every box is logged, which is how you check the
  * framing without opening the files.
  *
- * Runs against the keeper review account (shell@gocast.test, station
- * night-shift-shell — see docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md, R6.3) and
- * changes nothing in it. Two pieces of staging happen in the page only:
- *   - `dress()` swaps the factory placeholder genre and description for real
- *     words and puts artwork in the header tile (support/help-artwork.webp);
+ * Runs against the help account `php artisan e2e:seed` builds
+ * (help@gocast.test, "Night Shift Radio": real artwork, believable names,
+ * a week of programming, months of shows and listeners — a station a reader
+ * can learn from) and changes nothing in it. Two pieces of staging happen in
+ * the page only:
+ *   - `dress()` shows dev's encoder address as the hostname a reader sees;
  *   - the Schedule shots draw a few slots on screen and never press Save
  *     (the planner sends nothing until Save).
  *
@@ -32,15 +33,22 @@ import { E2E_PASSWORD } from "./support/auth"
  *   for f in tests/e2e/.screenshots/*.png; do
  *     convert "$f" -quality 85 "public/help/$(basename "${f%.png}").webp"; done
  *
+ * A second capture shoots the scheduling blog post's pictures
+ * (public/blog/schedule/) from blog@gocast.test, "Riverside Radio", the
+ * week that post walks through (also seeded by e2e:seed). Its PNGs are
+ * named blog-*.png; the post's hero (1200x630) is the week shot laid on a
+ * dark card:
+ *   convert -size 1200x630 xc:'#0d0c0b' \( tests/e2e/.screenshots/blog-week.png -resize 1100x \) \
+ *     -gravity center -composite -quality 85 public/blog/schedule/hero.webp
+ *
  * The public player page shots (player-page, player-now-playing) are not
  * taken here any more: that page wasn't part of the dashboard redesign and
  * the review station has no stream to show.
  */
 
 const OUT = path.resolve(process.cwd(), "tests/e2e/.screenshots")
-const STATION = "night-shift-shell"
+const STATION = "night-shift-radio"
 const at = (page: string) => `/dashboard/stations/${STATION}${page}`
-const ARTWORK = path.resolve(process.cwd(), "tests/e2e/support/help-artwork.webp")
 
 test.use({
   // 2x is the whole point: text renders at double resolution and stays crisp
@@ -57,48 +65,26 @@ test.beforeAll(() => {
   fs.mkdirSync(OUT, { recursive: true })
 })
 
-async function signIn(page: Page) {
+async function signIn(page: Page, email = "help@gocast.test") {
   await page.goto("/auth/login")
-  await page.getByLabel("Email").fill("shell@gocast.test")
+  await page.getByLabel("Email").fill(email)
   await page.getByRole("textbox", { name: "Password" }).fill(E2E_PASSWORD)
   await page.getByRole("button", { name: "Sign in" }).click()
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 })
 }
 
 /**
- * Page-only staging: the review station was made by a factory, so its genre
- * and description are placeholder Latin and it has no artwork; and dev's
- * encoder server is an IP. Swap the words in the DOM and drop artwork into
- * the header tile. Nothing is saved.
+ * Page-only staging: dev's encoder server is the machine's address. Show the
+ * kind of hostname a reader will see (the shots before these did the same).
+ * Nothing is saved.
  */
 async function dress(page: Page) {
-  const art = `data:image/webp;base64,${fs.readFileSync(ARTWORK).toString("base64")}`
-  await page.evaluate(
-    ({ pairs, art }) => {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-        for (const [from, to] of pairs) if (n.nodeValue?.includes(from)) n.nodeValue = n.nodeValue.replace(from, to)
-      }
-      const tile = document.querySelector<HTMLButtonElement>('button[aria-label="Add station artwork"]')
-      if (tile) {
-        const img = document.createElement("img")
-        img.src = art
-        img.alt = ""
-        img.className = "size-20 object-cover sm:size-26"
-        tile.replaceChildren(img)
-      }
-    },
-    {
-      pairs: [
-        ["voluptatem", "Electronic"],
-        ["Ab deleniti placeat consectetur autem quidem.", "Late-night electronic, ambient and lo-fi for the hours after midnight."],
-        // Dev's encoder host is the machine's address; show the kind of
-        // hostname a reader will see (the shots before these did the same).
-        ["127.0.0.1", "ingest.gocast.fm"],
-      ],
-      art,
-    },
-  )
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.nodeValue?.includes("127.0.0.1")) n.nodeValue = n.nodeValue.replace("127.0.0.1", "ingest.gocast.fm")
+    }
+  })
   await page.waitForTimeout(200)
 }
 
@@ -324,5 +310,39 @@ test.describe("@screenshots", () => {
     await countries.scrollIntoViewIfNeeded()
     await page.waitForTimeout(300)
     await shot(page, "audience-breakdowns", padded(page, await cardBox(countries, 1100, 300), 0))
+  })
+
+  test("capture the scheduling blog post's screenshots", async ({ page }) => {
+    test.setTimeout(300_000)
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "visibilityState", { get: () => "visible" })
+      Object.defineProperty(document, "hidden", { get: () => false })
+    })
+    await signIn(page, "blog@gocast.test")
+    const blog = (p: string) => `/dashboard/stations/riverside-radio${p}`
+
+    // Playlists first: "Slots point at playlists".
+    await page.goto(blog("/playlists"))
+    await settle(page)
+    await shot(page, "blog-library", padded(page, await cardBox(page.getByRole("button", { name: "New playlist" }).first(), 1100, 400), 18))
+
+    // The saved week, nothing drawn: this station's own six slots.
+    await page.goto(blog("/schedule"))
+    await settle(page)
+    await shot(page, "blog-on-now", padded(page, await cardBox(page.getByText("Right now", { exact: true }), 1100, 80), 0))
+    const week = page.locator("#schedule-week")
+    await week.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(300)
+    await shot(page, "blog-week", padded(page, await cardBox(week, 1100, 400), 0))
+
+    // One slot, opened: a playlist, days, a start and an end, a label.
+    await page.locator("[data-day-row] button[title^='News at Six']").first().click()
+    const slot = page.getByRole("dialog")
+    await expect(slot).toBeVisible()
+    // The dialog opens with its name selected, ready to retype; a picture of
+    // it shouldn't look half-edited.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.waitForTimeout(400)
+    await shot(page, "blog-slot", padded(page, (await slot.boundingBox())!, 0))
   })
 })
