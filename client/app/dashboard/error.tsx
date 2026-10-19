@@ -5,6 +5,7 @@ import Link from "next/link"
 import { IconArrowRight, IconRefresh } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { reloadOnceForStaleBuild } from "@/lib/staleBuild"
 
 /**
  * A dashboard page failed to render.
@@ -31,7 +32,10 @@ export default function DashboardError({
 
   useEffect(() => {
     console.error("[dashboard] page error:", error)
-  }, [error])
+    // A tab from before a deploy (lib/staleBuild) reloads itself, but never
+    // mid-show: the reload would end the broadcast. Live hosts get Try again.
+    if (!live) reloadOnceForStaleBuild(error)
+  }, [error, live])
 
   return (
     <div className="flex max-w-2xl flex-col gap-6 py-4">

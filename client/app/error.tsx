@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { IconAlertTriangle } from "@tabler/icons-react"
+import { reloadOnceForStaleBuild } from "@/lib/staleBuild"
 
 export default function Error({
   error,
@@ -11,6 +13,11 @@ export default function Error({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // A tab from before a deploy asking for chunks that are gone (lib/staleBuild).
+  useEffect(() => {
+    reloadOnceForStaleBuild(error)
+  }, [error])
+
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
       <Card className="max-w-md w-full">

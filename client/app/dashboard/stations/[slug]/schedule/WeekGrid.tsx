@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { Fragment, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { cn } from "@/lib/utils"
 import { SWATCHES, type Swatch } from "@/lib/playlistSwatches"
 import {
@@ -22,6 +22,10 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 /** Hour labels over the grid: every two hours, so they never crowd at laptop widths. */
 const HOUR_LABELS = Array.from({ length: 13 }, (_, i) => i * 2)
+/** Pixels a press on an edge handle may wander and still open the slot. */
+const CLICK_SLOP = 3
+/** The narrowest press target a slot gets, however short it is. */
+const MIN_HIT = 24
 
 export { SWATCHES, type Swatch }
 
@@ -52,6 +56,8 @@ type EdgeDrag = {
   origin: number
   other: number
   limits: [number, number]
+  /** Past the click threshold: a resize, not a press that opens the slot. */
+  moved: boolean
 }
 type CreateDrag = {
   kind: "create"
@@ -116,7 +122,7 @@ export function WeekGrid({
     // carried this handle no longer does, so the captured span unmounts and
     // its pointerup never arrives. The window still hears the release.
     window.addEventListener("pointerup", endEdge)
-    window.addEventListener("pointercancel", endEdge)
+    window.addEventListener("pointercancel", cancelEdge)
     const [start, end] = weekSpan(block)
     drag.current = {
       kind: "edge",
@@ -127,9 +133,12 @@ export function WeekGrid({
       origin: edge === "start" ? start : end,
       other: edge === "start" ? end : start,
       limits: edgeLimits(blocks, block, edge),
+      moved: false,
     }
     // No onSelect here: selecting opens the slot dialog, which would cover
-    // the grid mid-drag. A drag is its own edit; a click opens the dialog.
+    // the grid mid-drag. A drag is its own edit; a press that never moves
+    // opens the dialog on release (endEdge). On a short slot the two handles
+    // cover all of it, so without that it could never be opened.
   }
 
   function moveEdge(e: ReactPointerEvent<HTMLSpanElement>) {
@@ -138,19 +147,25 @@ export function WeekGrid({
     // A hover, not a drag: the release was missed, so end it here rather
     // than rewrite the slot under a pointer with no button down.
     if (e.buttons === 0) {
-      endEdge()
+      cancelEdge()
       return
     }
+    if (Math.abs(e.clientX - d.originX) > CLICK_SLOP) d.moved = true
+    if (!d.moved) return
     const value = Math.min(d.limits[1], Math.max(d.limits[0], snap(d.origin + (e.clientX - d.originX) / d.scale)))
     onChange(d.edge === "start" ? fromSpan(d.block, value, d.other) : fromSpan(d.block, d.other, value))
   }
 
-  function endEdge() {
+  function finishEdge(release: boolean) {
     window.removeEventListener("pointerup", endEdge)
-    window.removeEventListener("pointercancel", endEdge)
-    if (drag.current?.kind !== "edge") return
+    window.removeEventListener("pointercancel", cancelEdge)
+    const d = drag.current
+    if (d?.kind !== "edge") return
     drag.current = null
+    if (release && !d.moved) onSelect(d.block.key)
   }
+  const endEdge = () => finishEdge(true)
+  const cancelEdge = () => finishEdge(false)
 
   // ── Drawing a new slot ──
 
@@ -267,10 +282,24 @@ export function WeekGrid({
                     const clash = overlaps.has(s.block.key)
                     const narrow = s.to - s.from < 90
                     return (
+                      <Fragment key={`${s.block.key}-${s.head ? "h" : "t"}`}>
+                      {/* A short slot is a few pixels wide; this gives it a
+                          MIN_HIT-wide target, centred on it. It sits under
+                          every slot (z-0 vs z-1), so it only takes presses on
+                          empty grid, never a neighbour's. Not a tab stop or
+                          a label: the slot's own button is both. */}
+                      {!readOnly && (
+                        <span
+                          aria-hidden="true"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => onSelect(s.block.key)}
+                          className="absolute inset-y-1.25 z-0 -translate-x-1/2 cursor-pointer"
+                          style={{ left: pct((s.from + s.to) / 2), width: pct(s.to - s.from), minWidth: MIN_HIT }}
+                        />
+                      )}
                       <div
-                        key={`${s.block.key}-${s.head ? "h" : "t"}`}
                         className={cn(
-                          "absolute inset-y-1.25 overflow-hidden rounded-chip transition-[filter] hover:brightness-110",
+                          "absolute inset-y-1.25 z-1 overflow-hidden rounded-chip transition-[filter] hover:brightness-110",
                           swatch.fill,
                           swatch.ink,
                           selected && "z-10 outline-2 outline-offset-1 outline-foreground",
@@ -305,7 +334,7 @@ export function WeekGrid({
                             onPointerDown={(e) => startEdge(e, s.block, "start")}
                             onPointerMove={moveEdge}
                             onPointerUp={endEdge}
-                            onPointerCancel={endEdge}
+                            onPointerCancel={cancelEdge}
                             className="group absolute inset-y-0 left-0 flex w-2.5 cursor-ew-resize touch-none items-center justify-center"
                           >
                             <span className="h-4 w-0.5 rounded-full bg-current opacity-40 group-hover:opacity-90" />
@@ -317,13 +346,14 @@ export function WeekGrid({
                             onPointerDown={(e) => startEdge(e, s.block, "end")}
                             onPointerMove={moveEdge}
                             onPointerUp={endEdge}
-                            onPointerCancel={endEdge}
+                            onPointerCancel={cancelEdge}
                             className="group absolute inset-y-0 right-0 flex w-2.5 cursor-ew-resize touch-none items-center justify-center"
                           >
                             <span className="h-4 w-0.5 rounded-full bg-current opacity-40 group-hover:opacity-90" />
                           </span>
                         )}
                       </div>
+                      </Fragment>
                     )
                   })}
 

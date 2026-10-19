@@ -117,6 +117,14 @@ export function ShowsList({ slug, timeZone, initial }: { slug: string; timeZone:
   )
 }
 
+// "Mon 19 Oct", built from parts: Safari puts a comma after the weekday and
+// Node doesn't, which broke hydration.
+function dayLabel(format: Intl.DateTimeFormat, date: Date) {
+  const parts = format.formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ""
+  return `${part("weekday")} ${part("day")} ${part("month")}`
+}
+
 function ShowRow({
   show,
   timeZone,
@@ -149,7 +157,7 @@ function ShowRow({
         )}
       >
         <span className="flex min-w-0 flex-col gap-0.75">
-          <span className="truncate text-body font-semibold">{day.format(started)}</span>
+          <span className="truncate text-body font-semibold">{dayLabel(day, started)}</span>
           <span className="truncate font-mono text-caption text-text-faint tabular-nums">
             {clock.format(started)} – {clock.format(new Date(show.ended_at!))}
           </span>

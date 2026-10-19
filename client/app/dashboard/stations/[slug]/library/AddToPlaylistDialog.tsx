@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ds/Dialog"
 import { cn } from "@/lib/utils"
-import { playlistSwatch } from "@/lib/playlistSwatches"
+import { playlistDot } from "@/lib/playlistSwatches"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
 
@@ -96,7 +96,7 @@ export function AddToPlaylistDialog({ open, onClose, count, playlists, onAdd }: 
                   saving === playlist.id && "bg-surface-control",
                 )}
               >
-                <span aria-hidden className={cn("size-3 shrink-0 rounded-swatch", playlistSwatch(i).dot)} />
+                <span aria-hidden className={cn("size-3 shrink-0 rounded-swatch", playlistDot(playlist, i))} />
                 <span className="min-w-0 flex-1 truncate text-body font-semibold">{playlist.name}</span>
                 <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">
                   {saving === playlist.id ? "Adding…" : railDetail(playlist)}

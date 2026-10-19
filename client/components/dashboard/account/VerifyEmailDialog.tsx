@@ -25,7 +25,7 @@ export function VerifyEmailDialog({
   /** Where a verified code goes instead of the dashboard (see useEmailVerification). */
   onVerified?: (user: User) => void
 }) {
-  const { code, onCodeChange, error, submitting, resending, inputRef, submit, resend, dismiss } = useEmailVerification({ open, onCancel, onVerified })
+  const { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit, resend, dismiss } = useEmailVerification({ open, onCancel, onVerified })
 
   return (
     <Dialog open={open}>
@@ -52,6 +52,7 @@ export function VerifyEmailDialog({
               placeholder="123456"
               value={code}
               onChange={onCodeChange}
+              readOnly={leaving}
               className="h-13 text-center font-mono text-meter-sm tabular-nums code-spaced"
               aria-invalid={!!error}
               aria-describedby={error ? "verify-code-error" : undefined}
@@ -64,14 +65,14 @@ export function VerifyEmailDialog({
           </div>
 
           <DialogFooter className="sm:flex-col sm:*:flex-none">
-            <Button size="lg" type="submit" disabled={submitting}>
-              {submitting ? "Verifying…" : "Verify email"}
+            <Button size="lg" type="submit" disabled={submitting || leaving}>
+              {leaving ? "Opening your dashboard…" : submitting ? "Verifying…" : "Verify email"}
             </Button>
             <div className="flex items-center justify-between gap-2">
-              <Button type="button" variant="quiet" onClick={resend} disabled={resending}>
+              <Button type="button" variant="quiet" onClick={resend} disabled={resending || leaving}>
                 {resending ? "Sending a new code…" : "Resend code"}
               </Button>
-              <Button type="button" variant="quiet" onClick={dismiss}>
+              <Button type="button" variant="quiet" onClick={dismiss} disabled={leaving}>
                 Use a different account
               </Button>
             </div>

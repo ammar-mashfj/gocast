@@ -25,6 +25,7 @@ import { ScheduleNow } from "./ScheduleNow"
 import { SlotPanel } from "./SlotPanel"
 import { TimezoneDialog } from "./TimezoneDialog"
 import { DAY_SHORT, SWATCHES, WeekGrid } from "./WeekGrid"
+import { GAP_DOT } from "@/lib/playlistSwatches"
 import {
   DAY_MINUTES,
   explode,
@@ -259,10 +260,12 @@ export function SchedulePlanner({ station, playlists }: Props) {
     "no-timezone": { text: "Not saved: no timezone", tone: "warn" },
   }
   const line = saveLine[saveState]
-  // Below md the sticky bar at the foot carries Save and the status while
-  // there is something to save; the header's copies would make it twice.
-  const stickyBar = !locked && (dirty || Boolean(saveError))
-  const headerOnly = stickyBar ? "max-md:hidden" : undefined
+  // Save and its status live in a bar pinned to the foot of the viewport, so
+  // a page scrolled down to the grid can still save. On md+ it is always
+  // there; on a phone only while there is something to save, and the
+  // header's copies stand in otherwise.
+  const phoneBar = !locked && (dirty || Boolean(saveError))
+  const headerOnly = phoneBar ? "hidden" : "md:hidden"
   const saveLamp = (className?: string) => !locked && (
     <span role="status" className={cn("inline-flex items-center gap-2 eyebrow", className, line.tone === "ok" ? "text-ok" : line.tone === "warn" ? "text-fault-text" : "text-muted-foreground")}>
       <span aria-hidden className="size-1.75 rounded-full bg-current" />
@@ -287,14 +290,15 @@ export function SchedulePlanner({ station, playlists }: Props) {
         actions={
           <>
             {saveLamp(headerOnly)}
-            <span className="inline-flex items-center gap-2 font-mono text-caption tracking-widest text-text-faint uppercase">
+            {/* No zone is the notice below's job; saying it here too made three. */}
+            {(timezone || locked) && <span className="inline-flex items-center gap-2 font-mono text-caption tracking-widest text-text-faint uppercase">
               {timezone ?? "No timezone"}
               {!locked && (
                 <button type="button" onClick={() => setZoneOpen(true)} className="cursor-pointer font-sans text-body-sm font-semibold tracking-normal text-violet-muted normal-case hover:underline">
                   {timezone ? "Change" : "Set timezone"}
                 </button>
               )}
-            </span>
+            </span>}
             {!locked && (
               <Button
                 variant="ghost"
@@ -314,11 +318,16 @@ export function SchedulePlanner({ station, playlists }: Props) {
       {locked && <AutoDjUpsell stationName={station.name} />}
 
       {saveState === "error" && <Notice label="Not saved">{saveError}</Notice>}
-      {saveState === "no-timezone" && (
-        <Notice label="No timezone">
-          Your station needs a timezone before slots can be saved.{" "}
-          <button type="button" onClick={() => setZoneOpen(true)} className="cursor-pointer underline underline-offset-2">Set it now</button>.
-        </Notice>
+      {/* Every slot time is read on the station's clock, so a missing zone
+          is shown up front, not only once a save is refused. */}
+      {!locked && !timezone && (
+        <section role="alert" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-panel bg-fault-tint px-5 py-4 text-fault-text">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <h2 className="text-body font-bold">Your station has no timezone</h2>
+            <p className="text-body-sm text-pretty">Slot times run on your station’s clock, so slots can’t be saved until it has one.</p>
+          </div>
+          <Button onClick={() => setZoneOpen(true)}>Set timezone</Button>
+        </section>
       )}
 
       <TimezoneDialog
@@ -396,7 +405,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
         {/* The grid's legend; the day list spells each row out instead. */}
         <div className="hidden flex-wrap items-center gap-x-4.5 gap-y-1.5 pt-1 text-body-sm text-muted-foreground md:flex">
           <span className="inline-flex items-center gap-2">
-            <span aria-hidden className="size-3 rounded-swatch border border-line-strong bg-surface-inset" />
+            <span aria-hidden className={cn("size-3 rounded-swatch", GAP_DOT)} />
             {locked ? "Off air unless you're live" : `${defaultPlaylist?.name ?? "Default playlist"} fills the gaps`}
           </span>
           {usedPlaylists.map((p) => (
@@ -421,8 +430,8 @@ export function SchedulePlanner({ station, playlists }: Props) {
         )}
       </Card>
 
-      {stickyBar && (
-        <div className="sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-panel bg-popover px-4.5 py-3 shadow-panel md:hidden">
+      {!locked && (
+        <div className={cn("sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-panel bg-popover px-4.5 py-3 shadow-panel md:bottom-6", !phoneBar && "max-md:hidden")}>
           {saveLamp()}
           {saveButton()}
         </div>

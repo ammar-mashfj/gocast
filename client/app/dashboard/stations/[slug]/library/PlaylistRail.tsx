@@ -1,12 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { IconCheck, IconChevronDown, IconPlus } from "@tabler/icons-react"
+import { IconCheck, IconChevronDown } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ds/Dialog"
-import { ProTag, Tag } from "@/components/ds/Tag"
+import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
-import { playlistSwatch } from "@/lib/playlistSwatches"
+import { playlistDot, playlistDotTitle } from "@/lib/playlistSwatches"
 import type { Playlist } from "@/interfaces/Playlist"
 
 /** `selected` when the whole library is in view rather than a playlist (the Library page). */
@@ -17,9 +17,6 @@ interface Props {
   /** A playlist id. */
   selected: string
   onSelect: (key: string) => void
-  onCreate: () => void
-  /** No AutoDJ on this plan: creating is blocked, browsing is not. */
-  locked: boolean
 }
 
 /**
@@ -39,19 +36,19 @@ export function PlaylistRail(props: Props) {
             key={playlist.id}
             active={props.selected === playlist.id}
             onClick={() => props.onSelect(playlist.id)}
-            swatch={playlistSwatch(i).dot}
+            swatch={playlistDot(playlist, i)}
+            swatchTitle={playlistDotTitle(playlist)}
             label={playlist.name}
             detail={railDetail(playlist)}
             title={playlist.is_default ? "Plays whenever nothing else is scheduled." : undefined}
           />
         ))}
-        <NewPlaylistButton onCreate={props.onCreate} locked={props.locked} />
       </nav>
     </>
   )
 }
 
-function PlaylistPicker({ playlists, selected, onSelect, onCreate, locked }: Props) {
+function PlaylistPicker({ playlists, selected, onSelect }: Props) {
   const [open, setOpen] = useState(false)
   const index = playlists.findIndex((p) => p.id === selected)
   const current = index >= 0 ? playlists[index] : null
@@ -69,7 +66,7 @@ function PlaylistPicker({ playlists, selected, onSelect, onCreate, locked }: Pro
         <span className="flex min-w-0 flex-1 flex-col gap-1.5">
           <span className="eyebrow text-text-faint">Playlist · {playlists.length} in all</span>
           <span className="flex min-w-0 items-center gap-2.5">
-            {current && <span aria-hidden className={cn("size-2.5 shrink-0 rounded-swatch", playlistSwatch(index).dot)} />}
+            {current && <span aria-hidden title={playlistDotTitle(current)} className={cn("size-2.5 shrink-0 rounded-swatch", playlistDot(current, index))} />}
             <span className="min-w-0 flex-1 truncate text-body font-semibold">{current?.name ?? "Choose a playlist"}</span>
           </span>
           {current && <span className="text-body-sm text-muted-foreground">{pickerDetail(current)}</span>}
@@ -89,13 +86,6 @@ function PlaylistPicker({ playlists, selected, onSelect, onCreate, locked }: Pro
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1">
-            <NewPlaylistButton
-              locked={locked}
-              onCreate={() => {
-                setOpen(false)
-                onCreate()
-              }}
-            />
             {playlists.map((playlist, i) => {
               const active = playlist.id === selected
               return (
@@ -112,7 +102,7 @@ function PlaylistPicker({ playlists, selected, onSelect, onCreate, locked }: Pro
                     active ? "bg-surface-raised text-foreground" : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
                   )}
                 >
-                  <span aria-hidden className={cn("size-2.5 shrink-0 rounded-swatch", playlistSwatch(i).dot)} />
+                  <span aria-hidden title={playlistDotTitle(playlist)} className={cn("size-2.5 shrink-0 rounded-swatch", playlistDot(playlist, i))} />
                   <span className="min-w-0 flex-1 truncate text-body font-semibold">{playlist.name}</span>
                   {playlist.is_default && <Tag className="shrink-0">Default</Tag>}
                   <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{railDetail(playlist)}</span>
@@ -124,22 +114,6 @@ function PlaylistPicker({ playlists, selected, onSelect, onCreate, locked }: Pro
         </DialogContent>
       </Dialog>
     </div>
-  )
-}
-
-function NewPlaylistButton({ onCreate, locked }: { onCreate: () => void; locked: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onCreate}
-      disabled={locked}
-      title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-      className="flex shrink-0 items-center gap-2 rounded-control px-3 py-3 text-sm font-semibold text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45"
-    >
-      <IconPlus className="size-4" />
-      New playlist
-      {locked && <ProTag />}
-    </button>
   )
 }
 
@@ -164,6 +138,7 @@ function RailItem({
   active,
   onClick,
   swatch,
+  swatchTitle,
   label,
   detail,
   title,
@@ -171,6 +146,7 @@ function RailItem({
   active: boolean
   onClick: () => void
   swatch?: string
+  swatchTitle?: string
   label: string
   detail: string
   title?: string
@@ -188,7 +164,7 @@ function RailItem({
       )}
     >
       <span className="flex min-w-0 items-center gap-2.5">
-        {swatch && <span aria-hidden className={cn("size-2.5 shrink-0 rounded-swatch", swatch)} />}
+        {swatch && <span aria-hidden title={swatchTitle} className={cn("size-2.5 shrink-0 rounded-swatch", swatch)} />}
         <span className="truncate text-body font-semibold">{label}</span>
       </span>
       <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{detail}</span>

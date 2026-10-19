@@ -24,6 +24,11 @@ type VerifyResponse = { data?: User; message?: string }
  * A verified address goes to the dashboard (the sign-up and sign-in case)
  * unless the caller passes `onVerified`: the Account page does, so a changed
  * email lands back where the person was editing it.
+ *
+ * The dashboard can take seconds to load on a phone, so `leaving` keeps the
+ * dialog saying so instead of falling back to an idle "Verify email". If the
+ * client navigation hasn't landed after 5s (stale build, slow chunk), a full
+ * page load takes over.
  */
 export function useEmailVerification({
   open,
@@ -41,6 +46,8 @@ export function useEmailVerification({
   const inFlightRef = useRef(false)
   const queuedCodeRef = useRef<string | null>(null)
   const [resending, setResending] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Read through a ref so a caller's inline callback doesn't re-run the
   // on-open /user check every render.
@@ -48,6 +55,20 @@ export function useEmailVerification({
   useEffect(() => {
     onVerifiedRef.current = onVerified
   })
+
+  // The dialog unmounts when the dashboard lands; the fallback goes with it.
+  useEffect(() => () => {
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current)
+  }, [])
+
+  function goToDashboard() {
+    setLeaving(true)
+    router.replace("/dashboard")
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current)
+    leaveTimerRef.current = setTimeout(() => {
+      if (!window.location.pathname.startsWith("/dashboard")) window.location.assign("/dashboard")
+    }, 5000)
+  }
 
   // Cookie-vs-server reconciliation: if the user is already verified on the
   // server (admin flag, another tab), bail straight to the dashboard instead
@@ -60,11 +81,13 @@ export function useEmailVerification({
       saveAuth(null, fresh)
       if (fresh.email_verified_at) {
         if (onVerifiedRef.current) onVerifiedRef.current(fresh)
-        else router.replace("/dashboard")
+        else goToDashboard()
       }
     }).catch(() => {
       // Transient; stay on the form.
     })
+    // goToDashboard only touches refs, setState and the router.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, router])
 
   // Autofocus whenever the dialog opens so the user can start typing
@@ -79,7 +102,7 @@ export function useEmailVerification({
     saveAuth(null, data.data)
     toast.success("Email verified")
     if (onVerified) onVerified(data.data)
-    else router.replace("/dashboard")
+    else goToDashboard()
 
     return true
   }
@@ -164,5 +187,5 @@ export function useEmailVerification({
     if (digits.length === 6 && digits !== code) void verify(digits)
   }
 
-  return { code, onCodeChange, error, submitting, resending, inputRef, submit: handleSubmit, resend, dismiss }
+  return { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit: handleSubmit, resend, dismiss }
 }

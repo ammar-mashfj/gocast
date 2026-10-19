@@ -134,12 +134,18 @@ export function LibraryView({
             ? "Every track you’ve uploaded. AutoDJ plays them from your playlists whenever you’re not live."
             : "What AutoDJ plays, in order or shuffled. The default playlist plays whenever nothing else is scheduled."
         }
-        // Phones: Add tracks sits on its own row under the description, so
-        // it spans it.
+        // Phones: the header button sits on its own row under the
+        // description, so it spans it. On Playlists the header makes
+        // playlists; adding tracks is the open playlist's own button.
         actionsClassName="max-sm:w-full max-sm:*:flex-1"
         actions={
           !locked && (
-            <>
+            page === "playlists" ? (
+              <Button onClick={() => setNameDialog({ mode: "create" })}>
+                <IconPlus />
+                New playlist
+              </Button>
+            ) : (
               <Button
                 onClick={() => fileInput.current?.click()}
                 disabled={lib.uploading}
@@ -148,7 +154,7 @@ export function LibraryView({
                 {lib.uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
                 {lib.uploading ? "Uploading…" : "Add tracks"}
               </Button>
-            </>
+            )
           )
         }
       />
@@ -198,8 +204,6 @@ export function LibraryView({
             playlists={lib.playlists}
             selected={lib.selected}
             onSelect={lib.setSelected}
-            onCreate={() => setNameDialog({ mode: "create" })}
-            locked={locked}
           />
           <DropZone locked={locked} onFiles={lib.upload}>
             {currentPlaylist ? (
@@ -213,6 +217,8 @@ export function LibraryView({
                 savingOrder={lib.savingOrder}
                 nowPlayingId={lib.nowPlayingId}
                 onAddFromLibrary={() => setPickerOpen(true)}
+                onUpload={() => fileInput.current?.click()}
+                uploading={lib.uploading}
                 onReorder={lib.handleReorder}
                 onRemove={lib.handleRemove}
                 onEdit={lib.handleEdit}

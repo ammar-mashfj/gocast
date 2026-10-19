@@ -3,6 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 import NextError from "next/error";
 import { useEffect } from "react";
+import { reloadOnceForStaleBuild } from "@/lib/staleBuild";
 
 export default function GlobalError({
   error,
@@ -10,6 +11,8 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
+    // A tab from before a deploy (lib/staleBuild): reload, don't report.
+    if (reloadOnceForStaleBuild(error)) return;
     Sentry.captureException(error);
   }, [error]);
 

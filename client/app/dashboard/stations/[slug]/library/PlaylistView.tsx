@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react"
 import {
   IconArrowsShuffle,
+  IconChevronDown,
   IconLoader2,
   IconPencil,
   IconPlaylistAdd,
+  IconPlus,
   IconStar,
   IconTrash,
+  IconUpload,
 } from "@tabler/icons-react"
 import {
   DndContext,
@@ -25,7 +28,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { Button } from "@/components/ds/Button"
-import { DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ds/Menu"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ds/Menu"
 import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
@@ -55,6 +65,9 @@ interface Props {
   savingOrder: boolean
   nowPlayingId: string | null
   onAddFromLibrary: () => void
+  /** Opens the file picker; uploads join this playlist. */
+  onUpload: () => void
+  uploading: boolean
   /** The full new order, ids only. */
   onReorder: (ids: string[]) => void
   onRemove: (trackId: string) => void
@@ -81,6 +94,8 @@ export function PlaylistView({
   savingOrder,
   nowPlayingId,
   onAddFromLibrary,
+  onUpload,
+  uploading,
   onRetry,
   onReorder,
   onRemove,
@@ -179,10 +194,6 @@ export function PlaylistView({
         <IconArrowsShuffle size={15} />
         Shuffle
       </DropdownMenuCheckboxItem>
-      <DropdownMenuItem onClick={onAddFromLibrary} disabled={tracks === null}>
-        <IconPlaylistAdd size={15} />
-        Add from library
-      </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={onRename}>
         <IconPencil size={15} />
@@ -211,15 +222,40 @@ export function PlaylistView({
 
   return (
     <>
-      <div className="flex flex-col gap-1.5 px-5.5 pt-5 pb-3.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="min-w-0 truncate font-display text-title-sm">{playlist.name}</h2>
-          {/* Neutral: "default" is a role the playlist has, not a station state. */}
-          {playlist.is_default && <Tag title="New uploads land in it too.">Plays when nothing’s scheduled</Tag>}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5.5 pt-5 pb-3.5">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="min-w-0 truncate font-display text-title-sm">{playlist.name}</h2>
+            {/* Neutral: "default" is a role the playlist has, not a station state. */}
+            {playlist.is_default && <Tag title="New uploads land in it too.">Plays when nothing’s scheduled</Tag>}
+          </div>
+          <p className="font-mono text-caption text-text-faint">
+            {tracks === null ? (loadFailed ? "Couldn’t load" : "Loading…") : summary.join(" \u00b7 ")}
+          </p>
         </div>
-        <p className="font-mono text-caption text-text-faint">
-          {tracks === null ? (loadFailed ? "Couldn’t load" : "Loading…") : summary.join(" \u00b7 ")}
-        </p>
+        {/* Tracks go into this playlist, so the button lives on it, not in
+            the page header (which makes playlists). */}
+        {!locked && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button disabled={uploading} className="shrink-0">
+                {uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
+                {uploading ? "Uploading…" : "Add tracks"}
+                {!uploading && <IconChevronDown />}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onClick={onAddFromLibrary} disabled={tracks === null}>
+                <IconPlaylistAdd size={15} />
+                From your library…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onUpload}>
+                <IconUpload size={15} />
+                Upload files…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <LibraryToolbar
