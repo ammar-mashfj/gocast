@@ -63,7 +63,7 @@ class PlanExpired extends BellNotification implements ShouldQueue
         // The retention path the email offers and the product does not. There
         // is no self-serve way back onto a plan, so the reply is not a fobbing
         // off — it is the only route there is.
-        $points[] = "Want to stay on {$this->endedPlan->name}? Reply to the email we sent — it comes straight to us.";
+        $points[] = "Want {$this->endedPlan->name} back? Get it again from your account page, any time.";
 
         return new BellPayload(
             title: "Your {$this->endedPlan->name} period has ended",
@@ -94,8 +94,8 @@ class PlanExpired extends BellNotification implements ShouldQueue
             ->greeting("Hey {$notifiable->name},")
             ->line("Your time on GoCast {$this->endedPlan->name} is up, and your account is now on {$this->newPlan->name}.")
             ->line('Your station, its link and everything you uploaded are exactly where you left them. What changes is the plan limits: up to '.number_format($this->newPlan->max_listeners).' listeners at once'.($this->endedPlan->autodj_enabled && ! $this->newPlan->autodj_enabled ? ', and the AutoDJ library no longer accepts uploads.' : '.'))
-            ->action('Open your dashboard', "{$frontendUrl}/dashboard")
-            ->line("Want to stay on {$this->endedPlan->name}? Reply to this email and tell us — it comes straight to us.")
+            ->action("Get {$this->endedPlan->name} again", "{$frontendUrl}/dashboard/settings?checkout=1")
+            ->line('Reply to this email if anything looks wrong — it comes straight to us.')
             ->salutation('— The GoCast team');
     }
 }

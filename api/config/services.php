@@ -42,6 +42,26 @@ return [
     // Operator alerts (sign-ups, access requests, new stations, broadcasts)
     // sent to one admin Telegram chat. Blank token = alerts off. See
     // App\Services\AdminTelegram.
+    // Crypto checkout (App\Services\Billing). The merchant key both creates
+    // invoices and signs the webhooks OxaPay sends to /api/webhooks/oxapay,
+    // so it never leaves the server. Blank = checkout and the webhook refuse.
+    //
+    // `driver`: `oxapay` talks to the real API (with `sandbox` for test
+    // invoices); `fake` never leaves this machine — checkout lands straight
+    // back on the account page and `php artisan billing:simulate` plays the
+    // webhook. Refused in production (AppServiceProvider).
+    //
+    // `callback_url` overrides where OxaPay sends webhooks — an ngrok URL when
+    // testing the sandbox from a laptop, since OxaPay never calls localhost.
+    'oxapay' => [
+        'driver' => env('OXAPAY_DRIVER', 'oxapay'),
+        'merchant_key' => env('OXAPAY_MERCHANT_KEY'),
+        'sandbox' => (bool) env('OXAPAY_SANDBOX', false),
+        'base_url' => env('OXAPAY_BASE_URL', 'https://api.oxapay.com/v1'),
+        'callback_url' => env('OXAPAY_CALLBACK_URL'),
+        'invoice_lifetime_minutes' => (int) env('OXAPAY_INVOICE_LIFETIME', 60),
+    ],
+
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),

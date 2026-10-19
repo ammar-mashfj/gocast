@@ -2,7 +2,7 @@
 
 import type { Plan } from "@/interfaces/Plan"
 import { usePlan } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
 import { Button } from "@/components/ds/Button"
 import { Card } from "@/components/ds/Card"
 import { ProTag } from "@/components/ds/Tag"
@@ -20,14 +20,15 @@ export function planIncludes(plan: Plan): string {
 
 /**
  * Which plan this account is on. Pro is the amber card (amber = Pro); Free is
- * a plain card with Get Pro, which opens the request form: payment is
- * arranged by email, so there is no billing to manage. A time-limited plan (an invite) says when it ends.
+ * a plain card with Get Pro, which opens checkout. A time-limited plan (a
+ * paid term or an invite) says when it ends. There is no way to add time
+ * before it does yet: that comes back when it can be done properly.
  * Renders nothing until the plan is known, rather than guessing Free at a
  * paying customer.
  */
 export function PlanCard() {
   const plan = usePlan()
-  const proRequest = useProRequest()
+  const checkout = useProCheckout()
   if (!plan) return null
 
   const pro = plan.slug !== "free"
@@ -49,9 +50,8 @@ export function PlanCard() {
         </span>
       </div>
       {!pro && (
-        // Opens the request form — payment is arranged by email.
-        <Button variant="pro" className="shrink-0 self-start sm:self-auto" onClick={proRequest.open} disabled={proRequest.requested}>
-          {proRequest.requested ? "Request sent" : "Get Pro"}
+        <Button variant="pro" className="shrink-0 self-start sm:self-auto" onClick={() => checkout.open()}>
+          Get Pro
         </Button>
       )}
     </Card>

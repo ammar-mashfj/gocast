@@ -9,7 +9,7 @@ import { Button } from "@/components/ds/Button"
 import { SettingsTile } from "./SettingsTile"
 import { ProTag } from "@/components/ds/Tag"
 import { EncoderConnection, HowToConnectLink } from "@/components/dashboard/EncoderConnection"
-import { useProRequest } from "@/contexts/ProRequestContext"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
 import { StationEncoder } from "@/interfaces/Station"
 import api from "@/lib/axios"
 import { copyText } from "@/lib/clipboard"
@@ -41,7 +41,7 @@ interface EncoderCardProps {
 export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardProps) {
   const [confirm, confirmDialog] = useConfirm()
   const router = useRouter()
-  const proRequest = useProRequest()
+  const checkout = useProCheckout()
   const [open, setOpen] = useState(false)
   const [revealed, setRevealed] = useState(false)
   /** A key was made in this dialog: show it, once, until the dialog closes. */
@@ -140,19 +140,17 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
             Any software that can send to an Icecast server can go live on {stationName}, with its own server address and stream key, so you keep
             broadcasting with the tools you already know.
           </p>
-          {/* Opens the request form — payment is arranged by email. */}
-          {/* Closed first: the request form is a dialog of its own. */}
+          {/* Closed first: checkout is a dialog of its own. */}
           <Button
             variant="pro"
             size="lg"
             className="w-full"
             onClick={() => {
               setOpen(false)
-              proRequest.open()
+              checkout.open()
             }}
-            disabled={proRequest.requested}
           >
-            {proRequest.requested ? "Request sent" : "Get Pro"}
+            Get Pro
           </Button>
         </div>
       </SettingsTile>

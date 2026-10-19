@@ -27,11 +27,12 @@ test.describe("no station yet", () => {
     await expect(page.getByText("Create your station first", { exact: false })).toHaveCount(1)
   })
 
-  test("Get Pro explains instead of opening the form", async ({ page }) => {
+  // Checkout needs an account, not a station: paying first and building the
+  // station after is fine (the grant email covers a station-less account).
+  test("Get Pro opens checkout before a station exists", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.getByRole("button", { name: "Get Pro" }).click()
-    await expect(page.getByText("Create your station first, then tell us about it to request Pro.")).toBeVisible()
-    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page.getByRole("dialog", { name: "Get Pro" })).toBeVisible()
   })
 
   test("the link previews from the name", async ({ page }) => {

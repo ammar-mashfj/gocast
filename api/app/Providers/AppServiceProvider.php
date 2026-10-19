@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\Admin;
+use App\Models\Discount;
 use App\Models\Invite;
 use App\Models\Plan;
+use App\Models\Product;
 use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\User;
@@ -14,6 +16,9 @@ use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
 use App\Observers\UserObserver;
 use App\Services\AdminTelegram;
+use App\Services\Billing\Gateway\FakeGateway;
+use App\Services\Billing\Gateway\OxaPayGateway;
+use App\Services\Billing\Gateway\PaymentGateway;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -21,6 +26,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -29,7 +35,27 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // The fake gateway grants plans without money moving, so it must
+        // never answer a real buyer: refuse to boot checkout with it in
+        // production rather than trust .env to be right.
+        $this->app->bind(PaymentGateway::class, function () {
+            $config = (array) config('services.oxapay');
+
+            if (($config['driver'] ?? 'oxapay') === 'fake') {
+                if ($this->app->isProduction()) {
+                    throw new RuntimeException('OXAPAY_DRIVER=fake is not allowed in production.');
+                }
+
+                return new FakeGateway;
+            }
+
+            return new OxaPayGateway(
+                merchantKey: (string) ($config['merchant_key'] ?? ''),
+                baseUrl: (string) ($config['base_url'] ?? 'https://api.oxapay.com/v1'),
+                sandbox: (bool) ($config['sandbox'] ?? false),
+                lifetimeMinutes: (int) ($config['invoice_lifetime_minutes'] ?? 60),
+            );
+        });
     }
 
     /**
@@ -123,6 +149,8 @@ class AppServiceProvider extends ServiceProvider
             'station' => Station::class,
             'plan' => Plan::class,
             'invite' => Invite::class,
+            'product' => Product::class,
+            'discount' => Discount::class,
         ]);
 
         // Drive per-station Liquidsoap containers from the Station model

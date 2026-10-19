@@ -7,7 +7,6 @@ use App\Models\Plan;
 use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Notifications\ProAccessGranted;
-use App\Services\EmailMarkdown;
 use App\Services\PlanTerm;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -23,8 +22,8 @@ use Spatie\Activitylog\Models\Activity;
  * settle one.
  *
  * Approving is the only action here with an effect outside this table, and it
- * is a big one: there is no checkout anywhere in the app, so this controller
- * is the ONLY way an account reaches a paid plan. Everything downstream reads
+ * is a big one: besides checkout (App\Services\Billing), this controller
+ * is how an account reaches a paid plan by hand. Everything downstream reads
  * the plan at request time — AutoDJ gating and the listener cap are what
  * actually differ today — so the grant itself is a single column write and
  * nothing here needs to touch a station. UserObserver additionally pushes the
@@ -79,30 +78,6 @@ class AccessRequestController extends Controller
         '6-months' => ['label' => '6 months', 'weeks' => 0, 'months' => 6],
         '12-months' => ['label' => '12 months', 'weeks' => 0, 'months' => 12],
     ];
-
-    /**
-     * What Pro costs, per term, as the payment email quotes it.
-     *
-     * Only the monthly price is public (PRO_PRICE_USD on the client); the
-     * longer terms are offered by email, so this is the one place they live.
-     * Keyed by the same values as TERMS so a paid grant and the price quoted
-     * for it can be read off one row.
-     *
-     * @var array<string, int>
-     */
-    public const PRICES_USD = [
-        '1-month' => 20,
-        '3-months' => 52,
-        '6-months' => 96,
-        '12-months' => 160,
-    ];
-
-    /**
-     * The plan the payment email sells. PRICES_USD is a Pro price list, so
-     * the email is only offered on a request for this plan — a Custom
-     * enquiry quoted $20 a month is answering a question nobody asked.
-     */
-    public const PRICED_PLAN_SLUG = 'pro';
 
     public function index(Request $request): View
     {
@@ -172,7 +147,6 @@ class AccessRequestController extends Controller
             // The approve dropdown. Passed rather than read off the class in
             // the view so the template has no reason to know the controller.
             'terms' => array_map(fn (array $term) => $term['label'], self::TERMS),
-            'pricedPlan' => self::PRICED_PLAN_SLUG,
             'emptyMessage' => $this->emptyMessage($search, $plan, $status),
         ]);
     }
@@ -227,7 +201,7 @@ class AccessRequestController extends Controller
      * of a lapsed trial cannot be overwritten by an expiry that read it first.
      *
      * The term is EXTENDED from a running grant of the same plan, not
-     * restarted — see PlanTerm::extendsFrom() and termStart().
+     * restarted — see PlanTerm::apply().
      */
     private function grant(Request $request, WaitlistEntry $entry, bool $renewing): RedirectResponse
     {
@@ -276,24 +250,22 @@ class AccessRequestController extends Controller
                 return "{$entry->email}'s end date has changed since this page loaded, so nothing was added. Reload and check it before renewing.";
             }
 
-            $start = $this->termStart($user, $plan);
+            $applied = PlanTerm::apply($user, $plan, $term);
 
-            if (is_string($start)) {
-                return $start;
+            if (is_string($applied)) {
+                // Rolls back nothing yet written: apply() refuses before any
+                // write, and the review stamp comes after it below.
+                return "{$applied} Nothing changed — change the account by hand from Stations if that is what you want.";
             }
+
+            [$endsAt, $extended] = $applied;
 
             // Stamped on a renewal too, so the row says who made the latest
             // grant, which is the one anybody asking "who put them on this"
             // means.
             $locked->markReviewed(WaitlistEntry::STATUS_APPROVED, $request->user('admin'));
 
-            $endsAt = PlanTerm::endOfTerm($start, $term);
-
-            // An extension of the plan they are already on changes no plan_id,
-            // so the common renewal triggers no fan-out at all.
-            $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
-
-            return [$user, $endsAt, $start !== null];
+            return [$user, $endsAt, $extended];
         });
 
         if (is_string($outcome)) {
@@ -311,98 +283,6 @@ class AccessRequestController extends Controller
         $how = $extended ? "Added {$term['label']} to" : "Granted {$term['label']} of";
 
         return back()->with('status', "{$how} {$plan->name} ({$kind}) for {$user->email}, now until {$endsAt->toFormattedDateString()}, and emailed them. It returns to Free on its own; their dashboard catches up on their next page load.");
-    }
-
-    /**
-     * Where a new term starts for this account: the end of its running grant
-     * of the same plan, null for today, or the refusal to flash.
-     *
-     * Refuses whatever PlanTerm::conflict() names. Both cases are a decision
-     * about the account, not this request, so neither is guessed at here; the
-     * stations upgrade is where an admin makes that call on purpose.
-     */
-    private function termStart(User $user, Plan $plan): Carbon|string|null
-    {
-        $conflict = PlanTerm::conflict($user, $plan, withTerm: true);
-
-        if ($conflict !== null) {
-            return "{$conflict} Nothing changed — change the account by hand from Stations if that is what you want.";
-        }
-
-        return PlanTerm::extendsFrom($user, $plan);
-    }
-
-    /**
-     * Open the email composer with the payment email already written.
-     *
-     * There is no checkout: a request is answered with this email, they reply
-     * with the term they want, and the admin grants it once the money is in.
-     * So this is the first step for every Pro request, and Approve is the last
-     * one. Pre-filled rather than sent, because the admin is the one who knows
-     * whether this person was quoted the founding price, and the composer's
-     * preview step is where that gets edited in.
-     *
-     * Offered on approved rows as well as pending ones: the trial the email
-     * offers is an approval, and somebody on it still needs the prices. Not
-     * on a dismissed one — prices to somebody already turned down — nor one
-     * with no account, which could pay and still never be granted. The view
-     * hides the button in both cases; this is the same rule for a direct GET.
-     *
-     * Leaves the request as it is — nothing has been decided by sending it.
-     */
-    public function paymentEmail(WaitlistEntry $entry): RedirectResponse
-    {
-        if ($entry->plan !== self::PRICED_PLAN_SLUG) {
-            return back()->with('status', 'The payment email quotes Pro prices, and this is a request for something else. Reply to it by email.');
-        }
-
-        if ($entry->status === WaitlistEntry::STATUS_REJECTED) {
-            return back()->with('status', 'That request was dismissed. Reopen it first if they should get the prices after all.');
-        }
-
-        if ($entry->user === null) {
-            return back()->with('status', "{$entry->email} has no GoCast account, so a payment could not be granted to anything. Reply by email.");
-        }
-
-        $user = $entry->user;
-        $station = $user?->stations()->first();
-
-        $prices = collect(self::PRICES_USD)
-            ->map(fn (int $price, string $key) => '| '.self::TERMS[$key]['label']." | \${$price} |")
-            ->implode("\n");
-
-        // Escaped because both are typed by the user and land in Markdown sent
-        // from our address: a `|` in a station name breaks the price table,
-        // and `[x](url)` would put their link in our email.
-        $for = $station ? ' for **'.EmailMarkdown::escape($station->name).'**' : '';
-        $monthly = self::PRICES_USD['1-month'];
-
-        $body = <<<MD
-            Thanks for asking about GoCast Pro{$for}.
-
-            Pro is \${$monthly} a month, and a longer term costs less:
-
-            | Term | Price |
-            |---|---|
-            {$prices}
-
-            Card payments are coming. For now we take payment in USDT. Reply with the term you want and we'll send you the payment details. Pro is switched on as soon as the payment arrives.
-
-            Want to try it first? Reply and we'll turn on 7 days of Pro, free.
-
-            You can cancel anytime. We refund what you paid minus the months you have used, counted at the monthly price. If those months come to more than you paid, there is no refund, and you never owe anything extra.
-            MD;
-
-        return redirect()->route('admin.emails.index')->withInput([
-            'recipients' => $entry->email,
-            'subject' => 'GoCast Pro: how to pay',
-            // Not escaped: the greeting is printed as plain text by the email
-            // template, so backslashes would show. Only the body is Markdown.
-            // Left blank rather than invalid when the name is too long for
-            // the composer's 120-character greeting.
-            'greeting' => $user?->name && mb_strlen("Hey {$user->name},") <= 120 ? "Hey {$user->name}," : '',
-            'body' => $body,
-        ]);
     }
 
     /**
@@ -509,7 +389,7 @@ class AccessRequestController extends Controller
      * days. The form makes the admin pick both; a post without them is a
      * stale form and is refused rather than guessed at.
      *
-     * A paid grant must be a term that has a price. Every other term is a
+     * A paid grant must be at least a month. Anything shorter is a
      * trial or a gift, so "paid, 1 week" is the admin having forgotten to
      * change the term, not a sale.
      *
@@ -531,7 +411,7 @@ class AccessRequestController extends Controller
             return 'Pick whether this was paid or free before granting it.';
         }
 
-        if ($paid === '1' && ! array_key_exists((string) $request->input('term'), self::PRICES_USD)) {
+        if ($paid === '1' && $term['months'] === 0) {
             return "{$term['label']} is not a term we sell, so it cannot be a paid grant. Pick the term they paid for.";
         }
 

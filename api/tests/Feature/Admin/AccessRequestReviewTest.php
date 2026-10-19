@@ -711,33 +711,6 @@ describe('access', function () {
     });
 });
 
-describe('payment email', function () {
-    it('opens the composer with the prices and the trial offer filled in', function () {
-        $entry = proRequest();
-        Station::factory()->for($entry->user)->create(['name' => 'Rae Radio']);
-
-        $this->get(route('admin.requests.payment-email', $entry))
-            ->assertRedirect(route('admin.emails.index'));
-
-        $this->get(route('admin.emails.index'))
-            ->assertOk()
-            ->assertSee($entry->email)
-            ->assertSee('GoCast Pro: how to pay')
-            ->assertSee('Rae Radio')
-            ->assertSee('| 12 months | $160 |', false)
-            ->assertSee('7 days of Pro, free');
-    });
-
-    it('leaves the request pending and sends nothing', function () {
-        $entry = proRequest();
-
-        $this->get(route('admin.requests.payment-email', $entry));
-
-        expect($entry->fresh()->status)->toBe(WaitlistEntry::STATUS_PENDING);
-        Notification::assertNothingSent();
-    });
-});
-
 describe('renewing', function () {
     it('moves a trial onto a paid term without passing through Free', function () {
         // The usual paid grant: the payment email offers a free week, so the
@@ -797,9 +770,7 @@ describe('renewing', function () {
 
         $this->get(route('admin.requests.index', ['status' => 'approved']))
             ->assertOk()
-            ->assertSee(route('admin.requests.renew', $entry))
-            // The trial is an approval, and somebody on it still needs the prices.
-            ->assertSee(route('admin.requests.payment-email', $entry));
+            ->assertSee(route('admin.requests.renew', $entry));
     });
 
     it('adds a term once when the form is submitted twice', function () {
@@ -872,70 +843,5 @@ describe('renewing', function () {
             ->assertOk()
             ->assertDontSee("confirm('Put o&#039;brien", false)
             ->assertSee('o\\u0027brien', false);
-    });
-});
-
-describe('payment email guards', function () {
-    it('is not offered or built for a request that is not for Pro', function () {
-        $user = User::factory()->create(['plan_id' => $this->free->id]);
-        $entry = WaitlistEntry::create(['user_id' => $user->id, 'email' => $user->email, 'plan' => 'custom']);
-
-        $this->get(route('admin.requests.index'))
-            ->assertOk()
-            ->assertDontSee(route('admin.requests.payment-email', $entry));
-
-        $this->get(route('admin.requests.payment-email', $entry))
-            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'quotes Pro prices'));
-    });
-
-    it('is not built for a dismissed request', function () {
-        $entry = proRequest();
-        $this->post(route('admin.requests.dismiss', $entry));
-
-        $this->get(route('admin.requests.payment-email', $entry))
-            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'was dismissed'));
-
-        expect(session()->getOldInput('body'))->toBeNull();
-    });
-
-    it('is not built for a request with no account', function () {
-        $entry = WaitlistEntry::create(['email' => 'stranger@example.com', 'plan' => 'pro']);
-
-        $this->get(route('admin.requests.payment-email', $entry))
-            ->assertSessionHas('status', fn (string $status) => str_contains($status, 'has no GoCast account'));
-    });
-
-    it('escapes the station name so it cannot add markup to our email', function () {
-        $entry = proRequest();
-        Station::factory()->for($entry->user)->create(['name' => 'Rae | [click](http://evil.test)']);
-
-        $this->get(route('admin.requests.payment-email', $entry));
-
-        expect(session()->getOldInput('body'))
-            ->toContain('**Rae \\| \\[click\\]\\(http://evil\\.test\\)**');
-    });
-
-    it('leaves the greeting blank rather than over the composer limit', function () {
-        $user = User::factory()->create(['plan_id' => $this->free->id, 'name' => str_repeat('a', 130)]);
-        $entry = proRequest($user);
-
-        $this->get(route('admin.requests.payment-email', $entry));
-
-        expect(session()->getOldInput('greeting'))->toBe('');
-    });
-
-    it('quotes the same monthly price as the website', function () {
-        // Two apps, two constants: the marketing page and upsells read
-        // PRO_PRICE_USD, the payment email reads PRICES_USD. This is the
-        // only thing that notices when a price change updates one of them,
-        // so a missing file fails rather than skips: a skip would let exactly
-        // that mismatch through any run that has api/ and not client/.
-        $planTs = base_path('../client/interfaces/Plan.ts');
-
-        expect(is_file($planTs))->toBeTrue("{$planTs} is missing, so the website price cannot be checked against the payment email.");
-
-        preg_match('/export const PRO_PRICE_USD = (\d+)/', file_get_contents($planTs), $match);
-
-        expect((int) ($match[1] ?? 0))->toBe(AccessRequestController::PRICES_USD['1-month']);
     });
 });

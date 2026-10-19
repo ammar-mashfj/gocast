@@ -2,9 +2,10 @@
 
 import { useState } from "react"
 import { IconCheck } from "@tabler/icons-react"
+import { ProPrice, useProPriceShort, useYearlyLine } from "@/components/dashboard/billing/ProPrice"
 import { usePlan } from "@/contexts/AccountContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
-import { PRO_FEATURES, PRO_PRICE_USD, PRO_PRICE_YEAR_USD } from "@/interfaces/Plan"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
+import { PRO_FEATURES } from "@/interfaces/Plan"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { Card } from "@/components/ds/Card"
@@ -15,18 +16,19 @@ import { ProTag } from "@/components/ds/Tag"
 /**
  * The overview's Pro upsell, for Free accounts only (nothing while the plan
  * is unknown — never guess Free). Opens what Pro adds and costs; its button
- * hands on to the request form (ProRequestContext), since there's no checkout.
+ * hands on to checkout (ProCheckoutContext).
  */
 export function GetProTile({ className }: { className?: string }) {
   const plan = usePlan()
   const [open, setOpen] = useState(false)
+  const price = useProPriceShort()
   if (!plan || plan.slug !== "free") return null
 
   return (
     <>
       <ActionRow
         title={<span className="inline-flex items-center gap-2">Get Pro <ProTag /></span>}
-        description={`AutoDJ, encoders and analytics · $${PRO_PRICE_USD}/mo`}
+        description={`AutoDJ, encoders and analytics${price ? ` · ${price}` : ""}`}
         onClick={() => setOpen(true)}
         className={cn("bg-pro-tint hover:bg-pro-tint/80", className)}
       />
@@ -36,7 +38,8 @@ export function GetProTile({ className }: { className?: string }) {
 }
 
 export function GetProDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const request = useProRequest()
+  const checkout = useProCheckout()
+  const yearly = useYearlyLine()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,13 +58,12 @@ export function GetProDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ))}
         </ul>
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <span className="flex items-baseline gap-1.5">
-            <span className="font-display text-title-lg">${PRO_PRICE_USD}</span>
-            <span className="text-sm text-muted-foreground">/ month</span>
-          </span>
-          <span className="text-sm text-muted-foreground">
-            or <span className="font-semibold text-foreground">${PRO_PRICE_YEAR_USD} / year</span>, save ${PRO_PRICE_USD * 12 - PRO_PRICE_YEAR_USD}
-          </span>
+          <ProPrice />
+          {yearly && (
+            <span className="text-sm text-muted-foreground">
+              or <span className="font-semibold text-foreground">{yearly.price} / year</span>, save {yearly.saving}
+            </span>
+          )}
         </div>
         <DialogFooter>
           <DialogClose asChild>
@@ -69,14 +71,12 @@ export function GetProDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           </DialogClose>
           <Button
             variant="pro"
-            disabled={request.requested}
             onClick={() => {
               onOpenChange(false)
-              request.open()
+              checkout.open()
             }}
           >
-            {request.requested && <IconCheck />}
-            {request.requested ? "Request sent" : "Request Pro"}
+            Get Pro
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -112,10 +112,7 @@ export function ProFeaturesCard({ wide = false, className }: { wide?: boolean; c
           ))}
         </ul>
         <div className={cn("flex items-center justify-between gap-4", wide && "md:shrink-0 md:justify-end")}>
-          <span className="flex items-baseline gap-1.5">
-            <span className="font-display text-title text-foreground">${PRO_PRICE_USD}</span>
-            <span className="text-sm">/ month</span>
-          </span>
+          <ProPrice amountClassName="font-display text-title text-foreground" unitClassName="text-sm" />
           <Button variant="pro" onClick={() => setOpen(true)}>Get Pro</Button>
         </div>
       </div>

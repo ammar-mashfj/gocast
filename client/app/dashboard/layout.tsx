@@ -8,7 +8,7 @@ import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { AccountProvider, type Account } from "@/contexts/AccountContext"
 import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
 import { StationStatusProvider } from "@/contexts/StationStatusContext"
-import { ProRequestProvider } from "@/contexts/ProRequestContext"
+import { ProCheckoutProvider } from "@/contexts/ProCheckoutContext"
 import { RealtimeProvider } from "@/contexts/RealtimeContext"
 import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
@@ -109,16 +109,15 @@ export default async function DashboardLayout({
       <BroadcastProvider>
         <AccountProvider account={account}>
           <StationProvider station={station}>
-            {/* Inside AccountProvider and StationProvider: the dialog prefills
-                from the account, and won't open at all without a station. */}
-            <ProRequestProvider>
+            {/* The Get Pro checkout, and the return from OxaPay's payment page. */}
+            <ProCheckoutProvider>
               <StationStatusProvider>
                 <SidebarProvider data-surface="dashboard">
                   <AppSidebar user={user} />
                   <DashboardShell>{children}</DashboardShell>
                 </SidebarProvider>
               </StationStatusProvider>
-            </ProRequestProvider>
+            </ProCheckoutProvider>
           </StationProvider>
         </AccountProvider>
       </BroadcastProvider>

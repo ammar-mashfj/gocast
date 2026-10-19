@@ -207,18 +207,6 @@
                                 </td>
                                 <td class="text-right">
                                     <div class="flex justify-end gap-1">
-                                        {{-- The first step for every Pro request: there is no
-                                             checkout, so they get prices and payment by email and
-                                             Approve comes after they pay or ask to try it. Kept on
-                                             approved rows too, because the trial it offers is an
-                                             approval and somebody on it still needs the prices. --}}
-                                        @if ($entry->user && $entry->plan === $pricedPlan && $entry->status !== \App\Models\WaitlistEntry::STATUS_REJECTED)
-                                            <a href="{{ route('admin.requests.payment-email', $entry) }}"
-                                               class="btn btn-ghost btn-xs"
-                                               title="Open the email composer with the prices, payment and trial offer filled in. Nothing is sent until you preview and send it.">
-                                                Payment email
-                                            </a>
-                                        @endif
                                         @if ($entry->status === \App\Models\WaitlistEntry::STATUS_APPROVED)
                                             <form method="POST" action="{{ route('admin.requests.revoke', $entry) }}"
                                                   onsubmit="return confirm({{ Js::from('Move '.$entry->email.' back to Free? They lose AutoDJ and drop to the free listener cap.') }})">

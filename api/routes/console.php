@@ -118,6 +118,19 @@ Schedule::command('plans:expire')
     ->hourly()
     ->withoutOverlapping();
 
+// Checkout safety net: asks OxaPay about payments still open and applies
+// whatever the webhook missed. Every 10 minutes so a missed webhook costs a
+// buyer minutes, not hours; a no-op while OXAPAY_MERCHANT_KEY is blank.
+Schedule::command('billing:reconcile')
+    ->everyTenMinutes()
+    ->withoutOverlapping();
+
+// Seven-day and one-day reminders before a PAID term ends. Daily, mid
+// afternoon UTC like the nudge; idempotent via the stamps on the payment.
+Schedule::command('billing:remind-renewals')
+    ->dailyAt('15:00')
+    ->withoutOverlapping();
+
 // Station timeline retention. Nightly and off-peak like the other two prunes,
 // at its own minute so the three never compete for the same disk. Nothing
 // summarises these rows before they age out — see PruneStationEvents for why

@@ -74,6 +74,64 @@ final class PlanTerm
     }
 
     /**
+     * Put $user on $plan for $term, extending a running grant of the same plan.
+     *
+     * The one writer every grant path shares — an admin approving a request
+     * and a confirmed payment — so they cannot disagree about where a term
+     * starts or what it may overwrite. The caller holds the user's row lock
+     * (lockForUpdate inside its transaction), which is what orders this
+     * against plans:expire.
+     *
+     * Returns [end date, whether it extended a running grant], or conflict()'s
+     * sentence when granting would overwrite something nobody asked to change.
+     * Nothing is written in that case.
+     *
+     * @param  array{label: string, weeks: int, months: int}  $term
+     * @return array{0: Carbon, 1: bool}|string
+     */
+    public static function apply(User $user, Plan $plan, array $term): array|string
+    {
+        $conflict = self::conflict($user, $plan, withTerm: true);
+
+        if ($conflict !== null) {
+            return $conflict;
+        }
+
+        $start = self::extendsFrom($user, $plan);
+        $endsAt = self::endOfTerm($start, $term);
+
+        // An extension of the plan they are already on changes no plan_id,
+        // so the common renewal triggers no container fan-out at all.
+        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => $endsAt])->save();
+
+        return [$endsAt, $start !== null];
+    }
+
+    /**
+     * Put $user on $plan with no end date — a lifetime purchase.
+     *
+     * conflict() without a term: an account already on $plan (on a term or
+     * not) is simply made permanent, and one on a hand-made plan is refused
+     * exactly as a term would be. Same row-lock contract as apply().
+     *
+     * @return array{0: null, 1: bool}|string
+     */
+    public static function applyPermanent(User $user, Plan $plan): array|string
+    {
+        $conflict = self::conflict($user, $plan, withTerm: false);
+
+        if ($conflict !== null) {
+            return $conflict;
+        }
+
+        $wasRunning = self::extendsFrom($user, $plan) !== null;
+
+        $user->forceFill(['plan_id' => $plan->id, 'plan_expires_at' => null])->save();
+
+        return [null, $wasRunning];
+    }
+
+    /**
      * NoOverflow: three months from 30 November is the end of February, not
      * the 2nd of March. Carbon overflows by default, which would put the
      * account's real end date a couple of days past the one the email names.

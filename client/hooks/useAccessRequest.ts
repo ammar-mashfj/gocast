@@ -7,7 +7,7 @@ import api from "@/lib/axios"
 /**
  * The access-request form's state and submit, shared by the two dialogs that
  * draw it: ProAccessDialog (marketing kit — the pricing page's Custom card
- * and the homepage) and the dashboard's ProRequestDialog (ds kit). One copy
+ * and the homepage) and, before checkout, the dashboard's Pro request (ds kit). One copy
  * of the rules, because they must not drift: `social` is REQUIRED server-side
  * on both paths, so a looser form would be rejected on submit.
  *

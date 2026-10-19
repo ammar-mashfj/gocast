@@ -56,7 +56,7 @@ sources:
   - client/interfaces/Notification.ts
   - client/contexts/AccountContext.tsx
   - client/contexts/StationContext.tsx
-  - client/contexts/ProRequestContext.tsx
+  - client/contexts/ProCheckoutContext.tsx
   - client/contexts/RealtimeContext.tsx
   - client/contexts/BroadcastContext.tsx
   - client/hooks/useStationStatus.ts
@@ -124,7 +124,7 @@ sources:
   - client/components/ds/Checkbox.tsx
   - client/app/(home)/layout.tsx
   - client/components/dashboard/shell/DashboardShell.tsx
-  - client/components/dashboard/ProRequestDialog.tsx
+  - client/components/dashboard/billing/ProCheckoutDialog.tsx
   - client/lib/navigation.ts
 fingerprint: cb58ecb8a2add915
 ---
