@@ -79,7 +79,7 @@ sources:
   - api/database/migrations/0001_01_01_000000_create_users_table.php
   - client/interfaces/Plan.ts
   - client/contexts/AccountContext.tsx
-  - client/contexts/ProRequestContext.tsx
+  - client/contexts/ProCheckoutContext.tsx
   - client/components/ProAccessDialog.tsx
   - client/app/dashboard/settings/page.tsx
   - client/app/dashboard/settings/layout.tsx
@@ -92,7 +92,7 @@ sources:
   - client/lib/dashboardNav.ts
   - client/actions/auth.ts
   - mobile/src/app/account.tsx
-  - client/components/dashboard/ProRequestDialog.tsx
+  - client/components/dashboard/billing/ProCheckoutDialog.tsx
   - client/hooks/useAccessRequest.ts
   - client/components/dashboard/account/PlanCard.tsx
   - client/components/dashboard/overview/GetProTile.tsx
@@ -216,7 +216,9 @@ Google sign-in links an existing password account by email and then redeems, whi
 
 **Verified listener** (`AppServiceProvider`, on `Illuminate\Auth\Events\Verified`): if `invite_id` is set and a plan is loaded, send `InviteRedeemed`; otherwise send `WelcomeNotification`. This is the single welcome email for a new account. Google accounts are marked verified inside `signInGoogleUser` *after* redeeming so this listener sends the one welcome.
 
-## Waitlist and the "Request Pro" flow
+## Waitlist and the old "Request Pro" flow
+
+> **Replaced by self-serve checkout on 2026-10-19: see [billing-checkout](billing-checkout.md).** The dashboard no longer posts `/api/waitlist/pro` (the endpoint still exists, unused by the web app), the Payment email action and `PRICES_USD` are gone, and every Get Pro button opens `ProCheckoutDialog`. What follows is still accurate for `waitlist_entries`, Custom enquiries and the admin Approve/Renew/Revoke actions; the "Where the form lives" bullet describes the removed dashboard form.
 
 `waitlist_entries`: `email`, `plan` (string, 30), `social`, `message`, `user_id` (nullable, null on user delete), `status` (`pending|approved|rejected`, default `pending`, indexed), `reviewed_at`, `reviewed_by` (admin). **Unique on (`email`, `plan`)**; the migration deleted older duplicates before adding it. `status`, `reviewed_*` are not mass-assignable (`markReviewed` and `reopen` use `forceFill`).
 

@@ -4,7 +4,10 @@ use App\Http\Controllers\Admin\AccessRequestController;
 use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\AuthenticatedSessionController;
+use App\Http\Controllers\Admin\DiscountController;
 use App\Http\Controllers\Admin\InviteController;
+use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RawEmailController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\WatermarkClipController;
@@ -72,7 +75,6 @@ Route::middleware('auth:admin')->group(function () {
     // POST rather than PATCH throughout: these are plain Blade forms, and a
     // spoofed method buys nothing here while costing a hidden field on every
     // row. `approve` is the one that moves an account onto a paid plan.
-    Route::get('requests/{entry}/payment-email', [AccessRequestController::class, 'paymentEmail'])->name('requests.payment-email');
     Route::post('requests/{entry}/approve', [AccessRequestController::class, 'approve'])->name('requests.approve');
     Route::post('requests/{entry}/renew', [AccessRequestController::class, 'renew'])->name('requests.renew');
     Route::post('requests/{entry}/dismiss', [AccessRequestController::class, 'dismiss'])->name('requests.dismiss');
@@ -94,6 +96,19 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('emails', [RawEmailController::class, 'index'])->name('emails.index');
     Route::post('emails/preview', [RawEmailController::class, 'preview'])->name('emails.preview');
     Route::post('emails', [RawEmailController::class, 'store'])->name('emails.store');
+
+    // Checkout. Products and discounts are what the Get Pro dialog sells and
+    // at what price — editing them here changes prices with no deploy.
+    // Payments is the ledger; its two actions never touch an account directly.
+    Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
+    Route::post('payments/{payment}/recheck', [PaymentController::class, 'recheck'])->name('payments.recheck');
+    Route::post('payments/{payment}/clear-review', [PaymentController::class, 'clearReview'])->name('payments.clear-review');
+    Route::get('billing/products', [ProductController::class, 'index'])->name('products.index');
+    Route::post('billing/products', [ProductController::class, 'store'])->name('products.store');
+    Route::post('billing/products/{product}', [ProductController::class, 'update'])->name('products.update');
+    Route::get('billing/discounts', [DiscountController::class, 'index'])->name('discounts.index');
+    Route::post('billing/discounts', [DiscountController::class, 'store'])->name('discounts.store');
+    Route::post('billing/discounts/{discount}', [DiscountController::class, 'update'])->name('discounts.update');
 
     Route::get('watermark', [WatermarkClipController::class, 'index'])->name('watermark.index');
     Route::post('watermark', [WatermarkClipController::class, 'store'])->name('watermark.store');

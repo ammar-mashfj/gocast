@@ -44,28 +44,12 @@ export interface Plan {
   watermarked: boolean
   /**
    * ISO timestamp of when this plan ends and the account drops to Free, or
-   * null for an open-ended plan. Only a time-limited invite sets it. Display
+   * null for an open-ended plan. Set by a paid term, an invite or an admin
+   * grant. Display
    * only — the API's `plans:expire` job is what enforces it.
    */
   expires_at: string | null
 }
-
-/**
- * What Pro costs, in whole dollars per month.
- *
- * Lives on the client because the `plans` table has no price column — there
- * is no billing integration yet, so no server-side number to read. The
- * marketing page and the in-dashboard upsell both import this rather than
- * hardcoding it twice and disagreeing after the next pricing change.
- */
-export const PRO_PRICE_USD = 20
-
-/**
- * Pro paid for a year at once, in whole dollars. Must match the 12-month row
- * of AccessRequestController::PRICES_USD — that is what the payment email
- * actually quotes.
- */
-export const PRO_PRICE_YEAR_USD = 160
 
 /**
  * What Pro adds over Free, condensed — the pricing card and the dashboard
@@ -82,12 +66,3 @@ export const PRO_FEATURES = [
   "90 days of listener analytics, by country",
   "Priority support",
 ]
-
-/**
- * Pro is not self-serve yet: there is no checkout route. Pro is requested
- * through ProAccessDialog, the payment details go out by email, and the plan
- * is granted by hand once paid, so every "upgrade" affordance opens that form
- * rather than a payment page.
- * Flip this once billing ships and the CTAs become real upgrade links.
- */
-export const PRO_AVAILABLE = false

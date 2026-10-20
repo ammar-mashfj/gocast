@@ -59,7 +59,7 @@ interface Props {
  * The access request form, on the marketing kit: the Custom card on the
  * public pricing section (anonymous, POSTs /waitlist and collects an email)
  * and the homepage's Pro waitlist. The dashboard draws the same form with
- * the ds kit (components/dashboard/ProRequestDialog).
+ * the ds kit (the dashboard now sells Pro through ProCheckoutDialog).
  *
  * The form's rules live in useAccessRequest, which both share, so the two
  * can't drift.

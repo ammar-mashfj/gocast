@@ -94,9 +94,9 @@ export default function Body() {
 
       <h2>Getting Pro</h2>
       <p>
-        Ask for it from your dashboard &mdash; the locked features each have a
-        button. We email you how to pay, and Pro switches on as soon as the
-        payment arrives. It is paid in advance for the term you pick and does
+        Buy it from your dashboard &mdash; the locked features each have a
+        button. Pick a term, pay, and Pro switches on as soon as the payment
+        is confirmed. It is paid in advance for the term you pick and does
         not renew on its own. Cancel any time and we refund what you paid,
         minus the months you have used at the monthly price &mdash; never
         less than nothing, so you never owe more than you paid.

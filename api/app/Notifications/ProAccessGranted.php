@@ -75,8 +75,8 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
      * @param  bool  $paid  They paid for this term. Swaps "on us, free of
      *                      charge" for a thank-you; telling somebody who just
      *                      sent money that it is free reads like a mistake.
-     *                      Always comes with `$until`: a paid grant is for a
-     *                      term that has a price, never open-ended.
+     *                      Comes with `$until` unless they bought a lifetime,
+     *                      which has no end date.
      * @param  bool  $extended  The term was added to a grant that was still
      *                          running (AccessRequestController::renew), so
      *                          `$until` is further out than `$term` from
@@ -161,6 +161,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         // question. A request grant keeps the term, which is what they asked
         // for and what its email subject promises.
         $points = match (true) {
+            $this->paid && $this->until === null => [
+                "{$this->plan->name} for good, paid — thank you.",
+                'It has no end date, so there is nothing to renew and nothing more to pay.',
+            ],
             $this->paid => [
                 $this->extended
                     ? "{$this->term} of {$this->plan->name} added, paid — thank you."
@@ -254,7 +258,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             }
         }
 
-        if ($this->paid) {
+        if ($this->paid && $this->until === null) {
+            $message->line("Thanks for your payment. Your station is now on {$this->plan->name} for good.");
+            $message->line('It has no end date, so there is nothing to renew and nothing more to pay.');
+        } elseif ($this->paid) {
             $message->line(match (true) {
                 $this->extended => "Thanks for your payment. We've added {$this->term} of {$this->plan->name} to your account.",
                 default => "Thanks for your payment. Your station is now on {$this->plan->name} for {$this->term}.",

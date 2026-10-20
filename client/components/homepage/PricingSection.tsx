@@ -2,7 +2,9 @@ import Link from "next/link"
 import { Button, buttonVariants } from "@/components/ds/Button"
 import { StatusLamp } from "@/components/ds/StatusLamp"
 import { Tag } from "@/components/ds/Tag"
-import { PRO_FEATURES, PRO_PRICE_USD } from "@/interfaces/Plan"
+import { PRO_FEATURES } from "@/interfaces/Plan"
+import { formatUsd, isLifetime, monthlyProduct, type CatalogProduct } from "@/lib/billing-catalog"
+import { getCatalog } from "@/lib/billing-server"
 import { cn } from "@/lib/utils"
 import { Section, SectionIntro } from "./Section"
 import WaitlistButton from "./WaitlistButton"
@@ -49,7 +51,56 @@ function FeatureList({ items }: { items: string[] }) {
 
 const CARD = "flex flex-col gap-4.5 rounded-card p-6 sm:p-7"
 
-export default function PricingSection() {
+/**
+ * "Pro, paid ahead": the longer Pro terms in a band of their own, in the
+ * catalog's order, each with its total, its price per month, and what it saves
+ * against paying monthly (the same sum the Get Pro dialog shows). A band, not
+ * a list inside the Pro card, because the three cards share a row and stretch
+ * to the tallest. Lifetime is never listed here: it is a dashboard-only offer,
+ * switched on and off by hand.
+ */
+function PaidAhead({ terms, monthly, className }: { terms: CatalogProduct[]; monthly: CatalogProduct | undefined; className?: string }) {
+  const monthlyRate = monthly ? Number(monthly.list_price_usd) : null
+
+  return (
+    <div className={cn("flex flex-col gap-4 rounded-card bg-pro-tint p-6 sm:p-7", className)}>
+      <span className="eyebrow text-fault-text">Pro, paid ahead</span>
+      <ul role="list" className="flex flex-col sm:grid sm:auto-cols-fr sm:grid-flow-col">
+        {terms.map((p) => {
+          const perMonth = Number(p.per_month_usd ?? p.price_usd)
+          const saving = monthlyRate ? Math.round((1 - perMonth / monthlyRate) * 100) : 0
+          const onSale = Number(p.discount_usd) > 0
+          return (
+            <li
+              key={p.slug}
+              className="flex flex-col gap-1 border-t border-line py-3.5 first:border-t-0 first:pt-0 last:pb-0 sm:border-t-0 sm:border-l sm:px-5 sm:py-0 sm:first:border-l-0 sm:first:pl-0"
+            >
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-foreground">
+                {p.duration.label ?? p.name}
+                {p.badge && <Tag variant="pro">{p.badge}</Tag>}
+              </span>
+              <span className="flex items-baseline gap-1.5">
+                <span className="font-display text-title-lg text-foreground">{formatUsd(p.price_usd)}</span>
+                {onSale && <s className="text-body-sm text-fault-text">{formatUsd(p.list_price_usd)}</s>}
+              </span>
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-fault-text">
+                {formatUsd(perMonth)} / month
+                {saving > 0 && <span className="rounded-tag bg-ok/15 px-1.5 py-0.5 text-caption font-bold text-ok-text">Save {saving}%</span>}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+export default async function PricingSection() {
+  const catalog = await getCatalog()
+  const monthly = catalog ? monthlyProduct(catalog) : undefined
+  const onSale = monthly ? Number(monthly.discount_usd) > 0 : false
+  const terms = (catalog ?? []).filter((p) => p !== monthly && !isLifetime(p) && p.plan?.slug !== "free" && p.per_month_usd)
+
   return (
     <Section id="pricing" tone="card">
       <SectionIntro
@@ -60,7 +111,7 @@ export default function PricingSection() {
 
       <div className="grid items-stretch gap-3.5 lg:grid-cols-3">
         {/* Free — the only plan you can actually start on. */}
-        <div className={cn(CARD, "bg-surface-raised")}>
+        <div className={cn(CARD, "order-1 bg-surface-raised")}>
           <div className="flex items-center justify-between gap-3">
             <span className="eyebrow text-text-faint">Where everyone starts</span>
             <StatusLamp tone="onair" size="sm">Live now</StatusLamp>
@@ -85,31 +136,34 @@ export default function PricingSection() {
           </Button>
         </div>
 
-        {/* Pro — payment is arranged by email. Deliberately no button: a request
-            from someone who has never signed up is not something anyone can
-            act on, and the form used to convert curious visitors into
-            form-fills instead of the signup we actually want. */}
-        <div className={cn(CARD, "bg-pro-tint")}>
+        {/* Pro — bought from the dashboard. Deliberately no button: the signup
+            is what we want from a visitor, and checkout needs an account. The
+            prices are the catalog's (admin-edited); without it they are left
+            out rather than guessed. */}
+        <div className={cn(CARD, "order-2 bg-pro-tint")}>
           <div className="flex items-center justify-between gap-3">
             <span className="eyebrow text-fault-text">When you outgrow it</span>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="font-display text-display">Pro</span>
-            <span className="font-mono text-base font-semibold">
-              ${PRO_PRICE_USD} <span className="text-fault-text">/ month</span>
-            </span>
+            {monthly && (
+              <span className="font-mono text-base font-semibold">
+                {onSale && <s className="mr-1.5 font-normal text-fault-text">{formatUsd(monthly.list_price_usd)}</s>}
+                {formatUsd(monthly.price_usd)} <span className="text-fault-text">/ month</span>
+              </span>
+            )}
           </div>
           <p className="text-body text-fault-text">Everything in Free, plus:</p>
           <FeatureList items={PRO_FEATURES} />
           <p className="mt-auto text-body-sm text-fault-text">
-            Ask for it from your dashboard once your station is set up, and we’ll email you how to pay.
+            Upgrade from your dashboard whenever you’re ready.
           </p>
         </div>
 
         {/* Custom — the one card whose button is a form, because a network
             sizing up a white-label deal has no account yet and should not
             need one to talk to us. */}
-        <div className={cn(CARD, "bg-on-air-tint")}>
+        <div className={cn(CARD, "order-4 bg-on-air-tint lg:order-3")}>
           <div className="flex items-center justify-between gap-3">
             <span className="eyebrow text-on-air-text">By hand</span>
             <Tag variant="onair">Made to order</Tag>
@@ -144,6 +198,11 @@ export default function PricingSection() {
             Talk to us →
           </WaitlistButton>
         </div>
+
+        {/* Straight after the Pro card on a phone, so it reads as part of
+            Pro; a full-width row under all three from lg. One element, moved
+            by order, not two copies. */}
+        {terms.length > 0 && <PaidAhead terms={terms} monthly={monthly} className="order-3 lg:order-4 lg:col-span-3" />}
       </div>
 
       <p className="font-mono text-caption text-text-faint">Pricing last updated {LAST_UPDATED}</p>

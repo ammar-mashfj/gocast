@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { IconCheck, IconLoader2, IconSelector } from "@tabler/icons-react"
+import { IconLoader2, IconSelector } from "@tabler/icons-react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { usePlan, useAutoDjLocked, useAudienceLocked } from "@/contexts/AccountContext"
 import { useCurrentStation, type CurrentStation } from "@/contexts/StationContext"
-import { useProRequest } from "@/contexts/ProRequestContext"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { useSignOut } from "@/hooks/useSignOut"
 import { airState } from "@/lib/airState"
@@ -218,33 +218,24 @@ function ProTag() {
 /**
  * Free accounts only. Above the account row because the question it answers
  * — "why does my station go quiet?" — comes up while looking at the nav.
- * "Get Pro" opens the request form; payment is arranged by email.
+ * "Get Pro" opens checkout.
  */
 function PlanCard() {
   const plan = usePlan()
   const locked = useAutoDjLocked()
-  const proRequest = useProRequest()
+  const checkout = useProCheckout()
   if (!locked) return null
 
   return (
     <div className="flex flex-col gap-2 rounded-well bg-card p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-body-sm font-bold">{plan?.name ?? "Free"} plan</span>
-        <Button size="sm" variant="pro" onClick={proRequest.open} disabled={proRequest.requested} className="h-7.5 px-2.5 text-caption">
-          {proRequest.requested ? (
-            <>
-              <IconCheck className="size-3.5" aria-hidden />
-              Request sent
-            </>
-          ) : (
-            "Get Pro"
-          )}
+        <Button size="sm" variant="pro" onClick={() => checkout.open()} className="h-7.5 px-2.5 text-caption">
+          Get Pro
         </Button>
       </div>
       <p className="text-caption text-muted-foreground">
-        {proRequest.requested
-          ? "We’ll be in touch by email."
-          : "Your station goes silent when you stop broadcasting."}
+        Your station goes silent when you stop broadcasting.
       </p>
     </div>
   )

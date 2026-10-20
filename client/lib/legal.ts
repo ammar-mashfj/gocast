@@ -6,7 +6,7 @@
  */
 export const LEGAL_UPDATED = {
   privacy: "2026-09-26",
-  terms: "2026-10-14",
+  terms: "2026-10-20",
 } as const
 
 // UTC, because the ISO date parses as UTC midnight: formatting it in a

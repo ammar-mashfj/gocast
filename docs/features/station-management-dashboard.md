@@ -24,7 +24,7 @@ sources:
   - client/components/dashboard/EmbedDialog.tsx
   - client/contexts/StationContext.tsx
   - client/contexts/AccountContext.tsx
-  - client/contexts/ProRequestContext.tsx
+  - client/contexts/ProCheckoutContext.tsx
   - client/hooks/useStationStatus.ts
   - client/hooks/useListenerCount.ts
   - client/hooks/usePublicStationStats.ts
@@ -95,7 +95,7 @@ sources:
   - client/components/dashboard/account/PasswordForm.tsx
   - client/components/dashboard/account/DeleteAccount.tsx
   - client/components/dashboard/account/VerifyEmailDialog.tsx
-  - client/components/dashboard/ProRequestDialog.tsx
+  - client/components/dashboard/billing/ProCheckoutDialog.tsx
   - client/contexts/StationStatusContext.tsx
   - client/hooks/useStationStatusPoll.ts
   - client/hooks/useStationPower.ts

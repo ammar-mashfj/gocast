@@ -1,10 +1,9 @@
 "use client"
 
-import { IconCheck } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { ProTag } from "@/components/ds/Tag"
-import { useProRequest } from "@/contexts/ProRequestContext"
-import { PRO_AVAILABLE, PRO_PRICE_USD } from "@/interfaces/Plan"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
+import { ProPrice } from "@/components/dashboard/billing/ProPrice"
 
 /**
  * What a free account sees where the history would be.
@@ -31,7 +30,7 @@ const SELLING_POINTS = [
 const SAMPLE = [8, 14, 11, 19, 26, 22, 31, 27, 38, 34, 29, 44, 39, 52, 47, 61, 55, 68, 74, 66]
 
 export function AudienceUpsell({ stationName }: { stationName: string }) {
-  const request = useProRequest()
+  const checkout = useProCheckout()
 
   return (
     <div className="overflow-hidden rounded-card bg-card">
@@ -73,18 +72,12 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
         </div>
 
         <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-display text-title-lg">${PRO_PRICE_USD}</span>
-            <span className="text-sm text-muted-foreground">/ month</span>
-          </div>
+          <ProPrice />
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
-            {PRO_AVAILABLE
-              ? "Billed monthly, cancel any time. Your history stays if you downgrade."
-              : "We'll email you how to pay. Your history keeps building either way."}
+            Pay once with USDT, USDC or another digital currency. Nothing renews by itself. Your history keeps building either way.
           </p>
-          <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
-            {request.requested && <IconCheck />}
-            {request.requested ? "Request sent" : "Get Pro"}
+          <Button variant="pro" full className="mt-4" onClick={() => checkout.open()}>
+            Get Pro
           </Button>
         </div>
       </div>

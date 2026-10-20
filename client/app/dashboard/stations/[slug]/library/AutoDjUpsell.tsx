@@ -1,11 +1,10 @@
 "use client"
 
-import { IconCheck } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { Card } from "@/components/ds/Card"
 import { ProTag } from "@/components/ds/Tag"
-import { useProRequest } from "@/contexts/ProRequestContext"
-import { PRO_AVAILABLE, PRO_PRICE_USD } from "@/interfaces/Plan"
+import { useProCheckout } from "@/contexts/ProCheckoutContext"
+import { ProPrice } from "@/components/dashboard/billing/ProPrice"
 
 /**
  * What a free account sees above its own library.
@@ -24,10 +23,10 @@ const SELLING_POINTS = [
 
 export function AutoDjUpsell({ stationName }: { stationName: string }) {
   // The same dialog the sidebar's plan card opens — see
-  // ProRequestContext. Read here rather than passed down: there is exactly
+  // ProCheckoutContext. Read here rather than passed down: there is exactly
   // one of it per dashboard, so threading it through props would only create
   // the chance of wiring in a second.
-  const request = useProRequest()
+  const checkout = useProCheckout()
 
   return (
     // A plain panel, not a violet-washed one: violet is the brand and the
@@ -55,23 +54,15 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
         </div>
 
         <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-display text-title-lg">${PRO_PRICE_USD}</span>
-            <span className="text-sm text-muted-foreground">/ month</span>
-          </div>
+          <ProPrice />
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
-            {PRO_AVAILABLE
-              ? "Billed monthly, cancel any time. Your uploads stay if you downgrade."
-              : "We'll email you how to pay. Cancel any time, and your uploads stay yours either way."}
+            Pay once with USDT, USDC or another digital currency. Nothing renews by itself. Your uploads stay yours either way.
           </p>
 
-          {/* The page's one filled button and its only request action (the
-              header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
-              the amber Pro tag). Opens the request form — payment is by email.
-              Once sent it stays a disabled button, as on every other upsell. */}
-          <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
-            {request.requested && <IconCheck />}
-            {request.requested ? "Request sent" : "Get Pro"}
+          {/* The page's one filled button (the H1 keeps just the amber Pro
+              tag). Opens checkout. */}
+          <Button variant="pro" full className="mt-4" onClick={() => checkout.open()}>
+            Get Pro
           </Button>
         </div>
     </Card>

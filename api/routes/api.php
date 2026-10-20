@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AudienceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AutodjSlotController;
+use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\NextTrackController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\NowPlayingController;
+use App\Http\Controllers\OxaPayWebhookController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\PlaylistTrackController;
@@ -309,6 +311,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/waitlist/pro', [WaitlistController::class, 'storePro']);
 });
 
+// Self-serve checkout (BillingController). The catalog is public because the
+// homepage pricing section renders it too; everything that names a buyer is
+// behind auth. Each route has its own throttle bucket — an unnamed
+// `throttle:N,M` shares one counter per user across every route using it.
+Route::get('/billing/catalog', [BillingController::class, 'catalog'])
+    ->middleware('throttle:60,1,billing-catalog');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/billing/quote', [BillingController::class, 'quote'])
+        ->middleware('throttle:30,1,billing-quote');
+    Route::post('/billing/checkout', [BillingController::class, 'checkout'])
+        ->middleware('throttle:10,1,billing-checkout');
+    Route::get('/billing/payments/{payment}', [BillingController::class, 'show'])
+        ->middleware('throttle:60,1,billing-payment');
+    Route::get('/billing/card-interest', [BillingController::class, 'cardInterest'])
+        ->middleware('throttle:30,1,billing-card-interest');
+    Route::post('/billing/card-interest', [BillingController::class, 'notifyCards'])
+        ->middleware('throttle:10,1,billing-card-notify');
+});
+
 // Liquidsoap harbor auth callback and the now-playing push. Both are
 // server-to-server calls from containers we control; the `internal`
 // middleware enforces the shared X-Internal-Key secret so internet attackers
@@ -344,3 +366,9 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
 // the controller routes each event type to its handler.
 Route::post('/webhooks/resend', ResendWebhookController::class)
     ->middleware('throttle:120,1,resend-webhook');
+
+// OxaPay invoice updates. Public, but every request must carry the HMAC of
+// its body keyed with OXAPAY_MERCHANT_KEY; see OxaPayWebhookController.
+Route::post('/webhooks/oxapay', OxaPayWebhookController::class)
+    ->middleware('throttle:120,1,oxapay-webhook')
+    ->name('webhooks.oxapay');

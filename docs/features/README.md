@@ -48,6 +48,7 @@ Every doc below was written from the code on disk on 2026-09-29, then independen
 ### Accounts and operations
 - [Auth](auth.md): every sign-in, token, cookie and throttle flow, web and mobile.
 - [Accounts, plans and invites](accounts-plans-invites.md): plan values, every gate, invites, Request Pro, expiry.
+- [Billing and checkout](billing-checkout.md): OxaPay checkout, products, coupons and sales, the webhook, reminders, how to test.
 - [Notifications and email](notifications-and-email.md): every email and bell notification, suppression, Resend webhook.
 - [Admin panel](admin-panel.md): every `/admin` page and action.
 - [Observability and events](observability-and-events.md): station events, activity log, Sentry, metrics, alerts.

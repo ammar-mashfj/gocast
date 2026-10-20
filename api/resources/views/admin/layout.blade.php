@@ -61,6 +61,24 @@
                         </a>
                     </li>
                     <li>
+                        <a href="{{ route('admin.payments.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.payments.*')])>
+                            Payments
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ route('admin.products.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.products.*')])>
+                            Products &amp; prices
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ route('admin.discounts.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.discounts.*')])>
+                            Coupons &amp; sales
+                        </a>
+                    </li>
+                    <li>
                         <a href="{{ route('admin.accounts.create') }}"
                            @class(['menu-active' => request()->routeIs('admin.accounts.*')])>
                             Create account

@@ -249,8 +249,7 @@ export default function Body() {
         line rather than something we can hand out for free to everyone.
       </p>
       <p>
-        Pro is $20 a month. You ask for it from your dashboard and we email you
-        how to pay.{" "}
+        Pro is $20 a month, and you buy it from your dashboard.{" "}
         <Link href="/blog/keep-your-radio-station-on-air-24-7">
           What Pro actually does
         </Link>{" "}

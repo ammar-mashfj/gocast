@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendAdminTelegramAlert;
+use App\Models\Payment;
 use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\User;
@@ -97,6 +98,31 @@ class AdminTelegram
             ."via {$this->e($source)}{$client}\n"
             .'<a href="'.$this->e($this->stationUrl($station)).'">Listen</a>'
             .' · <a href="'.$this->e(route('admin.stations.show', $station)).'">Admin</a>'
+        );
+    }
+
+    /** A confirmed payment that has been granted. The sale itself. */
+    public function paymentGranted(Payment $payment): void
+    {
+        $this->send(
+            ($payment->sandbox ? '🧪 <b>Test payment granted</b>' : '💰 <b>Payment received</b>')."\n"
+            .$this->e($payment->product_name).' — $'.$this->e($payment->amount_usd)
+            .($payment->discount_code ? ' (coupon '.$this->e($payment->discount_code).')' : '')."\n"
+            .$this->e($payment->user?->email ?? 'unknown')."\n"
+            .($payment->granted_until ? 'Until '.$this->e($payment->granted_until->toFormattedDateString())."\n" : '')
+            .'<a href="'.$this->e(route('admin.payments.index', ['search' => $payment->uuid])).'">Admin</a>'
+        );
+    }
+
+    /** A payment a human has to look at: underpaid, refunded, or paid but not grantable. */
+    public function paymentNeedsReview(Payment $payment): void
+    {
+        $this->send(
+            "⚠️ <b>Payment needs review</b>\n"
+            .$this->e($payment->product_name).' — $'.$this->e($payment->amount_usd).' · '.$this->e($payment->status)."\n"
+            .$this->e($payment->user?->email ?? 'unknown')."\n"
+            .$this->e((string) $payment->review_reason)."\n"
+            .'<a href="'.$this->e(route('admin.payments.index', ['search' => $payment->uuid])).'">Admin</a>'
         );
     }
 
