@@ -306,13 +306,3 @@ function TransportButton({
     </button>
   )
 }
-
-/** A music-only show: in the pad's place, a plain card saying why there is no mic. */
-export function MusicOnlyPad({ className }: { className?: string } = {}) {
-  return (
-    <div className={cn("flex flex-col gap-1 rounded-card bg-card p-5", className)}>
-      <span className="font-display text-body font-bold">Music only</span>
-      <span className="text-sm text-muted-foreground">Your running order is on air. The mic stays closed for this show.</span>
-    </div>
-  )
-}

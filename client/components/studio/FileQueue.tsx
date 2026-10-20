@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import { flushSync } from "react-dom"
 import { toast } from "sonner"
-import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash } from "@tabler/icons-react"
+import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash, IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react"
 import {
   DndContext,
   PointerSensor,
@@ -156,7 +156,20 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
  * Shared by both layouts now. The phone layout used to carry its own copy of
  * this list — no air times, no keyboard reordering, unlabelled buttons.
  */
-export function FileQueue({ className }: { className?: string } = {}) {
+export function FileQueue({
+  className,
+  expanded = false,
+  onToggleExpand,
+}: {
+  className?: string
+  /**
+   * Expanded: the studio hides Now playing (and, with a mic, the mic
+   * column) so this has their room. It still scrolls inside its card; this
+   * prop only flips the button.
+   */
+  expanded?: boolean
+  onToggleExpand?: () => void
+} = {}) {
   const { engine } = useBroadcast()
   const version = useEngineVersion(engine)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -285,6 +298,9 @@ export function FileQueue({ className }: { className?: string } = {}) {
   return (
     <section
       aria-labelledby="running-order-title"
+      // Named for the studio's Expand transition (studio/page.tsx), so the
+      // card's box animates between sizes instead of cross-fading.
+      style={{ viewTransitionName: "studio-running-order" }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return
         e.preventDefault()
@@ -315,8 +331,25 @@ export function FileQueue({ className }: { className?: string } = {}) {
       />
 
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-5">
-        <div className="min-w-0">
-          <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
+        <div className="min-w-0 flex-1">
+          {/* Expand beside the title, on its line: below it, it took a row
+              of its own on a phone. */}
+          <div className="flex items-center justify-between gap-3 max-sm:mb-1.5">
+            <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
+            {onToggleExpand && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9"
+                onClick={onToggleExpand}
+                aria-expanded={expanded}
+                title={expanded ? "Show Now playing and the mic pad again" : "Give the running order more room"}
+              >
+                {expanded ? <IconArrowsMinimize /> : <IconArrowsMaximize />}
+                {expanded ? "Collapse" : "Expand"}
+              </Button>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
             {/* The preamble goes where the column is narrow (below xl), so the

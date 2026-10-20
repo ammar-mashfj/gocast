@@ -99,6 +99,32 @@ export function useMicPreview(enabled: boolean) {
     }
   }, [enabled, open, release])
 
+  // Watch the permission itself, enabled or not: a mic blocked and then
+  // allowed in the browser's site settings comes back here without a reload
+  // (and a block that lands while the page is open is seen too). Browsers
+  // without permission change events simply never fire it.
+  useEffect(() => {
+    let status: PermissionStatus | null = null
+    let cancelled = false
+    const onChange = () => {
+      if (!status) return
+      if (status.state === "denied") setState("blocked")
+      else setState((s) => (s === "blocked" ? "idle" : s))
+    }
+    navigator.permissions
+      ?.query({ name: "microphone" as PermissionName })
+      .then((p) => {
+        if (cancelled) return
+        status = p
+        p.addEventListener("change", onChange)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      status?.removeEventListener("change", onChange)
+    }
+  }, [])
+
   useEffect(() => () => {
     generation.current += 1
     streamRef.current?.getTracks().forEach((t) => t.stop())

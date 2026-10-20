@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { usePreflightQueue } from "@/hooks/usePreflightQueue"
 import { useMicPreview } from "@/hooks/useMicPreview"
@@ -12,10 +12,14 @@ import type { StationStatus } from "@/interfaces/StationStatus"
 import { Button } from "@/components/ds/Button"
 import { ChoiceCards } from "@/components/ds/ChoiceCards"
 import { Notice } from "@/components/ds/Notice"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 import { PageHeader } from "@/components/ds/PageHeader"
 import { Skeleton } from "@/components/ui/skeleton"
 import { MicCheckCard } from "@/components/dashboard/golive/MicCheckCard"
 import { RunningOrderCard } from "@/components/dashboard/golive/RunningOrderCard"
+import { DjSoftwareDialog, DjSoftwareTrigger } from "./DjSoftwareButton"
+import { MIC_TRIES, useMicFailures } from "@/lib/micFailures"
+import { toast } from "sonner"
 
 type Mode = "mic" | "music"
 
@@ -41,11 +45,17 @@ export default function GoLivePage() {
   const { state, start, stationSlug } = useBroadcast()
 
   const [station, setStation] = useState<Station | null>(null)
-  // Only read to explain a refusal, so fetched once rather than polled.
+  // Read to explain a refusal; polled only while the page is refusing (below).
   const [liveSource, setLiveSource] = useState<StationStatus["live_source"] | null>(null)
   const [mode, setMode] = useState<Mode>(() => readMode(slug))
   const [resumeFromStart, setResumeFromStart] = useState(readResumeFromStart)
   const [pressed, setPressed] = useState(false)
+  /**
+   * The DJ software dialog, here so it stays open across the swap to "You're
+   * already live". ?dj=1 (Settings' "Open Go live") opens it on arrival.
+   */
+  const searchParams = useSearchParams()
+  const [djOpen, setDjOpen] = useState(() => searchParams.get("dj") === "1")
 
   const queue = usePreflightQueue(slug)
   const mic = useMicPreview(mode === "mic" && !pressed)
@@ -58,6 +68,35 @@ export default function GoLivePage() {
       .then((res) => setLiveSource(res.data.data.live_source ?? null))
       .catch(() => {})
   }, [slug, router])
+
+  // Connected from the DJ software dialog: this page's own "You're already
+  // live" screen takes over under it (and watches for the disconnect).
+  function djConnected(source: StationStatus["live_source"]) {
+    if (station && !station.is_live) {
+      toast.success("You’re live", { description: source?.client ? `${source.client} is connected.` : "Your software is connected." })
+    }
+    setLiveSource(source)
+    setStation((s) => (s ? { ...s, is_live: true } : s))
+  }
+
+  // Someone else on air: watch for them to leave, so the page turns into
+  // the normal Go live screen by itself instead of needing a reload. Every
+  // 3s, and only while this refusal is on screen.
+  const blocked = station?.is_live === true && state === "idle" && !pressed
+  useEffect(() => {
+    if (!blocked) return
+    const id = setInterval(() => {
+      api
+        .get<{ data: StationStatus }>(`/stations/${slug}/status`)
+        .then(({ data }) => {
+          const now = data.data
+          setLiveSource(now.live_source ?? null)
+          if (!now.live_source && now.broadcaster !== true) setStation((s) => (s ? { ...s, is_live: false } : s))
+        })
+        .catch(() => {})
+    }, 3000)
+    return () => clearInterval(id)
+  }, [blocked, slug])
 
   // Go live hands over to the studio as soon as the checks are running:
   // they run there, in a dialog over the studio, and go on air from it
@@ -84,11 +123,36 @@ export default function GoLivePage() {
   }, [pressed, state, stationSlug, router, slug])
 
   function chooseMode(next: Mode) {
+    // Mic + music while the mic is blocked: asking again IS the try (it's
+    // only offered while a try can still work, see micOption below).
+    if (next === "mic" && mic.state === "blocked") void mic.open()
+    autoMusic.current = false
     setMode(next)
     try {
       localStorage.setItem(`broadcast:micDisabled:${slug}`, String(next === "music"))
     } catch {}
   }
+
+  // A blocked mic switches the page to Music only, so Go live works as it
+  // stands; the mic card says why. Not saved as the preference: when the
+  // mic is allowed again (the permission watcher in useMicPreview sees it),
+  // the page switches itself back.
+  const autoMusic = useRef(false)
+  useEffect(() => {
+    if (mic.state === "blocked" && mode === "mic") {
+      autoMusic.current = true
+      setMode("music")
+    } else if (mic.state !== "blocked" && autoMusic.current && mode === "music") {
+      autoMusic.current = false
+      setMode("mic")
+    }
+  }, [mic.state, mode])
+
+  // Shared with the go-live checks: after MIC_TRIES refusals asking again
+  // can't work (the browser has stopped prompting).
+  const micFailures = useMicFailures(slug, mic.state === "blocked", mic.state === "on")
+  const micCanRetry = micFailures < MIC_TRIES
+  const micBlocked = mic.state === "blocked"
 
   function begin(skipMic = mode === "music") {
     // Tracks still being read aren't saved yet, and the engine loads the
@@ -163,30 +227,54 @@ export default function GoLivePage() {
     )
   }
 
+  // The DJ software dialog sits at the same place (second child of the root
+  // fragment) in both the Go live view and the "already live" one, so React
+  // keeps it mounted across the swap a connection causes.
+  const djDialog = station.encoder ? (
+    <DjSoftwareDialog station={station} encoder={station.encoder} open={djOpen} onOpenChange={setDjOpen} onConnected={djConnected} />
+  ) : null
+
   // Someone else holds the mount: harbor takes one source at a time.
-  if (station.is_live && state === "idle" && !pressed) {
+  // Not a warning (nothing is wrong, the station is live), so a neutral card
+  // with the live lamp; no station name in the title, where a long one took
+  // the whole phone screen.
+  if (blocked) {
     const encoder = liveSource?.type === "external"
+    const who = encoder ? liveSource?.client || "Your DJ software" : "Another browser"
     return (
-      <div className="mx-auto flex w-full max-w-190 flex-col gap-5.5">
-        <PageHeader title={`${station.name} is already live`} />
-        <Notice
-          label="Already live"
-          actions={
-            <>
-              <Button size="lg" asChild>
-                <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">Hear your stream ↗</a>
-              </Button>
-              <Button size="lg" variant="ghost" asChild>
-                <Link href={`/dashboard/stations/${station.slug}`}>Back to station</Link>
-              </Button>
-            </>
-          }
-        >
-          {encoder
-            ? `${liveSource?.client || "Your DJ software"} is broadcasting to this station. Only one source can be on at a time, so disconnect it there first.`
-            : "Someone is live from another browser or computer. End the show from the studio there, then go live here."}
-        </Notice>
+      <>
+      {/* Full width, like the overview and every other dashboard page. */}
+      <div className="flex w-full flex-col gap-5.5">
+        <PageHeader title="You’re already live" />
+        {/* From lg the card is one row: who and why on the left, using the
+            width, and the buttons on the right. Stacked below that. */}
+        <section aria-label="Who is on air" className="flex flex-col gap-4.5 rounded-panel bg-card p-5 sm:p-6.5 lg:flex-row lg:items-center lg:gap-10">
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <StatusLamp tone="live" variant="solid" pulse className="shrink-0">
+                Live now
+              </StatusLamp>
+              <span className="min-w-0 truncate font-display text-lead font-bold">{who}</span>
+            </div>
+            <p className="text-body leading-relaxed text-pretty text-muted-foreground">
+              {encoder
+                ? "Your show is going out from your DJ software. Your station takes one source at a time, so to go live from this browser instead, disconnect it there first."
+                : "Your show is going out from another browser. Your station takes one source at a time, so to go live from here instead, end the show in that browser’s studio first."}{" "}
+              This page switches to Go live as soon as you do.
+            </p>
+          </div>
+          <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:max-w-120 sm:grid-cols-2 lg:w-120">
+            <Button size="lg" asChild>
+              <a href={`/station/${station.slug}`} target="_blank" rel="noopener noreferrer">Hear your stream ↗</a>
+            </Button>
+            <Button size="lg" variant="ghost" asChild>
+              <Link href={`/dashboard/stations/${station.slug}`}>Back to overview</Link>
+            </Button>
+          </div>
+        </section>
       </div>
+      {djDialog}
+      </>
     )
   }
 
@@ -197,6 +285,7 @@ export default function GoLivePage() {
   // inside its card instead of the page. One column (heading, setup, music,
   // button) below that.
   return (
+    <>
     <div className="mx-auto grid w-full max-w-190 grid-cols-[minmax(0,1fr)] gap-5.5 max-lg:pb-[4.5rem] lg:max-w-page lg:grid-cols-2 lg:max-h-[calc(100svh-var(--chrome-h,0px)-2.5rem)] lg:grid-rows-[auto_1fr_auto] lg:items-start">
       <PageHeader
         className="lg:col-span-2"
@@ -220,7 +309,7 @@ export default function GoLivePage() {
             value={mode}
             onChange={chooseMode}
             options={[
-              { value: "mic", title: "Mic + music", description: "Talk over your tracks." },
+              { value: "mic", title: "Mic + music", description: micBlocked ? "Mic blocked." : "Talk over your tracks.", disabled: micBlocked && !micCanRetry },
               { value: "music", title: "Music only", description: "No microphone." },
             ]}
           />
@@ -231,7 +320,12 @@ export default function GoLivePage() {
             value={mode}
             onChange={chooseMode}
             options={[
-              { value: "mic", title: "Mic + music", description: MODE_TEXT.mic },
+              {
+                value: "mic",
+                title: "Mic + music",
+                description: micBlocked ? (micCanRetry ? "Your mic is blocked. Tap to ask again." : "Your mic is blocked in this browser.") : MODE_TEXT.mic,
+                disabled: micBlocked && !micCanRetry,
+              },
               { value: "music", title: "Music only", description: MODE_TEXT.music },
             ]}
           />
@@ -239,7 +333,7 @@ export default function GoLivePage() {
 
         {/* Kept in Music only, dimmed: removing it shrank the column and the
             music card beside it, which is sized to this column. */}
-        <MicCheckCard mic={mic} disabled={mode !== "mic"} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
+        <MicCheckCard canRetry={micCanRetry} mic={mic} disabled={mode !== "mic"} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
       </div>
 
       <RunningOrderCard
@@ -278,12 +372,7 @@ export default function GoLivePage() {
             (The listener link used to sit here too; it's on the overview's
             Your link card, which is where sharing happens.) */}
         {station.encoder && (
-          <Link
-            href={`/dashboard/stations/${station.slug}/settings#encoder`}
-            className="self-center text-body-sm text-muted-foreground hover:text-foreground"
-          >
-            Using DJ software instead?
-          </Link>
+          <DjSoftwareTrigger onClick={() => setDjOpen(true)} />
         )}
       </div>
 
@@ -306,6 +395,8 @@ export default function GoLivePage() {
         </div>
       </div>
     </div>
+    {djDialog}
+    </>
   )
 }
 

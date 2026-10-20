@@ -25,10 +25,26 @@ function helpUrl(): string {
 const noop = () => () => {}
 
 /** The last of a Mic blocked notice's actions. */
-export function MicPermissionLink() {
+export function MicPermissionLink({
+  variant = "quiet",
+  size = "lg",
+  className,
+}: {
+  /** "inline": a small underlined text link, for a one-line row. */
+  variant?: "quiet" | "ghost" | "inline"
+  size?: "sm" | "lg"
+  className?: string
+}) {
   const href = useSyncExternalStore(noop, helpUrl, () => HELP.chrome)
+  if (variant === "inline") {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={className ?? "w-fit text-caption underline underline-offset-2 opacity-80 hover:opacity-100"}>
+        How to allow it ↗
+      </a>
+    )
+  }
   return (
-    <Button size="lg" variant="quiet" asChild>
+    <Button size={size} variant={variant} className={className} asChild>
       <a href={href} target="_blank" rel="noopener noreferrer">How to allow it ↗</a>
     </Button>
   )

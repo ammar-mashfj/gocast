@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ds/Button"
 import { MicSettings } from "./MicSettings"
 import { IconHeadphones } from "@tabler/icons-react"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 import { ShortcutsDialog } from "./ShortcutsDialog"
 
 /**
@@ -90,5 +91,31 @@ export function MonitorToggle({ className }: { className?: string }) {
       <span className="text-body-sm font-bold">Monitor</span>
       <span className="eyebrow-sm font-medium">{monitor ? "ON" : "OFF"}</span>
     </button>
+  )
+}
+
+/**
+ * A music-only show on md and up: one slim row over the running order, in
+ * place of the whole mic column (a full-height "Music only" card and a
+ * controls row with nothing mic-related left in it), so Now playing and the
+ * running order get the width. Monitor and the shortcuts stay reachable.
+ * Phones never show it: they have no mic column, and the talk button just
+ * isn't there.
+ */
+export function MusicOnlyStrip({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex gap-2.5", className)}>
+      <div className="flex h-13 min-w-0 flex-1 items-center gap-3 rounded-card bg-card px-5">
+        <StatusLamp tone="off" variant="soft" className="shrink-0">
+          Music only
+        </StatusLamp>
+        <span className="min-w-0 truncate text-body-sm text-muted-foreground">The mic stays closed for this show.</span>
+      </div>
+      <MonitorToggle className="flex-none px-5" />
+      {/* Keyboard shortcuts mean nothing on a tablet (below lg). */}
+      <div className="flex w-44 flex-none max-lg:hidden">
+        <ShortcutsDialog micDisabled />
+      </div>
+    </div>
   )
 }

@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { useMicPreview } from "@/hooks/useMicPreview"
 import { Button } from "@/components/ds/Button"
 import { Card, CardHeader } from "@/components/ds/Card"
-import { Notice } from "@/components/ds/Notice"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 import { Select } from "@/components/ds/Select"
 import { MicMeter } from "@/components/studio/MicMeter"
 import { MicPermissionLink } from "./MicPermissionLink"
@@ -28,6 +28,8 @@ const CARD_HEIGHT = "lg:min-h-56"
  */
 interface MicCheckProps {
   mic: ReturnType<typeof useMicPreview>
+  /** False after MIC_TRIES refusals (counted by the page, lib/micFailures): Try again can't work. */
+  canRetry: boolean
   onMusicOnly: () => void
   /** Switches back to Mic + music, from the disabled card. */
   onUseMic?: () => void
@@ -43,7 +45,33 @@ interface MicCheckProps {
  * full at every size.
  */
 export function MicCheckCard(props: MicCheckProps) {
-  if (!props.disabled && props.mic.state === "blocked") return <FullCard {...props} />
+  const { canRetry } = props
+  // Shown in Music only too: a blocked mic switches the page to Music only,
+  // and this is what says why.
+  if (props.mic.state === "blocked") {
+    // Below lg, one row like every other mic state there: the full blocked
+    // card plus the choice cards and the pinned Go live bar made the phone
+    // scroll. Music only is the "What goes out" choice right above it.
+    return (
+      <>
+        <div className="flex flex-col max-lg:hidden">
+          <FullCard {...props} disabled={false} />
+        </div>
+        <div role="alert" className="flex min-h-16 items-center gap-3 rounded-panel bg-fault-tint px-4 py-3 text-fault-text lg:hidden">
+          <IconMicrophoneOff size={18} className="shrink-0" aria-hidden />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">Mic blocked</span>
+            <MicPermissionLink variant="inline" />
+          </span>
+          {canRetry && (
+            <Button size="sm" onClick={() => void props.mic.open()}>
+              Try again
+            </Button>
+          )}
+        </div>
+      </>
+    )
+  }
   return (
     <>
       <div className="flex flex-col max-lg:hidden">
@@ -54,7 +82,7 @@ export function MicCheckCard(props: MicCheckProps) {
   )
 }
 
-function FullCard({ mic, onMusicOnly, onUseMic, disabled = false }: MicCheckProps) {
+function FullCard({ mic, onUseMic, disabled = false, canRetry }: MicCheckProps) {
   if (disabled) {
     return (
       <Card aria-disabled className={cn(CARD_HEIGHT, "opacity-55")}>
@@ -71,50 +99,74 @@ function FullCard({ mic, onMusicOnly, onUseMic, disabled = false }: MicCheckProp
 
   if (mic.state === "blocked") {
     return (
-      <Notice
-        label="Mic blocked"
-        actions={
-          <>
-            <Button size="lg" onClick={() => void mic.open()}>Try again</Button>
-            <Button size="lg" variant="ghost" onClick={onMusicOnly}>Go live with music only</Button>
-            <MicPermissionLink />
-          </>
-        }
-      >
-        This browser isn’t allowed to use your microphone. Allow it for this site in your browser’s settings, then try again.
-      </Notice>
+      // Compact: three stacked large buttons made the phone scroll. The lamp
+      // sized to its word, one short sentence, one row of small buttons.
+      <div role="alert" className="flex flex-col items-start gap-3 rounded-panel bg-fault-tint p-4 text-fault-text">
+        <StatusLamp tone="warn" variant="solid" size="sm">
+          Mic blocked
+        </StatusLamp>
+        <p className="text-body-sm leading-relaxed text-pretty">
+          {canRetry
+            ? "Allow the microphone for this site in your browser’s settings, then try again."
+            : "Your mic is blocked. Allow it in your browser’s settings to use it; until then this show is music only."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {canRetry && (
+            <Button size="sm" onClick={() => void mic.open()}>
+              Try again
+            </Button>
+          )}
+          <MicPermissionLink size="sm" />
+        </div>
+      </div>
+    )
+  }
+
+  // Not checked yet (or no mic found): the card is tall on a desktop (it
+  // matches the music column), so the invitation sits in the middle of it,
+  // with a big mic and a full-size primary button, instead of a small grey
+  // button stuck in the top corner over empty space.
+  if (mic.state !== "on") {
+    const none = mic.state === "none"
+    return (
+      <Card className={cn(CARD_HEIGHT, "items-center justify-center gap-4 py-8 text-center")}>
+        <span
+          aria-hidden
+          className={cn(
+            "grid size-16 place-items-center rounded-full",
+            none ? "bg-fault-tint text-fault-text" : "bg-surface-inset text-muted-foreground",
+          )}
+        >
+          {none ? <IconMicrophoneOff className="size-7" /> : <IconMicrophone className="size-7" />}
+        </span>
+        <div className="flex flex-col items-center gap-1.5">
+          <h2 className="font-display text-heading">Your microphone</h2>
+          <p className={cn("max-w-90 text-body-sm text-pretty", none ? "text-fault-text" : "text-muted-foreground")}>
+            {none
+              ? "No microphone found. Plug one in and try again, or go live with music only."
+              : "Check it before you go on air. Nothing goes out yet."}
+          </p>
+        </div>
+        <Button size="lg" className="w-full max-w-80" onClick={() => void mic.open()} disabled={mic.state === "opening"}>
+          {mic.state === "opening" ? <IconLoader2 className="animate-spin" /> : <IconMicrophone />}
+          {none ? "Try again" : "Check your mic"}
+        </Button>
+      </Card>
     )
   }
 
   return (
     <Card className={CARD_HEIGHT}>
-      <CardHeader
-        title="Your microphone"
-        description={mic.state === "on" ? "Say something. The bars should move." : "Check it before you go on air. Nothing goes out yet."}
-      />
-      {mic.state === "on" ? (
-        <>
-          {mic.devices.length > 1 && (
-            <Select
-              aria-label="Microphone"
-              value={mic.current}
-              onChange={(id) => void mic.choose(id)}
-              options={mic.devices.map((d, i) => ({ value: d.deviceId, label: d.label || `Microphone ${i + 1}` }))}
-            />
-          )}
-          <MicMeter stream={mic.stream} open={false} className="text-muted-foreground" />
-        </>
-      ) : mic.state === "none" ? (
-        <p className="text-sm text-fault-text">No microphone found. Plug one in and try again, or go live with music only.</p>
-      ) : (
-        <Button variant="subtle" className="self-start" onClick={() => void mic.open()} disabled={mic.state === "opening"}>
-          {mic.state === "opening" && <IconLoader2 className="animate-spin" />}
-          Check your mic
-        </Button>
+      <CardHeader title="Your microphone" description="Say something. The bars should move." />
+      {mic.devices.length > 1 && (
+        <Select
+          aria-label="Microphone"
+          value={mic.current}
+          onChange={(id) => void mic.choose(id)}
+          options={mic.devices.map((d, i) => ({ value: d.deviceId, label: d.label || `Microphone ${i + 1}` }))}
+        />
       )}
-      {mic.state === "none" && (
-        <Button variant="subtle" className="self-start" onClick={() => void mic.open()}>Try again</Button>
-      )}
+      <MicMeter stream={mic.stream} open={false} className="text-muted-foreground" />
     </Card>
   )
 }

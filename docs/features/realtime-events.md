@@ -139,7 +139,7 @@ Outside the dashboard (public player, embed, marketing, admin) `useRealtime()` r
 | Surface | Mechanism | Endpoint | Interval / trigger |
 |---|---|---|---|
 | Web dashboard status band, sidebar lamp, overview hero, library, Schedule "Right now", power hook, end-broadcast dialog | Poll **plus** push (`useStationStatus`; one shared poll per dashboard) | `GET /stations/{slug}/status` (auth, `throttle:120,1,station-status`, its own counter) | See below; plus the after-show re-read below |
-| Station settings encoder dialog, while open (`ConnectionWatcher` in `settings/EncoderCard.tsx`) | Own poll (`intervalMs`) plus the shared poll's `refresh()` | `GET /stations/{slug}/status` | 2 s while the socket is down (`WATCH_POLL_MS`), the normal pushed pacing otherwise |
+| Go live DJ-software dialog, while open (`ConnectionNotice` in `live/DjSoftwareButton.tsx`) | Own poll (`intervalMs`) plus the shared poll's `refresh()` on connect | `GET /stations/{slug}/status` | 2 s |
 | Web dashboard listener count (overview hero `ListeningNow` and the status band, `useListenerCount`, only while on air), studio and status-band show stats (`useBroadcastStats`, while this tab broadcasts) | Poll only (`usePublicStationFeed`) | `GET /public/stations/{slug}/listeners` (`throttle:public`) | 10 s; `useBroadcastStats` keeps polling in a hidden tab |
 | Web public player page, embed | Poll only (`usePublicStationFeed`) | same | 10 s, paused when the tab is hidden |
 | Web homepage hero player | Poll only | same | 10 s, only while `playing` (and paused when hidden) |

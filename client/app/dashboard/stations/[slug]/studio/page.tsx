@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { useParams, useRouter } from "next/navigation"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useStationBySlug } from "@/contexts/StationContext"
@@ -15,9 +16,9 @@ import { toast } from "sonner"
 import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
 import { ASK_END_SHOW_EVENT, EndBroadcastButton, endShow, endShowFailed } from "@/components/studio/EndBroadcast"
 import { FileQueue } from "@/components/studio/FileQueue"
-import { MusicOnlyPad, NowPlaying } from "@/components/studio/NowPlaying"
+import { NowPlaying } from "@/components/studio/NowPlaying"
 import { PushToTalk, isOverlayTarget, isTypingTarget } from "@/components/studio/PushToTalk"
-import { MicLatchButton, MonitorToggle, StudioControls } from "@/components/studio/StudioControls"
+import { MicLatchButton, MonitorToggle, MusicOnlyStrip, StudioControls } from "@/components/studio/StudioControls"
 import { StudioStats } from "@/components/studio/StudioStats"
 import { FocusButton } from "@/components/studio/FocusButton"
 import { MicSheet, TalkFab } from "@/components/studio/TalkFab"
@@ -53,6 +54,28 @@ export default function StudioPage() {
   // Seeded from the provider: opened mid-show (back from Library, say) the
   // studio never sees the switch to live, and a show lost after that would
   // otherwise show no ShowLost.
+  /**
+   * The running order expanded (its Expand button): it takes the room of
+   * Now playing above it and, with a mic, of the mic column beside it (talk
+   * pad, Keep mic open, controls) or, music only, of the Music only row,
+   * all hidden until Collapse. The stats strip (on air for, listeners,
+   * connection) stays. The
+   * studio still fits the screen; the list scrolls inside its card. Space
+   * still talks while the pad is hidden; phones keep the floating button.
+   */
+  const [queueExpanded, setQueueExpanded] = useState(false)
+  // Animated with a view transition: the running order's box grows into
+  // (or gives back) the room, and the hidden cards fade. Instant where the
+  // browser has no view transitions or the user asked for reduced motion.
+  function toggleQueueExpanded() {
+    const flip = () => setQueueExpanded((x) => !x)
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (typeof document.startViewTransition !== "function" || reduce) {
+      flip()
+      return
+    }
+    document.startViewTransition(() => flushSync(flip))
+  }
   const [aired, setAired] = useState(() => liveSince !== null || state === "live" || state === "reconnecting")
   if (state === "live" && !aired) setAired(true)
   if (state === "connecting" && aired) setAired(false)
@@ -217,29 +240,53 @@ export default function StudioPage() {
         </div>
         <FocusButton className="h-auto self-stretch rounded-card px-5 max-lg:hidden" />
       </div>
+      {/* Music only (md and up): a slim row instead of the mic column, and
+          the running order takes the full width. */}
+      {/* Hidden (not unmounted) while the running order is expanded, so the
+          list gets its room too; Monitor comes back with Collapse (M works
+          meanwhile). */}
+      {micDisabled && (
+        <div className={cn("max-md:hidden", queueExpanded && "hidden")} style={{ viewTransitionName: "studio-music-only" }}>
+          <MusicOnlyStrip />
+        </div>
+      )}
       {/* 21rem columns: two fit from ~700px, which an upright iPad mini has.
           On a tablet (md to xl) the music gets the wider share, a third to
           two-thirds: the
           talk pad is one big target that works at any width, the running
           order is rows of names that need it. */}
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,21rem),1fr))] items-stretch gap-5 md:max-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <div
+        className={
+          micDisabled || queueExpanded
+            ? "flex min-h-0 flex-1 flex-col"
+            : "grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,21rem),1fr))] items-stretch gap-5 md:max-xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+        }
+      >
         {/* The mic column: not on a phone, where the floating button and the
-            Mic & monitor sheet stand in for it. */}
-        <div className="flex min-w-0 flex-col gap-3.5 max-md:hidden md:min-h-0">
-          {micDisabled ? (
-            <MusicOnlyPad className="md:flex-1" />
-          ) : (
-            // No hint line under it: the pad says how to talk, the LIVE band
-            // says how late listeners hear you, and L is in the shortcuts.
-            // Keep mic open sits right under the pad it holds open.
+            Mic & monitor sheet stand in for it; not in a music-only show. */}
+        {!micDisabled && (
+          <div
+            className={cn("flex min-w-0 flex-col gap-3.5 max-md:hidden md:min-h-0", queueExpanded && "hidden")}
+            style={{ viewTransitionName: "studio-mic" }}
+          >
+            {/* No hint line under it: the pad says how to talk, the LIVE band
+                says how late listeners hear you, and L is in the shortcuts.
+                Keep mic open sits right under the pad it holds open. */}
             <PushToTalk className="md:min-h-0 md:flex-1" underPad={<MicLatchButton />} />
-          )}
-          <StudioControls />
-        </div>
+            <StudioControls />
+          </div>
+        )}
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3.5">
-          <NowPlaying />
-          <FileQueue className="max-h-none min-h-0 flex-1" />
+        {/* flex-1: when the row is a single column (expanded, or music only)
+            the parent is a flex column, and without it this sat at its
+            content's height, leaving the screen below the list empty. In the
+            two-column grid it does nothing. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3.5">
+          {/* Hidden, not unmounted, while the running order is expanded. */}
+          <div className={queueExpanded ? "hidden" : undefined} style={{ viewTransitionName: "studio-now-playing" }}>
+            <NowPlaying />
+          </div>
+          <FileQueue className="max-h-none min-h-0 flex-1" expanded={queueExpanded} onToggleExpand={toggleQueueExpanded} />
           {/* The listener link as two buttons beside End show, not a card:
               mid-show nobody reads the address, and the card's height is the
               running order's. Sharing in full is on the overview. */}

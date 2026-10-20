@@ -39,11 +39,10 @@ export default function Body() {
 
       <h2>4. The Mount Has the Wrong Number of Slashes</h2>
       <p>
-        Encoders disagree about this. BUTT adds the leading slash itself, so you
-        type the mount <em>without</em>{" "}one; Mixxx wants it exactly as shown on
-        your settings page, <em>with</em>{" "}the slash. Copy from the per-client
-        instructions on the settings page rather than from the field above them
-        &mdash; they are written out per encoder for this reason.
+        Use the Mount exactly as shown on the Go live page, with the leading
+        slash (<code>/my-station</code>). BUTT also accepts it without the
+        slash and adds it itself; a mount with two slashes, or a typo in the
+        name, is refused. Copy it with its Copy button rather than typing it.
       </p>
 
       <h2>5. Something Else Is Already Connected</h2>
@@ -66,8 +65,8 @@ export default function Body() {
         </li>
         <li>
           <strong>Your plan.</strong>{" "}Encoder broadcasting needs Pro. On Free
-          the credentials are not offered at all &mdash; if you cannot find them
-          on your settings page, that is why. See{" "}
+          the credentials are not offered at all &mdash; if Go live has no{" "}
+          <strong>Use DJ software instead</strong>, that is why. See{" "}
           <Link href="/help/free-and-pro">Free and Pro</Link>.
         </li>
         <li>

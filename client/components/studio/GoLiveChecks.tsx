@@ -6,7 +6,8 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Button } from "@/components/ds/Button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
-import { Notice } from "@/components/ds/Notice"
+import { StatusLamp } from "@/components/ds/StatusLamp"
+import { MIC_TRIES, useMicFailures } from "@/lib/micFailures"
 import { CheckList } from "@/components/dashboard/golive/CheckList"
 import { MicPermissionLink } from "@/components/dashboard/golive/MicPermissionLink"
 
@@ -15,9 +16,10 @@ const SLOW_STEP_MS = 5_000
 /** How long "You're on air" stays up before the studio shows. */
 const ON_AIR_MS = 1_200
 
-const isMicError = (message: string | null) => !!message && /microphone access denied|no microphone found/i.test(message)
 /** No device at all, as opposed to a refused permission: different advice. */
 const isNoMic = (message: string | null) => !!message && /no microphone found/i.test(message)
+/** Another app holds the mic. */
+const isMicBusy = (message: string | null) => !!message && /microphone in use/i.test(message)
 
 /** What to say under a step that's taking a while. */
 const SLOW_HINT: Record<string, string> = {
@@ -38,7 +40,7 @@ const SLOW_HINT: Record<string, string> = {
  * screenshot to say where it got stuck.
  */
 export function GoLiveChecks({ stationName }: { stationName: string }) {
-  const { state, steps, error, goLive, retry, stop, micDisabled, liveSince } = useBroadcast()
+  const { state, steps, error, goLive, retry, stop, micDisabled, liveSince, stationSlug } = useBroadcast()
   const autoDjLocked = useAutoDjLocked()
   const stateRef = useRef(state)
   useEffect(() => {
@@ -140,8 +142,17 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   const open = (!everLive && (checking || failed)) || onAirShown
   const doneCount = steps.filter((s) => s.status === "done").length
   const stepNo = Math.min(steps.length, doneCount + 1)
-  const micBlocked = failed && !micDisabled && isMicError(error)
+  // By the step that failed, not the wording: any failure asking for the mic
+  // (denied, dismissed, auto-blocked, busy) offers music only.
+  const micBlocked = failed && !micDisabled && steps.some((s) => s.id === "mic" && s.status === "error")
   const noMic = micBlocked && isNoMic(error)
+  const micBusy = micBlocked && isMicBusy(error)
+  // Counted once per failure; cleared when the mic opens.
+  const micDone = steps.some((s) => s.id === "mic" && s.status === "done")
+  // Shared with the Go live page's mic check, per station: refusals add up.
+  const micFailures = useMicFailures(stationSlug, micBlocked && !noMic && !micBusy, micDone)
+  // Refused (not missing or busy) too often: the browser has stopped asking.
+  const micGivenUp = micBlocked && !noMic && !micBusy && micFailures >= MIC_TRIES
 
   // Every check passed but not on air yet: a blink. Never "You're on air"
   // until it is.
@@ -156,11 +167,21 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
         : `${stationName} · Step ${stepNo} of ${steps.length}`
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    // Closable (×, Escape, swiping the phone sheet down): with no way out a
+    // phone was stuck on a failure. Closing during the checks or after a
+    // failure is Back to setup (which hands back a station the run turned
+    // on); closing "You're on air" just dismisses it. A tap outside still
+    // does nothing, so a stray tap can't cancel a show starting.
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) return
+        if (onAirShown) setOnAirShown(false)
+        else back()
+      }}
+    >
       <DialogContent
         size="sm"
-        showCloseButton={false}
-        onEscapeKeyDown={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
       >
@@ -169,7 +190,10 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
           <DialogDescription className="truncate">{description}</DialogDescription>
         </DialogHeader>
 
-        <CheckList steps={steps} />
+        {/* After a failure, only the checks that ran: the ones never reached
+            pushed the options (music only, Try again, Back) below the fold
+            on a phone. A refused mic, first in line, leaves just that row. */}
+        <CheckList steps={failed ? steps.filter((s) => s.status !== "pending") : steps} />
 
 
         {checking && slow && active && (
@@ -182,20 +206,43 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
         )}
 
         {micBlocked ? (
-          <Notice
-            label={noMic ? "No microphone" : "Mic blocked"}
-            actions={
-              <>
-                <Button size="lg" onClick={() => void retry({ skipMic: true })}>Go live with music only</Button>
-                <Button size="lg" variant="ghost" onClick={() => void retry()}>Try again</Button>
-                {!noMic && <MicPermissionLink />}
-              </>
-            }
-          >
-            {noMic
-              ? "This device has no microphone. Plug one in and try again, or go live with music only."
-              : "Allow the microphone for this site in your browser’s settings and try again, or go live with music only."}
-          </Notice>
+          // Stacked for this narrow dialog: the lamp over the sentence (side
+          // by side it squeezed the text into a thin column), then the way
+          // forward full width, then the two other options as equal halves.
+          <div className="flex flex-col gap-3">
+            <div role="alert" className="flex flex-col items-start gap-2.5 rounded-panel bg-fault-tint p-4.5 text-fault-text">
+              <StatusLamp tone="warn" variant="solid">
+                {noMic ? "No microphone" : micBusy ? "Mic in use" : "Mic blocked"}
+              </StatusLamp>
+              <p className="text-body leading-relaxed text-pretty">
+                {noMic
+                  ? "This device has no microphone. Plug one in and try again, or go live with music only."
+                  : micBusy
+                    ? "Another app is using your microphone. Close it and try again, or go live with music only."
+                    : micGivenUp
+                      ? "Your mic is blocked. Allow it in your browser’s settings, or go live with music only."
+                      : "Allow the microphone for this site in your browser’s settings and try again, or go live with music only."}
+              </p>
+            </div>
+            <Button size="lg" full onClick={() => void retry({ skipMic: true })}>
+              Go live with music only
+            </Button>
+            {/* Try again goes once the browser has stopped asking; How to
+                allow it only applies to a permission (not a missing or busy mic). */}
+            <div className={micGivenUp || noMic || micBusy ? "grid" : "grid grid-cols-2 gap-2.5"}>
+              {!micGivenUp && (
+                <Button size="lg" variant="ghost" onClick={() => void retry()}>
+                  Try again
+                </Button>
+              )}
+              {!noMic && !micBusy && <MicPermissionLink variant="ghost" />}
+            </div>
+            {/* The way out this box lacked. The mic is checked first, so
+                nothing was started; back() would hand back anything that was. */}
+            <Button size="lg" variant="quiet" onClick={back}>
+              Back to setup
+            </Button>
+          </div>
         ) : failed ? (
           <>
             <p className="text-body-sm text-fault-text">{error || "Something stopped the broadcast from starting."}</p>

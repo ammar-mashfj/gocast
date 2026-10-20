@@ -373,14 +373,16 @@ export class BroadcastManager {
   private rebuildTimes: number[] = []
 
   private static buildSteps(skipMic?: boolean): BroadcastStepInfo[] {
-    const steps: BroadcastStepInfo[] = [
-      { id: 'network', label: 'Checking your connection', status: 'pending' },
-      { id: 'station', label: 'Bringing your station on air', status: 'pending' },
-    ]
+    // The mic first (see runChecks), so the list reads in the order it runs.
+    const steps: BroadcastStepInfo[] = []
     if (!skipMic) {
       steps.push({ id: 'mic', label: 'Requesting microphone access', status: 'pending' })
     }
-    steps.push({ id: 'engine', label: ENGINE_STEP_LABEL, status: 'pending' })
+    steps.push(
+      { id: 'network', label: 'Checking your connection', status: 'pending' },
+      { id: 'station', label: 'Bringing your station on air', status: 'pending' },
+      { id: 'engine', label: ENGINE_STEP_LABEL, status: 'pending' },
+    )
     return steps
   }
 
@@ -536,6 +538,24 @@ export class BroadcastManager {
     // container running for a broadcast that was never possible.
     assertBroadcastSupported({ skipMic: options?.skipMic })
 
+    // The microphone FIRST (skipped in music-only mode): it is the check most
+    // likely to fail (refused, no device), it decides what kind of show this
+    // is, and asking for it changes nothing on the server. After the station
+    // it left a refused mic with a station already turned on; here a refusal
+    // ends the checks before anything has started, and "Go live with music
+    // only" runs them again without it. Held on `this` at once, so a later
+    // failure (fail()) or a Cancel (stop()) releases it.
+    if (!options?.skipMic) {
+      this.setActiveStep('mic')
+      const mic = await this.openSavedMic()
+      if (cancelled()) {
+        mic.getTracks().forEach((t) => t.stop())
+        throw new ChecksCancelled()
+      }
+      this.micStream = mic
+      this.updateStep('mic', 'done')
+    }
+
     // Before the station too: a line that can't carry the lowest bitrate
     // would start a container for a show that drops within minutes.
     this.setActiveStep('network')
@@ -569,26 +589,14 @@ export class BroadcastManager {
       uplink.bitrate < DEFAULT_BITRATE ? `Slow connection: sending at ${uplink.bitrate} kbps to keep up` : undefined,
     )
 
-    // Step 0: Make sure the station is on air and its Liquidsoap container
-    // is actually ready to consume our stream.
+    // Make sure the station is on air and its Liquidsoap container is
+    // actually ready to consume our stream.
     this.setActiveStep('station')
     await this.ensureStationOnAir(run)
     if (cancelled()) throw new ChecksCancelled()
     this.updateStep('station', 'done')
 
-    // Step 1: Microphone (skipped in music-only mode).
-    if (!options?.skipMic) {
-      this.setActiveStep('mic')
-      const mic = await this.openSavedMic()
-      if (cancelled()) {
-        mic.getTracks().forEach((t) => t.stop())
-        throw new ChecksCancelled()
-      }
-      this.micStream = mic
-      this.updateStep('mic', 'done')
-    }
-
-    // Step 2: Audio engine — mic + queue mixer, encoding MP3 off-thread.
+    // Audio engine — mic + queue mixer, encoding MP3 off-thread.
     // Frames go out through handleChunk. Kept local until it survives both
     // awaits: stop() can only destroy what is already on `this`. (A mic it
     // reached in between, stop() has already released.)
@@ -1543,11 +1551,18 @@ export class BroadcastManager {
     this.stopping = true
     const activeStep = this.steps.find((s) => s.status === 'active')
 
+    // By name, not `instanceof DOMException`: a dismissed or auto-blocked
+    // prompt doesn't always arrive as one (mobile browsers differ), and then
+    // fell through to its raw message ("Permission dismissed"), which the
+    // checks dialog didn't recognise as a mic problem.
+    const name = (err as { name?: unknown } | null)?.name
     let message = 'Something went wrong'
-    if (err instanceof DOMException && err.name === 'NotAllowedError') {
+    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
       message = 'Microphone access denied — check browser permissions'
-    } else if (err instanceof DOMException && err.name === 'NotFoundError') {
+    } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
       message = 'No microphone found — plug one in and try again'
+    } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+      message = 'Microphone in use by another app — close it and try again'
     } else if (err instanceof Error) {
       message = err.message
     }

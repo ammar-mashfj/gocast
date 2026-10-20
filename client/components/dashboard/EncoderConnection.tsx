@@ -4,7 +4,8 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { copyText } from "@/lib/clipboard"
 import { Button } from "@/components/ds/Button"
-import { Disclosure } from "@/components/ds/Disclosure"
+import Link from "next/link"
+import { IconExternalLink } from "@tabler/icons-react"
 import { StationEncoder } from "@/interfaces/Station"
 
 interface EncoderConnectionProps {
@@ -28,12 +29,11 @@ interface EncoderConnectionProps {
 }
 
 /**
- * The five values a DJ types into BUTT, Mixxx or RadioDJ, plus where each one
- * goes in the software people actually use.
+ * The five values a DJ types into BUTT, Mixxx or RadioDJ, and a link to the
+ * help article's per-app steps (where each one goes).
  *
- * Station settings is its only home today, and the only place the key can be
- * rotated. Kept as its own component so the five values stay in one place if
- * another screen needs them again (the go-live page used to).
+ * Shown by EncoderPanel on Station settings (the only place the key can be
+ * rotated) and on the go-live page's "Use DJ software instead".
  *
  * Presentational only — no fetching, no rotation, no plan check. Every caller
  * has already decided this account may see a credential.
@@ -58,7 +58,10 @@ export function EncoderConnection({
 
   const unreadableKey = password === null
 
-  const fields: Array<{ label: string; value: string; secret?: boolean; hint?: string }> = [
+  const fields: Array<{ label: string; value: string; secret?: boolean; hint?: string; noCopy?: boolean }> = [
+    // Something to pick in the software, not paste, so no Copy. "Type", not
+    // "Connection type": the label column is 80px.
+    { label: "Type", value: "Icecast 2", noCopy: true },
     { label: "Server", value: encoder.host },
     { label: "Port", value: String(encoder.port) },
     { label: "Mount", value: encoder.mount, hint: "Some encoders call this the mountpoint or path." },
@@ -75,60 +78,16 @@ export function EncoderConnection({
     },
   ]
 
-  // Where the five values above go in the software people actually use. The
-  // labels differ enough between clients that "Server / Port / Mount" is not
-  // self-evident: BUTT calls the key a password, Mixxx calls it a login, and
-  // Mixxx's Server field wants the hostname WITHOUT a scheme, which is the
-  // single most common way a first connection fails.
-  //
-  // Each step is prose with the actual values set apart: prose reads in the
-  // body face, and only the strings somebody types or pastes (host, port,
-  // mount, username, key) are mono. A menu path or an option to pick is a
-  // `{ ui }` segment — it names something on their screen, so it stands out
-  // without pretending to be a machine string.
-  type Segment = string | { value: string } | { ui: string }
-  const v = (value: string): Segment => ({ value })
-  const ui = (label: string): Segment => ({ ui: label })
-  const clients: Array<{ name: string; steps: Segment[][]; command?: string }> = [
-    {
-      name: "BUTT",
-      steps: [
-        ["Open ", ui("Settings → Main → Server → Add"), "."],
-        ["Set the type to ", ui("Icecast"), "."],
-        ["Address ", v(encoder.host), ", port ", v(String(encoder.port)), "."],
-        ["Mountpoint ", v(encoder.mount.replace(/^\//, "")), " — without the slash, because BUTT adds it."],
-        ["User ", v(encoder.username), ", and your stream key as the password."],
-      ],
-    },
-    {
-      name: "Mixxx",
-      steps: [
-        ["Open ", ui("Preferences → Live Broadcasting → Server connection"), "."],
-        ["Set the type to ", ui("Icecast 2"), "."],
-        ["Host ", v(encoder.host), " — the name only, no http:// in front — and port ", v(String(encoder.port)), "."],
-        ["Mount ", v(encoder.mount), "."],
-        ["Login ", v(encoder.username), ", and your stream key as the password."],
-        ["Then turn on ", ui("Options → Enable Live Broadcasting"), " to connect."],
-      ],
-    },
-    {
-      name: "ffmpeg",
-      steps: [["Paste this into a terminal, with ", v("KEY"), " swapped for your stream key."]],
-      command:
-        `ffmpeg -re -i input.mp3 -c:a libmp3lame -b:a 128k -content_type audio/mpeg \\\n` +
-        `  -f mp3 icecast://${encoder.username}:KEY@${encoder.host}:${encoder.port}${encoder.mount}`,
-    },
-  ]
-
   return (
     <div className="flex flex-col gap-4">
       <dl className="flex flex-col gap-1.5">
         {fields.map((field) => {
           const hidden = field.secret && !revealed
-          const copyable = !(unreadableKey && field.label === "Password")
+          const copyable = !field.noCopy && !(unreadableKey && field.label === "Password")
           return (
             <div key={field.label} className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
-              <div className="flex items-center gap-3">
+              {/* min-h: the Copy button's height, so a row without one lines up. */}
+              <div className="flex min-h-8.5 items-center gap-3">
                 <dt className="w-20 shrink-0 eyebrow-sm text-text-faint">{field.label}</dt>
                 <dd className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">
                   {hidden ? "•".repeat(16) : field.value}
@@ -150,37 +109,25 @@ export function EncoderConnection({
         })}
       </dl>
 
-      {/* Per-client field names. Folded, because someone who has done this
-          before wants the five values above and nothing else. */}
-      <Disclosure title="Where these go in BUTT, Mixxx and ffmpeg">
-        <div className="flex flex-col gap-4">
-          {clients.map((client) => (
-            <div key={client.name} className="flex flex-col gap-1.5">
-              <span className="text-body-sm font-semibold text-foreground">{client.name}</span>
-              <ol className="flex flex-col gap-1">
-                {client.steps.map((step, i) => (
-                  <li key={i} className="text-body-sm text-muted-foreground">
-                    {step.map((seg, j) =>
-                      typeof seg === "string" ? (
-                        seg
-                      ) : "value" in seg ? (
-                        <code key={j} className="font-mono break-all text-foreground">{seg.value}</code>
-                      ) : (
-                        <span key={j} className="font-semibold text-foreground">{seg.ui}</span>
-                      ),
-                    )}
-                  </li>
-                ))}
-              </ol>
-              {client.command && (
-                <pre className="overflow-x-auto rounded-control bg-surface-inset px-3 py-2.5 font-mono text-caption whitespace-pre text-foreground">
-                  {client.command}
-                </pre>
-              )}
-            </div>
-          ))}
-        </div>
-      </Disclosure>
     </div>
+  )
+}
+
+/**
+ * The per-app steps (BUTT, Mixxx, ffmpeg) are in the help article, opened in
+ * a new tab. It's the subtitle of both DJ-software dialogs (Settings, Go
+ * live): the first thing someone stuck reads, and not a row under the values.
+ */
+export function HowToConnectLink() {
+  return (
+    <Link
+      href="/help/broadcast-from-butt-or-mixxx#where-these-go"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex w-fit items-center gap-1.5 text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+    >
+      How to connect
+      <IconExternalLink aria-hidden className="size-4" />
+    </Link>
   )
 }

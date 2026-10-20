@@ -18,9 +18,11 @@ export default function Body() {
 
       <h2>Your Connection Details</h2>
       <p>
-        Five values, in your station’s settings under{" "}
-        <strong>Use your own DJ software</strong>{" "}(a Pro feature). Open it
-        and each value has its own Copy button.
+        On the <strong>Go live</strong>{" "}page, choose{" "}
+        <strong>Use DJ software instead</strong>{" "}(a Pro feature). It lists
+        the values below, each with its own Copy button, tells you if the
+        station is off, and shows <strong>Connected</strong>{" "}once your
+        software is on air.
       </p>
       <ul>
         <li><strong>Server</strong>{" "}&mdash; the hostname</li>
@@ -33,17 +35,62 @@ export default function Body() {
         </li>
       </ul>
       <p>
-        Under <strong>Where these go in BUTT, Mixxx and ffmpeg</strong>, the
-        same section lists the exact menu path for each, with your own values
-        already filled in. Use that rather than typing from this page.
+        Copy them from there rather than typing them, and see{" "}
+        <Link href="#where-these-go">where these go</Link>{" "}below for the
+        exact spot in BUTT, Mixxx and ffmpeg.
       </p>
 
       <ZoomableImage
         src="/help/encoder-connection.webp"
-        alt="Use your own DJ software, opened in Station settings: Server, Port, Mount, Username and a hidden Password, each with a Copy button, and Show beside the password."
+        alt="The Use your own DJ software dialog: Server, Port, Mount, Username and a hidden Password, each with a Copy button, and Show beside the password."
         width={1200}
         height={952}
       />
+
+      {/* scroll-mt: arriving from the dashboard's link, the heading clears the sticky header. */}
+      <h2 id="where-these-go" className="scroll-mt-28">Where These Go in BUTT, Mixxx and ffmpeg</h2>
+      <p>
+        Each program names the values a little differently. Your values are on
+        the Go live page under <strong>Use DJ software instead</strong>; the
+        names below are where to paste them.
+      </p>
+
+      <h3>BUTT</h3>
+      <ol>
+        <li>Open <strong>Settings → Main → Server → Add</strong>.</li>
+        <li>Set the type to <strong>Icecast</strong>.</li>
+        <li><strong>Address</strong>: your Server. <strong>Port</strong>: your Port.</li>
+        <li>
+          <strong>Mountpoint</strong>: your Mount, exactly as shown
+          (<code>/my-station</code>). With or without the slash both work: BUTT
+          adds it when it is missing.
+        </li>
+        <li><strong>User</strong>: <code>source</code>. <strong>Password</strong>: your stream key.</li>
+      </ol>
+
+      <h3>Mixxx</h3>
+      <ol>
+        <li>Open <strong>Preferences → Live Broadcasting → Server connection</strong>.</li>
+        <li>Set the type to <strong>Icecast 2</strong>.</li>
+        <li>
+          <strong>Host</strong>: your Server, the name only, with no{" "}
+          <code>http://</code>{" "}in front. <strong>Port</strong>: your Port.
+        </li>
+        <li><strong>Mount</strong>: your Mount, with the slash.</li>
+        <li><strong>Login</strong>: <code>source</code>. <strong>Password</strong>: your stream key.</li>
+        <li>Then turn on <strong>Options → Enable Live Broadcasting</strong> to connect.</li>
+      </ol>
+
+      <h3>ffmpeg</h3>
+      <p>
+        Paste this into a terminal, with <code>SERVER</code>, <code>PORT</code>,{" "}
+        <code>MOUNT</code>{" "}(slash included) and <code>KEY</code>{" "}swapped for
+        your values:
+      </p>
+      <pre>
+        <code>{`ffmpeg -re -i input.mp3 -c:a libmp3lame -b:a 128k -content_type audio/mpeg \\
+  -f mp3 icecast://source:KEY@SERVER:PORT/MOUNT`}</code>
+      </pre>
 
       <h2>Set the Type to Icecast 2</h2>
       <p>
@@ -81,6 +128,16 @@ export default function Body() {
         To swap, disconnect the encoder first. And if you go off air from the
         dashboard while an encoder is connected, you are asked to confirm,
         because that cuts off a show running in another application.
+      </p>
+
+      <h2>Keep Your Key Private</h2>
+      <p>
+        The connection is not encrypted: your software sends the stream key as
+        plain text. Treat it like a password on a shared network, and if you
+        ever paste it somewhere public, make a new one in your station’s
+        settings under <strong>Use your own DJ software → New key</strong>.
+        A show already on air keeps running; the new key applies the next time
+        your software connects.
       </p>
 
       <h2>If It Will Not Connect</h2>

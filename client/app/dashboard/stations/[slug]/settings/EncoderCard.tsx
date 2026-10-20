@@ -1,32 +1,18 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
-import { IconLoader2 } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
-import { Disclosure } from "@/components/ds/Disclosure"
 import { SettingsTile } from "./SettingsTile"
-import { StatusLamp } from "@/components/ds/StatusLamp"
 import { ProTag } from "@/components/ds/Tag"
-import { EncoderConnection } from "@/components/dashboard/EncoderConnection"
+import { EncoderConnection, HowToConnectLink } from "@/components/dashboard/EncoderConnection"
 import { useProRequest } from "@/contexts/ProRequestContext"
-import { useStationPower } from "@/hooks/useStationPower"
-import { useStationStatus } from "@/hooks/useStationStatus"
 import { StationEncoder } from "@/interfaces/Station"
 import api from "@/lib/axios"
-
-/**
- * How often the watcher below asks whether the encoder has turned up. A
- * person is sitting in front of BUTT with Connect pressed, watching; ten
- * seconds of "waiting" after their software says Connected reads as broken.
- * The route allows 120/min and answers from a short server-side cache.
- */
-const WATCH_POLL_MS = 2000
-/** A start the poll never sees come up is given up on after this; a normal one takes seconds. */
-const START_GIVE_UP_MS = 30_000
+import { copyText } from "@/lib/clipboard"
 
 interface EncoderCardProps {
   slug: string
@@ -43,18 +29,14 @@ interface EncoderCardProps {
 }
 
 /**
- * Everything a DJ types into BUTT, Mixxx or RadioDJ.
+ * "Use your own DJ software" on Station settings: where you find it, and
+ * where the stream key is rotated. The values themselves and the live
+ * connection feedback are on the Go live page (Use DJ software instead,
+ * opened directly by Open Go live via ?dj=1), where connecting happens; two
+ * copies of them were two things to keep in step. A key made here is shown
+ * once, since pasting it is the only reason to make one.
  *
- * A settings tile that opens in a dialog, so the two-column page stays in
- * line. It stays on the page rather than being a one-off because it is not
- * one: the same five values get retyped on a second machine, after a
- * reinstall, and whenever somebody's encoder forgets them. That is also why
- * the key is redisplayed rather than shown once — see the migration that
- * added the column.
- *
- * The prose here is not decoration. Every line of it is a support ticket that
- * has already been paid for somewhere: the wrong server type, a station that
- * is switched off, and a rotation that did not kick the person who was on air.
+ * Free plans get the tile LOCKED, not hidden: it's a Pro selling point.
  */
 export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardProps) {
   const [confirm, confirmDialog] = useConfirm()
@@ -62,6 +44,8 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
   const proRequest = useProRequest()
   const [open, setOpen] = useState(false)
   const [revealed, setRevealed] = useState(false)
+  /** A key was made in this dialog: show it, once, until the dialog closes. */
+  const [justRotated, setJustRotated] = useState(false)
   const [rotating, setRotating] = useState(false)
   /**
    * The key the rotate endpoint just handed back, held only until the
@@ -124,6 +108,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
       })
       // Reveal it: the only reason to rotate is to go and paste the new one.
       setRevealed(true)
+      setJustRotated(true)
       toast.success("New stream key generated")
       router.refresh()
     } catch {
@@ -175,238 +160,121 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
   }
 
   return (
-    // The id is the pre-flight page's "Using DJ software instead?" anchor.
+    // The id is an anchor: settings#encoder opens this (help pages link it).
     <SettingsTile
       id="encoder"
       title="Use your own DJ software"
       description="Optional. Skip this if you go live from the browser."
+      dialogDescription={encoder ? <HowToConnectLink /> : undefined}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) {
+          setJustRotated(false)
+          setRevealed(false)
+        }
+      }}
     >
-      <div className="text-body-sm text-muted-foreground">
       {!encoder ? (
         // The plan allows it, but this deployment has no ingest router
         // published, so there is no honest address to print.
-        <p>Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.</p>
+        <p className="text-body-sm text-muted-foreground">
+          Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.
+        </p>
       ) : (
-        <div className="flex flex-col gap-4">
-          <p>
-            Pick <span className="font-semibold text-foreground">Icecast 2</span> as the server type and fill in these five values. Works with BUTT,
-            Mixxx, RadioDJ, Audio Hijack and ffmpeg.
-          </p>
-
-          <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
-
-          {/* Mounted only while the dialog is open (its content unmounts
-              when closed), so the 2s poll runs only while someone is
-              looking at the values and waiting for their software. */}
-          <ConnectionWatcher slug={slug} />
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-body-sm text-text-faint">Pasted your key somewhere public? Make a new one.</span>
-            <Button size="sm" variant="ghost" onClick={rotate} disabled={rotating}>
-              {rotating ? "Making a new key…" : "New key"}
+        // No values and no connection watching here: connecting happens on
+        // the Go live page (Use DJ software instead), which has the values,
+        // says if the station is off and confirms the connection. This is
+        // where you find it, and where the key is rotated.
+        <div className="flex flex-col gap-5 text-body-sm text-muted-foreground">
+          <div className="flex flex-col items-start gap-3">
+            <p>
+              Connect from the Go live page: open Go live and choose{" "}
+              <span className="font-semibold text-foreground">Use DJ software instead</span>. Your connection details are there.
+            </p>
+            <Button asChild>
+              <Link href={`/dashboard/stations/${slug}/live?dj=1`}>Open Go live</Link>
             </Button>
           </div>
 
-          {/* Each of these is a support conversation that happens without it. */}
-          <div className="flex flex-col gap-1.5">
-            {TIPS.map((tip) => (
-              <Disclosure key={tip.q} title={tip.q}>
-                {tip.a}
-              </Disclosure>
-            ))}
+          <div className="flex flex-col gap-3 border-t border-line pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-semibold text-foreground">Stream key</span>
+                <span>Pasted it somewhere public? Make a new one.</span>
+              </div>
+              <Button size="sm" variant="ghost" onClick={rotate} disabled={rotating}>
+                {rotating ? "Making a new key…" : "New key"}
+              </Button>
+            </div>
+            {/* The only reason to rotate is to paste the new key, so it is
+                shown here once, after a rotation in this dialog. */}
+            {justRotated && password && (
+              <KeyRow password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
+            )}
           </div>
-
-          {/* New tab, like every help link — see HelpLink. */}
-          <Link
-            href="/help/my-encoder-wont-connect"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-body-sm text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
-          >
-            Still not connecting? Five things cause nearly all of it →
-          </Link>
         </div>
       )}
-      </div>
       {confirmDialog}
     </SettingsTile>
   )
 }
 
-const TIPS = [
-  {
-    q: "Turn the station on first?",
-    a: "Yes. Press Put it on air above (or Start AutoDJ on the Overview), then connect. Your software connects to the station itself, so there’s nothing to connect to while it’s off air.",
-  },
-  {
-    q: "Shoutcast doesn’t work?",
-    a: "Shoutcast can’t send the Mount value, so it never reaches your station. Choose Icecast 2 even if your software defaults to Shoutcast.",
-  },
-  {
-    q: "Does a new key kick me off?",
-    a: "No. A show already on air keeps running; the new key applies the next time your software connects. To cut someone off now, turn the station off on the Overview, then make a new key here so they can’t reconnect.",
-  },
-  {
-    q: "Is this connection private?",
-    a: "It isn’t encrypted. Your software sends the key as plain text, so treat it like a password on a shared network, and make a new one if you ever paste it somewhere public.",
-  },
-]
-
 /**
- * Is anybody there?
- *
- * The values above are five things to type, and then the card would go
- * quiet, leaving the one question a DJ has ("did that work?") to be answered
- * by opening the player page and listening. Worse, the two ways it can
- * silently fail look the same from the encoder's side: a station that is off
- * air and a mount someone else holds both show up in BUTT as a connection
- * that fails or carries nothing.
- *
- * So this watches `live_source` on its own 2s poll and says which state the
- * station is in: off (with the button that turns it on), starting, waiting,
- * taken by another source, or connected. Guarded on the station running: a
- * session row can outlive its container when a `live_disconnected` is lost,
- * and a stopped station cannot have anyone on air whatever its rows claim.
+ * The Go live page's DJ-software dialog body: the values to type into the
+ * software. (Settings no longer shows them: it points to Go live and
+ * rotates the key.)
  */
-function ConnectionWatcher({ slug }: { slug: string }) {
-  const router = useRouter()
-  const { status } = useStationStatus(slug, true, WATCH_POLL_MS)
-  // The dashboard's shared poll feeds the band and the overview; nudged when
-  // the encoder lands so they say "live" at once rather than at their own
-  // pace (thirty seconds for an idle station).
-  const { refresh: refreshShared } = useStationStatus(slug)
-  const power = useStationPower(slug)
-  // Covers the gap between a start being accepted and the poll noticing:
-  // /start answers before the container is up, and without this the card
-  // would snap back to "off air" right after the click.
-  // Cleared once a read sees the station running, so a stop later (another
-  // tab, the sweep) shows OFF AIR and its button again; and after
-  // START_GIVE_UP_MS if it never comes up, which says so.
-  const [startRequested, setStartRequested] = useState(false)
-  const [startFailed, setStartFailed] = useState(false)
-
-  const running = status !== null && status.state !== "offline"
-  if (startRequested && running) setStartRequested(false)
-  if (startFailed && running) setStartFailed(false)
-
-  useEffect(() => {
-    if (!startRequested) return
-    const t = setTimeout(() => {
-      setStartRequested(false)
-      setStartFailed(true)
-    }, START_GIVE_UP_MS)
-    return () => clearTimeout(t)
-  }, [startRequested])
-  const live = status?.live_source ?? null
-  const connected = running && live?.type === "external"
-  const otherLive = running && live !== null && live.type !== "external"
-  const settling = status !== null && (status.state === "starting" || !status.reachable)
-
-  // Fire once per connection, not on every 2s sample: refresh() is a request.
-  const announced = useRef(false)
-  useEffect(() => {
-    if (!connected) {
-      announced.current = false
-      return
-    }
-    if (announced.current) return
-    announced.current = true
-    void refreshShared()
-    router.refresh()
-  }, [connected, refreshShared, router])
-
-  async function putOnAir() {
-    setStartFailed(false)
-    if (await power.start()) setStartRequested(true)
-  }
-
-  if (status === null) return null
-
-  if (connected) {
-    return (
-      <Watch tone="live" label="CONNECTED">
-        <span className="font-semibold text-foreground">{live?.client ? `${live.client} is connected.` : "Your encoder is connected."}</span>{" "}
-        This station is live.
-      </Watch>
-    )
-  }
-
-  if (otherLive) {
-    return (
-      <Watch tone="warn" label="TAKEN">
-        <span className="font-semibold text-foreground">Something else is already broadcasting.</span>{" "}
-        This station takes one source at a time, so your software is turned away until that show ends.
-      </Watch>
-    )
-  }
-
-  if (!running && !startRequested) {
-    return (
-      <Watch
-        tone="off"
-        label="OFF AIR"
-        action={
-          <Button size="sm" variant="subtle" onClick={putOnAir} disabled={power.pending !== null}>
-            {power.pending === "start" && <IconLoader2 className="animate-spin" />}
-            Put it on air
-          </Button>
-        }
-      >
-        {startFailed ? (
-          <>
-            <span className="font-semibold text-foreground">The station didn’t start.</span>{" "}
-            Try again.
-          </>
-        ) : (
-          <>
-            <span className="font-semibold text-foreground">This station is off air.</span>{" "}
-            Your software connects to the station itself, so there is nothing listening until it is on.
-          </>
-        )}
-      </Watch>
-    )
-  }
-
-  const starting = !running || settling
+export function EncoderPanel({
+  stationName,
+  encoder,
+  password,
+  revealed,
+  onToggleReveal,
+}: {
+  stationName: string
+  encoder?: StationEncoder
+  password: string | null
+  revealed: boolean
+  onToggleReveal: () => void
+}) {
   return (
-    <Watch tone="onair" label={starting ? "STARTING" : "WAITING"} bar={!starting}>
-      {starting ? "Starting the station. Give it a few seconds, then connect." : "This station is on air. Waiting for your software to connect."}
-    </Watch>
+    <div className="text-body-sm text-muted-foreground">
+      {!encoder ? (
+        <p>Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.</p>
+      ) : (
+        <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={onToggleReveal} />
+      )}
+    </div>
   )
 }
 
-/** One state of the watcher: a lamp, a sentence, and a button or a waiting bar. */
-function Watch({
-  tone,
-  label,
-  children,
-  action,
-  bar = false,
-}: {
-  tone: "off" | "onair" | "live" | "warn"
-  label: string
-  children: React.ReactNode
-  action?: React.ReactNode
-  /** Indeterminate, because the wait is: it ends when someone presses Connect elsewhere. */
-  bar?: boolean
-}) {
+/** The freshly made key: masked, Show and Copy. */
+function KeyRow({ password, revealed, onToggleReveal }: { password: string; revealed: boolean; onToggleReveal: () => void }) {
+  const [copied, setCopied] = useState(false)
   return (
-    <div className="flex flex-col gap-2.5 rounded-panel bg-surface-inset p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3.5">
-        <StatusLamp tone={tone} variant="soft" pulse={tone === "onair"} className="shrink-0">
-          {label}
-        </StatusLamp>
-        <p className="text-body-sm leading-relaxed text-muted-foreground">{children}</p>
+    <div className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
+      <div className="flex min-h-8.5 items-center gap-3">
+        <span className="w-20 shrink-0 eyebrow-sm text-text-faint">New key</span>
+        <span className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">{revealed ? password : "•".repeat(16)}</span>
+        <Button size="sm" variant="quiet" onClick={onToggleReveal} aria-label={revealed ? "Hide stream key" : "Show stream key"}>
+          {revealed ? "Hide" : "Show"}
+        </Button>
+        <Button
+          size="sm"
+          variant="subtle"
+          aria-label="Copy stream key"
+          onClick={async () => {
+            if (await copyText(password)) {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1600)
+            } else toast.error("Couldn't copy — select the key and copy it manually")
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
       </div>
-      {action}
-      {bar && (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-strong" role="progressbar" aria-label="Waiting for your software to connect">
-          {/* Reduced motion: a still, dimmed full bar reads as waiting, not as a third done. */}
-          <div className="h-full w-1/3 rounded-full bg-on-air animate-indeterminate motion-reduce:w-full motion-reduce:animate-none motion-reduce:bg-on-air/40" />
-        </div>
-      )}
+      <p className="text-caption text-text-faint">Your software keeps working until it reconnects; then it needs this key.</p>
     </div>
   )
 }

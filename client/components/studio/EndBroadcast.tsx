@@ -134,8 +134,11 @@ export function EndBroadcastButton({ className }: { className?: string }) {
 
   return (
     <>
-      {/* Neutral on purpose: the consequence is carried by the dialog. */}
-      <Button size="lg" variant="ghost" full onClick={ask} className={className}>
+      {/* The `stop` style (red outline and words), like Turn station off:
+          it ends the show for everyone, so it shouldn't read as just
+          another button. Outlined, not filled, so it stays quieter than the
+          live controls; the dialog still carries the consequence. */}
+      <Button size="lg" variant="stop" full onClick={ask} className={className}>
         End show
       </Button>
 
