@@ -207,7 +207,6 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
    */
   const known = stats.is_on_air ?? station?.is_on_air ?? null
   const offAir = failed || known === false
-  const isLive = !failed && (stats.is_live ?? station?.is_live ?? false)
   const name = station?.name ?? OFFICIAL_NAME
   const title = stats.now_playing.title
   const artist = stats.now_playing.artist
@@ -228,14 +227,12 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
 
   return (
     <div className="flex flex-col gap-5 rounded-hero bg-card p-5 sm:p-7">
-      {/* Status row. Three states, the same distinction the dashboard draws:
-          LIVE means somebody is on the microphone, ON AIR means the mount is
-          up and AutoDJ is carrying it, OFF AIR means there is nothing to play. */}
+      {/* Status row. Two states, like the station page: whether a person or
+          AutoDJ is on is the owner's business, so the public only sees
+          ON AIR or OFF AIR. */}
       <div className="flex items-center justify-between gap-3">
         {offAir ? (
           <StatusLamp tone="off" variant="solid">Off air</StatusLamp>
-        ) : isLive ? (
-          <StatusLamp tone="live" variant="solid" pulse>Live</StatusLamp>
         ) : (
           <StatusLamp tone="onair" variant="solid">On air</StatusLamp>
         )}

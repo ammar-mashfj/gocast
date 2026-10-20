@@ -71,16 +71,16 @@ function initials(name: string): string {
 }
 
 /**
- * What the station is doing, as one word.
+ * What the station is doing, as one word, for the public.
  *
- * Three states, not two. `is_on_air` means audio is reaching listeners and
- * `is_live` means a person is producing it — so a station running AutoDJ is
- * on air with nobody at the mic, and that is the common case on a paid plan,
- * not an edge one.
+ * Two states, not three. Whether a person is at the mic or AutoDJ is playing
+ * is the owner's business, not the listener's: a station that runs AutoDJ
+ * between shows should not have its page announce which hour is which. So
+ * the page only says whether there is audio, in the one on-air colour.
  */
-type AirState = "live" | "onair" | "off"
+type AirState = "onair" | "off"
 
-const AIR_LABEL: Record<AirState, string> = { live: "Live", onair: "On air", off: "Off air" }
+const AIR_LABEL: Record<AirState, string> = { onair: "On air", off: "Off air" }
 
 /**
  * The waveform's bars: fixed heights and timings, computed once at module
@@ -608,7 +608,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // tabs can find the right one at a glance.
   useDocumentTitle(
     playing
-      ? `▶ ${nowPlaying.title ?? "Live"}${nowPlaying.artist ? ` · ${nowPlaying.artist}` : ""} · ${station.name} | GoCast`
+      ? nowPlaying.title
+        ? `▶ ${nowPlaying.title}${nowPlaying.artist ? ` · ${nowPlaying.artist}` : ""} · ${station.name} | GoCast`
+        : `▶ ${station.name} | GoCast`
       : null,
   )
 
@@ -645,7 +647,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   /** There is audio to hear — a broadcaster, AutoDJ, or a stream already open. */
   const audible = station.is_on_air || playing || loading || nowPlaying.title !== null
 
-  const airState: AirState = station.is_live ? "live" : station.is_on_air ? "onair" : "off"
+  const airState: AirState = station.is_on_air ? "onair" : "off"
 
   /**
    * Play, or say why not. The button used to be disabled off air, and a
@@ -793,7 +795,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
           <div className={`${styles.info} flex min-w-0 flex-1 flex-col gap-3`}>
             <div className={`${styles.centreRow} flex flex-wrap items-center gap-2`}>
-              <StatusLamp tone={airState} variant="solid" pulse={airState === "live"}>
+              <StatusLamp tone={airState} variant="solid">
                 {AIR_LABEL[airState]}
               </StatusLamp>
               {station.featured && (
@@ -859,41 +861,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         </section>
 
         <section className={`flex-none ${styles.riseLate}`}>
-          {airState === "live" ? (
-            <div className={`${styles.card} flex flex-col gap-3.5 rounded-card bg-live text-live-ink`}>
-              <div className="flex items-center gap-4">
-                <div className={`${styles.btn} relative flex-none`}>
-                  <PlayButton playing={playing} loading={loading} onClick={pressPlay} className="bg-live-ink text-live" />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.75">
-                  <span className="eyebrow truncate font-bold">On the mic · {listeningLine}</span>
-                  <span className="text-[22px] leading-[1.1] font-extrabold tracking-[-0.03em]">The host is live.</span>
-                  <span
-                    key={nowPlaying.title ?? ""}
-                    className={`${styles.trackSlideIn} flex min-w-0 items-center gap-2 text-[13px] font-semibold`}
-                  >
-                    <span className={`${styles.blink} size-2 flex-none rounded-full bg-live-ink`} aria-hidden />
-                    {nowPlaying.title ? (
-                      <span className="truncate">
-                        {nowPlaying.title}
-                        {nowPlaying.artist && <span className="font-medium opacity-75"> · {nowPlaying.artist}</span>}
-                      </span>
-                    ) : (
-                      <span className="font-mono">ON AIR</span>
-                    )}
-                  </span>
-                </div>
-                {/* Volume is desktop-only on purpose: a phone has hardware
-                    keys for it. */}
-                {playing && (
-                  <div className="hidden lg:block">
-                    <VolumeControl audioRef={audioRef} />
-                  </div>
-                )}
-              </div>
-              <Waveform playing={playing} className="bg-live-ink" />
-            </div>
-          ) : audible ? (
+          {audible ? (
             <div className={`${styles.card} flex flex-col gap-3.5 rounded-card bg-on-air-tint`}>
               <div className="flex items-center gap-4">
                 <div className={`${styles.ring} relative flex flex-none items-center justify-center rounded-full bg-foreground/10`}>

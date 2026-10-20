@@ -67,7 +67,6 @@ export function EmbedPlayer({ station: initial, options = {} }: EmbedPlayerProps
     setListeners(stats.count)
     setStation((prev) => ({
       ...prev,
-      is_live: stats.is_live ?? prev.is_live,
       is_on_air: stats.is_on_air ?? prev.is_on_air,
     }))
     setPolled(stats.now_playing)
@@ -88,9 +87,7 @@ export function EmbedPlayer({ station: initial, options = {} }: EmbedPlayerProps
     ? "Off air"
     : nowPlaying.title
       ? [nowPlaying.artist, nowPlaying.title].filter(Boolean).join(" — ")
-      : station.is_live
-        ? "Live now"
-        : "On air"
+      : "On air"
 
   return (
     <div className="h-dvh w-full bg-background text-foreground flex items-center gap-3 px-3 select-none overflow-hidden">
@@ -111,12 +108,6 @@ export function EmbedPlayer({ station: initial, options = {} }: EmbedPlayerProps
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-semibold truncate">{station.name}</span>
-          {station.is_live && !offAir && (
-            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-red-500/15 text-red-400 px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase">
-              <span className="size-1.5 rounded-full bg-red-400 animate-pulse" />
-              Live
-            </span>
-          )}
         </div>
         <span
           className={cn("text-xs truncate", offAir ? "text-muted-foreground/70" : "text-muted-foreground")}

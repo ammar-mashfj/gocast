@@ -321,13 +321,6 @@
 
 .barOn { animation: wave-bar var(--d) ease-in-out var(--dl) infinite alternate; }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-.blink { animation: blink 1.4s ease-in-out infinite; }
-
 @keyframes track-slide-in {
   from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -340,7 +333,6 @@
   .riseLate,
   .breathe,
   .barOn,
-  .blink,
   .trackSlideIn {
     animation: none;
   }
