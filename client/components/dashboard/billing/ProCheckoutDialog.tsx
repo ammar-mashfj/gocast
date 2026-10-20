@@ -117,8 +117,9 @@ export function ProCheckoutDialog({
     }
   }, [open, initialCoupon])
 
-  async function applyCoupon(product: string, value: string) {
-    if (!value.trim()) return
+  /** The quoted product when the coupon applies, else null (with the reason shown). */
+  async function applyCoupon(product: string, value: string): Promise<CatalogProduct | null> {
+    if (!value.trim()) return null
     setBusy("quote")
     setCouponError(null)
     try {
@@ -126,12 +127,14 @@ export function ProCheckoutDialog({
       if (quoted.coupon_error) {
         setApplied(null)
         setCouponError(quoted.coupon_error)
-      } else {
-        setApplied(quoted)
+        return null
       }
+      setApplied(quoted)
+      return quoted
     } catch (err) {
       setApplied(null)
       setCouponError(billingError(err))
+      return null
     } finally {
       setBusy(null)
     }
@@ -167,10 +170,15 @@ export function ProCheckoutDialog({
 
   async function pay() {
     if (!chosen) return
+    // A code typed but never applied would otherwise be dropped and the
+    // buyer charged full price. Apply it now; if it's refused, stop here so
+    // the reason shows under the field and they choose: fix it or clear it.
+    const typed = code.trim()
+    if (typed && applied?.slug !== chosen.slug && !(await applyCoupon(chosen.slug, typed))) return
     setBusy("pay")
     setError(null)
     try {
-      const { payment, payment_url } = await startCheckout(chosen.slug, applied?.slug === chosen.slug ? code.trim() : null)
+      const { payment, payment_url } = await startCheckout(chosen.slug, typed || null)
       onStarted({ uuid: payment, paymentUrl: payment_url })
       handleOpenChange(false)
     } catch (err) {

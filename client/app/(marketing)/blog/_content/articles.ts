@@ -228,7 +228,7 @@ export const ARTICLES: Article[] = [
       {
         question: "How much does GoCast Pro cost?",
         answer:
-          "$20 a month. You ask for it from your dashboard and we email you how to pay. It is paid in advance for the term you pick, does not renew on its own, and you can cancel any time.",
+          "$20 a month, or less a month if you pay ahead. You buy it from your dashboard and it switches on as soon as your payment is confirmed. It is paid in advance for the term you pick, does not renew on its own, and you can cancel any time.",
       },
       {
         question: "Can I broadcast to GoCast from BUTT or Mixxx?",

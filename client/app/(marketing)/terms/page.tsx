@@ -104,8 +104,8 @@ export default function TermsPage() {
             </p>
             <ul className="list-disc pl-5 flex flex-col gap-1.5 mt-3">
               <li>
-                Pro is not self-serve yet. You request it from your dashboard, we email you the
-                price and how to pay, and Pro is switched on once your payment arrives.
+                You buy Pro from your dashboard. The prices and payment options are shown at
+                checkout, and Pro is switched on as soon as your payment is confirmed.
               </li>
               <li>
                 Pro is paid in advance for the term you choose. It does not renew automatically:

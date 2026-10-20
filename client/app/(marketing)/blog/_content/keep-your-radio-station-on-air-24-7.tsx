@@ -233,9 +233,8 @@ export default function Body() {
 
       <h2>How to Get Pro</h2>
       <p>
-        Pro is $20 a month. You ask for it from inside your dashboard rather
-        than from the pricing page, because we look at your station first, and
-        then we email you how to pay.
+        Pro is $20 a month, or less a month if you pay for 3, 6 or 12 months
+        ahead. You buy it from inside your dashboard.
       </p>
       <ol>
         <li>
@@ -247,20 +246,12 @@ export default function Body() {
           <strong>Get Pro</strong>{" "} in the sidebar.
         </li>
         <li>
-          Paste a link to a public page &mdash; Instagram, YouTube, TikTok,
-          your own site, anywhere we can see who you&#39;re broadcasting to.
-          The whole link, not just your handle.
-        </li>
-        <li>
-          Tell us what you broadcast, how often, and what you need Pro for.
-          It&#39;s optional, and it&#39;s the part that actually gets requests
-          answered sooner.
+          Pick a term and pay. If you have a coupon, enter it before you pay.
         </li>
       </ol>
       <p>
-        We use the email on your account, so there&#39;s nothing to fill in
-        there. We reply by email with the price and how to pay, and Pro
-        switches on as soon as the payment arrives.
+        Pro switches on as soon as your payment is confirmed, and the
+        dashboard updates by itself.
       </p>
       <p>
         Pro is paid in advance for the term you pick and doesn&#39;t renew on
@@ -337,8 +328,7 @@ export default function Body() {
 
       <h3>How much does Pro cost?</h3>
       <p>
-        $20 a month. You ask for it from your dashboard and we email you how
-        to pay. It doesn&#39;t renew on its own, and you can cancel any time.
+        $20 a month, and you buy it from your dashboard. It doesn&#39;t renew on its own, and you can cancel any time.
       </p>
 
       <h3>Can I use BUTT or Mixxx instead of the browser?</h3>

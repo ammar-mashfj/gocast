@@ -107,7 +107,7 @@ export default function Body() {
         <Link href="/blog/keep-your-radio-station-on-air-24-7">
           how to keep a station on air 24/7
         </Link>{" "}
-        . You ask for it from your dashboard and we email you how to pay.
+        . You buy it from your dashboard.
       </p>
       <p>
         Strongest point: going from zero to live in under a minute. Weakest point: the

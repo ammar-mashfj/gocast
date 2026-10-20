@@ -32,3 +32,5 @@ infra/native/env/*.env
 # Generated Liquidsoap scripts dumped at the root while reading the template.
 # The real ones live in each station's container; anything here is scratch.
 /*.liq
+
+suby
