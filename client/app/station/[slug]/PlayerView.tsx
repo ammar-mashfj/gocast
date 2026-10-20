@@ -1,23 +1,17 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import {
-  IconShare3,
-  IconPlayerPlayFilled,
+  IconArrowUpRight,
+  IconLoader2,
   IconPlayerPauseFilled,
+  IconPlayerPlayFilled,
   IconVolume,
   IconVolume2,
   IconVolumeOff,
-  IconLoader2,
-  IconMusic,
-  IconBroadcast,
-  IconHeart,
-  IconHeartFilled,
-  IconRosetteDiscountCheckFilled,
-  IconX,
 } from "@tabler/icons-react"
-import Image from "next/image"
 import Hls from "hls.js"
 import { toast } from "sonner"
 import { Station } from "@/interfaces/Station"
@@ -26,34 +20,22 @@ import { createNetworkRecovery } from "@/lib/hlsRecovery"
 import { createPlaylistLoader } from "@/lib/hlsPlaylistLoader"
 import { shareOrCopy, taggedStationUrl } from "@/lib/share"
 import { resolveSocialLink } from "@/lib/socialLinks"
+import { cn } from "@/lib/utils"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
 import { isSaved, toggleSaved, recordListen, subscribeLibrary } from "@/lib/listenerLibrary"
 import { NotifyMeForm } from "./NotifyMeForm"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
+import { StatusLamp } from "@/components/ds/StatusLamp"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { Slider } from "@/components/ui/slider"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import styles from "./player.module.css"
 
 const METADATA_PLACEHOLDERS = new Set(["", "unknown", "n/a", "-", "none", "null", "untitled"])
 
 /** Max prior tracks kept in memory and shown under "Just played". */
 const MAX_RECENT_TRACKS = 5
-
-/** Uppercase micro-label, the typographic signature of this page. */
-const MICRO = "font-mono text-[11px] tracking-[0.18em] uppercase text-muted-foreground"
-
-/** Pill button in the actions row — outline that warms to the brand on hover. */
-const PILL =
-  "inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[#2a2344] text-foreground text-sm font-medium " +
-  "cursor-pointer bg-transparent transition-colors hover:border-primary hover:text-white " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
-  "@max-[520px]/player:h-11 @max-[520px]/player:flex-auto @max-[520px]/player:justify-center"
 
 function cleanMetadata(value: string | null | undefined): string | null {
   if (!value) return null
@@ -63,85 +45,29 @@ function cleanMetadata(value: string | null | undefined): string | null {
 }
 
 /**
- * The record.
- *
- * Two bare rings sit outside the disc itself, so the artwork reads as a record
- * on a deck rather than a circle cropped to the column — they are the part of
- * the composition that survives when the page narrows and everything else
- * stacks.
- *
- * It does not spin. A turning disc is the obvious thing to do with a record,
- * but the surface that turns here is the station's own artwork — often a
- * wordmark, often a face — and rotating it makes the one image that carries
- * the station's identity hard to read, permanently, on the page where a
- * stranger decides whether to follow. Nothing was gained for that: playback
- * already announces itself through the dock equaliser, the pause icon, the
- * listener count and the tab title, so the rotation was a fourth copy of a
- * signal that was never in doubt.
- *
- * The float stays. It moves the disc without turning it, so the artwork stays
- * legible the whole way through — motion that costs nothing to read.
- *
- * `rippling` is playback, not liveness. The two deck rings only breathe while
- * audio is actually coming out, on the same rule as the dock equaliser:
- * nothing here mimes a stream that is stopped. Paused, they simply hold the
- * still composition they always were.
+ * The genre field is one free-text string, and owners write lists into it
+ * ("Rock, Pop, Talk"). Split on the separators people use so each reads as
+ * its own chip; a single genre is a list of one.
  */
-function Vinyl({ artworkUrl, rippling }: { artworkUrl?: string | null; rippling?: boolean }) {
-  return (
-    <div className={`relative w-full aspect-square ${styles.vinylFloat}`}>
-      <div
-        className={`absolute -inset-[14%] rounded-full border border-[#2a2344] ${rippling ? `${styles.vinylRipple} ${styles.vinylRippleOuter}` : ""}`}
-        aria-hidden
-      />
-      <div
-        className={`absolute -inset-[7%] rounded-full border border-[#3b2f6b]/60 ${rippling ? styles.vinylRipple : ""}`}
-        aria-hidden
-      />
-      <div className="size-full rounded-full bg-[conic-gradient(from_0deg,#1a1a2e,#16162a,#1a1a2e,#0f0f1f,#1a1a2e,#16162a,#1a1a2e)] flex items-center justify-center relative border border-white/5 shadow-[0_40px_100px_rgba(139,92,246,0.25)]">
-        <div className="absolute w-[87.5%] h-[87.5%] rounded-full border border-white/[0.04]" />
-        <div className="absolute w-[75%] h-[75%] rounded-full border border-white/[0.03]" />
-        <div className="w-[50%] h-[50%] rounded-full bg-gradient-to-br from-[#1a0533] via-[#2d1b69] to-[#1a0533] flex items-center justify-center border-2 border-white/10 relative overflow-hidden">
-          {artworkUrl ? (
-            <Image
-              src={artworkUrl}
-              alt="Station artwork"
-              fill
-              sizes="(max-width: 520px) 80px, (max-width: 900px) 120px, 170px"
-              // `priority` is deprecated as of Next 16; the docs point at these
-              // two for the common case of "this is the hero image".
-              loading="eager"
-              fetchPriority="high"
-              className="object-cover"
-            />
-          ) : (
-            <IconMusic className="size-9 @min-[900px]/player:size-12 text-violet-300/70" strokeWidth={1.5} />
-          )}
-        </div>
-      </div>
-    </div>
-  )
+function splitGenres(genre: string | null): string[] {
+  if (!genre) return []
+  const seen = new Set<string>()
+  return genre
+    .split(/\s*[,/|·•]\s*/)
+    .map((g) => g.trim())
+    .filter((g) => {
+      const key = g.toLowerCase()
+      if (!g || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
-/**
- * Dock equaliser — four bars, staggered.
- *
- * Gated on `playing` rather than running always: the dock is now permanently on
- * screen, so bars that danced through a paused stream would be claiming audio
- * is flowing at the exact moment it is not.
- */
-function DockEq({ playing }: { playing: boolean }) {
-  return (
-    <span className="inline-flex items-end gap-[2px] h-3 shrink-0" aria-hidden>
-      {[0, 0.25, 0.5, 0.1].map((delay, i) => (
-        <span
-          key={i}
-          className={`w-[3px] h-3 rounded-[1px] bg-primary ${styles.dockBar} ${playing ? styles.dockBarOn : ""}`}
-          style={playing ? { animationDelay: `${delay}s` } : undefined}
-        />
-      ))}
-    </span>
-  )
+/** Two letters for the artwork placeholder, skipping the words every station shares. */
+function initials(name: string): string {
+  const words = name.split(/\s+/).filter((w) => w && !/^(radio|station|fm|the)$/i.test(w))
+  const picked = (words.length > 0 ? words : name.split(/\s+/)).slice(0, 2)
+  return picked.map((w) => Array.from(w)[0] ?? "").join("").toUpperCase()
 }
 
 /**
@@ -150,150 +76,69 @@ function DockEq({ playing }: { playing: boolean }) {
  * Three states, not two. `is_on_air` means audio is reaching listeners and
  * `is_live` means a person is producing it — so a station running AutoDJ is
  * on air with nobody at the mic, and that is the common case on a paid plan,
- * not an edge one. Painting it in the same grey as a silent station said the
- * opposite of the label sitting next to it.
+ * not an edge one.
  */
 type AirState = "live" | "onair" | "off"
 
 const AIR_LABEL: Record<AirState, string> = { live: "Live", onair: "On air", off: "Off air" }
 
-const AIR_TITLE: Record<AirState, string> = {
-  live: "A broadcaster is on air right now",
-  onair: "Playing, but nobody is at the mic",
-  off: "Nothing is streaming right now",
-}
-
 /**
- * Red for a human, green for audio, grey for silence.
- *
- * Only red breathes. The ring is what makes someone look, so it is spent on
- * the one state worth interrupting for — a live broadcaster — rather than on
- * a rotation that will still be there in an hour.
+ * The waveform's bars: fixed heights and timings, computed once at module
+ * scope so the server and the browser draw the same thing. It is decoration —
+ * the stream carries no levels to the page — so it only moves while audio is
+ * actually playing, and rests flat otherwise.
  */
-function LiveDot({ state }: { state: AirState }) {
-  const fill =
-    state === "live" ? "bg-red-500" : state === "onair" ? "bg-emerald-500" : "bg-muted-foreground/60"
+const BARS = Array.from({ length: 64 }, (_, i) => ({
+  h: Math.min(100, 30 + Math.round(Math.abs(Math.sin(i * 1.7) * 50 + Math.sin(i * 0.45) * 20))),
+  d: (0.45 + ((i * 37) % 50) / 100).toFixed(2),
+  dl: (-((i * 53) % 90) / 100).toFixed(2),
+}))
 
+function Waveform({ playing, className }: { playing: boolean; className: string }) {
   return (
-    <span className="relative w-2 h-2 inline-block shrink-0" aria-hidden>
-      <span className={`absolute inset-0 rounded-full ${fill}`} />
-      {state === "live" && (
-        <span className={`absolute inset-0 rounded-full bg-red-500 ${styles.liveRing}`} />
-      )}
-    </span>
-  )
-}
-
-/**
- * Follow / share row.
- *
- * Labelled pills rather than bare icons. The icons alone were unlabelled glyphs
- * competing with the play button for the same "press me" reading; with words on
- * them they become what they are — secondary actions you take after deciding
- * you like the station.
- *
- * One share button, not one per network. `navigator.share` opens the viewer's
- * own share sheet, which already lists every app they actually use and orders
- * it by who they actually talk to — a row of hardcoded logos cannot match that
- * and has to be maintained as each network changes its intent URL. Instagram
- * has no web share intent at all, and Facebook's ignores pre-filled text, so
- * of the obvious candidates only X was ever implementable as a button; being
- * restricted to the one network that happens to have a working URL is a poor
- * reason to show it.
- *
- * Where the API is missing — Firefox, Chrome on Linux — this copies instead
- * and says so, which is what the row did before for everything but X.
- */
-function ShareButtons({ station }: { station: Station }) {
-  const url = taggedStationUrl(env.appUrl, station.slug, "listener")
-  const [saved, setSaved] = useState(false)
-
-  // Sync the heart with the live library state (also reflects cross-tab changes).
-  useEffect(() => {
-    // Initial hydration from localStorage — needs to happen post-mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSaved(isSaved(station.slug))
-    return subscribeLibrary(() => setSaved(isSaved(station.slug)))
-  }, [station.slug])
-
-  function handleToggleSave() {
-    const nowSaved = toggleSaved({
-      slug: station.slug,
-      name: station.name,
-      artworkUrl: station.artwork_url,
-      genre: station.genre,
-    })
-    setSaved(nowSaved)
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2.5 mt-1.5 @max-[900px]/player:justify-center">
-      <button
-        type="button"
-        onClick={handleToggleSave}
-        aria-pressed={saved}
-        className={`${PILL} ${saved ? "border-primary/60 text-white" : ""}`}
-      >
-        {saved ? <IconHeartFilled size={16} className="text-rose-400" /> : <IconHeart size={16} />}
-        <span>{saved ? "Following" : "Follow"}</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          void shareOrCopy(url, station.name, `Listening to ${station.name} on GoCast`)
-        }}
-        className={PILL}
-      >
-        <IconShare3 size={16} />
-        Share
-      </button>
-    </div>
-  )
-}
-
-/**
- * Where else the station exists.
- *
- * Two shapes on purpose. A recognised platform is a glyph on its own — nobody
- * needs the word "Instagram" under the Instagram mark, and a row of bare marks
- * is what this pattern looks like everywhere else on the web. Anything we do
- * not recognise gets the globe AND its name, because a lone globe is a link to
- * nowhere in particular as far as a listener can tell.
- *
- * rel carries nofollow/ugc: these are owner-supplied links on a public page,
- * which is the exact shape of an SEO farm if the domain vouches for them.
- */
-function StationLinks({ station }: { station: Station }) {
-  const links = (station.social_links ?? [])
-    .map(resolveSocialLink)
-    .filter((link) => link !== null)
-
-  if (links.length === 0) {
-    return null
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 @max-[900px]/player:justify-center">
-      {links.map((link, index) => (
-        <a
-          key={`${link.href}-${index}`}
-          href={link.href}
-          target="_blank"
-          rel="noopener noreferrer nofollow ugc"
-          title={link.name}
-          aria-label={link.name}
-          className={
-            "inline-flex items-center gap-2 h-9 rounded-full border border-[#2a2344] text-muted-foreground " +
-            "no-underline transition-colors hover:border-primary hover:text-white " +
-            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary " +
-            (link.known ? "w-9 justify-center" : "px-3.5")
-          }
-        >
-          <link.icon size={18} />
-          {!link.known && <span className="max-w-[16ch] truncate text-[13px]">{link.name}</span>}
-        </a>
+    <div className={`${styles.wave} flex items-center gap-[3px]`} aria-hidden>
+      {BARS.map((b, i) => (
+        <span
+          key={i}
+          className={cn(styles.bar, playing && styles.barOn, "flex-1 rounded-[2px]", className)}
+          style={{ height: `${b.h}%`, "--d": `${b.d}s`, "--dl": `${b.dl}s` } as CSSProperties}
+        />
       ))}
     </div>
+  )
+}
+
+function PlayButton({
+  playing,
+  loading,
+  onClick,
+  className,
+}: {
+  playing: boolean
+  loading: boolean
+  onClick: () => void
+  className: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={playing ? "Pause" : loading ? "Connecting" : "Play"}
+      className={cn(
+        styles.btn,
+        "relative flex flex-none cursor-pointer items-center justify-center rounded-full border-0 transition-transform duration-100 active:scale-96",
+        "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        className,
+      )}
+    >
+      {loading ? (
+        <IconLoader2 size={26} className="animate-spin" />
+      ) : playing ? (
+        <IconPlayerPauseFilled size={26} />
+      ) : (
+        <IconPlayerPlayFilled size={26} className="ml-1" />
+      )}
+    </button>
   )
 }
 
@@ -302,19 +147,11 @@ function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElemen
   const [muted, setMuted] = useState(false)
   const prevVolume = useRef(80)
 
-  // The audio element is ours now rather than one a streaming library created
-  // and handed back, so volume is just a property on it — and it survives the
-  // stream being torn down and re-attached, which the old player's element did
-  // not.
-  function getAudio() {
-    return audioRef.current
-  }
-
   function handleVolumeChange(value: number[]) {
     const v = value[0]
     setVolume(v)
     setMuted(v === 0)
-    const audio = getAudio()
+    const audio = audioRef.current
     if (!audio) return
     audio.volume = v / 100
     // Moving the slider up takes the mute off, as in every player.
@@ -325,7 +162,7 @@ function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElemen
   // a page setting the volume, so volume 0 muted nothing there. The slider
   // still shows 0 while muted and gives back the level on unmute.
   function toggleMute() {
-    const audio = getAudio()
+    const audio = audioRef.current
     if (muted) {
       const restore = prevVolume.current || 80
       setVolume(restore)
@@ -345,123 +182,16 @@ function VolumeControl({ audioRef }: { audioRef: React.RefObject<HTMLAudioElemen
   const VolumeIcon = muted || volume === 0 ? IconVolumeOff : volume < 50 ? IconVolume2 : IconVolume
 
   return (
-    <div className="flex items-center gap-2 w-28">
+    <div className="flex w-32 items-center gap-2">
       <button
         type="button"
         onClick={toggleMute}
         aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
-        className="text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer"
+        className="shrink-0 cursor-pointer opacity-70 transition-opacity hover:opacity-100"
       >
         <VolumeIcon size={18} />
       </button>
-      <Slider
-        value={[volume]}
-        max={100}
-        step={1}
-        onValueChange={handleVolumeChange}
-        className="flex-1"
-        aria-label="Volume"
-      />
-    </div>
-  )
-}
-
-/** Shared by both forms below, so the two can never drift apart in style. */
-const PANEL_TITLE = "font-mono text-[11px] tracking-[0.18em] uppercase text-muted-foreground"
-
-const PANEL_SURFACE = "border border-[#2a2344] bg-[#161228]/95 text-sm text-foreground backdrop-blur-xl"
-
-/**
- * Secondary station detail — the bio, the week, the last few tracks.
- *
- * These were inline disclosures once, and on a vertically centred layout that
- * was the wrong shape: opening one grew its column, which re-centred the whole
- * composition — the artwork and the buttons moved to make room for a list
- * nobody was looking at yet. Both forms below cost the page no height at all.
- *
- * Which form depends on the screen, because the right answer genuinely
- * differs. On a phone a centred box puts its content and its close button in
- * the middle and top of a tall screen, the two places a thumb reaches worst,
- * so the panel is anchored to the bottom edge instead, beside the dock. On a
- * laptop that same panel would stretch the full width of the window to hold a
- * few rows, so there it is a centred dialog sized to its contents.
- *
- * Both are the same Radix primitive underneath — `Sheet` is `Dialog` anchored
- * to an edge — so focus trapping, Escape, and the overlay behave identically
- * either way. Only placement changes.
- *
- * The breakpoint is the viewport, not the player's container, because these
- * render through a portal on `document.body` and a container query would never
- * reach them.
- */
-function StationSheet({
-  open,
-  onOpenChange,
-  title,
-  children,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  children: React.ReactNode
-}) {
-  // Resolves on mount rather than on open, and every panel starts closed, so
-  // the one-frame "assume desktop" this returns before its effect runs is
-  // never a frame anybody sees.
-  const isMobile = useIsMobile()
-
-  if (!isMobile) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={`${PANEL_SURFACE} gap-3 p-5 ring-0 sm:max-w-lg`}>
-          <DialogHeader>
-            {/* Clear of the close button Radix parks in the corner — which is
-                the right place for it here, the dialog being only as wide as
-                its contents. */}
-            <DialogTitle className={`${PANEL_TITLE} pr-8`}>{title}</DialogTitle>
-          </DialogHeader>
-          {children}
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        // The sheet spans the viewport, but its contents are a column. Radix's
-        // own close button would pin itself to the far corner of that span,
-        // half a screen from the thing it closes, so it is switched off and
-        // re-placed beside the title instead.
-        showCloseButton={false}
-        className={`${PANEL_SURFACE} ${styles.sheetBody} max-h-[80dvh] overflow-y-auto rounded-t-2xl border-x-0 border-b-0`}
-      >
-        <div className="mx-auto w-full max-w-2xl">
-          <SheetHeader className="flex-row items-center justify-between gap-4 px-0 pt-0 pb-2">
-            <SheetTitle className={PANEL_TITLE}>{title}</SheetTitle>
-            <SheetClose asChild>
-              <Button variant="ghost" size="icon-sm" className="-mr-1 shrink-0 rounded-full">
-                <IconX size={16} />
-                <span className="sr-only">Close</span>
-              </Button>
-            </SheetClose>
-          </SheetHeader>
-          {children}
-        </div>
-      </SheetContent>
-    </Sheet>
-  )
-}
-
-function WaveDecoration() {
-  const d = "M0 20 Q25 5 50 20 T100 20 T150 20 T200 20 T250 20 T300 20 T350 20 T400 20 T450 20 T500 20 T550 20 T600 20 T650 20 T700 20 T750 20 T800 20 T850 20 T900 20 T950 20 T1000 20 T1050 20 T1100 20 T1150 20 T1200 20"
-  return (
-    <div className="absolute bottom-[22%] left-0 right-0 h-10 overflow-hidden opacity-[0.06]">
-      <div className={`flex ${styles.wave}`}>
-        <svg width="1200" height="40" viewBox="0 0 1200 40"><path d={d} fill="none" stroke="white" strokeWidth="1.5" /></svg>
-        <svg width="1200" height="40" viewBox="0 0 1200 40"><path d={d} fill="none" stroke="white" strokeWidth="1.5" /></svg>
-      </div>
+      <Slider value={[volume]} max={100} step={1} onValueChange={handleVolumeChange} className="flex-1" aria-label="Volume" />
     </div>
   )
 }
@@ -478,33 +208,45 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   const [listeners, setListeners] = useState(0)
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const [recentTracks, setRecentTracks] = useState<{ title: string; artist: string | null; at: number }[]>([])
-  const [justPlayedOpen, setJustPlayedOpen] = useState(false)
-  const [descOpen, setDescOpen] = useState(false)
-  const [descClamped, setDescClamped] = useState(false)
-  const descRef = useRef<HTMLParagraphElement | null>(null)
-  // The "more" trigger only earns its place when the text is genuinely being
-  // cut off, so measure rather than guess: a two-line bio gets no control at
-  // all. Re-measured on resize and once webfonts land, since both change how
-  // many lines the same string takes.
-  //
-  // The paragraph is now clamped at all times — the full text lives in a sheet
-  // — so this no longer has to skip a measurement while expanded.
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [following, setFollowing] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Follow is the listener library (localStorage), so it is read after mount
+  // — the server has no localStorage — and kept in step across tabs.
   useEffect(() => {
-    const el = descRef.current
-    if (!el) return
-    let cancelled = false
-    const measure = () => {
-      if (!cancelled) setDescClamped(el.scrollHeight > el.clientHeight + 1)
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    document.fonts?.ready.then(measure).catch(() => {})
-    return () => {
-      cancelled = true
-      ro.disconnect()
-    }
-  }, [station.description])
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFollowing(isSaved(station.slug))
+    return subscribeLibrary(() => setFollowing(isSaved(station.slug)))
+  }, [station.slug])
+
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+  }, [])
+
+  function toggleFollow() {
+    setFollowing(
+      toggleSaved({
+        slug: station.slug,
+        name: station.name,
+        artworkUrl: station.artwork_url,
+        genre: station.genre,
+      }),
+    )
+  }
+
+  // One share button, not one per network: `navigator.share` opens the
+  // viewer's own share sheet; where it is missing this copies instead, and
+  // the button says so.
+  async function share() {
+    const url = taggedStationUrl(env.appUrl, station.slug, "listener")
+    const result = await shareOrCopy(url, station.name, `Listening to ${station.name} on GoCast`)
+    if (result !== "copied") return
+    setCopied(true)
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), 1600)
+  }
 
   // Track the previous now-playing via ref so we can shift it into recents
   // without nesting setState calls inside an updater (React Compiler hates that).
@@ -917,7 +659,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       return
     }
     toast.info(`${station.name} is off air right now`, {
-      description: "Leave your email and we'll let you know when it's back on.",
+      description: "Leave your email and we'll let you know when it next goes live.",
     })
     const input = document.getElementById(`notify-${station.slug}`)
     if (input instanceof HTMLElement) {
@@ -926,13 +668,20 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     }
   }, [audible, togglePlay, station.name, station.slug])
 
+  const genres = splitGenres(station.genre)
+  const links = (station.social_links ?? []).map(resolveSocialLink).filter((link) => link !== null)
+  const listeningLine = `${listeners.toLocaleString()} listening`
+  // The sheet holds everything the page has no room for, so it is offered
+  // whenever there is any of that to show.
+  const hasAbout = !!station.description || links.length > 0 || genres.length > 2 || recentTracks.length > 0
+
   return (
-    // Container queries rather than viewport breakpoints. The player reflows
-    // against the width of its own box, so it stays correct wherever it is put
-    // — the full page today, a narrower shell tomorrow — without every rule
-    // having to be re-derived from the viewport it happens to be sitting in.
-    // (The Pro embed has its own component; this does not drive it.)
-    <div className="@container/player relative flex min-h-dvh flex-col bg-[#0b0a10] text-foreground">
+    // `data-surface="marketing"` puts the page on the design system's warm
+    // palette (app/dashboard.css), like the homepage and auth pages.
+    <div
+      data-surface="marketing"
+      className={`${styles.page} flex min-h-dvh flex-col bg-background font-display text-foreground`}
+    >
       {/*
         The stream itself. Declared here rather than created by a library so
         both transports attach to one stable element — volume, mute and the
@@ -973,260 +722,301 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         }}
       />
 
-      {/* Decoration, clipped by its own layer. Keeping the overflow here rather
-          than on the root is what lets the dock below use `position: sticky` —
-          an `overflow` on an ancestor would turn that into a scroll container
-          and the dock would stop sticking to the viewport. */}
-      <div
-        className="pointer-events-none absolute inset-0 overflow-hidden bg-[radial-gradient(1200px_600px_at_20%_0%,#1a1530_0%,#0b0a10_60%)]"
-        aria-hidden
-      >
-        <div className="absolute -top-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_70%)]" />
-        <div className="absolute -bottom-[10%] -left-[10%] w-[400px] h-[400px] rounded-full bg-[radial-gradient(circle,rgba(236,72,153,0.1)_0%,transparent_70%)]" />
-        <WaveDecoration />
-      </div>
-
-      <header className="relative z-10 flex flex-wrap items-center justify-between gap-4 px-8 py-5 @max-[520px]/player:p-4">
-        {/* Owner-only chip — quick path back to the studio for station owners
-            previewing their own player page. */}
-        {isOwner && (
+      <header className={`${styles.pad} ${styles.column} mx-auto flex h-15 w-full max-w-280 flex-none items-center justify-between gap-4`}>
+        <Link href="/" className="text-[21px] font-bold tracking-[-0.03em] text-foreground no-underline">
+          Go<span className="text-on-air">Cast</span>
+          <span className="text-text-faint">.fm</span>
+        </Link>
+        {/* The owner already has a station; their way out of this page is
+            back to it. */}
+        {isOwner ? (
           <Link
             href={`/dashboard/stations/${station.slug}`}
-            className="inline-flex items-center gap-2 rounded-full border border-[#3b2f6b] bg-[#17122b] px-3.5 py-2 text-[13px] font-medium text-violet no-underline transition-colors hover:border-primary hover:bg-[#1f1145]"
+            className="text-sm font-semibold whitespace-nowrap text-muted-foreground no-underline transition-colors hover:text-foreground"
           >
-            <IconBroadcast size={14} />
-            You own this — Open studio
+            Open studio →
+          </Link>
+        ) : (
+          <Link
+            href="/auth/register"
+            className="text-sm font-semibold whitespace-nowrap text-muted-foreground no-underline transition-colors hover:text-foreground"
+          >
+            <span className="min-[420px]:hidden">Start a station →</span>
+            <span className="max-[419px]:hidden">Start your own station →</span>
           </Link>
         )}
-
-        <div className={`${MICRO} ml-auto flex items-center gap-6`}>
-          <span className="@max-[520px]/player:hidden">Internet radio</span>
-          <span
-            className={`inline-flex items-center gap-2.5 ${airState === "off" ? "" : "text-foreground"}`}
-            title={AIR_TITLE[airState]}
-          >
-            <LiveDot state={airState} />
-            {AIR_LABEL[airState]}
-          </span>
-        </div>
       </header>
 
-      <main className={`${styles.mainStack} relative z-10 mx-auto grid w-full max-w-[1240px] flex-1 grid-cols-[minmax(220px,340px)_minmax(0,1fr)] items-center gap-[clamp(32px,6vw,96px)] px-8 py-[clamp(24px,5vh,64px)] @max-[900px]/player:grid-cols-[minmax(0,1fr)] @max-[900px]/player:justify-items-center @max-[900px]/player:gap-7 @max-[900px]/player:pt-4 @max-[900px]/player:text-center @max-[520px]/player:px-5`}>
-        {/* The phone cap is height-aware, not a flat number. Stacked, this
-            column is well short of a tall screen, and the leftover had to go
-            somewhere — as a hole above the dock, or split either side of the
-            content; neither reads as deliberate. Letting the artwork take it
-            instead spends the space on the one thing the page is selling. The
-            `min()` is what keeps that honest on a short screen: 30dvh gives
-            the disc back when there is no height to spare, rather than
-            pushing the play button off the bottom. */}
-        <div className="w-full max-w-[340px] justify-self-end @max-[900px]/player:max-w-[240px] @max-[900px]/player:justify-self-center @max-[520px]/player:max-w-[min(240px,30dvh)]">
-          {/* The disc plays too. Listeners clicked the artwork expecting it
-              to (Clarity dead clicks); the dock button stays the one control
+      <main className={`${styles.pad} ${styles.main} ${styles.column} mx-auto flex w-full max-w-280 flex-1 flex-col justify-center-safe`}>
+        <section className={`${styles.hero} ${styles.rise}`}>
+          {/* The artwork plays too: listeners clicked it expecting it to
+              (Clarity dead clicks). The card's button stays the one control
               in the tab order and the accessibility tree, so this is a mouse
               and touch shortcut, not a second Play for a screen reader. */}
-          <button
-            type="button"
-            onClick={pressPlay}
-            tabIndex={-1}
-            aria-hidden="true"
-            className="block w-full cursor-pointer rounded-full"
-          >
-            <Vinyl artworkUrl={station.artwork_url} rippling={playing} />
-          </button>
-        </div>
+          <div className={styles.artBox}>
+            <button
+              type="button"
+              onClick={pressPlay}
+              tabIndex={-1}
+              aria-hidden="true"
+              className={`${styles.art} relative flex flex-none cursor-pointer items-center justify-center overflow-hidden border-0 bg-[repeating-linear-gradient(135deg,var(--color-surface-raised)_0_10px,var(--color-card)_10px_20px)] p-0`}
+            >
+              {station.artwork_url ? (
+                <Image
+                  src={station.artwork_url}
+                  alt=""
+                  fill
+                  // One entry per layout in player.module.css: wide, the short
+                // phone's thumbnail, the upright tablet's column, a phone.
+                sizes="(min-width: 720px) and (min-aspect-ratio: 21/20) 520px, (max-height: 739px) 104px, (min-width: 600px) 672px, 100vw"
+                quality={85}
+                  // `priority` is deprecated as of Next 16; the docs point at
+                  // these two for the common case of "this is the hero image".
+                  loading="eager"
+                  fetchPriority="high"
+                  className={cn("object-cover", styles.breathe, playing && styles.breatheOn)}
+                />
+              ) : (
+                <>
+                  <span className={`${styles.monogram} leading-none font-extrabold tracking-[-0.06em] text-foreground`}>
+                    {initials(station.name)}
+                  </span>
+                  <span
+                    className={`${styles.callsign} eyebrow absolute right-4.5 bottom-4 left-4.5 truncate text-left text-text-faint`}
+                  >
+                    {station.name}
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
 
-        <div className="flex min-w-0 flex-col gap-5 @max-[900px]/player:items-center @max-[520px]/player:gap-3.5">
-          {station.genre && (
-            <p className={`${MICRO} m-0 max-w-[46ch] leading-[1.7] text-violet-muted/90 text-pretty`}>
-              {station.genre}
-            </p>
-          )}
+          <div className={`${styles.info} flex min-w-0 flex-1 flex-col gap-3`}>
+            <div className={`${styles.centreRow} flex flex-wrap items-center gap-2`}>
+              <StatusLamp tone={airState} variant="solid" pulse={airState === "live"}>
+                {AIR_LABEL[airState]}
+              </StatusLamp>
+              {station.featured && (
+                <span
+                  className="eyebrow inline-flex h-7.5 items-center rounded-chip bg-surface-raised px-3 text-muted-foreground"
+                  title="Hand-picked by GoCast"
+                >
+                  Featured
+                </span>
+              )}
+            </div>
 
-          {/* The featured mark rides with the station's NAME rather than the
-              eyebrow: it is a property of this station, the way a verified tick
-              is, not another label about its content. Icon only — the meaning
-              is carried by the tooltip for a mouse and by the sr-only text for
-              everyone else, so the name keeps the line to itself. */}
-          <h1 className="font-display m-0 text-[clamp(48px,7vw,96px)] font-semibold leading-[0.95] tracking-[-0.03em] text-balance @max-[900px]/player:text-[clamp(40px,11cqw,72px)] @max-[520px]/player:text-[40px]">
-            {station.name}
-            {station.featured && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="ml-2 inline-flex align-middle text-violet-muted">
-                      <IconRosetteDiscountCheckFilled className="size-5 @min-[900px]/player:size-8" />
-                      <span className="sr-only">Featured station</span>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Hand-picked by GoCast</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <h1 className={`${styles.name} m-0 leading-[0.98] font-extrabold tracking-[-0.045em] text-balance`}>
+              {station.name}
+            </h1>
+
+            {genres.length > 0 && (
+              <div className={`${styles.genres} ${styles.centreRow} gap-1.5 overflow-hidden`}>
+                {genres.map((g) => (
+                  <span
+                    key={g}
+                    className={`${styles.genre} inline-flex flex-none rounded-chip bg-surface-raised px-3 py-1.75 text-[13px] font-semibold whitespace-nowrap`}
+                  >
+                    {g}
+                  </span>
+                ))}
+                {[2, 3, 4].map(
+                  (n) =>
+                    genres.length > n && (
+                      <span
+                        key={`more-${n}`}
+                        className={`${styles.more} ${styles[`more${n}`]} flex-none items-center rounded-chip bg-card px-2.5 font-mono text-xs font-semibold text-muted-foreground`}
+                      >
+                        +{genres.length - n}
+                      </span>
+                    ),
+                )}
+              </div>
             )}
-          </h1>
 
-          {/* Description — permanently clamped to three lines; the whole bio
-              is a sheet away. Expanding it in place was the last control that
-              could still move the artwork, and it moved it for the longest
-              text on the page. */}
-          {station.description && (
-            <div className="w-full max-w-[56ch]">
-              <p
-                ref={descRef}
-                className="m-0 line-clamp-3 text-[18px] leading-[1.55] text-[#b8b3c9] text-pretty @max-[520px]/player:text-[15px]"
-              >
-                {station.description}
-              </p>
-              {descClamped && (
+            {station.description && (
+              <p className={`${styles.desc} m-0 text-base leading-[1.45] text-muted-foreground`}>{station.description}</p>
+            )}
+
+            <div className={`${styles.centreRow} mt-auto flex flex-wrap items-center gap-2.5 pt-1`}>
+              <Button variant={following ? "ghost" : "primary"} size="lg" onClick={toggleFollow} aria-pressed={following}>
+                {following ? "Following" : "Follow"}
+              </Button>
+              <Button variant="subtle" size="lg" onClick={() => void share()}>
+                {copied ? "Copied" : "Share"}
+              </Button>
+              {hasAbout && (
                 <button
                   type="button"
-                  onClick={() => setDescOpen(true)}
-                  className={`${MICRO} mt-1.5 flex w-fit cursor-pointer border-0 bg-transparent p-0 tracking-[0.14em] transition-colors hover:text-foreground @max-[900px]/player:mx-auto`}
+                  onClick={() => setAboutOpen(true)}
+                  className="min-h-11 cursor-pointer border-0 bg-transparent px-1 py-3 text-sm font-semibold text-foreground transition-colors hover:text-on-air-text"
                 >
-                  Read more
+                  About ›
                 </button>
               )}
             </div>
-          )}
+          </div>
+        </section>
 
-          {/* Off air is the one state with nothing to press, so it says so and
-              offers the only useful action instead: be told when it returns. */}
-          {!audible && (
-            <div className="flex flex-col items-start gap-2 @max-[900px]/player:items-center">
-              <Badge variant="secondary" className="px-4 py-2 text-sm">
-                <span className="mr-2 size-1.5 rounded-full bg-muted-foreground/60" />
-                Off air
-              </Badge>
-              <NotifyMeForm slug={station.slug} stationName={station.name} />
+        <section className={`flex-none ${styles.riseLate}`}>
+          {airState === "live" ? (
+            <div className={`${styles.card} flex flex-col gap-3.5 rounded-card bg-live text-live-ink`}>
+              <div className="flex items-center gap-4">
+                <div className={`${styles.btn} relative flex-none`}>
+                  <PlayButton playing={playing} loading={loading} onClick={pressPlay} className="bg-live-ink text-live" />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.75">
+                  <span className="eyebrow truncate font-bold">On the mic · {listeningLine}</span>
+                  <span className="text-[22px] leading-[1.1] font-extrabold tracking-[-0.03em]">The host is live.</span>
+                  <span
+                    key={nowPlaying.title ?? ""}
+                    className={`${styles.trackSlideIn} flex min-w-0 items-center gap-2 text-[13px] font-semibold`}
+                  >
+                    <span className={`${styles.blink} size-2 flex-none rounded-full bg-live-ink`} aria-hidden />
+                    {nowPlaying.title ? (
+                      <span className="truncate">
+                        {nowPlaying.title}
+                        {nowPlaying.artist && <span className="font-medium opacity-75"> · {nowPlaying.artist}</span>}
+                      </span>
+                    ) : (
+                      <span className="font-mono">ON AIR</span>
+                    )}
+                  </span>
+                </div>
+                {/* Volume is desktop-only on purpose: a phone has hardware
+                    keys for it. */}
+                {playing && (
+                  <div className="hidden lg:block">
+                    <VolumeControl audioRef={audioRef} />
+                  </div>
+                )}
+              </div>
+              <Waveform playing={playing} className="bg-live-ink" />
+            </div>
+          ) : audible ? (
+            <div className={`${styles.card} flex flex-col gap-3.5 rounded-card bg-on-air-tint`}>
+              <div className="flex items-center gap-4">
+                <div className={`${styles.ring} relative flex flex-none items-center justify-center rounded-full bg-foreground/10`}>
+                  <PlayButton
+                    playing={playing}
+                    loading={loading}
+                    onClick={pressPlay}
+                    className="bg-foreground text-background hover:bg-white"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.75">
+                  <span className="eyebrow truncate text-on-air-text">Now playing · {listeningLine}</span>
+                  <span
+                    // Keyed on the title alone: the key replays the slide-in
+                    // when the TRACK changes, and an artist landing in a
+                    // later update is not a new track.
+                    key={nowPlaying.title ?? ""}
+                    className={`${styles.trackSlideIn} truncate text-xl leading-[1.2] font-bold tracking-[-0.02em]`}
+                    title={nowPlaying.title ?? undefined}
+                  >
+                    {nowPlaying.title ?? "Live audio"}
+                  </span>
+                  {nowPlaying.artist && (
+                    <span className="truncate text-sm font-medium text-muted-foreground">{nowPlaying.artist}</span>
+                  )}
+                </div>
+                {playing && (
+                  <div className="hidden lg:block">
+                    <VolumeControl audioRef={audioRef} />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Waveform playing={playing} className="bg-on-air" />
+                <p className="m-0 truncate text-center text-[13px] text-muted-foreground">
+                  {loading ? "Tuning in…" : playing ? "You’re tuned in" : "Press play to tune in"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            // Off air is the one state with nothing to press, so it offers
+            // the only useful action instead: be told when it returns.
+            // From tablet width it is a row, like the on-air card: the
+            // message on the left, the form filling the right.
+            <div className={`${styles.card} flex flex-col gap-3.5 rounded-card bg-card sm:flex-row sm:items-center sm:gap-6`}>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-1">
+                <span className="text-2xl leading-[1.05] font-extrabold tracking-[-0.03em] text-balance">
+                  Nothing’s playing right now.
+                </span>
+                <span className="text-[15px] leading-[1.45] text-muted-foreground text-pretty">
+                  Leave your email and we’ll let you know when it next goes live.
+                </span>
+              </div>
+              <div className="sm:w-[min(26rem,50%)] sm:flex-none">
+                <NotifyMeForm slug={station.slug} stationName={station.name} />
+              </div>
             </div>
           )}
-
-          <ShareButtons station={station} />
-
-          <StationLinks station={station} />
-
-          {/* Recently played — button disclosure so open *and* close can animate (unlike native <details>). */}
-          {recentTracks.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setJustPlayedOpen(true)}
-              className={`${MICRO} inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 transition-colors hover:text-foreground`}
-            >
-              Just played
-              <span className="normal-case tracking-normal text-text-faint">· {recentTracks.length}</span>
-            </button>
-          )}
-
-        </div>
+        </section>
       </main>
 
-      <StationSheet open={descOpen} onOpenChange={setDescOpen} title={`About ${station.name}`}>
-        <p className="m-0 text-[15px] leading-[1.6] whitespace-pre-line text-[#b8b3c9]">
-          {station.description}
-        </p>
-      </StationSheet>
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogDescription className="eyebrow text-muted-foreground">About this station</DialogDescription>
+            <DialogTitle>{station.name}</DialogTitle>
+          </DialogHeader>
 
-      <StationSheet open={justPlayedOpen} onOpenChange={setJustPlayedOpen} title="Just played">
-        <ol className="flex list-none flex-col gap-0 pl-0">
-          {recentTracks.slice(0, MAX_RECENT_TRACKS).map((t, i) => (
-            <li
-              key={`${t.at}-${i}`}
-              className="flex items-baseline gap-3 border-b border-[#2a2344] py-3 text-sm last:border-b-0"
-            >
-              <span className="shrink-0 tabular-nums text-text-faint">{i + 1}</span>
-              <span className="min-w-0">
-                <span className="text-foreground">{t.title}</span>
-                {t.artist && <span className="text-muted-foreground"> — {t.artist}</span>}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </StationSheet>
-
-      {/* ── Transport dock ────────────────────────────────────────────────────
-          Sticky, not fixed: it reserves its own height at the end of the page
-          so nothing underneath needs a hand-tuned bottom padding to clear it,
-          and it still pins to the bottom of the viewport for the whole scroll. */}
-      <div className={`${styles.dock} sticky bottom-0 z-20 px-6 @max-[520px]/player:px-2.5`}>
-        <div className="mx-auto flex max-w-[1176px] flex-col gap-2.5">
-          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-5 rounded-[20px] border border-[#2a2344] bg-[#161228]/85 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.6)] backdrop-blur-[18px] @max-[900px]/player:grid-cols-[auto_minmax(0,1fr)_auto] @max-[520px]/player:gap-3 @max-[520px]/player:rounded-2xl @max-[520px]/player:p-3">
-            <Button
-              size="icon"
-              onClick={pressPlay}
-              aria-label={playing ? "Pause" : loading ? "Connecting" : audible ? "Play" : "Off air"}
-              className={`size-16 rounded-full shadow-[0_0_0_8px_rgba(139,92,246,0.18),0_12px_32px_rgba(139,92,246,0.45)] @max-[520px]/player:size-13 ${audible ? "" : "opacity-60 shadow-none"} ${audible && !playing && !loading ? styles.playPulse : ""}`}
-            >
-              {loading ? (
-                <IconLoader2 size={26} className="animate-spin" />
-              ) : playing ? (
-                <IconPlayerPauseFilled size={26} />
-              ) : (
-                <IconPlayerPlayFilled size={26} />
-              )}
-            </Button>
-
-            <div className="flex min-w-0 flex-col gap-1.5 text-left">
-              <div className={`${MICRO} flex items-center gap-3`}>
-                <DockEq playing={playing} />
-                {/* "Now playing / Off air" reads as a contradiction, so the
-                    label follows the station rather than being a fixed word. */}
-                <span>{audible ? "Now playing" : "Off air"}</span>
-                {audible && (
-                  <span className="inline-flex items-center gap-1.5 font-sans text-[13px] normal-case tracking-normal text-[#b8b3c9]">
-                    <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-                    {listeners.toLocaleString()} listening
-                  </span>
-                )}
-              </div>
-              <div
-                // Keyed on the title alone. The key exists to replay the
-                // slide-in when the TRACK changes, and the artist is not a
-                // track — it is a detail of one, which can land in a later
-                // update than the title it belongs to. Keying on it too meant
-                // an artist arriving (or briefly going missing) remounted the
-                // line and replayed a 420ms entrance animation over a track
-                // that had not changed.
-                key={nowPlaying.title ?? ""}
-                className={`truncate text-[17px] font-medium @max-[520px]/player:text-[15px] ${styles.trackSlideIn}`}
-                title={nowPlaying.artist ? `${nowPlaying.title} — ${nowPlaying.artist}` : nowPlaying.title ?? undefined}
-              >
-                {nowPlaying.title ?? (playing ? "Live audio" : audible ? "Press play to tune in" : "Nothing playing right now")}
-                {nowPlaying.artist && (
-                  <span className="ml-2 text-[13px] font-normal text-muted-foreground">{nowPlaying.artist}</span>
-                )}
-              </div>
+          {genres.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {genres.map((g) => (
+                <span key={g} className="rounded-chip bg-surface-strong px-3 py-1.75 text-[13px] font-semibold">
+                  {g}
+                </span>
+              ))}
             </div>
+          )}
 
-            {/* Volume is desktop-only on purpose: a phone has hardware keys for
-                this, and the slider would cost the dock a third of its width on
-                the screen that can least afford it. */}
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] @max-[900px]/player:hidden ${
-                playing ? "max-w-32 translate-x-0 opacity-100" : "pointer-events-none max-w-0 -translate-x-1.5 opacity-0"
-              }`}
-              aria-hidden={!playing}
-            >
-              <VolumeControl audioRef={audioRef} />
+          {station.description && (
+            <p className="m-0 text-base leading-normal whitespace-pre-line text-muted-foreground text-pretty">
+              {station.description}
+            </p>
+          )}
+
+          {/* rel carries nofollow/ugc: these are owner-supplied links on a
+              public page, which is the exact shape of an SEO farm if the
+              domain vouches for them. */}
+          {links.length > 0 && (
+            <div className="flex flex-col">
+              {links.map((link, index) => (
+                <a
+                  key={`${link.href}-${index}`}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow ugc"
+                  className="flex min-h-12 items-center gap-3 border-t border-line text-sm font-medium text-foreground no-underline transition-colors hover:text-on-air-text"
+                >
+                  <link.icon size={18} className="flex-none text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{link.name}</span>
+                  <IconArrowUpRight size={16} className="flex-none text-text-faint" />
+                </a>
+              ))}
             </div>
+          )}
 
-          </div>
-
-          <div className="flex items-center justify-between gap-3 px-1.5 text-[13px] text-muted-foreground @max-[520px]/player:justify-center">
-            <span className="@max-[520px]/player:hidden">
-              Powered by{" "}
-              <Link href="/" className="font-medium text-[#b8b3c9] no-underline hover:underline">
-                GoCast
-              </Link>
-            </span>
-            <Link
-              href="/auth/register"
-              className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#3b2f6b] bg-[#17122b] px-3.5 text-[13px] font-medium text-violet no-underline transition-colors hover:border-primary hover:text-white"
-            >
-              Launch your own station →
-            </Link>
-          </div>
-        </div>
-      </div>
+          {recentTracks.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <p className="eyebrow m-0 text-muted-foreground">Just played</p>
+              <ol className="m-0 flex list-none flex-col pl-0">
+                {recentTracks.slice(0, MAX_RECENT_TRACKS).map((t, i) => (
+                  <li key={`${t.at}-${i}`} className="flex items-baseline gap-3 border-t border-line py-3 text-sm">
+                    <span className="shrink-0 font-mono text-text-faint tabular-nums">{i + 1}</span>
+                    <span className="min-w-0">
+                      <span className="text-foreground">{t.title}</span>
+                      {t.artist && <span className="text-muted-foreground"> — {t.artist}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

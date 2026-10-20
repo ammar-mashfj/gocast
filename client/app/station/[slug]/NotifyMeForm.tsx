@@ -2,7 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react"
 import { toast } from "sonner"
-import { IconBell, IconCheck, IconLoader2 } from "@tabler/icons-react"
+import { IconCheck, IconLoader2 } from "@tabler/icons-react"
+import { Button } from "@/components/ds/Button"
+import { Input } from "@/components/ds/Field"
 import { env } from "@/lib/env"
 
 const STORAGE_KEY = "gocast:notify-subscribed:v1"
@@ -27,7 +29,7 @@ function alreadySubscribed(slug: string): boolean {
 }
 
 /**
- * Email capture shown only when a station is off air. Posts to a tightly
+ * Email capture inside the off-air player card. Posts to a tightly
  * throttled public endpoint that creates an idempotent subscription
  * (no duplicates per email + station). Dispatch happens later from the
  * "station went live" event handler.
@@ -71,39 +73,30 @@ export function NotifyMeForm({ slug, stationName }: { slug: string; stationName:
 
   if (done) {
     return (
-      <div className="flex items-center gap-2 text-xs text-emerald-300 mt-3 max-w-[280px]">
-        <IconCheck size={14} />
-        <span>You&apos;ll get an email when this station next goes live.</span>
-      </div>
+      <p className="m-0 flex items-center gap-2 text-sm text-ok-text">
+        <IconCheck size={16} className="shrink-0" />
+        You&apos;ll get an email when this station next goes live.
+      </p>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-1.5 mt-3 max-w-[300px] w-full">
-      <label htmlFor={`notify-${slug}`} className="text-xs tracking-[0.2em] uppercase text-muted-foreground flex items-center gap-1.5">
-        <IconBell size={14} />
-        Notify me when live
-      </label>
-      <div className="flex gap-1.5">
-        <input
-          id={`notify-${slug}`}
-          type="email"
-          required
-          autoComplete="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={submitting}
-          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder:text-text-faint focus:outline-none focus:border-violet-border/70 transition-colors"
-        />
-        <button
-          type="submit"
-          disabled={submitting || !email}
-          className="px-3 py-1.5 rounded-md bg-violet-full text-white text-xs font-medium hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-        >
-          {submitting ? <IconLoader2 size={14} className="animate-spin" /> : <span>Notify me</span>}
-        </button>
-      </div>
+    <form onSubmit={handleSubmit} className="flex w-full gap-2">
+      <Input
+        id={`notify-${slug}`}
+        type="email"
+        required
+        autoComplete="email"
+        aria-label="Your email"
+        placeholder="you@example.com"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        disabled={submitting}
+        className="flex-1"
+      />
+      <Button type="submit" size="md" disabled={submitting || !email} className="h-11">
+        {submitting ? <IconLoader2 className="animate-spin" /> : "Notify me"}
+      </Button>
     </form>
   )
 }

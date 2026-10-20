@@ -53,6 +53,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   images: {
     formats: ["image/avif", "image/webp"],
+    // Next 16 only serves the listed qualities. 85 is the station page's
+    // artwork, the largest image on the site; everything else stays at 75.
+    qualities: [75, 85],
     // In dev (Docker): the artwork URL stored in the DB is
     // http://localhost:8000/storage/... which is fine for the browser but
     // resolves to the *client container itself* when Next's image optimizer
