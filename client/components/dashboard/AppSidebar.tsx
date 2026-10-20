@@ -56,7 +56,12 @@ export function AppSidebar({ user }: { user: User }) {
   return (
     <Sidebar className="border-r border-line">
       <SidebarHeader className="gap-4.5 px-3.5 pt-5 pb-0">
-        <Link href="/dashboard" className="px-2 py-1 font-display text-title-sm font-bold" aria-label="GoCast home">
+        <Link
+          href="/dashboard"
+          className="notranslate px-2 py-1 font-display text-title-sm font-bold"
+          translate="no"
+          aria-label="GoCast home"
+        >
           Go<span className="text-on-air">Cast</span>
           <span className="text-text-faint">.fm</span>
         </Link>

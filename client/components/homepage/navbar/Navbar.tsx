@@ -26,7 +26,7 @@ export default async function Navbar() {
     <header className="sticky top-0 z-20 border-b border-line bg-background">
       <nav className="mx-auto flex min-h-17 w-full max-w-page items-center justify-between gap-6 px-gutter py-2.5">
         <div className="flex items-center gap-10">
-          <Link href="/" className="no-underline" aria-label="GoCast home">
+          <Link href="/" className="notranslate no-underline" translate="no" aria-label="GoCast home">
             <Wordmark />
           </Link>
           <div className="hidden items-center gap-7 md:flex">
