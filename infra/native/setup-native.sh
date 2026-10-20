@@ -150,7 +150,7 @@ else
 fi
 
 echo "==> Liquidsoap image"
-# Pinned to savonet/liquidsoap:v2.4.5 in the Dockerfile. This is the piece
+# Pinned to savonet/liquidsoap:v2.4.6 in the Dockerfile. This is the piece
 # that cannot move off Docker: Ubuntu ships 2.2.x, which cannot parse the
 # generated .liq at all (`on_metadata(synchronous=…)` is 2.4-only), and
 # 2.4.0–2.4.2 have the crossfade wedge that makes AutoDJ emit a stuck buzz.

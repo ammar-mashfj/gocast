@@ -403,8 +403,10 @@ it('keeps the raw rotation bound under its own name', function () {
     expect($script)->toContain('autodj = request.dynamic(')
         ->and($script)->not->toContain('autodj = cross')
         ->and($script)->not->toContain('autodj = limit')
-        // Readiness is read off the arm the fallback actually selects.
-        ->and($script)->toContain('elsif autodj_mix.is_ready() then');
+        // Readiness is read off the arm the fallback actually selects, via
+        // the copy the clock thread takes of it.
+        ->and($script)->toContain('st_autodj := autodj_mix.is_ready()')
+        ->and($script)->toContain('elsif st_autodj() then');
 });
 
 it('tracks the icecast connection so status can tell ready from audible', function () {
@@ -454,8 +456,8 @@ it('never emits nan or infinity into the status payload', function () {
 
     expect($script)
         ->toContain('float.is_nan(x) or float.is_infinite(x)')
-        ->toContain('elapsed = finite(output_source.elapsed())')
-        ->toContain('remaining = finite(output_source.remaining())');
+        ->toContain('elapsed = finite(st_elapsed())')
+        ->toContain('remaining = finite(st_remaining())');
 });
 
 it('reports its own lifecycle so laravel does not have to infer it', function () {
@@ -493,8 +495,31 @@ it('never reads playlist methods from the status endpoint', function () {
     expect($script)->not->toMatch('/^[^#\n]*autodj\.(length|remaining_files)\(/m')
         ->and($script)->not->toContain('def up_next(')
         // The container still reports what it alone knows.
-        ->and($script)->toContain('elapsed = finite(output_source.elapsed())')
-        ->and($script)->toContain('remaining = finite(output_source.remaining())');
+        ->and($script)->toContain('elapsed = finite(st_elapsed())')
+        ->and($script)->toContain('remaining = finite(st_remaining())');
+});
+
+it('reads source state for the http handlers on the clock thread', function () {
+    // Calling remaining() or is_ready() on a source at or after cross() from
+    // the harbor HTTP thread races the clock thread and wedges the crossfade:
+    // one frame looped forever, nothing logged (docs/CROSSFADE-INVESTIGATION.md).
+    // on_frame copies the values on the clock thread; the handlers read those.
+    config(['liquidsoap.crossfade_enabled' => true]);
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('output_source.on_frame(synchronous=true, before=false, fun () -> begin')
+        ->and($script)->toContain('st_remaining := output_source.remaining()');
+
+    // Everything from current_source() through the /healthz handler runs on
+    // the HTTP thread. Comments stripped: they name these calls to forbid them.
+    $start = strpos($script, 'def current_source() =');
+    $end = strpos($script, '# === Now-playing push ===');
+    expect($start)->not->toBeFalse()->and($end)->toBeGreaterThan($start);
+
+    $handlers = preg_replace('/^\s*#.*$/m', '', substr($script, $start, $end - $start));
+
+    expect($handlers)
+        ->not->toMatch('/\b(output_source|autodj_mix|live|mixed|listener_source|autodj_faded)\.(is_ready|remaining|elapsed)\(/');
 });
 
 it('leaves jingles to laravel: no jingle source in the graph', function () {
