@@ -33,6 +33,9 @@ class StorePlaylistRequest extends FormRequest
                 Rule::unique('playlists', 'name')->where('station_id', $this->route('station')->id),
             ],
             'order' => ['sometimes', Rule::in(Playlist::ORDERS)],
+            // Display only (schedule slots, list dots); null clears it back to
+            // the automatic shade.
+            'color' => ['sometimes', 'nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
         ];
     }
 }

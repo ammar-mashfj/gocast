@@ -38,6 +38,9 @@ class UpdatePlaylistRequest extends FormRequest
             // being given up — a station with no default has nothing to play
             // when no slot is active. `accepted` is exactly "must be true".
             'is_default' => ['sometimes', 'accepted'],
+            // Display only (schedule slots, list dots); null clears it back to
+            // the automatic shade.
+            'color' => ['sometimes', 'nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
         ];
     }
 }

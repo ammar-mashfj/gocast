@@ -1,9 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
 import { AudienceDay } from "@/interfaces/Audience"
 import { formatAirtime, formatCount } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { DayBarChart, type DayColumn } from "@/components/dashboard/charts/DayBarChart"
 
 /**
  * Listening time per day.
@@ -33,31 +32,7 @@ interface AudienceChartProps {
   empty: string
 }
 
-/** Bars get thinner as the window widens; below this they stop being readable. */
-const MIN_BAR_PX = 2
-
 export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const barsRef = useRef<HTMLDivElement>(null)
-
-  // A touch has no "leave": a tapped day stayed picked until another bar
-  // was tapped. A tap anywhere outside the bars puts the range back.
-  useEffect(() => {
-    if (hovered === null) return
-    const clear = (e: PointerEvent) => {
-      if (!barsRef.current?.contains(e.target as Node)) setHovered(null)
-    }
-    document.addEventListener("pointerdown", clear)
-    return () => document.removeEventListener("pointerdown", clear)
-  }, [hovered])
-
-  // Never zero, so an empty window divides cleanly and draws a flat floor
-  // rather than NaN-height bars.
-  const peak = Math.max(...daily.map((d) => d.listener_minutes), 1)
-  const hasData = daily.some((d) => d.listener_minutes > 0)
-
-  const day = hovered === null ? null : daily[hovered]
-
   const label = (iso: string) =>
     // Parsed as UTC, formatted as UTC: the buckets are UTC days, and letting
     // the browser shift them into local time would relabel every bar by one
@@ -68,89 +43,30 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
       timeZone: "UTC",
     })
 
+  const columns: DayColumn[] = daily.map((d) => ({
+    key: d.day,
+    date: new Date(`${d.day}T12:00:00Z`),
+    bars: d.listener_minutes > 0 ? [{ id: d.day, value: d.listener_minutes }] : [],
+    detail: (
+      <>
+        {label(d.day)} — {formatAirtime(d.listener_minutes * 60)}
+        {d.peak > 0 && <span className="text-muted-foreground"> · peak {formatCount(d.peak)}</span>}
+        {d.listeners > 0 && (
+          <span className="text-muted-foreground"> · {formatCount(d.listeners)} listener{d.listeners === 1 ? "" : "s"}</span>
+        )}
+      </>
+    ),
+  }))
+
   return (
-    <div className="relative flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className="font-display text-heading">Listening time per day</h2>
-        {/* The hovered day replaces the range caption rather than floating
-            over the bars: at 90 bars a positioned tooltip spends most of its
-            life covering the data it describes. */}
-        <div className="font-mono text-body-sm text-muted-foreground tabular-nums">
-          {day ? (
-            <span className="text-foreground">
-              {label(day.day)} — {formatAirtime(day.listener_minutes * 60)}
-              {day.peak > 0 && <span className="text-muted-foreground"> · peak {formatCount(day.peak)}</span>}
-              {day.listeners > 0 && (
-                <span className="text-muted-foreground"> · {formatCount(day.listeners)} listener{day.listeners === 1 ? "" : "s"}</span>
-              )}
-            </span>
-          ) : (
-            <span>Last {rangeDays} days</span>
-          )}
-        </div>
-      </div>
-
-      <div
-        className={cn("flex h-50 items-end border-b border-line", daily.length > 60 ? "gap-0.5" : daily.length > 20 ? "gap-1" : "gap-2.5")}
-        ref={barsRef}
-        onPointerLeave={(e) => {
-          if (e.pointerType === "mouse") setHovered(null)
-        }}
-        role="img"
-        aria-label={`Listening time per day over the last ${rangeDays} days. Full figures in the table below.`}
-      >
-        {daily.map((d, i) => (
-          <div
-            key={d.day}
-            // The hit target is the full-height column, not the bar: a quiet
-            // day is a 2px sliver, and requiring the pointer to find it would
-            // make exactly the days worth investigating the hardest to read.
-            className="flex-1 h-full flex items-end min-w-0 cursor-default"
-            // Pointer events rather than mouse ones: a tap would otherwise
-            // fire an emulated mouseenter, and then no way to undo it. Mouse
-            // follows the pointer; a tap picks the day, and a second tap on
-            // it lets it go.
-            onPointerEnter={(e) => {
-              if (e.pointerType === "mouse") setHovered(i)
-            }}
-            onPointerDown={(e) => {
-              if (e.pointerType !== "mouse") setHovered((cur) => (cur === i ? null : i))
-            }}
-          >
-            <div
-              className={cn(
-                cn("w-full transition-colors", daily.length > 60 ? "rounded-t-xs" : "rounded-t-tag"),
-                // The mobile Audience chart: past days AutoDJ's dim violet,
-                // the day under the pointer (or the latest) lit violet.
-                d.listener_minutes > 0
-                  ? hovered === i || (hovered === null && i === daily.length - 1)
-                    ? "bg-on-air"
-                    : "bg-on-air-dim"
-                  : "bg-surface-control",
-              )}
-              style={{
-                height:
-                  d.listener_minutes > 0
-                    ? `${Math.max(MIN_BAR_PX, Math.round((d.listener_minutes / peak) * 196))}px`
-                    : `${MIN_BAR_PX}px`,
-              }}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="flex justify-between font-mono text-micro tracking-wider text-text-faint uppercase">
-        <span>{label(daily[0].day)}</span>
-        {/* The date, not "Today": the buckets are UTC days, and for anyone
-            whose midnight isn't UTC's that bar is yesterday for part of
-            every day. */}
-        <span>{label(daily[daily.length - 1].day)}</span>
-      </div>
-
-      {!hasData && (
-        <p className="text-body-sm text-muted-foreground">{empty}</p>
-      )}
-
+    <DayBarChart
+      title={<h2 className="font-display text-heading">Listening time per day</h2>}
+      range={`Last ${rangeDays} days`}
+      columns={columns}
+      tick={(minutes) => (minutes === 0 ? "0" : formatAirtime(Math.round(minutes) * 60))}
+      ariaLabel={`Listening time per day over the last ${rangeDays} days. Full figures in the table below.`}
+      empty={empty}
+    >
       {/* Identity is never colour-alone, and a bar chart is not readable by a
           screen reader. Same numbers, same order, no visual weight. */}
       {/* sr-only on a wrapper, never on the <table>: a table ignores the 1px
@@ -179,6 +95,6 @@ export function AudienceChart({ daily, rangeDays, empty }: AudienceChartProps) {
           </tbody>
         </table>
       </div>
-    </div>
+    </DayBarChart>
   )
 }

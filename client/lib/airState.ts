@@ -131,9 +131,12 @@ export function airState(input: AirInput): AirState {
   }
   const offAction: AirAction = autoDjLocked ? "go-live" : "start-autodj"
 
+  // CHECKING and STARTING carry an empty short sentence, like OFF AIR: on a
+  // phone the lamp says it, and the band stays one row. Without one the
+  // sentence took a second row, so the band shrank when the answer came.
   if (!status) {
     return statusLoading
-      ? { ...idle, tone: "off", label: "CHECKING", message: "Checking your station…", action: null }
+      ? { ...idle, tone: "off", label: "CHECKING", message: "Checking your station…", short: "", action: null }
       : { ...idle, tone: "off", label: "NO ANSWER", message: "We can’t reach your station right now. Trying again.", short: "Can’t reach your station.", action: null }
   }
 
@@ -141,7 +144,7 @@ export function airState(input: AirInput): AirState {
     case "offline":
       return { ...idle, tone: "off", label: "OFF AIR", message: offMessage(autoDjLocked), short: "", action: offAction }
     case "starting":
-      return { ...idle, tone: "off", label: "STARTING", message: "Your station is starting up.", action: null }
+      return { ...idle, tone: "off", label: "STARTING", message: "Your station is starting up.", short: "", action: null }
     case "degraded":
       return {
         onAir: true,

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { IconPlus } from "@tabler/icons-react"
+import { IconChevronRight, IconPlus } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { cn } from "@/lib/utils"
 import type { Playlist } from "@/interfaces/Playlist"
@@ -98,7 +98,6 @@ export function DayList({
       <div role="tablist" aria-label="Day" className="grid grid-cols-7 gap-1.5">
         {WEEK_ORDER.map((weekday) => {
           const on = weekday === day
-          const hasSlot = blocks.some((b) => segments(b).some((s) => s.day === weekday))
           return (
             <button
               key={weekday}
@@ -108,7 +107,7 @@ export function DayList({
               aria-label={DAY_NAMES[weekday]}
               onClick={() => setPicked(weekday)}
               className={cn(
-                "flex h-17 cursor-pointer flex-col items-center justify-center gap-1 rounded-button transition-colors motion-reduce:transition-none",
+                "flex h-13 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-button transition-colors motion-reduce:transition-none",
                 "outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 on ? "bg-foreground text-background" : "bg-card text-foreground hover:bg-surface-raised",
               )}
@@ -120,9 +119,6 @@ export function DayList({
               </span>
               <span className={cn("eyebrow-sm h-3 leading-3", on ? "text-background/70" : "text-on-air-text")}>
                 {weekday === today ? "Today" : ""}
-              </span>
-              <span className="flex h-1.5 items-center gap-1" aria-hidden="true">
-                {hasSlot && <span className={cn("size-1.5 rounded-full", on ? "bg-background/60" : "bg-on-air")} />}
               </span>
             </button>
           )
@@ -136,7 +132,10 @@ export function DayList({
             : `Nothing on ${DAY_NAMES[day]} yet. ${defaultPlaylist?.name ?? "Your default playlist"} plays all day.`}
         </p>
       ) : (
-        <ul className="flex flex-col [&>li+li]:border-t [&>li+li]:border-line">
+        // Slots are separate raised cards with a ›, so a row reads as
+        // something to open; the default's "All day" row stays flat (it
+        // isn't a slot and has nothing to edit).
+        <ul className="flex flex-col gap-2">
           {daySegments.map((s) => {
             const swatch = swatchFor(s.block.playlistId)
             const playlist = byId.get(s.block.playlistId)
@@ -147,13 +146,14 @@ export function DayList({
                   type="button"
                   disabled={readOnly}
                   onClick={() => onSelect(s.block.key)}
+                  aria-label={readOnly ? undefined : `Edit ${nameFor(s.block)}, ${s.block.start}–${s.block.end}`}
                   className={cn(
-                    "flex w-full gap-3.5 rounded-control px-1 py-3 text-left",
-                    !readOnly && "cursor-pointer hover:bg-card",
+                    "flex w-full items-stretch gap-3.5 rounded-control bg-surface-raised px-3 py-3 text-left transition-colors",
+                    !readOnly && "cursor-pointer hover:bg-surface-strong active:bg-surface-strong",
                     clash && "outline-2 outline-offset-1 outline-fault",
                   )}
                 >
-                  <span aria-hidden="true" className={cn("w-1 shrink-0 rounded-full", swatch.dot)} />
+                  <span aria-hidden="true" className={cn("w-1 shrink-0 rounded-full", swatch.dot)} style={swatch.dotStyle} />
                   <Row
                     time={
                       s.head
@@ -169,13 +169,14 @@ export function DayList({
                     subTone={clash ? "fault" : undefined}
                     now={inNow(s.from, s.to)}
                   />
+                  {!readOnly && <IconChevronRight aria-hidden className="size-5 shrink-0 self-center text-text-faint" />}
                 </button>
               </li>
             )
           })}
 
           {!locked && daySegments.length === 0 && (
-            <li className="flex gap-3.5 px-1 py-3">
+            <li className="flex gap-3.5 px-3 py-3">
               <span aria-hidden="true" className="w-1 shrink-0 rounded-full bg-on-air/50" />
               <Row
                 time="All day"

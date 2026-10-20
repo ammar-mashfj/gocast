@@ -4,13 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import axios from "axios"
 import { toast } from "sonner"
-import { IconPlus } from "@tabler/icons-react"
+import { IconArrowsMaximize, IconArrowsMinimize, IconPlus } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { Card, CardHeader } from "@/components/ds/Card"
 import { Dialog, DialogContent } from "@/components/ds/Dialog"
 import { Notice } from "@/components/ds/Notice"
 import { PageHeader } from "@/components/ds/PageHeader"
-import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
@@ -21,14 +20,16 @@ import type { Playlist } from "@/interfaces/Playlist"
 import type { Programme, Station } from "@/interfaces/Station"
 import { AutoDjUpsell } from "../library/AutoDjUpsell"
 import { DayList } from "./DayList"
+import { LeaveGuard } from "./LeaveGuard"
 import { ScheduleNow } from "./ScheduleNow"
 import { SlotPanel } from "./SlotPanel"
 import { TimezoneDialog } from "./TimezoneDialog"
 import { DAY_SHORT, SWATCHES, WeekGrid } from "./WeekGrid"
-import { GAP_DOT } from "@/lib/playlistSwatches"
+import { GAP_DOT, swatchForPlaylist } from "@/lib/playlistSwatches"
 import {
   DAY_MINUTES,
   explode,
+  clashesWith,
   findOverlaps,
   freeSpanAt,
   fromSpan,
@@ -102,7 +103,12 @@ export function SchedulePlanner({ station, playlists }: Props) {
 
   const [blocks, setBlocks] = useState<Block[]>(() => explode(station.autodj_slots ?? []))
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [newKeys, setNewKeys] = useState<Set<string>>(() => new Set())
+  /**
+   * A slot being added: the blocks as they were before it, so backing out of
+   * its dialog (Cancel, ×, Escape, a tap outside) puts them back as if Add
+   * was never pressed, rather than leaving an unsaved slot behind.
+   */
+  const [adding, setAdding] = useState<{ before: Block[] } | null>(null)
   const [programme, setProgramme] = useState<Programme | null>(station.programme ?? null)
 
   const [saved, setSaved] = useState(() => snapshot(blocks))
@@ -120,7 +126,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
   // silently do nothing.
   const noPlaylists = playlists.length === 0
   const playlistsHref = `/dashboard/stations/${station.slug}/playlists`
-  const byId = useMemo(() => new Map(playlists.map((p, i) => [p.id, { p, swatch: SWATCHES[i % SWATCHES.length] }])), [playlists])
+  const byId = useMemo(() => new Map(playlists.map((p, i) => [p.id, { p, swatch: swatchForPlaylist(p, i) }])), [playlists])
   const swatchFor = useCallback((id: string) => byId.get(id)?.swatch ?? SWATCHES[0], [byId])
   const nameFor = useCallback((b: Block) => b.label.trim() || byId.get(b.playlistId)?.p.name || "Slot", [byId])
 
@@ -143,7 +149,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
   }, [timezone])
 
   // ── Saving ──
-  async function save() {
+  async function save(): Promise<boolean> {
     const sending = blocks
     setSaving(true)
     setSaveError(null)
@@ -156,13 +162,17 @@ export function SchedulePlanner({ station, playlists }: Props) {
       setSaved(snapshot(sending))
       setProgramme(data.data.programme ?? null)
       toast.success("Schedule saved", {
-        description: "Takes effect when the current song ends. Nothing restarts.",
+        // The next song was picked when this one started (request.dynamic
+        // prefetch), so the new schedule begins with the one after it.
+        description: "Starts after the next song.",
       })
+      return true
     } catch (error) {
       const body = axios.isAxiosError(error)
         ? (error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined)
         : undefined
       setSaveError(Object.values(body?.errors ?? {})[0]?.[0] ?? body?.message ?? "Couldn't save your schedule.")
+      return false
     } finally {
       setSaving(false)
     }
@@ -208,9 +218,20 @@ export function SchedulePlanner({ station, playlists }: Props) {
       span[0],
       span[1],
     )
+    setAdding({ before: blocks })
     edit([...blocks, block])
-    setNewKeys((keys) => new Set(keys).add(block.key))
     setSelectedKey(block.key)
+  }
+
+  /**
+   * Close the slot dialog. `keep` false on a slot being added drops it (the
+   * blocks go back to how they were); an existing slot's edits were applied
+   * as they were made, so closing just closes.
+   */
+  function closeSlot(keep: boolean) {
+    if (adding && !keep) setBlocks(adding.before)
+    setAdding(null)
+    setSelectedKey(null)
   }
 
   function addFromButton() {
@@ -260,10 +281,10 @@ export function SchedulePlanner({ station, playlists }: Props) {
     "no-timezone": { text: "Not saved: no timezone", tone: "warn" },
   }
   const line = saveLine[saveState]
-  // Save and its status live in a bar pinned to the foot of the viewport, so
-  // a page scrolled down to the grid can still save. On md+ it is always
-  // there; on a phone only while there is something to save, and the
-  // header's copies stand in otherwise.
+  // From md, Save and its status sit in the week card's header (the page
+  // fits the window, so they never scroll away). On a phone the header has
+  // them, and a bar pinned to the foot takes over while there is something
+  // to save, since the day list scrolls the header away.
   const phoneBar = !locked && (dirty || Boolean(saveError))
   const headerOnly = phoneBar ? "hidden" : "md:hidden"
   const saveLamp = (className?: string) => !locked && (
@@ -273,20 +294,82 @@ export function SchedulePlanner({ station, playlists }: Props) {
     </span>
   )
   const saveButton = (className?: string) => !locked && (
-    <Button className={className} onClick={save} disabled={!dirty || saving || blockedBy !== null}>
+    <Button className={className} onClick={() => void save()} disabled={!dirty || saving || blockedBy !== null}>
       {saving ? "Saving…" : "Save"}
     </Button>
   )
 
+  // ── Expanded grid ──
+  // The grid over the whole window, above the dashboard chrome. Not the
+  // browser's Fullscreen API: only the fullscreen element is drawn, and the
+  // slot dialog and toasts are portalled to <body>, so they'd vanish.
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => {
+      // An open dialog takes Escape first.
+      if (e.key === "Escape" && !document.querySelector('[role="dialog"]')) setExpanded(false)
+    }
+    window.addEventListener("keydown", onKey)
+    // Below md there is no grid, only the day list: leave the expanded view.
+    const wide = window.matchMedia("(min-width: 48rem)")
+    const onWidth = () => !wide.matches && setExpanded(false)
+    wide.addEventListener("change", onWidth)
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      wide.removeEventListener("change", onWidth)
+      document.body.style.overflow = overflow
+    }
+  }, [expanded])
+
   const usedPlaylists = playlists.filter((p) => !p.is_default && blocks.some((b) => b.playlistId === p.id))
+
+  const weekGrid = (fill: boolean) => (
+    <WeekGrid
+      blocks={locked ? [] : blocks}
+      swatchFor={swatchFor}
+      nameFor={nameFor}
+      selectedKey={selectedKey}
+      siblings={siblings}
+      overlaps={overlaps}
+      now={mounted && now ? { day: now.day, minute: now.minute } : null}
+      readOnly={locked || noPlaylists}
+      onSelect={setSelectedKey}
+      onCreate={create}
+      onChange={changeOne}
+      fill={fill}
+      fitWindow={!fill}
+    />
+  )
+
+  // The grid's legend; the day list spells each row out instead.
+  const legend = (className: string) => (
+    <div className={cn("flex-wrap items-center gap-x-4.5 gap-y-1.5 text-body-sm text-muted-foreground", className)}>
+      <span className="inline-flex items-center gap-2">
+        <span aria-hidden className={cn("size-3 rounded-swatch", GAP_DOT)} />
+        {locked ? "Off air unless you're live" : `${defaultPlaylist?.name ?? "Default playlist"} fills the gaps`}
+      </span>
+      {usedPlaylists.map((p) => (
+        <span key={p.id} className="inline-flex items-center gap-2">
+          <span aria-hidden className={cn("size-3 rounded-swatch", swatchFor(p.id).dot)} style={swatchFor(p.id).dotStyle} />
+          {p.name}
+        </span>
+      ))}
+    </div>
+  )
 
   return (
     <div className="flex flex-col gap-5.5">
-      <AutoDjSections slug={station.slug} />
       <PageHeader
         title="Schedule"
         aside={locked ? <ProTag /> : <HelpLink article="schedule-playlists-by-time" label="scheduling playlists by day and time" />}
         description="What AutoDJ plays when you’re not live. Going live always takes over."
+        // Phones: status and timezone on one line, then Add slot growing to
+        // fill the row beside Save (or the whole row while the bottom bar
+        // carries Save).
+        actionsClassName="max-sm:w-full"
         actions={
           <>
             {saveLamp(headerOnly)}
@@ -299,9 +382,11 @@ export function SchedulePlanner({ station, playlists }: Props) {
                 </button>
               )}
             </span>}
+            <span aria-hidden className="h-0 basis-full sm:hidden" />
             {!locked && (
               <Button
                 variant="ghost"
+                className="max-sm:flex-1"
                 onClick={addFromButton}
                 disabled={noPlaylists}
                 title={noPlaylists ? "Make a playlist in Playlists first." : undefined}
@@ -314,6 +399,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
           </>
         }
       />
+      <ScheduleNow slug={station.slug} locked={locked} programme={programme} timezone={timezone} defaultName={defaultPlaylist?.name ?? null} />
 
       {locked && <AutoDjUpsell stationName={station.name} />}
 
@@ -330,6 +416,18 @@ export function SchedulePlanner({ station, playlists }: Props) {
         </section>
       )}
 
+      <LeaveGuard
+        dirty={!locked && dirty}
+        blockedReason={
+          blockedBy === "overlap"
+            ? "Your changes can’t be saved while two slots overlap. Stay to fix them, or leave and lose them."
+            : blockedBy === "no-timezone"
+              ? "Your changes can’t be saved until the station has a timezone. Stay to set one, or leave and lose them."
+              : null
+        }
+        onSave={save}
+      />
+
       <TimezoneDialog
         open={zoneOpen}
         onOpenChange={setZoneOpen}
@@ -341,22 +439,26 @@ export function SchedulePlanner({ station, playlists }: Props) {
         }}
       />
 
-      <ScheduleNow slug={station.slug} locked={locked} programme={programme} timezone={timezone} defaultName={defaultPlaylist?.name ?? null} />
-
-      <Dialog open={selected !== null && !locked} onOpenChange={(open) => !open && setSelectedKey(null)}>
-        <DialogContent>
+      <Dialog open={selected !== null && !locked} onOpenChange={(open) => !open && closeSlot(false)}>
+        {/* Wider from md: SlotPanel sets the playlists beside the fields. */}
+        {/* No focus on open: the dialog's own autofocus put a caret in the
+            Name field (and raised the phone keyboard) before anything was read. */}
+        <DialogContent className="md:max-w-200" onOpenAutoFocus={(e) => e.preventDefault()}>
           {selected && (
             <SlotPanel
               key={selected.key}
               block={selected}
               days={group.map((b) => b.day)}
-              isNew={newKeys.has(selected.key)}
+              isNew={adding !== null}
               overlapping={group.some((b) => overlaps.has(b.key))}
+              clashes={clashesWith(blocks, group)}
+              nameFor={nameFor}
               playlists={playlists}
               swatchFor={swatchFor}
               onChange={changeGroup}
               onToggleDay={toggleDay}
-              onDone={() => setSelectedKey(null)}
+              onDone={() => closeSlot(true)}
+              onCancel={() => closeSlot(false)}
               onDelete={removeGroup}
             />
           )}
@@ -366,7 +468,20 @@ export function SchedulePlanner({ station, playlists }: Props) {
       <Card aria-labelledby="schedule-week">
         <CardHeader
           title={<span id="schedule-week">Every week</span>}
-          aside={!locked && <span className="hidden md:inline">Click an empty hour to add a slot, or drag to draw one. Click a slot to change it.</span>}
+          aside={
+            // From md, Save lives here rather than in a bar under the card:
+            // the page fits the window, so this is always in view.
+            <span className="hidden items-center gap-3 md:inline-flex">
+              {/* Short, so it never wraps into a line of its own. */}
+              {!locked && <span className="hidden text-body-sm text-text-faint xl:inline">Click or drag on the week to add a slot.</span>}
+              <Button variant="ghost" size="sm" onClick={() => setExpanded(true)} title="Show the week across the whole window">
+                <IconArrowsMaximize />
+                Expand
+              </Button>
+              {saveLamp()}
+              {saveButton()}
+            </span>
+          }
         />
 
         {/* Both are in the markup and CSS picks one, so a resize never
@@ -387,34 +502,11 @@ export function SchedulePlanner({ station, playlists }: Props) {
           />
         </div>
         <div className="hidden md:block">
-          <WeekGrid
-            blocks={locked ? [] : blocks}
-            swatchFor={swatchFor}
-            nameFor={nameFor}
-            selectedKey={selectedKey}
-            siblings={siblings}
-            overlaps={overlaps}
-            now={mounted && now ? { day: now.day, minute: now.minute } : null}
-            readOnly={locked || noPlaylists}
-            onSelect={setSelectedKey}
-            onCreate={create}
-            onChange={changeOne}
-          />
+          {/* One grid at a time: the expanded view below takes over. */}
+          {!expanded && weekGrid(false)}
         </div>
 
-        {/* The grid's legend; the day list spells each row out instead. */}
-        <div className="hidden flex-wrap items-center gap-x-4.5 gap-y-1.5 pt-1 text-body-sm text-muted-foreground md:flex">
-          <span className="inline-flex items-center gap-2">
-            <span aria-hidden className={cn("size-3 rounded-swatch", GAP_DOT)} />
-            {locked ? "Off air unless you're live" : `${defaultPlaylist?.name ?? "Default playlist"} fills the gaps`}
-          </span>
-          {usedPlaylists.map((p) => (
-            <span key={p.id} className="inline-flex items-center gap-2">
-              <span aria-hidden className={cn("size-3 rounded-swatch", swatchFor(p.id).dot)} />
-              {p.name}
-            </span>
-          ))}
-        </div>
+        {legend("hidden md:flex")}
 
         {!locked && noPlaylists && (
           <p className="max-w-[62ch] text-body-sm text-muted-foreground">
@@ -423,15 +515,37 @@ export function SchedulePlanner({ station, playlists }: Props) {
           </p>
         )}
 
-        {!locked && (
-          <p className="max-w-[62ch] text-body-sm text-text-faint">
-            When you’re not live, AutoDJ plays your music. A slot starts after the song playing at its start time, or exactly on time if you set it to. Going live always takes over.
-          </p>
-        )}
       </Card>
 
+      {expanded && (
+        // z-40: over the sidebar and top bar (z-30 and under), under the
+        // slot dialog and toasts (z-50), which still open on top of it.
+        <div role="region" aria-label="Week schedule, expanded" className="fixed inset-0 z-40 hidden flex-col gap-4 bg-card p-5 md:flex">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <h2 className="font-display text-title-sm">Every week</h2>
+            {timezone && <span className="font-mono text-caption tracking-widest text-text-faint uppercase">{timezone}</span>}
+            <span className="ml-auto flex items-center gap-2.5">
+              {saveLamp()}
+              {!locked && (
+                <Button variant="ghost" onClick={addFromButton} disabled={noPlaylists}>
+                  <IconPlus />
+                  Add slot
+                </Button>
+              )}
+              {saveButton()}
+              <Button variant="subtle" onClick={() => setExpanded(false)} title="Back to the page (Esc)">
+                <IconArrowsMinimize />
+                Exit
+              </Button>
+            </span>
+          </div>
+          <div className="min-h-0 flex-1">{weekGrid(true)}</div>
+          {legend("flex")}
+        </div>
+      )}
+
       {!locked && (
-        <div className={cn("sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-panel bg-popover px-4.5 py-3 shadow-panel md:bottom-6", !phoneBar && "max-md:hidden")}>
+        <div className={cn("sticky bottom-20 z-20 flex items-center justify-between gap-3 rounded-panel bg-popover px-4.5 py-3 shadow-panel md:hidden", !phoneBar && "hidden")}>
           {saveLamp()}
           {saveButton()}
         </div>

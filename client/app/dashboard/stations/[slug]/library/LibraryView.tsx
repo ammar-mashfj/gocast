@@ -1,7 +1,8 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { IconLoader2, IconPlus } from "@tabler/icons-react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { IconChevronLeft, IconLoader2, IconPlus } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { formatAirtime, formatBytes } from "@/lib/format"
 import type { Playlist } from "@/interfaces/Playlist"
@@ -14,12 +15,11 @@ import { ProgressBar } from "@/components/ds/Progress"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog"
-import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { AllTracksView } from "./AllTracksView"
 import { AutoDjUpsell } from "./AutoDjUpsell"
 import { FixTagsDialog } from "./FixTagsDialog"
 import { PlaylistNameDialog, type NameDialog } from "./PlaylistNameDialog"
-import { PlaylistRail } from "./PlaylistRail"
+import { PlaylistPhoneList, PlaylistRail } from "./PlaylistRail"
 import { PlaylistView } from "./PlaylistView"
 import { TrackPicker } from "./TrackPicker"
 import { AUDIO_ACCEPT } from "./upload"
@@ -54,6 +54,61 @@ export function LibraryView({
 }) {
   const lib = useLibrary(page, station, initialTracks, initialMeta, initialPlaylists, openPlaylistId)
   const { locked, currentPlaylist, defaultPlaylist } = lib
+
+  // ── Phones and tablets: a list, then one playlist on its own screen ──
+  // The open playlist is ?playlist=<id>, written with the History API (no
+  // server round trip), so the phone's Back returns to the list. From lg
+  // the rail and the playlist share the screen and this is ignored.
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const openId = searchParams.get("playlist")
+  const phoneDetail = openId !== null && lib.playlists.some((p) => p.id === openId)
+  const pushedDetail = useRef(false)
+  const { setSelected, prefetchMembers } = lib
+  /** Where the list was scrolled, to put it back there on return. */
+  const listScroll = useRef(0)
+
+  function openOnPhone(id: string) {
+    listScroll.current = window.scrollY
+    setSelected(id)
+    window.history.pushState(null, "", `${pathname}?playlist=${id}`)
+    pushedDetail.current = true
+  }
+
+  // Scroll once the new screen has been drawn, never before it: scrolling
+  // first showed the list jumping to the top, then the playlist replacing it.
+  const wasDetail = useRef(phoneDetail)
+  useLayoutEffect(() => {
+    if (page !== "playlists" || wasDetail.current === phoneDetail) return
+    wasDetail.current = phoneDetail
+    if (window.matchMedia("(min-width: 64rem)").matches) return
+    // (x, y), not { behavior: "instant" }: older Safari throws on that value.
+    window.scrollTo(0, phoneDetail ? 0 : listScroll.current)
+  }, [page, phoneDetail])
+
+  // While the phone list is up, load every playlist's tracks in the
+  // background, so a tap opens a finished playlist rather than a spinner.
+  const playlistIds = lib.playlists.map((p) => p.id).join(",")
+  useEffect(() => {
+    if (page !== "playlists" || phoneDetail || window.matchMedia("(min-width: 64rem)").matches) return
+    void prefetchMembers(playlistIds.split(",").filter(Boolean))
+  }, [page, phoneDetail, playlistIds, prefetchMembers])
+
+  function backToList() {
+    // Back where we pushed, so the history doesn't fill with list entries;
+    // a deep link (the status band's Open playlist) has nothing to go back to.
+    if (pushedDetail.current) window.history.back()
+    else window.history.replaceState(null, "", pathname)
+    pushedDetail.current = false
+  }
+
+  // The URL leads: Back/forward between list and playlist, and a deep link.
+  useEffect(() => {
+    if (page !== "playlists" || openId === null) return
+    if (lib.playlists.some((p) => p.id === openId)) setSelected(openId)
+    // A deleted playlist's URL: back to the list.
+    else window.history.replaceState(null, "", pathname)
+  }, [page, openId, lib.playlists, setSelected, pathname])
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [nameDialog, setNameDialog] = useState<NameDialog>(null)
@@ -116,8 +171,10 @@ export function LibraryView({
 
   return (
     <div className="flex flex-col gap-5.5">
-      <AutoDjSections slug={station.slug} />
       <PageHeader
+        // A playlist open on a phone is its own screen: "All playlists" and
+        // the playlist's name head it, not the list's header again.
+        className={page === "playlists" && phoneDetail ? "max-lg:hidden" : undefined}
         title={page === "library" ? "Library" : "Playlists"}
         aside={
           <>
@@ -203,13 +260,34 @@ export function LibraryView({
           <PlaylistRail
             playlists={lib.playlists}
             selected={lib.selected}
-            onSelect={lib.setSelected}
+            onSelect={(id) => {
+              // Keep the URL on the open playlist, or the effect above would
+              // pull the selection back to an older ?playlist.
+              setSelected(id)
+              window.history.replaceState(null, "", `${pathname}?playlist=${id}`)
+            }}
           />
-          <DropZone locked={locked} onFiles={lib.upload}>
+          {!phoneDetail && (
+            <div className="lg:hidden">
+              <PlaylistPhoneList playlists={lib.playlists} onOpen={openOnPhone} />
+            </div>
+          )}
+          {phoneDetail && (
+            <button
+              type="button"
+              onClick={backToList}
+              className="-ml-1 flex w-fit cursor-pointer items-center gap-1 rounded-control py-1 pr-2 text-body-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+            >
+              <IconChevronLeft aria-hidden className="size-4.5" />
+              All playlists
+            </button>
+          )}
+          <DropZone locked={locked} onFiles={lib.upload} className={phoneDetail ? undefined : "max-lg:hidden"}>
             {currentPlaylist ? (
               <PlaylistView
                 key={currentPlaylist.id}
                 playlist={currentPlaylist}
+                index={lib.playlists.findIndex((p) => p.id === currentPlaylist.id)}
                 tracks={lib.members[currentPlaylist.id] ?? null}
                 loadFailed={lib.memberErrors.has(currentPlaylist.id)}
                 onRetry={() => lib.retryMembers(currentPlaylist.id)}
@@ -267,8 +345,13 @@ export function LibraryView({
       <PlaylistNameDialog
         dialog={nameDialog}
         onClose={() => setNameDialog(null)}
-        onSubmit={(name) =>
-          nameDialog?.mode === "rename" ? lib.renamePlaylist(nameDialog.playlist, name) : lib.createPlaylist(name)
+        onSubmit={(name, color) =>
+          nameDialog?.mode === "rename"
+            ? lib.renamePlaylist(nameDialog.playlist, name, color)
+            : lib.createPlaylist(name, color).then((created) => {
+                // On a phone, straight into the new playlist to fill it.
+                if (!window.matchMedia("(min-width: 64rem)").matches) openOnPhone(created.id)
+              })
         }
       />
       {lib.confirmDialog}
@@ -277,7 +360,7 @@ export function LibraryView({
 }
 
 /** The list's card, and the drop target: files dropped anywhere on it upload. */
-function DropZone({ locked, onFiles, children }: { locked: boolean; onFiles: (files: FileList) => unknown; children: React.ReactNode }) {
+function DropZone({ locked, onFiles, className, children }: { locked: boolean; onFiles: (files: FileList) => unknown; className?: string; children: React.ReactNode }) {
   const [dragOver, setDragOver] = useState(false)
   return (
     <div
@@ -294,6 +377,7 @@ function DropZone({ locked, onFiles, children }: { locked: boolean; onFiles: (fi
       className={cn(
         "w-full min-w-0 flex-1 rounded-card bg-card outline-offset-4 transition-[outline-color]",
         dragOver ? "outline-2 outline-dashed outline-line-strong" : "outline-transparent",
+        className,
       )}
     >
       {children}

@@ -20,7 +20,6 @@ import { Select } from "@/components/ds/Select"
 import { SwitchRow } from "@/components/ds/Switch"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
-import { AutoDjSections } from "@/components/dashboard/autodj/AutoDjSections"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
@@ -179,7 +178,7 @@ export function JinglesView({
       })
       // No restart involved: AutoDJ reads these settings each time it picks
       // the next track, so a live station picks the change up from there.
-      toast.success(enabled ? "Jingles on — takes effect after the current track." : "Jingles turned off.")
+      toast.success(enabled ? "Jingles on. Starts after the next song." : "Jingles turned off.")
       // The saved values arrive back as the station prop, which is what
       // "changed" is measured against.
       router.refresh()
@@ -223,11 +222,12 @@ export function JinglesView({
 
   return (
     <div className="flex flex-col gap-5.5">
-      <AutoDjSections slug={station.slug} />
       <PageHeader
         title="Jingles"
         aside={locked ? <ProTag /> : <HelpLink article="upload-your-music" label="jingles and uploading clips" />}
         description="Short clips that play between AutoDJ songs, like “You’re listening to…”. Radio calls them station IDs and liners."
+        // Phones: the one action spans the row, like Library's Add tracks.
+        actionsClassName="max-sm:w-full max-sm:*:flex-1"
         actions={
           !locked && (
             <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>

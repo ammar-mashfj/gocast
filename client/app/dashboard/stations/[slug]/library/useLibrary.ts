@@ -116,6 +116,28 @@ export function useLibrary(
     }
   }, [currentPlaylist, members, memberErrors])
 
+  /**
+   * Load members ahead of opening, quietly: the phone's playlist list calls
+   * it for every playlist, so a tap opens a full list instead of a spinner
+   * that then jumps. A failure here is silent; opening it fetches again and
+   * reports.
+   */
+  const membersRef = useRef(members)
+  useEffect(() => {
+    membersRef.current = members
+  }, [members])
+  const prefetchMembers = useCallback(async (ids: string[]) => {
+    for (const id of ids) {
+      if (membersRef.current[id] !== undefined) continue
+      try {
+        const { data } = await api.get<{ data: Track[] }>(`/playlists/${id}/tracks`)
+        setMembers((prev) => (prev[id] !== undefined ? prev : { ...prev, [id]: data.data }))
+      } catch {
+        // Left for the open to retry and report.
+      }
+    }
+  }, [])
+
   /** Clear a failed fetch so the effect above tries again. */
   const retryMembers = useCallback((id: string) => {
     setMemberErrors((prev) => {
@@ -478,7 +500,8 @@ export function useLibrary(
         next === "shuffle"
           ? "Shuffling. Every track plays once before any repeats."
           : "Back to play order, top to bottom.",
-        { description: "Takes effect after the track that's on air now." },
+        // The next song is already lined up, so the change lands after it.
+        { description: "Starts after the next song." },
       )
     } catch {
       setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, order: playlist.order } : p)))
@@ -489,20 +512,23 @@ export function useLibrary(
   }, [currentPlaylist, locked, savingOrder])
 
   const createPlaylist = useCallback(
-    async (name: string) => {
-      const { data } = await api.post<{ data: Playlist }>(`/stations/${slug}/playlists`, { name })
+    async (name: string, color: string | null = null) => {
+      const { data } = await api.post<{ data: Playlist }>(`/stations/${slug}/playlists`, { name, color })
       setPlaylists((prev) => [...prev, data.data])
       setMembers((prev) => ({ ...prev, [data.data.id]: [] }))
       setSelected(data.data.id)
       toast.success(`Created ${data.data.name}.`)
+      return data.data
     },
     [slug],
   )
 
-  const renamePlaylist = useCallback(async (playlist: Playlist, name: string) => {
-    const { data } = await api.patch<{ data: Playlist }>(`/playlists/${playlist.id}`, { name })
-    setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, name: data.data.name } : p)))
-    toast.success(`Renamed to ${data.data.name}.`)
+  const renamePlaylist = useCallback(async (playlist: Playlist, name: string, color: string | null = playlist.color) => {
+    // The default has no colour field, so it never sends one.
+    const body = playlist.is_default ? { name } : { name, color }
+    const { data } = await api.patch<{ data: Playlist }>(`/playlists/${playlist.id}`, body)
+    setPlaylists((prev) => prev.map((p) => (p.id === playlist.id ? { ...p, name: data.data.name, color: data.data.color } : p)))
+    toast.success(data.data.name === playlist.name ? `Saved ${data.data.name}.` : `Renamed to ${data.data.name}.`)
   }, [])
 
   const setDefault = useCallback(async () => {
@@ -607,6 +633,7 @@ export function useLibrary(
     retryMembers,
     selected,
     setSelected,
+    prefetchMembers,
     savingOrder,
     defaultPlaylist,
     currentPlaylist,

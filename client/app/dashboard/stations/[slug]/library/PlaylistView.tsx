@@ -38,6 +38,8 @@ import {
 } from "@/components/ds/Menu"
 import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { playlistDot } from "@/lib/playlistSwatches"
 import type { Playlist } from "@/interfaces/Playlist"
 import type { Track } from "@/interfaces/Track"
 import { useTrackPreview } from "@/hooks/useTrackPreview"
@@ -56,6 +58,8 @@ const INITIAL_LIMIT = 50
 
 interface Props {
   playlist: Playlist
+  /** Its place in the station's playlists, for the automatic colour. */
+  index: number
   /** Members in play order, or null while they load (or failed to). */
   tracks: Track[] | null
   /** The member fetch failed; `tracks` is null and stays so until `onRetry`. */
@@ -88,6 +92,7 @@ interface Props {
  */
 export function PlaylistView({
   playlist,
+  index,
   tracks,
   loadFailed = false,
   locked,
@@ -197,7 +202,7 @@ export function PlaylistView({
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={onRename}>
         <IconPencil size={15} />
-        Rename
+        {playlist.is_default ? "Rename" : "Name & colour"}
       </DropdownMenuItem>
       {!playlist.is_default && (
         <DropdownMenuItem onClick={onSetDefault}>
@@ -225,7 +230,27 @@ export function PlaylistView({
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5.5 pt-5 pb-3.5">
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
+            {/* The dot and the pencil are the way in to Name & colour; the ⋯
+                menu has it too, but nobody found it there. */}
+            <button
+              type="button"
+              onClick={onRename}
+              title={playlist.is_default ? "Fills the gaps between slots on the Schedule" : "Change colour"}
+              aria-label={playlist.is_default ? `Rename ${playlist.name}` : `Change ${playlist.name}’s colour`}
+              className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span aria-hidden className={cn("size-3 rounded-swatch", playlistDot(playlist, index).className)} style={playlistDot(playlist, index).style} />
+            </button>
             <h2 className="min-w-0 truncate font-display text-title-sm">{playlist.name}</h2>
+            <button
+              type="button"
+              onClick={onRename}
+              title={playlist.is_default ? "Rename" : "Edit name & colour"}
+              aria-label={playlist.is_default ? `Rename ${playlist.name}` : `Edit ${playlist.name}’s name and colour`}
+              className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-control text-muted-foreground outline-none transition-colors hover:bg-surface-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <IconPencil size={16} />
+            </button>
             {/* Neutral: "default" is a role the playlist has, not a station state. */}
             {playlist.is_default && <Tag title="New uploads land in it too.">Plays when nothing’s scheduled</Tag>}
           </div>

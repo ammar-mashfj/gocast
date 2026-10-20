@@ -356,7 +356,11 @@ export function TrackRow({
       )}
 
       <div className="flex min-w-0 flex-col gap-0.75">
-        <span className={cn("truncate text-body font-semibold", onAir && "text-on-air-text")}>
+        {/* relative: the sr-only note below is absolutely positioned, and
+            without a containing block here it sat at the end of the FULL
+            title, past the truncation, and widened the whole page on a
+            phone (every sheet with it) while a long title was on air. */}
+        <span className={cn("relative truncate text-body font-semibold", onAir && "text-on-air-text")}>
           {track.title}
           {onAir && <span className="sr-only"> (playing now)</span>}
         </span>

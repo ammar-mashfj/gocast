@@ -115,6 +115,26 @@ it('refuses two playlists with the same name on one station', function () {
         ->assertJsonValidationErrors('name');
 });
 
+it('stores a hex colour, lowercased, and clears it with null', function () {
+    $id = actingAs($this->owner, 'sanctum')
+        ->postJson("/api/stations/{$this->station->slug}/playlists", ['name' => 'Drive Time', 'color' => '#FF6B00'])
+        ->assertCreated()
+        ->assertJsonPath('data.color', '#ff6b00')
+        ->json('data.id');
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/playlists/{$id}", ['color' => null])
+        ->assertOk()
+        ->assertJsonPath('data.color', null);
+
+    foreach (['red', '#fff', '#12345g', 'ff6b00'] as $bad) {
+        actingAs($this->owner, 'sanctum')
+            ->patchJson("/api/playlists/{$id}", ['color' => $bad])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('color');
+    }
+});
+
 it('renames and reorders a playlist without touching the station row', function () {
     $playlist = $this->station->defaultPlaylist;
     $before = $this->station->fresh()->updated_at;

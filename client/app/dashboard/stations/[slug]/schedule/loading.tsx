@@ -24,7 +24,6 @@ export default function ScheduleLoading() {
 
   return (
     <div className="flex flex-col gap-5.5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
-      <Skeleton className="h-12 rounded-control lg:hidden" />
       <PageHeader
         title="Schedule"
         aside={locked ? <ProTag /> : undefined}
@@ -33,15 +32,15 @@ export default function ScheduleLoading() {
 
       {locked && station && <AutoDjUpsell stationName={station.name} />}
 
-      {/* ScheduleNow: the one full-width "Right now" card. */}
-      <Skeleton className="h-28 rounded-panel" />
+      {/* ScheduleNow: the one "Right now" line. */}
+      <Skeleton className="-mt-2.5 h-5 w-80 rounded-control" />
 
       <Card>
         <CardHeader title="Every week" />
         <div className="flex flex-col gap-4 md:hidden">
           <div className="grid grid-cols-7 gap-1.5">
             {DAYS.map((day) => (
-              <Skeleton key={day} className="h-17 rounded-button" />
+              <Skeleton key={day} className="h-13 rounded-button" />
             ))}
           </div>
           <Skeleton className="h-16 rounded-control" />

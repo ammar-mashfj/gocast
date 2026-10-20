@@ -19,7 +19,6 @@ export default function JinglesLoading() {
 
   return (
     <div className="flex flex-col gap-5.5 motion-reduce:[&_[data-slot=skeleton]]:animate-none" aria-busy>
-      <Skeleton className="h-12 rounded-control lg:hidden" />
       <PageHeader
         title="Jingles"
         aside={locked ? <ProTag /> : undefined}

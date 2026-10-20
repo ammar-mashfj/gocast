@@ -1,9 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { IconCheck, IconChevronDown } from "@tabler/icons-react"
+import { IconChevronRight } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ds/Dialog"
 import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
 import { playlistDot, playlistDotTitle } from "@/lib/playlistSwatches"
@@ -21,99 +19,60 @@ interface Props {
 
 /**
  * The Playlists page's list: every playlist, each with the violet shade it
- * wears on the schedule. A column beside the open playlist from lg up. Below
- * lg (phones and tablets) a full-width button naming the open playlist,
- * which opens the list in a sheet: a sideways-scrolling strip of chips hid
- * most of them, and a 240px column squeezed the playlist on a tablet.
+ * wears on the schedule. A column beside the open playlist from lg up;
+ * below lg, PlaylistPhoneList instead (a 240px column squeezed the playlist
+ * on a tablet).
  */
 export function PlaylistRail(props: Props) {
   return (
-    <>
-      <PlaylistPicker {...props} />
-      <nav aria-label="Playlists" className="hidden w-60 shrink-0 flex-col gap-1 lg:flex">
-        {props.playlists.map((playlist, i) => (
-          <RailItem
-            key={playlist.id}
-            active={props.selected === playlist.id}
-            onClick={() => props.onSelect(playlist.id)}
-            swatch={playlistDot(playlist, i)}
-            swatchTitle={playlistDotTitle(playlist)}
-            label={playlist.name}
-            detail={railDetail(playlist)}
-            title={playlist.is_default ? "Plays whenever nothing else is scheduled." : undefined}
-          />
-        ))}
-      </nav>
-    </>
+    <nav aria-label="Playlists" className="hidden w-60 shrink-0 flex-col gap-1 lg:flex">
+      {props.playlists.map((playlist, i) => (
+        <RailItem
+          key={playlist.id}
+          active={props.selected === playlist.id}
+          onClick={() => props.onSelect(playlist.id)}
+          swatch={playlistDot(playlist, i)}
+          swatchTitle={playlistDotTitle(playlist)}
+          label={playlist.name}
+          detail={railDetail(playlist)}
+          title={playlist.is_default ? "Plays whenever nothing else is scheduled." : undefined}
+        />
+      ))}
+    </nav>
   )
 }
 
-function PlaylistPicker({ playlists, selected, onSelect }: Props) {
-  const [open, setOpen] = useState(false)
-  const index = playlists.findIndex((p) => p.id === selected)
-  const current = index >= 0 ? playlists[index] : null
-
+/**
+ * Phones and tablets (below lg): the Playlists page opens on this list, and
+ * a tap opens that playlist on its own screen (LibraryView). It replaced a
+ * "Change" picker above the open playlist, which nobody read as belonging
+ * to the card under it.
+ */
+export function PlaylistPhoneList({ playlists, onOpen }: { playlists: Playlist[]; onOpen: (id: string) => void }) {
+  if (playlists.length === 0) {
+    return <p className="rounded-card bg-card px-5.5 py-10 text-center text-body text-muted-foreground">No playlists yet. Make one to choose what AutoDJ plays.</p>
+  }
   return (
-    <div className="lg:hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        className="flex w-full items-center gap-4 rounded-control bg-card px-4.5 py-4 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {/* Labelled, so it reads as "which playlist you're looking at"
-            rather than a stray row. */}
-        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <span className="eyebrow text-text-faint">Playlist · {playlists.length} in all</span>
-          <span className="flex min-w-0 items-center gap-2.5">
-            {current && <span aria-hidden title={playlistDotTitle(current)} className={cn("size-2.5 shrink-0 rounded-swatch", playlistDot(current, index))} />}
-            <span className="min-w-0 flex-1 truncate text-body font-semibold">{current?.name ?? "Choose a playlist"}</span>
+    <nav aria-label="Playlists" className="flex flex-col rounded-card bg-card p-1.5 [&>button+button]:border-t [&>button+button]:border-line">
+      {playlists.map((playlist, i) => (
+        <button
+          key={playlist.id}
+          type="button"
+          onClick={() => onOpen(playlist.id)}
+          className="flex min-h-16 cursor-pointer items-center gap-3 rounded-control px-3.5 py-3 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span aria-hidden title={playlistDotTitle(playlist)} className={cn("size-3 shrink-0 rounded-swatch", playlistDot(playlist, i).className)} style={playlistDot(playlist, i).style} />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate text-body font-semibold">{playlist.name}</span>
+              {playlist.is_default && <Tag className="shrink-0">Default</Tag>}
+            </span>
+            <span className="text-body-sm text-muted-foreground">{pickerDetail(playlist)}</span>
           </span>
-          {current && <span className="text-body-sm text-muted-foreground">{pickerDetail(current)}</span>}
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-body-sm font-semibold text-muted-foreground">
-          Change
-          <IconChevronDown aria-hidden className="size-4" />
-        </span>
-      </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Playlists</DialogTitle>
-            <DialogDescription>
-              {playlists.length} {playlists.length === 1 ? "playlist" : "playlists"}. Pick one to open it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-1">
-            {playlists.map((playlist, i) => {
-              const active = playlist.id === selected
-              return (
-                <button
-                  key={playlist.id}
-                  type="button"
-                  aria-current={active ? "page" : undefined}
-                  onClick={() => {
-                    onSelect(playlist.id)
-                    setOpen(false)
-                  }}
-                  className={cn(
-                    "flex min-h-13 items-center gap-2.5 rounded-control px-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "bg-surface-raised text-foreground" : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
-                  )}
-                >
-                  <span aria-hidden title={playlistDotTitle(playlist)} className={cn("size-2.5 shrink-0 rounded-swatch", playlistDot(playlist, i))} />
-                  <span className="min-w-0 flex-1 truncate text-body font-semibold">{playlist.name}</span>
-                  {playlist.is_default && <Tag className="shrink-0">Default</Tag>}
-                  <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{railDetail(playlist)}</span>
-                  <IconCheck aria-hidden className={cn("size-4 shrink-0", active ? "text-foreground" : "invisible")} />
-                </button>
-              )
-            })}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+          <IconChevronRight aria-hidden className="size-5 shrink-0 text-text-faint" />
+        </button>
+      ))}
+    </nav>
   )
 }
 
@@ -125,7 +84,7 @@ function railDetail(playlist: Playlist): string {
   return seconds > 0 ? `${count} · ${formatAirtime(seconds)}` : String(count)
 }
 
-/** In words, for the picker button, where there's room: "12 tracks · 48m". */
+/** In words, for the phone list, where there's room: "12 tracks · 48m". */
 function pickerDetail(playlist: Playlist): string {
   const count = playlist.track_count ?? 0
   const seconds = playlist.duration_seconds ?? 0
@@ -145,7 +104,7 @@ function RailItem({
 }: {
   active: boolean
   onClick: () => void
-  swatch?: string
+  swatch?: { className: string; style?: React.CSSProperties }
   swatchTitle?: string
   label: string
   detail: string
@@ -164,7 +123,7 @@ function RailItem({
       )}
     >
       <span className="flex min-w-0 items-center gap-2.5">
-        {swatch && <span aria-hidden title={swatchTitle} className={cn("size-2.5 shrink-0 rounded-swatch", swatch)} />}
+        {swatch && <span aria-hidden title={swatchTitle} className={cn("size-2.5 shrink-0 rounded-swatch", swatch.className)} style={swatch.style} />}
         <span className="truncate text-body font-semibold">{label}</span>
       </span>
       <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{detail}</span>

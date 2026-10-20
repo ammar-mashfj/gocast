@@ -31,7 +31,16 @@ export function NowPlayingWell({ nowPlaying, status }: { nowPlaying: HeroNowPlay
         line && <p className="text-body font-semibold">{line}</p>
       )}
       {progress && <ProgressLine status={status} />}
-      {next && <p className="truncate text-caption text-text-faint">Next: {next}</p>}
+      {/* The bar is the station's position (Liquidsoap's own), not what a
+          listener hears: their player runs several seconds behind. Said in
+          words, and as "a few seconds" since the real delay depends on the
+          listener's player and connection. */}
+      {(next || progress) && (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-caption text-text-faint">
+          {next && <p className="min-w-0 flex-1 truncate">Next: {next}</p>}
+          {progress && <p className="shrink-0">Listeners are a few seconds behind</p>}
+        </div>
+      )}
     </div>
   )
 }

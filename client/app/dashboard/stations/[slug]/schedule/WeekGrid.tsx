@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { Fragment, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { cn } from "@/lib/utils"
 import { SWATCHES, type Swatch } from "@/lib/playlistSwatches"
 import {
@@ -26,6 +26,9 @@ const HOUR_LABELS = Array.from({ length: 13 }, (_, i) => i * 2)
 const CLICK_SLOP = 3
 /** The narrowest press target a slot gets, however short it is. */
 const MIN_HIT = 24
+/** Day-row heights `fitWindow` may choose between, in px (58 is the default). */
+const ROW_MIN = 40
+const ROW_MAX = 58
 
 export { SWATCHES, type Swatch }
 
@@ -44,6 +47,14 @@ interface Props {
   /** A new slot on `day`, as a week-minute span. */
   onCreate: (day: number, span: [number, number]) => void
   onChange: (block: Block) => void
+  /** Stretch the day rows to fill the parent's height (the expanded view). */
+  fill?: boolean
+  /**
+   * Size the day rows (40–58px) so the whole page fits the window without
+   * scrolling, when it can. Measured, not guessed: the chrome above (status
+   * band or not) and the content below vary.
+   */
+  fitWindow?: boolean
 }
 
 type EdgeDrag = {
@@ -100,8 +111,38 @@ export function WeekGrid({
   onSelect,
   onCreate,
   onChange,
+  fill = false,
+  fitWindow = false,
 }: Props) {
   const drag = useRef<EdgeDrag | CreateDrag | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [rowHeight, setRowHeight] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (!fitWindow) return
+    const fit = () => {
+      const rows = gridRef.current?.querySelectorAll<HTMLElement>("[data-day-row]")
+      if (!rows?.length) return
+      const first = rows[0].getBoundingClientRect()
+      const last = rows[rows.length - 1].getBoundingClientRect()
+      if (first.height === 0) return // hidden (phone width)
+      const top = first.top + window.scrollY
+      const below = document.documentElement.scrollHeight - (last.bottom + window.scrollY)
+      const gaps = last.bottom - first.top - first.height * rows.length
+      const room = (window.innerHeight - top - below - gaps) / rows.length
+      const next = Math.max(ROW_MIN, Math.min(ROW_MAX, Math.floor(room)))
+      setRowHeight((prev) => (prev === next ? prev : next))
+    }
+    fit()
+    window.addEventListener("resize", fit)
+    // The page's own height moves when a notice or the status band appears.
+    const observer = new ResizeObserver(fit)
+    observer.observe(document.body)
+    return () => {
+      window.removeEventListener("resize", fit)
+      observer.disconnect()
+    }
+  }, [fitWindow])
   const [ghost, setGhost] = useState<{ day: number; from: number; to: number } | null>(null)
 
   const allSegments = blocks.flatMap(segments)
@@ -214,8 +255,14 @@ export function WeekGrid({
   return (
     // Seven 24-hour rows need room to be touched; below ~44rem the grid
     // scrolls sideways rather than shrinking slots to slivers.
-    <div className="-mx-1 overflow-x-auto px-1 pb-1">
-      <div className="grid min-w-[44rem] grid-cols-[4.375rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5">
+    <div className={cn("-mx-1 overflow-x-auto px-1 pb-1", fill && "h-full")}>
+      <div
+        ref={gridRef}
+        className={cn(
+          "grid min-w-[44rem] grid-cols-[4.375rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5",
+          fill && "h-full grid-rows-[auto_repeat(7,minmax(3.625rem,1fr))]",
+        )}
+      >
         <span />
         <div className="relative mb-1 h-4 font-mono text-micro text-text-faint tabular-nums">
           {HOUR_LABELS.map((h) => (
@@ -254,7 +301,8 @@ export function WeekGrid({
                   setGhost(null)
                 }}
                 className={cn(
-                  "relative h-14.5 touch-pan-x touch-pan-y rounded-control bg-surface-inset select-none",
+                  "relative touch-pan-x touch-pan-y rounded-control bg-surface-inset select-none",
+                  !fill && "h-14.5",
                   isToday && "bg-surface-raised",
                   !readOnly && "cursor-crosshair",
                 )}
@@ -262,6 +310,7 @@ export function WeekGrid({
                 style={{
                   backgroundImage: "linear-gradient(to right, rgb(244 241 236 / 0.05) 1px, transparent 1px)",
                   backgroundSize: "calc(100% / 24) 100%",
+                  height: !fill && rowHeight !== null ? rowHeight : undefined,
                 }}
               >
                 {[6, 12, 18].map((h) => (
@@ -306,7 +355,7 @@ export function WeekGrid({
                           sibling && "outline-1 outline-offset-1 outline-foreground/45",
                           clash && "outline-2 outline-offset-1 outline-fault",
                         )}
-                        style={{ left: pct(s.from), width: pct(s.to - s.from) }}
+                        style={{ ...swatch.style, left: pct(s.from), width: pct(s.to - s.from) }}
                       >
                         <button
                           type="button"

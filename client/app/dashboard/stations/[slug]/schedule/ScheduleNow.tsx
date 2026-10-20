@@ -3,10 +3,11 @@
 import type { Programme } from "@/interfaces/Station"
 import { useStationStatus } from "@/hooks/useStationStatus"
 import { describeProgramme } from "@/lib/programme"
-import { Card } from "@/components/ds/Card"
+import { StatusLamp } from "@/components/ds/StatusLamp"
 
 /**
- * Above the week: RIGHT NOW, what AutoDJ has lined up at this moment. (The
+ * Under the page header: RIGHT NOW, what AutoDJ has lined up at this moment,
+ * as one line (it was a card, and the page didn't fit a laptop screen). (The
  * prototype's second card, YOUR NEXT SHOW, went with show times.)
  *
  * The plan is labelled as a plan: what the station is actually doing — live,
@@ -40,18 +41,22 @@ export function ScheduleNow({
     nowTitle = planned.now
     // describeProgramme's detail is a phrase ("until 10:00 · then Main
     // rotation"), so it gets its full stop here.
-    const detail = planned.detail ? `${planned.detail.charAt(0).toUpperCase()}${planned.detail.slice(1)}.` : "All day, until another slot starts."
-    nowSub = [detail, off ? "AutoDJ is off right now." : null].filter(Boolean).join(" ")
+    nowSub = planned.detail ? `${planned.detail.charAt(0).toUpperCase()}${planned.detail.slice(1)}.` : "All day, until another slot starts."
   } else {
     nowTitle = defaultName ?? "Your default playlist"
     nowSub = off ? "What AutoDJ plays when it’s on." : "Plays whenever nothing else is scheduled."
   }
 
+  // Violet while AutoDJ would be playing this; grey when it's off or not
+  // on the plan, with an "AutoDJ off" chip so the plan isn't read as airing.
   return (
-    <Card size="none" className="gap-1.5 rounded-panel p-5">
-      <span className="eyebrow text-text-faint">Right now</span>
-      <span className="font-display text-heading">{nowTitle}</span>
-      <span className="text-sm text-muted-foreground">{nowSub}</span>
-    </Card>
+    <div className="-mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <StatusLamp tone={locked || off ? "off" : "onair"} size="sm">Right now</StatusLamp>
+      <span className="text-body font-bold text-foreground">{nowTitle}</span>
+      <span className="text-body-sm text-muted-foreground">{nowSub}</span>
+      {off && !locked && (
+        <StatusLamp variant="solid" tone="off" size="sm" className="h-6 px-2.5">AutoDJ off</StatusLamp>
+      )}
+    </div>
   )
 }
