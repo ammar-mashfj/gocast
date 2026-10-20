@@ -8,6 +8,7 @@ use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\Track;
 use getID3;
+use getid3_lib;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -381,6 +382,11 @@ class TrackImporter
         } catch (\Throwable) {
             return $out;
         }
+
+        // analyze() leaves the per-format tags under `tags`; only this
+        // call merges them into `comments`. Without it every upload fell
+        // back to its filename even when the file carried a title/artist.
+        getid3_lib::CopyTagsToComments($info);
 
         // getID3 normalizes tags from id3v2/id3v1/quicktime/vorbiscomment
         // into the `tags_html` and `comments` keys; `comments` is the

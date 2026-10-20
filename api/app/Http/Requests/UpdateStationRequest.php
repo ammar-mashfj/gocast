@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesTimezone;
 use App\Models\Station;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
@@ -21,6 +22,8 @@ use Illuminate\Validation\Rule;
  */
 class UpdateStationRequest extends FormRequest
 {
+    use NormalizesTimezone;
+
     public function authorize(): bool
     {
         return true;

@@ -81,7 +81,7 @@ but none of those four.
 ### Where they are NOT ahead
 - Encoder support. We take BUTT and Mixxx over the TCP router.
 - Analytics. Our real-time counts and country/device breakdown are roughly
-  equal to theirs (geo depends on Cloudflare).
+  equal to theirs (geo comes from the Cloudflare country header; prod is behind Cloudflare).
 - Idle shutdown. They stop idle servers after 15 minutes on every plan.
 - Price. Their Free plan is 96 kbps and runs ads on your site; their paid
   plans are $34 and $80+ against our $15.

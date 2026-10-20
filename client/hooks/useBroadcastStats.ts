@@ -61,17 +61,12 @@ export function getSessionPeak(slug: string | null, liveSince: number | null): n
 }
 
 /**
- * Uptime, live listener count, peak, and the rolling history behind the
- * sparkline — owned in one place because the deck and the side rail both
- * show the same numbers and must agree.
+ * Uptime, live listener count, peak, and the rolling history — owned in one
+ * place because the studio's numbers and the status band show the same show
+ * and must agree.
  *
- * Previously the count was polled inside StreamPanel. Two components wanting
- * it would have meant two polls of the same endpoint eight seconds apart,
- * showing different numbers on the same screen.
- *
- * The history is deliberately session-scoped rather than fetched: the panel
- * it feeds is labelled "this broadcast", and the API has no per-interval
- * listener series to ask for.
+ * The history is deliberately session-scoped rather than fetched: the API
+ * has no per-interval listener series to ask for.
  */
 export function useBroadcastStats(
   slug: string | null,
@@ -86,7 +81,7 @@ export function useBroadcastStats(
   )
 
   // The shared map, not this hook's state, is the record of the show. The
-  // mini controller mounts once for the life of the tab — before any show,
+  // status band (StationBand) mounts once for the life of the tab — before any show,
   // with no key — and hands off to the studio's copy and back. Re-read on
   // every change of key or of which copy is polling, or a stale copy writes
   // its old peak and history over the show's.

@@ -1,7 +1,9 @@
 "use client"
 
 import { IconCheck } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
+import { Card } from "@/components/ds/Card"
+import { ProTag } from "@/components/ds/Tag"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { PRO_AVAILABLE, PRO_PRICE_USD } from "@/interfaces/Plan"
 
@@ -30,14 +32,15 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
   return (
     // A plain panel, not a violet-washed one: violet is the brand and the
     // on-air colour, and a tinted box read as AutoDJ already running.
-    <div className="rounded-xl border border-white/[0.09] bg-panel shadow-[0_24px_48px_-24px_rgba(0,0,0,0.9)] overflow-hidden">
-      <div className="flex flex-col gap-6 p-5 md:flex-row md:items-center md:gap-8 md:p-6">
+    <Card className="gap-6 md:flex-row md:items-center md:gap-8">
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-medium">
-            Keep {stationName} on air when you&apos;re not
+          {/* The mobile Library's Pro card label. */}
+          <ProTag />
+          <h2 className="mt-2.5 font-display text-title-sm">
+            Keep {stationName} on air when you’re not
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
-            AutoDJ plays your uploaded music whenever you&apos;re not live. Right now your station goes silent the moment you
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-pretty text-muted-foreground">
+            AutoDJ plays your uploaded music whenever you’re not live. Right now your station goes silent the moment you
             close the studio tab, and listeners drop off. With AutoDJ it keeps
             playing, and hands back to you the second you go live.
           </p>
@@ -51,32 +54,26 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
           </ul>
         </div>
 
-        <div className="shrink-0 md:w-56 md:border-l md:border-white/[0.06] md:pl-8">
+        <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-semibold">${PRO_PRICE_USD}</span>
+            <span className="font-display text-title-lg">${PRO_PRICE_USD}</span>
             <span className="text-sm text-muted-foreground">/ month</span>
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
             {PRO_AVAILABLE
               ? "Billed monthly, cancel any time. Your uploads stay if you downgrade."
               : "We'll email you how to pay. Cancel any time, and your uploads stay yours either way."}
           </p>
 
-          {request.requested ? (
-            <div className="mt-4 flex items-center gap-2 text-sm text-violet-muted">
-              <IconCheck size={16} />
-              Request sent
-            </div>
-          ) : (
-            // The page's one filled button and its only request action (the
-            // header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
-            // the amber Pro tag). Opens the request form — payment is by email.
-            <Button className="mt-4 w-full" onClick={request.open}>
-              Get Pro
-            </Button>
-          )}
+          {/* The page's one filled button and its only request action (the
+              header's "Upgrade to enable AutoDJ" is gone; the H1 keeps just
+              the amber Pro tag). Opens the request form — payment is by email.
+              Once sent it stays a disabled button, as on every other upsell. */}
+          <Button variant="pro" full className="mt-4" onClick={request.open} disabled={request.requested}>
+            {request.requested && <IconCheck />}
+            {request.requested ? "Request sent" : "Get Pro"}
+          </Button>
         </div>
-      </div>
-    </div>
+    </Card>
   )
 }

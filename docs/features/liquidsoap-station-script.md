@@ -1,6 +1,6 @@
 ---
 feature: Liquidsoap station script (the audio path as code)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/resources/views/liquidsoap/station.blade.php
   - api/config/liquidsoap.php
@@ -24,12 +24,15 @@ sources:
   - api/app/Models/StationEvent.php
   - api/app/Providers/AppServiceProvider.php
   - api/app/Services/StationStatusService.php
-fingerprint: 0f0f6306976445a7
+  - api/app/Services/BroadcastOrigin.php
+  - api/app/Http/Controllers/BroadcastTokenController.php
+  - client/lib/broadcast.ts
+fingerprint: 77c788b2e20d6109
 ---
 
 # Liquidsoap station script
 
-Every station is one Docker container running one Liquidsoap 2.4.5 process, and that process runs one generated script. The script is the Blade template `api/resources/views/liquidsoap/station.blade.php` (1403 lines), rendered by `LiquidsoapSupervisor::renderLiqFile()` to `{liq_dir}/{slug}.liq` and bind-mounted read-only at `/station.liq`. This document is the script itself: what is in the audio graph, in what order, with which timings, and every call it makes back to Laravel. How containers are started, stopped and reconciled is in [Liquidsoap supervisor](liquidsoap-supervisor.md); how a broadcaster gets in is in [Broadcasting web studio](broadcasting-web-studio.md) and [Encoder ingest](encoder-ingest.md); what AutoDJ chooses is in [AutoDJ](autodj.md).
+Every station is one Docker container running one Liquidsoap 2.4.5 process, and that process runs one generated script. The script is the Blade template `api/resources/views/liquidsoap/station.blade.php` (1315 lines), rendered by `LiquidsoapSupervisor::renderLiqFile()` to `{liq_dir}/{slug}.liq` and bind-mounted read-only at `/station.liq`. This document is the script itself: what is in the audio graph, in what order, with which timings, and every call it makes back to Laravel. How containers are started, stopped and reconciled is in [Liquidsoap supervisor](liquidsoap-supervisor.md); how a broadcaster gets in is in [Broadcasting web studio](broadcasting-web-studio.md) and [Encoder ingest](encoder-ingest.md); what AutoDJ chooses is in [AutoDJ](autodj.md).
 
 **The one thing people get wrong:** there are two different answers to "is somebody on air", and they disagree on purpose. `broadcaster` is a plain flag flipped by harbor's connect/disconnect callbacks. `source` (`live` / `autodj` / `silence`) only says which arm of the fallback is feeding the encoder, and it lags a connection by harbor's buffer on the way in and on the way out. Neither of them means "sound is coming out"; that is `rms`. Product logic about people must read `broadcaster`.
 
@@ -61,24 +64,24 @@ Priority in `mixed` is live, then AutoDJ, then silence. `track_sensitive=false` 
 
 ## Script, section by section
 
-### Header and settings (lines 54-70)
+### Header and settings (lines 50-66)
 
-- `settings.log.stdout.set(true)`, `settings.log.level.set(2)` (Liquidsoap's severe level: 1 critical, 2 severe, 3 important, 4 info). Level 3 would log one line per retry all day. `log.severe` lines therefore print; `log.important` (3) would not. The `on_fail` handlers of the jingle and watermark playlists log at level 2 and so do print.
+- `settings.log.stdout.set(true)`, `settings.log.level.set(2)` (Liquidsoap's severe level: 1 critical, 2 severe, 3 important, 4 info). Level 3 would log one line per retry all day. `log.severe` lines therefore print; `log.important` (3) would not. The watermark playlist's `on_fail` handler logs at level 2 and so does print.
 - Telnet server on `0.0.0.0:1234`, no authentication. Only reachable on `gocast-network`. `LiquidsoapSupervisor::TELNET_PORT` hardcodes the same 1234.
 
-### OCaml GC block (lines 71-106)
+### OCaml GC block (lines 67-102)
 
 Rendered only when `gc_space_overhead > 0`. Sets `runtime.gc` `space_overhead` to the config value (default 80) and `allocation_policy = 2` (best fit). `LIQUIDSOAP_GC_SPACE_OVERHEAD=0` omits the block. The comment says the container cap is 512m against a roughly 85MB steady state.
 
-### Lifecycle reporting (lines 107-157)
+### Lifecycle reporting (lines 103-168)
 
 `post_event(body)` does an HTTP POST to `{apiUrl}/api/internal/station-event`, 5s timeout, return value ignored. `notify(event)` sends `{slug, event}`. `notify_live_connected(client, via)` is a separate function because Liquidsoap records are statically typed and the other events must not carry empty `client`/`via` fields. `on_start` sends `boot`, `on_shutdown` sends `shutdown`. `ice_up = ref(false)` is declared here and flipped by the Icecast output callbacks further down.
 
-### harbor_auth (lines 159-210)
+### harbor_auth (lines 170-206)
 
 Passed as `auth=` to `input.harbor`. POSTs `{slug, user, password, address}` to `/api/internal/harbor-auth` (5s timeout). Only an exact HTTP 200 is an accept. Any other status logs `harbor: refused ...` at `log.severe` and returns false. A thrown exception (API unreachable, DNS failure, dev server on loopback) logs `harbor: cannot reach the auth API ...` and also returns false. It fails closed. Laravel side, every refusal is logged and counted in `IngestMetrics`.
 
-### The live input (lines 212-278)
+### The live input (lines 208-275)
 
 ```
 live_in = input.harbor(<slug>, port=harbor_input_port, auth=harbor_auth,
@@ -96,9 +99,9 @@ live_in = input.harbor(<slug>, port=harbor_input_port, auth=harbor_auth,
 | `icy` | true | literal | Accept in-band metadata from source clients (BUTT, Mixxx). |
 | charsets | `UTF-8` | `liquidsoap.metadata_charset` | Set for both the Icecast-protocol and the webcast path. |
 
-Two protocols share the port: the webcast WebSocket (the browser studio) and the Icecast source protocol (BUTT, Mixxx, libshout clients). The router container that lets encoders reach it is in [Encoder ingest](encoder-ingest.md).
+Two protocols share the port: the webcast WebSocket (the browser studio) and the Icecast source protocol (BUTT, Mixxx, libshout clients). The router container that lets encoders reach it is in [Encoder ingest](encoder-ingest.md). Harbor answers a WebSocket close frame by dropping the TCP connection without sending a close frame back (checked on the raw socket, 2026-10-04), so a browser always reports `1006` / `wasClean=false` when the studio ends a show normally; `client/lib/broadcast.ts` ignores that close (it has already set `stopping`), so no `studio_drop` is reported.
 
-### Connection callbacks, `live_connected`, `via` (lines 280-410)
+### Connection callbacks, `live_connected`, `via` (lines 276-417)
 
 - `live_connected = ref(false)` is set true in `live_in.on_connect` and false in `live_in.on_disconnect`. Both are registered as methods (the argument form is deprecated) with `synchronous=false`, because each does an HTTP post and a synchronous callback would stall the streaming thread.
 - `on_connect` posts `live_connected` with `client` (the User-Agent header, trimmed, clipped to 255 chars by `live_clip`) and `via`. `on_disconnect` posts `live_disconnected`.
@@ -106,7 +109,7 @@ Two protocols share the port: the webcast WebSocket (the browser studio) and the
 - `live_via(headers)` returns `"browser"` if `Upgrade` contains `websocket` or `Sec-WebSocket-Protocol` is non-empty, otherwise `"external"`. Only three values ever leave the container: the user-agent, and the via label. The `Authorization` header carries the stream key and is deliberately never forwarded.
 - `broadcaster_attached()` is exactly `live_connected()`. It used to be `live_connected() or live_in.is_ready()`; the OR made a DJ who pressed Stop read as a broadcaster for about another 12 seconds (the buffer tail). Removed.
 
-### Live metadata and the live arm (lines 412-453)
+### Live metadata and the live arm (lines 419-449)
 
 - `live_metadata(m)`: if the broadcaster sent no metadata (`m == []`), emit `[("title", live_broadcast_text)]` (default `Live Broadcast`, env `LIQUIDSOAP_LIVE_BROADCAST_TEXT`). Otherwise pass through untouched. `metadata.map(insert_missing=true, ...)` is what makes it fire for a client that never sends any. A real title arriving later replaces the placeholder.
 - `live_raw = buffer(buffer=2., max=10., live_tagged)`: a second buffer on top of harbor's own, to decouple arrival timing from the main clock. Literal values, not configurable.
@@ -114,9 +117,9 @@ Two protocols share the port: the webcast WebSocket (the browser studio) and the
 
 Approximate live latency budget: harbor 5s + `buffer()` 2s + encoder and HLS (4s segments, players hold roughly 2 segments). The Icecast mount is the low-latency path. These are all reasoning from the constants; no latency measurement was taken for this doc.
 
-### AutoDJ rotation: `request.dynamic` (lines 455-534)
+### AutoDJ rotation: `request.dynamic` (lines 451-551)
 
-`autodj_next()` does `GET {nextTrackUrl}` with headers `Accept: text/plain` and `X-Internal-Key`, 5s timeout. `nextTrackUrl` is built in the supervisor: `{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`.
+`autodj_next()` does `GET {nextTrackUrl}` with headers `Accept: text/plain`, `X-Internal-Key` and `X-Gocast-Remaining` (see below), 5s timeout. `nextTrackUrl` is built in the supervisor: `{api_url}/api/internal/next-track?slug={rawurlencode(slug)}`.
 
 | Response | Effect |
 |---|---|
@@ -134,19 +137,19 @@ The id `playlist_m3u` is a leftover from when the rotation was an m3u file. It i
 
 What the server answers is decided in Laravel (`AutoDjScheduler::next()`, see [AutoDJ](autodj.md) and [Schedule](schedule.md)). The plan gate (`canUseAutoDj`) is there: a Free station always gets 204, so its AutoDJ arm is permanently unavailable and its `source` is `live` or `silence`. `NextTrackController` returns 404 for an unknown slug, which the script treats as "any other status".
 
-The URI is built by `PlaylistFileWriter::annotateUri()`: `annotate:` then, in order, `jingle="true"` (jingles only), the analyser's `liq_cue_in` / `liq_cue_out` / `liq_amplify="<n> dB"`, `duration="<3dp>"` (only when positive), `title`, `artist`, `playlist="<name>"`, then `:/data/playlists/<file>`. Empty artist and playlist are omitted. Backslash and double quote are escaped. The rotation entry is annotated with `playlist` (the name of the playlist it came from) which the script never reads, but which reaches `on_metadata`.
+The URI is built by `PlaylistFileWriter::annotateTrack()` (via the private `annotateUri()`): `annotate:` then, in order, `jingle="true"` (jingles only), the analyser's `liq_cue_in` / `liq_cue_out`, `liq_fade_out` (only when the planner cut the song short, `min(CUT_FADE_SECONDS=2.0, playFor)`), `liq_amplify="<n> dB"`, `duration="<3dp>"` (only when positive), `title`, `artist`, `playlist="<name>"`, then `:/data/playlists/<file>`. Empty artist and playlist are omitted. Backslash and double quote are escaped. The rotation entry is annotated with `playlist` (the name of the playlist it came from) which the script never reads, but which reaches `on_metadata`.
 
-### Jingles and on-time cuts
+### Jingles and on-time cuts (lines 553-578)
 
 - There is no jingle source in the graph. Laravel decides when a jingle plays (`JingleClock`: every N minutes, every N songs, or at set minutes past the hour) and hands it out through `next-track` like a song, annotated `jingle="true"`. The annotation still drives the crossfade's hard cut and keeps jingles out of now-playing.
 - `autodj_next` sends `X-Gocast-Remaining`: `autodj.remaining()` of the track on air, read through a ref (`autodj_remaining`) because the source is defined after the function. Laravel uses it as the start time of its answer. Its presence also marks the script as one that leaves jingles to Laravel.
 - A song Laravel cuts short to start something on time carries `liq_cue_out` and `liq_fade_out`. With crossfade on, the first branch of `autodj_cross` fades `a` over `min(window, liq_fade_out)` and sequences into `b` (fade.out cannot sit in front of `cross()` on 2.4.5: "may control its own latency"). With crossfade off, `autodj_rotation = fade.out(track_sensitive=true, duration=0.1, autodj)` applies it. Measured on 2.4.5 with the real rendered script: the cut lands within 0.2s of `liq_cue_out` and the level reaches zero at it.
 
-### Loudness (`amplify`) (lines 687-725)
+### Loudness (`amplify`) (lines 580-618)
 
 If `apply_amplify` (default true): `autodj_leveled = amplify(1., autodj_rotation)`. The factor 1.0 is a no-op except for tracks carrying `liq_amplify`, which overrides it per track (the value has a `dB` suffix; without it Liquidsoap reads a linear multiplier). It sits above the crossfade so `cross()` compares levelled tracks, and it wraps both the rotation and jingles. If false, the operator is dropped and any `liq_amplify` annotation is inert (and `PlaylistFileWriter::analysisAnnotations()` stops writing it, but still writes `liq_cue_in`/`liq_cue_out`). This is one static gain per track, not a compressor.
 
-### Crossfade (lines 727-865)
+### Crossfade (lines 620-777)
 
 Only when `crossfade_enabled` is true, and **the config default is false** (`LIQUIDSOAP_CROSSFADE_ENABLED`). With it false, transitions are hard cuts (`autodj_faded = autodj_leveled`). When true:
 
@@ -164,9 +167,9 @@ Only when `crossfade_enabled` is true, and **the config default is false** (`LIQ
 
 Fades are `sin` type via `fade.out` / `fade.in`. The sum is `add(normalize=false, [starting, ending])`, with the incoming track listed first so metadata reports the new track during the overlap (`add` relays the first source's metadata).
 
-Numbers, all from config and rendered with one decimal: window `duration` 5.0 (`LIQUIDSOAP_CROSSFADE_DURATION`), fade 3.0 (`LIQUIDSOAP_CROSSFADE_FADE`), high -15 (`_HIGH_DB`), medium -32 (`_MEDIUM_DB`), margin 4 (`_MARGIN_DB`). The supervisor clamps the fade to `min(fade, max(duration - 0.5, 0.1))` so fades are always strictly shorter than the window. The Liquidsoap 2.4.0 wedge that made this unusable (savonet#4851, fixed in 2.4.3) is why the image is pinned to 2.4.5; the config still defaults it off because nobody has yet confirmed it healthy in production here.
+Numbers, all from config and rendered with one decimal: window `duration` 5.0 (`LIQUIDSOAP_CROSSFADE_DURATION`), fade 3.0 (`LIQUIDSOAP_CROSSFADE_FADE`), high -15 (`_HIGH_DB`), medium -32 (`_MEDIUM_DB`), margin 4 (`_MARGIN_DB`). The supervisor clamps the fade to `min(fade, max(duration - 0.5, 0.1))` so fades are always strictly shorter than the window. It is off because AutoDJ froze with it on (switched off in 96143b9). The template, Dockerfile and config comments blame a Liquidsoap 2.4.0 bug fixed in 2.4.3; `docs/CROSSFADE-INVESTIGATION.md` (2026-10-10, test harness only, no repo change) traced the freeze instead to this script calling `remaining()` / `is_ready()` on post-`cross()` sources from the harbor HTTP thread (`/status`, `/healthz`, `current_source()`), and recommends 2.4.6 plus caching those values in `on_frame` before turning it back on. Neither is in the code.
 
-### Limiter (lines 867-896 and 1059-1074)
+### Limiter (lines 779-808 and 971-986)
 
 `limit(threshold=<-1.0>, ...)`, threshold `LIQUIDSOAP_LIMITER_THRESHOLD_DB`. Placement depends on `limiter_include_live` (default true, `LIQUIDSOAP_LIMITER_INCLUDE_LIVE`):
 
@@ -175,17 +178,17 @@ Numbers, all from config and rendered with one decimal: window `duration` 5.0 (`
 
 `limit()` is static gain above a threshold, no track logic, so it is safe on the live path (unlike `cross`). The script does not run `normalize()` anywhere, on purpose.
 
-### The fallback, silence bed and RMS meter (lines 898-931)
+### The fallback, silence bed and RMS meter (lines 811-843)
 
 `bed = mksafe(blank())`. `mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))`. `mksafe` is a type-checker promise; output operators refuse fallible sources.
 
 `output_source = rms(duration=<2.0>, mixed)` (`LIQUIDSOAP_RMS_WINDOW_SECONDS`, default 2). `rms()` reports 0.0 until the first window completes and then refreshes once per window, so the window is also the update interval. It is inserted once as a permanent operator; `/status` only reads the float. It must never be applied per request.
 
-### Listener metadata rewrite (lines 933-972)
+### Listener metadata rewrite (lines 845-884)
 
 `replay_jingle_metadata` is a `metadata.map(update=false, strip=true, ...)` that, for any metadata carrying `jingle == "true"`, substitutes the last non-jingle metadata (kept in a ref) so listeners' ICY/ID3 title never flips to a station ID. `output_source` (the truth) is not rewritten. `listener_source` feeds the watermark stage and the outputs.
 
-### Free-tier watermark (lines 974-1057)
+### Free-tier watermark (lines 886-969)
 
 Rendered only when `watermark_enabled` is true (`LIQUIDSOAP_WATERMARK_ENABLED`, install-wide switch, default true); otherwise `broadcast_source = listener_source`. Details of clips and plan wiring are in [Watermark clips](watermark-clips.md).
 
@@ -196,7 +199,7 @@ Rendered only when `watermark_enabled` is true (`LIQUIDSOAP_WATERMARK_ENABLED`, 
 - `broadcast_source = smooth_add(duration=<fade>, p=watermark_duck, normal=listener_source, special=watermark_arm)`. `p` is the portion of the station audio KEPT (0.15 leaves the host at 15%), not the amount removed. `duration` is `watermark_fade_seconds` (default 1.0).
 - Supervisor floors and clamps: interval at least 60s, duck within [0.01, 1.0] (`watermarkInterval()`, `watermarkDuck()`).
 
-### Harbor HTTP control surface (lines 1083-1210)
+### Harbor HTTP control surface (lines 995-1122)
 
 `harbor.http.register` on `harbor_port` (default 8080, `LIQUIDSOAP_HARBOR_PORT`). Not published to the host; reached over `gocast-network` at the container IP (see [Liquidsoap supervisor](liquidsoap-supervisor.md) for how the address is computed).
 
@@ -218,7 +221,7 @@ Rendered only when `watermark_enabled` is true (`LIQUIDSOAP_WATERMARK_ENABLED`, 
 
 **`GET /healthz`** is unauthenticated on purpose. It returns 200 with `{ready, icecast, source}`, or 503 if `output_source.is_ready()` is false. The status code is the contract; Docker's healthcheck (`bash /dev/tcp`, since the image has no curl) greps the status line for ` 200 `. Icecast state is reported in the body but is NOT part of the verdict, so an Icecast outage does not mark the whole fleet unhealthy and get every container recreated.
 
-### Now-playing push (lines 1212-1274)
+### Now-playing push (lines 1124-1186)
 
 `output_source.on_metadata(synchronous=false, push_now_playing)`. For every metadata event:
 
@@ -228,7 +231,7 @@ Rendered only when `watermark_enabled` is true (`LIQUIDSOAP_WATERMARK_ENABLED`, 
 
 Laravel (`NowPlayingController`): validates slug `^[a-z0-9-]+$` (max 255), title and artist nullable strings max 500, trims them, treats blank as null. Both null means clear: `Redis::del("metadata:{id}")`. Otherwise `Redis::setex("metadata:{id}", 6h, json)`. It broadcasts `audio_started` / `audio_stopped` only when a station moves between having and not having any metadata, never on a plain track change.
 
-### Outputs (lines 1276-1403)
+### Outputs (lines 1188-1315)
 
 **Icecast**: `output.icecast(%mp3(bitrate=128, samplerate=44100), host, port, password, mount, name, description, genre, encoding="UTF-8", broadcast_out)`.
 
@@ -258,7 +261,7 @@ The per-boot token exists because segments are served `immutable`; the default n
 
 ## What the supervisor injects
 
-`LiquidsoapSupervisor::renderLiqFile()` calls `View::make('liquidsoap.station', [...])`, writes `{liq_dir}/{slug}.liq`, and is called from `up()` (which then starts or restarts the container). Every render is from scratch, so a stopped station picks changes up whenever it next starts. `up()` is the only renderer. Which station edits cause a re-render and restart is decided by `StationObserver` (`LIQ_RELEVANT_COLUMNS`: `name`, `slug`, `description`, `genre`, `icecast_mount`) and only while the station is running and nobody is live (or when the slug changed). A running container whose script, image or flags no longer match a fresh render is recreated by `stations:reconcile` once nobody is broadcasting (`configFingerprint()`, see [Liquidsoap supervisor](liquidsoap-supervisor.md)).
+`LiquidsoapSupervisor::renderLiqFile()` writes `{liq_dir}/{slug}.liq` from `renderLiq()` (`View::make('liquidsoap.station', [...])`; `configFingerprint()` renders the same view with the watermark forced off so a plan change never reads as drift), and is called from `up()` (which then starts or restarts the container). Every render is from scratch, so a stopped station picks changes up whenever it next starts. `up()` is the only renderer. Which station edits cause a re-render and restart is decided by `StationObserver` (`LIQ_RELEVANT_COLUMNS`: `name`, `slug`, `description`, `genre`, `icecast_mount`) and only while the station is running and nobody is live (or when the slug changed). A running container whose script, image or flags no longer match a fresh render is recreated by `stations:reconcile` once nobody is broadcasting (`configFingerprint()`, see [Liquidsoap supervisor](liquidsoap-supervisor.md)).
 
 Every template variable and where it comes from:
 
@@ -277,7 +280,7 @@ Every template variable and where it comes from:
 | `$liqSource` | `PlaylistFileWriter::LIQ_SOURCE` (`playlist_m3u`) |
 | `$autodjRetryDelay` | `max(1.0, autodj_retry_delay_seconds)` |
 | `$watermarkSupported` | `liquidsoap.watermark_enabled` |
-| `$watermarkEnabled` | `$station->user->watermarked()` (false if owner or plan is unresolved) |
+| `$watermarkEnabled` | `watermarkEnabledFor()` = `$station->user->watermarked()` (false if owner or plan is unresolved; always false in the fingerprint render) |
 | `$watermarkEnabledVar`, `$watermarkIntervalVar`, `$watermarkDuckVar` | `VAR_WATERMARK_*` constants |
 | `$watermarkContainerDir` | `/data/system` |
 | `$watermarkInterval`, `$watermarkDuck`, `$watermarkFade` | config, clamped as above |
@@ -303,12 +306,12 @@ All go to `{api_url}` (default `http://host.docker.internal:8081`, the internal-
 | Broadcaster disconnects | same | `{slug, event:"live_disconnected"}` | 5s | ignored; Laravel closes sessions and deletes `metadata:{id}` |
 | Icecast connect / drop / error | same | `event: icecast_connected \| icecast_disconnected \| icecast_error` | 5s | ignored |
 | Each broadcaster connection attempt | POST `/api/internal/harbor-auth` | `{slug, user, password, address}` | 5s | 200 accept, anything else refuse, exception refuse |
-| Every track boundary (and every retry) | GET `/api/internal/next-track?slug=` | none | 5s | see AutoDJ table above |
+| Every track boundary (and every retry) | GET `/api/internal/next-track?slug=` | header `X-Gocast-Remaining` | 5s | see AutoDJ table above |
 | Metadata change | POST `/api/internal/now-playing` | `{slug, title, artist}` | 5s | ignored |
 
 The `/api/internal/metrics` route (`MetricsController`, Prometheus format, same key) exists in Laravel but the station script never calls it and the script has no Prometheus exporter.
 
-`StationEventController` details that matter to the script: `event` must be one of `StationEvent::CONTAINER_TYPES` (`boot`, `shutdown`, `icecast_connected`, `icecast_disconnected`, `icecast_error`, `live_connected`, `live_disconnected`); anything else is 422. Unknown slug is 404. `slug` max 64, `event` max 32, `client` max 255 nullable, `via` nullable in (`browser`, `external`), an absent `via` defaults to `browser`. `client` is trimmed and an empty string becomes null. Effects: cache `station-event:{id}` for 3600s, a `StationEvent` row, `last_ready_at` on `icecast_connected`, a `StreamSession` opened on `live_connected` (idempotent: an open session is left alone; a `SendStationLiveNotifications` job is dispatched delayed 2 minutes) and closed on `live_disconnected`. A queued `StationStateChanged` broadcast goes out for `shutdown`, the three Icecast events, and both live events (not `boot`). The old `live_silent` / `live_audio` events (from the removed dead-air guard) now get 422 from a container that was rendered before the removal.
+`StationEventController` details that matter to the script: `event` must be one of `StationEvent::CONTAINER_TYPES` (`boot`, `shutdown`, `icecast_connected`, `icecast_disconnected`, `icecast_error`, `live_connected`, `live_disconnected`); anything else is 422. Unknown slug is 404. `slug` max 64, `event` max 32, `client` max 255 nullable, `via` nullable in (`browser`, `external`), an absent `via` defaults to `browser`. `client` is trimmed and an empty string becomes null. Effects: cache `station-event:{id}` for 3600s, a `StationEvent` row, `last_ready_at` on `icecast_connected`, a `StreamSession` opened on `live_connected` (idempotent: an open session is left alone; a `SendStationLiveNotifications` job is dispatched delayed 2 minutes; for `via` other than `external` the row's `ip_address` and `country` are filled from `BroadcastOrigin`, which `BroadcastTokenController` cached from the broadcaster's token request, since harbor itself only sees a proxy; encoder sessions get none) and closed on `live_disconnected`. A queued `StationStateChanged` broadcast goes out for `shutdown`, the three Icecast events, and both live events (not `boot`). The old `live_silent` / `live_audio` events (from the removed dead-air guard) now get 422 from a container that was rendered before the removal.
 
 `HarborAuthController` details: validation `slug` required max 255, `password` nullable max 2048, `user` nullable max 255, `address` nullable max 255. Empty password refused. Station looked up first (deleted station refuses even a valid token). A valid broadcast token (MAC, expiry, station binding; `BroadcastTokenService::verify`) is accepted for any plan. Otherwise the station's `stream_key` is compared with `hash_equals` and requires the owner's `canUseEncoder()`. Refusals answer 403 with the reason as the body. Harbor authenticates once when the socket opens, so a plan downgrade does not cut a running broadcast. The `address` in an encoder refusal is the station-router's address, not the broadcaster's (routed TCP without PROXY protocol).
 
@@ -396,28 +399,30 @@ The script has no UI. Its outputs surface as: the Icecast mount and HLS URL list
 1. **`source` is not `broadcaster`.** `source` reads `live.is_ready()` which stays true while the live arm drains (and is false until it fills), so it lags connects and disconnects. The dashboard and sweep must use `broadcaster`. (`current_source()` vs `broadcaster_attached()` in the template.)
 2. **A live broadcast has no fade in or out.** Hard cuts both ways, and the 5s harbor buffer plus 2s `buffer()` keep the live arm "ready" for several seconds after the DJ leaves, so AutoDJ does not resume instantly on a clean disconnect. The 5s and 2s values are literals, not config.
 3. **Crossfade is off by default in config** even though every comment in the template talks as if it were on. Production stations do hard cuts unless `LIQUIDSOAP_CROSSFADE_ENABLED=true`. The `cross()` block, its 5s/3s numbers and the loudness thresholds are inert until then.
-4. **Cue points are applied.** `PlaylistFileWriter` writes `liq_cue_in` and `liq_cue_out`; measured on 2.4.5 with the rendered script (2026-10-06), a request with `liq_cue_out="10.000"` hands over after 10s, and `autodj.remaining()` already accounts for it. The template sets no cue setting; the request layer applies them by default.
-5. **No jingle list in the container.** Jingle uploads, deletes and settings reach air at the next `next-track` ask; nothing is reloaded over telnet.
-6. **`healthFlags()` docblock in the supervisor says `/healthz` answers 200 only when the graph is producing frames AND Icecast is up. The template does the opposite** (Icecast is reported but excluded from the 200/503 verdict). The template is right and is the intent.
-7. **Stale variable documentation.** The template header lists `$rtspHost` and `$rtspPort` (from the removed MediaMTX pull). The supervisor does not pass them and the template does not use them.
-8. **`icecast_password` and `artwork_url` are not in the script** (the Icecast password is the global `services.icecast.source_password`, and no artwork is rendered), so since 2026-10-06 they are not in `StationObserver::LIQ_RELEVANT_COLUMNS` and editing them restarts nothing.
-9. **Harbor input mount is the slug, Icecast output mount is `/stream/{slug}`.** They are different things; the ingest URL a broadcaster uses ends in the slug, and listeners use the `icecast_mount`. A custom `icecast_mount` does not change ingest.
-10. **Telnet is unauthenticated** and bound on `0.0.0.0` in the container. Protection is network isolation only. Skip and watermark control rely on it. Watermark pushes and clip reloads are best effort (failure logged at info, never surfaced); skip answers 503 to the user.
-11. **Interactive variables are not persisted.** After a container restart they reset to the rendered initial values, which come from the row and plan at render time. This is by design, but an admin editing the config for watermark interval must relaunch, or wait for the next plan-change push, because only a plan change (`UserObserver`) calls `applyWatermarkSettings`.
-12. **Watermark clip reload is skipped when the install switch is off**, since the `watermark` source does not exist. Any telnet call to it would answer "unknown command".
-13. **Old `live_silent` / `live_audio` events**: containers rendered before the dead-air guard was removed keep posting them and get 422 until recreated. Harmless noise.
-14. **The `internal` throttle (300/min per IP) is shared** across all stations if they arrive from the same address. Each station makes one `next-track` call per track plus its retry (every 10s while empty), plus now-playing and events. Not measurable from code; watch for 429s in station logs (`autodj: next-track answered HTTP 429`).
-15. **The rendered script contains the internal API key and Icecast source password in plain text** on disk in `{liq_dir}` and visible to anything that can read the bind mount or run `docker inspect`-adjacent reads of `/station.liq`. This is inherent to the design.
-16. **`reference-station.liq`, `standby.liq`'s comment, `README.md` and the Dockerfile comments describe designs that are gone** (RTSP/MediaMTX pull, standby mount, file playlists, dead-air guard, Prometheus). Only the Dockerfile's `FROM` and `ffmpeg` install and the pinned version matter for the running system.
-17. **No Prometheus or telemetry from the container.** The only telemetry is the `/status` poll and the event posts. Nothing scrapes Liquidsoap directly.
-18. **Old HLS segments from previous boots** are named with the previous `hls_boot` token. Whether Liquidsoap's `segments_overhead` cleanup removes them across a restart (with `persist_at`) cannot be determined from code (needs a live Liquidsoap).
+4. **Turning crossfade on as the code stands risks the freeze it was turned off for.** `/status` reads `output_source.is_ready()` / `remaining()` and `current_source()` reads `autodj_mix.is_ready()` from the harbor HTTP thread, on sources at or after `cross()`; `docs/CROSSFADE-INVESTIGATION.md` reproduced the freeze from exactly that on 2.4.5 and 2.4.6. The `on_frame` cache it recommends is not in the template, and the template's own comment ("fixed in 2.4.3") names the wrong cause. Needs a running Liquidsoap to re-confirm.
+5. **Cue points are applied.** `PlaylistFileWriter` writes `liq_cue_in` and `liq_cue_out`; measured on 2.4.5 with the rendered script (2026-10-06), a request with `liq_cue_out="10.000"` hands over after 10s, and `autodj.remaining()` already accounts for it. The template sets no cue setting; the request layer applies them by default.
+6. **No jingle list in the container.** Jingle uploads, deletes and settings reach air at the next `next-track` ask; nothing is reloaded over telnet.
+7. **`healthFlags()` docblock in the supervisor says `/healthz` answers 200 only when the graph is producing frames AND Icecast is up. The template does the opposite** (Icecast is reported but excluded from the 200/503 verdict). The template is right and is the intent.
+8. **Stale variable documentation.** The template header lists `$rtspHost` and `$rtspPort` (from the removed MediaMTX pull). The supervisor does not pass them and the template does not use them.
+9. **`icecast_password` and `artwork_url` are not in the script** (the Icecast password is the global `services.icecast.source_password`, and no artwork is rendered), so since 2026-10-06 they are not in `StationObserver::LIQ_RELEVANT_COLUMNS` and editing them restarts nothing.
+10. **Harbor input mount is the slug, Icecast output mount is `/stream/{slug}`.** They are different things; the ingest URL a broadcaster uses ends in the slug, and listeners use the `icecast_mount`. A custom `icecast_mount` does not change ingest.
+11. **Telnet is unauthenticated** and bound on `0.0.0.0` in the container. Protection is network isolation only. Skip and watermark control rely on it. Watermark pushes and clip reloads are best effort (failure logged at info, never surfaced); skip answers 503 to the user.
+12. **Interactive variables are not persisted.** After a container restart they reset to the rendered initial values, which come from the row and plan at render time. This is by design, but an admin editing the config for watermark interval must relaunch, or wait for the next plan-change push, because only a plan change (`UserObserver`) calls `applyWatermarkSettings`.
+13. **Watermark clip reload is skipped when the install switch is off**, since the `watermark` source does not exist. Any telnet call to it would answer "unknown command".
+14. **Old `live_silent` / `live_audio` events**: containers rendered before the dead-air guard was removed keep posting them and get 422 until recreated. Harmless noise.
+15. **The `internal` throttle (300/min per IP) is shared** across all stations if they arrive from the same address. Each station makes one `next-track` call per track plus its retry (every 10s while empty), plus now-playing and events. Not measurable from code; watch for 429s in station logs (`autodj: next-track answered HTTP 429`).
+16. **The rendered script contains the internal API key and Icecast source password in plain text** on disk in `{liq_dir}` and visible to anything that can read the bind mount or run `docker inspect`-adjacent reads of `/station.liq`. This is inherent to the design.
+17. **`reference-station.liq`, `standby.liq`'s comment, `README.md` and the Dockerfile comments describe designs that are gone** (RTSP/MediaMTX pull, standby mount, file playlists, dead-air guard, Prometheus). Only the Dockerfile's `FROM` and `ffmpeg` install and the pinned version matter for the running system.
+18. **No Prometheus or telemetry from the container.** The only telemetry is the `/status` poll and the event posts. Nothing scrapes Liquidsoap directly.
+19. **Old HLS segments from previous boots** are named with the previous `hls_boot` token. Whether Liquidsoap's `segments_overhead` cleanup removes them across a restart (with `persist_at`) cannot be determined from code (needs a live Liquidsoap).
 
 ## Tests
 
-`api/tests/Feature/LiquidsoapTemplateTest.php` renders the template and asserts on the text (names read, not each body verified for this doc): live passthrough with no dead-air guard, `broadcaster` from the connection alone, HLS `persist_at` and per-boot segment names, escaping of secrets, harbor auth fail-closed, connect/disconnect and `via` reporting with no header leakage, 5s harbor buffer, crossfade and limiter placement in both modes, jingle gates and interactive variables, watermark presence and absence, `request.dynamic` with the skip command and retry delay, jingle-metadata replay, in-band metadata and the live placeholder, `/healthz` status codes, finite `/status` numbers. Related: `HarborAuthTest.php`, `NextTrackControllerTest.php`, `StationEventControllerTest.php`, `NowPlayingControllerTest.php`, `PlaylistFileWriterTest.php`, `LiquidsoapSupervisorTest.php` (all under `api/tests/Feature`). These test the text of the script and the controllers, never Liquidsoap itself. Nothing in the suite runs the rendered script through a Liquidsoap parser, so a syntax error only shows up when a container dies at boot.
+`api/tests/Feature/LiquidsoapTemplateTest.php` renders the template and asserts on the text (names read, not each body verified for this doc): live passthrough with no dead-air guard, `broadcaster` from the connection alone, HLS `persist_at` and per-boot segment names, escaping of secrets, harbor auth fail-closed, connect/disconnect and `via` reporting with no header leakage, 5s harbor buffer, crossfade and limiter placement in both modes, no jingle source in the graph, `X-Gocast-Remaining` on every ask, `liq_fade_out` cuts with and without crossfade, jingles never crossfaded and kept out of now-playing, watermark presence and absence, `request.dynamic` with the skip command and retry delay, jingle-metadata replay, in-band metadata and the live placeholder, `/healthz` status codes, finite `/status` numbers. Related: `HarborAuthTest.php`, `NextTrackControllerTest.php`, `StationEventControllerTest.php`, `NowPlayingControllerTest.php`, `PlaylistFileWriterTest.php`, `LiquidsoapSupervisorTest.php` (all under `api/tests/Feature`). These test the text of the script and the controllers, never Liquidsoap itself. Nothing in the suite runs the rendered script through a Liquidsoap parser, so a syntax error only shows up when a container dies at boot.
 
 ## History
 
 - Rotation as `request.dynamic` instead of `playlist()`: `docs/AUTODJ-SCHEDULING-HANDOFF.md` and the comments in the template explain why (reload restarts the list at 0).
 - Harbor replacing the MediaMTX RTSP pull, the dead-air guard removal, the 12s to 5s harbor buffer, per-boot HLS segment names, ADTS HLS, and the limiter move are all explained in inline comments in `station.blade.php`, which are the closest thing to a change log and are not otherwise verified.
+- Crossfade freeze root cause and the proposed fix: `docs/CROSSFADE-INVESTIGATION.md`.
 - `station-hardening-plan.md` at the repo root holds the older P0 list for container teardown and metrics.

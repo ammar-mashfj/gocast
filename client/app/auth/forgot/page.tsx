@@ -1,23 +1,13 @@
 "use client"
 
 import { useRef, useState, type FormEvent } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
 import { IconArrowLeft } from "@tabler/icons-react"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { PasswordInput } from "@/components/common/PasswordInput"
-import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ds/Button"
+import { Input, PasswordField, TextField } from "@/components/ds/Field"
+import { AuthCard, AuthLink } from "@/components/auth/AuthCard"
 import api from "@/lib/axios"
 
 type Step = "request" | "reset"
@@ -34,11 +24,8 @@ export default function ForgotPasswordPage() {
   const router = useRouter()
   const [step, setStep] = useState<Step>("request")
   const [email, setEmail] = useState("")
-  // One switch for the new password and its confirmation.
-  const [showPassword, setShowPassword] = useState(false)
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
-  const [passwordConfirmation, setPasswordConfirmation] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const codeInputRef = useRef<HTMLInputElement>(null)
@@ -75,7 +62,6 @@ export default function ForgotPasswordPage() {
     const newErrors: Record<string, string> = {}
     if (code.length !== 6) newErrors.code = "Enter the 6-digit code."
     if (password.length < 8) newErrors.password = "Password must be at least 8 characters."
-    if (password !== passwordConfirmation) newErrors.passwordConfirmation = "Passwords do not match."
     setErrors(newErrors)
     if (Object.keys(newErrors).length > 0) return
 
@@ -85,7 +71,8 @@ export default function ForgotPasswordPage() {
         email,
         code,
         password,
-        password_confirmation: passwordConfirmation,
+        // No confirm field (Show does that job); the API still wants the pair.
+        password_confirmation: password,
       })
       toast.success("Password reset. Sign in with your new password.")
       router.replace("/auth/login")
@@ -95,7 +82,7 @@ export default function ForgotPasswordPage() {
         if (fieldErrors) {
           const flat: Record<string, string> = {}
           for (const key of Object.keys(fieldErrors)) {
-            flat[key === "password_confirmation" ? "passwordConfirmation" : key] = fieldErrors[key][0]
+            flat[key === "password_confirmation" ? "password" : key] = fieldErrors[key][0]
           }
           setErrors(flat)
         } else {
@@ -123,119 +110,88 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle className="text-lg">
-          {step === "request" ? "Forgot your password?" : "Enter your reset code"}
-        </CardTitle>
-        <CardDescription className="text-sm">
-          {step === "request"
-            ? <span key="request">Enter the email on your account and we&apos;ll send you a 6-digit reset code.</span>
-            : <span key="reset">We sent a code to <span className="text-foreground font-medium">{email}</span>. Enter it below with your new password.</span>}
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent>
-        {step === "request" ? (
-          <form onSubmit={requestCode} className="flex flex-col gap-4" noValidate>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                aria-invalid={!!errors.email}
-                autoComplete="email"
-                autoFocus
-              />
-              {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
-            </div>
-            <Button type="submit" disabled={submitting} className="mt-1 w-full">
-              {submitting ? "Sending…" : "Send reset code"}
-            </Button>
-          </form>
+    <AuthCard
+      title={step === "request" ? "Forgot your password?" : "Enter your reset code"}
+      lead={
+        step === "request" ? (
+          <span key="request">Enter the email on your account and we&apos;ll send you a 6-digit reset code.</span>
         ) : (
-          <form onSubmit={submitReset} className="flex flex-col gap-4" noValidate>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="code">Verification code</Label>
-              <Input
-                ref={codeInputRef}
-                id="code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="\d{6}"
-                maxLength={6}
-                placeholder="123456"
-                value={code}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, "").slice(0, 6)
-                  setCode(digits)
-                  if (errors.code) setErrors((prev) => ({ ...prev, code: "" }))
-                }}
-                className="tracking-[0.5em] text-center text-lg"
-                aria-invalid={!!errors.code}
-              />
-              {errors.code && <p className="text-xs text-destructive">{errors.code}</p>}
-            </div>
+          <span key="reset">
+            We sent a code to <span className="font-semibold text-foreground">{email}</span>. Enter it below with your new password.
+          </span>
+        )
+      }
+    >
+      {step === "request" ? (
+        <form onSubmit={requestCode} className="flex flex-col gap-3.5" noValidate>
+          <TextField
+            label="Email"
+            type="email"
+            placeholder="you@example.com"
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            error={errors.email}
+          />
+          <Button type="submit" size="lg" full disabled={submitting}>
+            {submitting ? "Sending…" : "Send reset code"}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={submitReset} className="flex flex-col gap-3.5" noValidate>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="code" className="text-body-sm font-semibold text-muted-foreground">
+              Reset code
+            </label>
+            <Input
+              ref={codeInputRef}
+              id="code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="\d{6}"
+              maxLength={6}
+              placeholder="123456"
+              value={code}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 6)
+                setCode(digits)
+                if (errors.code) setErrors((prev) => ({ ...prev, code: "" }))
+              }}
+              className="h-13 text-center font-mono text-meter-sm tabular-nums code-spaced"
+              aria-invalid={!!errors.code}
+              aria-describedby={errors.code ? "code-error" : undefined}
+            />
+            {errors.code && (
+              <p id="code-error" role="alert" className="px-1 text-body-sm text-error">
+                {errors.code}
+              </p>
+            )}
+          </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">New password</Label>
-              <PasswordInput
-                id="password"
-                shown={showPassword}
-                onShownChange={setShowPassword}
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                aria-invalid={!!errors.password}
-                autoComplete="new-password"
-              />
-              {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
-            </div>
+          <PasswordField
+            label="New password"
+            placeholder="At least 8 characters"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            error={errors.password}
+          />
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password-confirmation">Confirm new password</Label>
-              <PasswordInput
-                id="password-confirmation"
-                shown={showPassword}
-                onShownChange={setShowPassword}
-                placeholder="Repeat new password"
-                value={passwordConfirmation}
-                onChange={(e) => setPasswordConfirmation(e.target.value)}
-                aria-invalid={!!errors.passwordConfirmation}
-                autoComplete="new-password"
-              />
-              {errors.passwordConfirmation && <p className="text-xs text-destructive">{errors.passwordConfirmation}</p>}
-            </div>
+          <Button type="submit" size="lg" full disabled={submitting}>
+            {submitting ? "Resetting…" : "Reset password"}
+          </Button>
+          <Button type="button" variant="quiet" size="md" onClick={resendCode} disabled={submitting} className="self-center">
+            Resend code
+          </Button>
+        </form>
+      )}
 
-            <Button type="submit" disabled={submitting} className="mt-1 w-full">
-              {submitting ? "Resetting…" : "Reset password"}
-            </Button>
-
-            <button
-              type="button"
-              onClick={resendCode}
-              disabled={submitting}
-              className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline disabled:opacity-60 self-center"
-            >
-              Resend code
-            </button>
-          </form>
-        )}
-      </CardContent>
-
-      <CardFooter className="justify-center">
-        <Link
-          href="/auth/login"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <IconArrowLeft size={14} />
-          Back to sign in
-        </Link>
-      </CardFooter>
-    </Card>
+      <AuthLink href="/auth/login" className="inline-flex items-center gap-1.5 self-center text-body-sm text-muted-foreground">
+        <IconArrowLeft size={14} />
+        Back to sign in
+      </AuthLink>
+    </AuthCard>
   )
 }

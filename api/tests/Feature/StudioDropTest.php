@@ -3,6 +3,7 @@
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 
 use function Pest\Laravel\actingAs;
 
@@ -71,6 +72,44 @@ it('records a resent report only once', function () {
     expect(StationEvent::query()->where('station_id', $this->station->id)->count())->toBe(2);
 });
 
+it('treats an id the previous release recorded as already seen', function () {
+    // Before the deploy, Cache::add stored a plain 1 under the same key.
+    Cache::put('studio-drop:'.$this->station->getKey().':abc123', 1, 3600);
+
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]])
+        ->assertJson(['recorded' => 0]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->count())->toBe(0);
+});
+
+it('lets the real outcome replace a page-close report of the same drop', function () {
+    // pagehide sent it as page_closed; the page came back and reconnected.
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed', 'down_ms' => null])]])
+        ->assertJson(['recorded' => 1]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'reconnected', 'down_ms' => 9000])]])
+        ->assertJson(['recorded' => 1]);
+
+    $event = StationEvent::query()->where('station_id', $this->station->id)->sole();
+
+    expect($event->properties['outcome'])->toBe('reconnected')
+        ->and($event->properties['down_ms'])->toBe(9000);
+});
+
+it('never lets a late page-close report replace a definite outcome', function () {
+    actingAs($this->owner)->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed'])]])
+        ->assertJson(['recorded' => 0]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'stopped'])]])
+        ->assertJson(['recorded' => 0]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->sole()->properties['outcome'])->toBe('gave_up');
+});
+
 it('refuses someone who does not own the station', function () {
     actingAs(User::factory()->create())
         ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport()]])
@@ -83,4 +122,35 @@ it('rejects an unknown outcome', function () {
     actingAs($this->owner)
         ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'exploded'])]])
         ->assertUnprocessable();
+});
+
+it('keeps the bitrate and measured upload speed', function () {
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['bitrate' => 96, 'uplink_kbps' => 170])]])
+        ->assertOk();
+
+    $event = StationEvent::query()->where('station_id', $this->station->id)->sole();
+
+    expect($event->properties['bitrate'])->toBe(96)
+        ->and($event->properties['uplink_kbps'])->toBe(170);
+});
+
+it('records a resend when the first delivery wrote no row', function () {
+    // record() swallows its own failures and returns null; fail the first write.
+    $fail = true;
+    StationEvent::creating(function () use (&$fail) {
+        if ($fail) {
+            $fail = false;
+            throw new RuntimeException('db down');
+        }
+    });
+
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'page_closed'])]])
+        ->assertJson(['recorded' => 0]);
+    actingAs($this->owner)
+        ->postJson('/api/stations/jazz/studio-drops', ['drops' => [dropReport(['outcome' => 'reconnected'])]])
+        ->assertJson(['recorded' => 1]);
+
+    expect(StationEvent::query()->where('station_id', $this->station->id)->sole()->properties['outcome'])->toBe('reconnected');
 });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesTimezone;
 use App\Models\AutodjSlot;
 use App\Models\Station;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -29,6 +30,8 @@ use Illuminate\Validation\Rule;
  */
 class ReplaceAutodjSlotsRequest extends FormRequest
 {
+    use NormalizesTimezone;
+
     private const MINUTES_PER_DAY = 1440;
 
     private const MINUTES_PER_WEEK = 7 * self::MINUTES_PER_DAY;

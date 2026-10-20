@@ -16,7 +16,22 @@ export const env = {
     if (typeof window === "undefined" && process.env.INTERNAL_API_URL) {
       return process.env.INTERNAL_API_URL
     }
-    return process.env.NEXT_PUBLIC_API_URL ?? ""
+    const configured = process.env.NEXT_PUBLIC_API_URL ?? ""
+    // Dev only: the browser calls the API on the host the page was opened
+    // on, so localhost (a secure context, for broadcasting) and a LAN device
+    // both work at once. With a fixed host, the login cookie lands on the
+    // API's host and a page on the other one never sees it. Prod builds
+    // always use the configured URL.
+    if (process.env.NODE_ENV === "development" && typeof window !== "undefined" && configured) {
+      try {
+        const url = new URL(configured)
+        url.hostname = window.location.hostname
+        return url.toString().replace(/\/$/, "")
+      } catch {
+        return configured
+      }
+    }
+    return configured
   },
   /** Public app URL for links and OG tags (e.g. http://localhost:3000) */
   get appUrl(): string {

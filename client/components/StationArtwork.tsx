@@ -5,7 +5,8 @@ import Image from "next/image"
 import { IconMusic } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 
-const DEFAULT_GRADIENT = "linear-gradient(135deg, #1a0533, #2d1b69)"
+// The dashboard sets --artwork-placeholder to the design system's stripes.
+const DEFAULT_GRADIENT = "var(--artwork-placeholder, linear-gradient(135deg, #1a0533, #2d1b69))"
 
 interface StationArtworkProps {
   src: string | null | undefined

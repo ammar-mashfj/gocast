@@ -88,6 +88,11 @@ export interface StationStatus {
    * there is no track to draw a progress bar for; see useTrackProgress.
    */
   remaining: number | null
+  /**
+   * The playlist AutoDJ is drawing from now: a slot's (`scheduled`) or the
+   * default. Absent from an API that predates it; null with no playlist.
+   */
+  playlist?: { id: string; name: string; scheduled: boolean } | null
   playlist_length: number | null
   up_next: Array<{ id: string | null; title: string; artist: string | null }>
 }

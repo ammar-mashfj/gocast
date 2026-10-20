@@ -228,6 +228,23 @@ export function findOverlaps(blocks: Block[]): Set<string> {
 }
 
 /**
+ * The blocks outside `group` that overlap any block in it, in week order:
+ * what the slot dialog names when the slot being edited clashes.
+ */
+export function clashesWith(blocks: Block[], group: Block[]): Block[] {
+  const own = new Set(group.map((b) => b.key))
+  // A span past the week's end wraps to Sunday morning; test it both ways.
+  const pieces = (b: Block): Array<[number, number]> => {
+    const [s, e] = weekSpan(b)
+    return e > WEEK_MINUTES ? [[s, WEEK_MINUTES], [0, e - WEEK_MINUTES]] : [[s, e]]
+  }
+  const mine = group.flatMap(pieces)
+  return blocks
+    .filter((b) => !own.has(b.key) && pieces(b).some(([s, e]) => mine.some(([ms, me]) => s < me && ms < e)))
+    .sort((a, b) => weekSpan(a)[0] - weekSpan(b)[0])
+}
+
+/**
  * The empty stretch around `minute` on `day`, in week minutes: from the end of
  * whatever comes before (or midnight) to the start of whatever comes next (or
  * the next midnight). Null when the minute is inside a block. A drag to create

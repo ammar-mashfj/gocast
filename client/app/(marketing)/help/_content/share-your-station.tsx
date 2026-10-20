@@ -13,8 +13,12 @@ export default function Body() {
 
       <h2>From the Dashboard</h2>
       <p>
-        The share card on your station page gives you the link to copy, buttons
-        for the usual places, and a <strong>QR code you can download</strong>.
+        On your station’s Overview,{" "}
+        <strong>Copy player link</strong>{" "}copies it, ready to paste into any
+        chat, post or email. Next to it,{" "}
+        <strong>QR code &amp; embed</strong>{" "}has the{" "}
+        <strong>Tune-in code</strong>: a QR code you can download as a PNG. On a
+        phone it also has <strong>Send with…</strong>, for any app on it.
         The QR is the underrated one &mdash; it goes on a poster, a flyer, a
         sticker on a record sleeve, the corner of a video &mdash; and it is
         rendered to scan reliably off a cheap phone camera in bad light rather
@@ -23,9 +27,9 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/share-qr.webp"
-        alt="The tune-in code dialog showing a QR code for the station, above the suggestion to put it on a poster, a flyer, or the end of a set."
-        width={768}
-        height={698}
+        alt="The Tune-in code dialog: a QR code for the station, under the suggestion to put it on a poster, a flyer, or the end of a set."
+        width={840}
+        height={852}
       />
 
       <h2>What Somebody Sees When You Paste It</h2>
@@ -43,11 +47,6 @@ export default function Body() {
         offering a single field &mdash; an email address to be told the next
         time you go live &mdash; so a visitor who arrives at a silent station
         becomes an audience for your next one instead of leaving.
-      </p>
-      <p>
-        If you broadcast to a schedule, put your show times in Station settings
-        too. They appear on the player page, and &ldquo;back Thursday at
-        8pm&rdquo; is a better answer than silence.
       </p>
 
       <h2>On Your Own Site</h2>

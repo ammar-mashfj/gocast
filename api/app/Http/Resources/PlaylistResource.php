@@ -27,6 +27,7 @@ class PlaylistResource extends JsonResource
             'name' => $this->name,
             'is_default' => $this->is_default,
             'order' => $this->order,
+            'color' => $this->color,
             'position' => $this->position,
             'track_count' => $this->whenCounted('tracks'),
             'duration_seconds' => $this->whenAggregated('tracks', 'duration_seconds', 'sum', fn ($value) => (float) ($value ?? 0)),

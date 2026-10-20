@@ -16,7 +16,7 @@ export default function UserMenu({ name }: UserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 text-text-muted text-base tracking-wide bg-transparent border-none cursor-pointer hover:text-white/80 transition-colors">
+        <button className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground bg-transparent border-none cursor-pointer hover:text-foreground transition-colors">
           {firstName}
           <IconChevronDown size={14} />
         </button>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import type { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { publicApiHeaders } from "@/lib/public-api"
+import { parseEmbedOptions } from "@/lib/embed"
 import { EmbedPlayer } from "./EmbedPlayer"
 
 /**
@@ -13,9 +14,10 @@ import { EmbedPlayer } from "./EmbedPlayer"
  * that into a Next 404. Reading the plan here instead would put a second
  * copy of the rule in TypeScript, free to drift from the one that matters.
  *
- * This route is the ONE place the app may be framed — next.config.ts drops
- * X-Frame-Options for /embed/* and sends `frame-ancestors *` instead. Nothing
- * that needs a session may ever live under this path.
+ * This route is the ONE place the app may be framed — next.config.ts sends
+ * neither X-Frame-Options nor frame-ancestors for /embed/* (see the comment
+ * there for why not `*`). Nothing that needs a session may ever live under
+ * this path.
  */
 async function getEmbeddableStation(slug: string): Promise<Station | null> {
   // Same retry shape as the station page: in dev, undici's first request
@@ -65,8 +67,10 @@ export async function generateMetadata({
 
 export default async function EmbedPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { slug } = await params
   const station = await getEmbeddableStation(slug)
@@ -75,5 +79,6 @@ export default async function EmbedPage({
     notFound()
   }
 
-  return <EmbedPlayer station={station} />
+  // The controls the owner ticked in the Embed dialog (lib/embed.ts).
+  return <EmbedPlayer station={station} options={parseEmbedOptions(await searchParams)} />
 }

@@ -12,12 +12,18 @@ export default function Body() {
       <h2>Getting the Snippet</h2>
       <ol>
         <li>
-          Open the share card on your station page, or the stream panel in the
-          studio, and choose <strong>Embed</strong>.
+          On your station&#39;s Overview, press{" "}
+          <strong>QR code &amp; embed</strong>, then choose <strong>Embed</strong>.
         </li>
         <li>
           You get a line of HTML and a live preview of the real player at the
           real size. If it renders in that preview it will render on your site.
+        </li>
+        <li id="volume-on-iphone">
+          Tick <strong>Mute button</strong>{" "}or <strong>Volume slider</strong>{" "}to
+          add them to the player. The code and the preview change as you tick.
+          iPhones and iPads only take volume from their own buttons, so the
+          slider doesn’t show there; the mute button does.
         </li>
         <li>
           Paste the snippet into your page wherever you want the player to

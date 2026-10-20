@@ -108,7 +108,7 @@ registration, which would leave the chat empty.
   behind one IP. Use the IP only as a hint: a *new* guest ID on an IP where a guest was banned
   in the last ~24h must pass Turnstile or wait for approval before its messages show. For
   IPv6, use the /64 prefix.
-- Cloudflare Turnstile on first message (needs the site behind Cloudflare).
+- Cloudflare Turnstile on first message (the site is already behind Cloudflare).
 - Per-station mode: off / guests allowed / **signed-in only** (the fallback for a
   coordinated attack).
 

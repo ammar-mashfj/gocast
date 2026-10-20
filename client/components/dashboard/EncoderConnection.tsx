@@ -2,9 +2,10 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { IconCheck, IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react"
+import { copyText } from "@/lib/clipboard"
+import { Button } from "@/components/ds/Button"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { IconExternalLink } from "@tabler/icons-react"
 import { StationEncoder } from "@/interfaces/Station"
 
 interface EncoderConnectionProps {
@@ -28,15 +29,11 @@ interface EncoderConnectionProps {
 }
 
 /**
- * The five values a DJ types into BUTT, Mixxx or RadioDJ, plus where each one
- * goes in the software people actually use.
+ * The five values a DJ types into BUTT, Mixxx or RadioDJ, and a link to the
+ * help article's per-app steps (where each one goes).
  *
- * Shared by the two places that show them: the settings card, which is the
- * canonical home and the only place the key can be rotated, and the go-live
- * dialog, which is where somebody is standing when they DECIDE to broadcast
- * this way. Duplicating the values across those two would guarantee they
- * eventually disagree, and a wrong port here is a support ticket that reads
- * exactly like a wrong password.
+ * Shown by EncoderPanel on Station settings (the only place the key can be
+ * rotated) and on the go-live page's "Use DJ software instead".
  *
  * Presentational only — no fetching, no rotation, no plan check. Every caller
  * has already decided this account may see a credential.
@@ -50,18 +47,21 @@ export function EncoderConnection({
   const [copied, setCopied] = useState<string | null>(null)
 
   async function copy(label: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value)
+    // The values now show in full, so a failed copy can point at them.
+    if (await copyText(value)) {
       setCopied(label)
       setTimeout(() => setCopied((c) => (c === label ? null : c)), 1600)
-    } catch {
+    } else {
       toast.error("Couldn't copy — select the value and copy it manually")
     }
   }
 
   const unreadableKey = password === null
 
-  const fields: Array<{ label: string; value: string; secret?: boolean; hint?: string }> = [
+  const fields: Array<{ label: string; value: string; secret?: boolean; hint?: string; noCopy?: boolean }> = [
+    // Something to pick in the software, not paste, so no Copy. "Type", not
+    // "Connection type": the label column is 80px.
+    { label: "Type", value: "Icecast 2", noCopy: true },
     { label: "Server", value: encoder.host },
     { label: "Port", value: String(encoder.port) },
     { label: "Mount", value: encoder.mount, hint: "Some encoders call this the mountpoint or path." },
@@ -78,150 +78,56 @@ export function EncoderConnection({
     },
   ]
 
-  // Where the five values above go in the software people actually use. The
-  // labels differ enough between clients that "Server / Port / Mount" is not
-  // self-evident: BUTT calls the key a password, Mixxx calls it a login, and
-  // Mixxx's Server field wants the hostname WITHOUT a scheme, which is the
-  // single most common way a first connection fails.
-  //
-  // Each step is prose with the actual values set apart: prose reads in the
-  // body face, and only the strings somebody types or pastes (host, port,
-  // mount, username, key) are mono. A menu path or an option to pick is a
-  // `{ ui }` segment — it names something on their screen, so it stands out
-  // without pretending to be a machine string.
-  type Segment = string | { value: string } | { ui: string }
-  const v = (value: string): Segment => ({ value })
-  const ui = (label: string): Segment => ({ ui: label })
-  const clients: Array<{ name: string; steps: Segment[][]; command?: string }> = [
-    {
-      name: "BUTT",
-      steps: [
-        ["Open ", ui("Settings → Main → Server → Add"), "."],
-        ["Set the type to ", ui("Icecast"), "."],
-        ["Address ", v(encoder.host), ", port ", v(String(encoder.port)), "."],
-        ["Mountpoint ", v(encoder.mount.replace(/^\//, "")), " — without the slash, because BUTT adds it."],
-        ["User ", v(encoder.username), ", and your stream key as the password."],
-      ],
-    },
-    {
-      name: "Mixxx",
-      steps: [
-        ["Open ", ui("Preferences → Live Broadcasting → Server connection"), "."],
-        ["Set the type to ", ui("Icecast 2"), "."],
-        ["Host ", v(encoder.host), " — the name only, no http:// in front — and port ", v(String(encoder.port)), "."],
-        ["Mount ", v(encoder.mount), "."],
-        ["Login ", v(encoder.username), ", and your stream key as the password."],
-        ["Then turn on ", ui("Options → Enable Live Broadcasting"), " to connect."],
-      ],
-    },
-    {
-      name: "ffmpeg",
-      steps: [["Paste this into a terminal, with ", v("KEY"), " swapped for your stream key."]],
-      command:
-        `ffmpeg -re -i input.mp3 -c:a libmp3lame -b:a 128k -content_type audio/mpeg \\\n` +
-        `  -f mp3 icecast://${encoder.username}:KEY@${encoder.host}:${encoder.port}${encoder.mount}`,
-    },
-  ]
-
   return (
-    <>
-      {fields.map((field) => {
-        const hidden = field.secret && !revealed
-        return (
-          <div
-            key={field.label}
-            className="flex flex-col gap-1 md:flex-row md:items-baseline md:gap-4"
-          >
-            <div className="text-xs text-muted-foreground md:w-32 md:shrink-0">
-              {field.label}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1">
-                <code className="text-xs break-all">
-                  {hidden ? "•".repeat(24) : field.value}
-                </code>
+    <div className="flex flex-col gap-4">
+      <dl className="flex flex-col gap-1.5">
+        {fields.map((field) => {
+          const hidden = field.secret && !revealed
+          const copyable = !field.noCopy && !(unreadableKey && field.label === "Password")
+          return (
+            <div key={field.label} className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
+              {/* min-h: the Copy button's height, so a row without one lines up. */}
+              <div className="flex min-h-8.5 items-center gap-3">
+                <dt className="w-20 shrink-0 eyebrow-sm text-text-faint">{field.label}</dt>
+                <dd className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">
+                  {hidden ? "•".repeat(16) : field.value}
+                </dd>
                 {field.secret && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0 shrink-0"
-                    onClick={onToggleReveal}
-                    aria-label={revealed ? "Hide stream key" : "Show stream key"}
-                  >
-                    {revealed ? <IconEyeOff size={13} /> : <IconEye size={13} />}
+                  <Button size="sm" variant="quiet" onClick={onToggleReveal} aria-label={revealed ? "Hide stream key" : "Show stream key"}>
+                    {revealed ? "Hide" : "Show"}
                   </Button>
                 )}
-                {!(unreadableKey && field.label === "Password") && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0 shrink-0"
-                    onClick={() => copy(field.label, field.value)}
-                    aria-label={`Copy ${field.label.toLowerCase()}`}
-                  >
-                    {copied === field.label ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                {copyable && (
+                  <Button size="sm" variant="subtle" onClick={() => copy(field.label, field.value)} aria-label={`Copy ${field.label.toLowerCase()}`}>
+                    {copied === field.label ? "Copied" : "Copy"}
                   </Button>
                 )}
               </div>
-              {field.hint && (
-                <div className="text-xs text-muted-foreground mt-0.5">{field.hint}</div>
-              )}
+              {field.hint && <p className="text-caption text-text-faint sm:pl-23">{field.hint}</p>}
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </dl>
 
-      {/* Per-client field names. Collapsed, because someone who has done
-          this before wants the five values above and nothing else. */}
-      <details className="border-t border-border pt-4 group">
-        <summary className="text-xs text-muted-foreground cursor-pointer select-none marker:content-['']">
-          <span className="group-open:hidden">Where these go in BUTT, Mixxx and ffmpeg →</span>
-          <span className="hidden group-open:inline">Hide setup steps</span>
-        </summary>
-        <div className="mt-3 flex flex-col gap-4">
-          {clients.map((client) => (
-            <div key={client.name}>
-              <div className="text-xs font-medium">{client.name}</div>
-              <ol className="mt-1 flex flex-col gap-1 list-none p-0 m-0">
-                {client.steps.map((step, i) => (
-                  <li key={i} className="text-xs leading-relaxed text-muted-foreground">
-                    {step.map((seg, j) =>
-                      typeof seg === "string" ? (
-                        seg
-                      ) : "value" in seg ? (
-                        <code key={j} className="font-mono break-all text-foreground">{seg.value}</code>
-                      ) : (
-                        <span key={j} className="font-medium text-foreground">{seg.ui}</span>
-                      ),
-                    )}
-                  </li>
-                ))}
-              </ol>
-              {client.command && (
-                <pre className="mt-1.5 overflow-x-auto rounded-md bg-background/60 px-2.5 py-2 font-mono text-xs leading-relaxed text-foreground whitespace-pre">
-                  {client.command}
-                </pre>
-              )}
-            </div>
-          ))}
-        </div>
-      </details>
+    </div>
+  )
+}
 
-      {/* A worded link rather than the usual `?`, and this is the one place
-          that earns the exception: somebody reading this panel a second time
-          is reading it because a connection FAILED, and "Not connecting?" is
-          the question they already have. A bare question mark beside a list of
-          credentials reads as "what is a mount?" instead.
-
-          New tab for the same reason every help link is — see HelpLink. */}
-      <Link
-        href="/help/my-encoder-wont-connect"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
-      >
-        Not connecting? Five things cause nearly all of it →
-      </Link>
-    </>
+/**
+ * The per-app steps (BUTT, Mixxx, ffmpeg) are in the help article, opened in
+ * a new tab. It's the subtitle of both DJ-software dialogs (Settings, Go
+ * live): the first thing someone stuck reads, and not a row under the values.
+ */
+export function HowToConnectLink() {
+  return (
+    <Link
+      href="/help/broadcast-from-butt-or-mixxx#where-these-go"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex w-fit items-center gap-1.5 text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+    >
+      How to connect
+      <IconExternalLink aria-hidden className="size-4" />
+    </Link>
   )
 }

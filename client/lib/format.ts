@@ -92,6 +92,14 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * "1,500" — a count of people or listens. The locale is pinned so a server
+ * render and the browser's hydration agree on the separator.
+ */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US")
+}
+
+/**
  * "3:07" — a position or length INSIDE a track.
  *
  * Distinct from formatClock: a track is minutes long, and padding it out to
@@ -164,4 +172,22 @@ export function countryFlag(code: string): string {
   return String.fromCodePoint(
     ...code.toUpperCase().split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
   )
+}
+
+/**
+ * The top bar's clock: "SAT 21:04 · LONDON", the time where the station is.
+ * The place is the timezone's city ("America/New_York" → "NEW YORK"); a
+ * zone with no city part ("UTC") is shown as it is.
+ */
+export function formatStationClock(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone,
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ""
+  const place = timeZone.split("/").pop()!.replace(/_/g, " ")
+  return `${get("weekday")} ${get("hour")}:${get("minute")} · ${place}`.toUpperCase()
 }

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { toast } from "sonner"
 import { IconLoader2 } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+} from "@/components/ds/Dialog"
+import { Input } from "@/components/ds/Field"
 import api from "@/lib/axios"
 import type { Track } from "@/interfaces/Track"
 
@@ -75,7 +75,17 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
     }
 
     setSaving(false)
-    if (saved.length > 0) onSaved(saved)
+    if (saved.length > 0) {
+      onSaved(saved)
+      // The saved rows leave the list, but their typed values would stay in
+      // `filled`: a retry after a partial failure re-PATCHed them and counted
+      // them again in the toast.
+      setValues((prev) => {
+        const next = { ...prev }
+        for (const entry of saved) delete next[entry.id]
+        return next
+      })
+    }
 
     if (failed === 0) {
       toast.success(`Tagged ${saved.length} track${saved.length === 1 ? "" : "s"}.`)
@@ -89,7 +99,7 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) close() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Fix missing artists</DialogTitle>
           <DialogDescription>
@@ -102,15 +112,16 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
           // The caller only offers this with untagged rows, but the list is
           // live — it shrinks as saves land — so an empty one gets a sentence
           // rather than a blank gap between the header and the buttons.
-          <p role="status" className="border-t border-border py-6 text-center text-xs text-muted-foreground">
+          <p role="status" className="py-6 text-center text-body-sm text-muted-foreground">
             Every track in view has an artist now.
           </p>
         ) : (
-          <div className="-mx-1 flex max-h-[50vh] flex-col divide-y divide-border overflow-y-auto border-y border-border px-1">
+          // -mx/px: overflow-y-auto also clips x, which ate the inputs' focus ring.
+          <div className="-mx-1.5 flex max-h-[50vh] flex-col divide-y divide-line overflow-y-auto px-1.5">
             {tracks.map((track) => (
               <div key={track.id} className="flex items-center gap-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm truncate">{track.title}</div>
+                  <div className="truncate text-sm font-semibold">{track.title}</div>
                   {/* The filename is often the only clue to what an untagged
                       file actually is — the title may just be the filename
                       stem the importer fell back to. */}
@@ -123,7 +134,7 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
                   onChange={(e) => setValues((prev) => ({ ...prev, [track.id]: e.target.value }))}
                   placeholder="Artist"
                   aria-label={`Artist for ${track.title}`}
-                  className="h-9 w-36 shrink-0 text-sm sm:w-44"
+                  className="h-10 w-36 shrink-0 sm:w-44"
                   disabled={saving}
                 />
               </div>
@@ -132,10 +143,7 @@ export function FixTagsDialog({ open, onClose, tracks, onSaved }: FixTagsDialogP
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={close} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={filled.length === 0 || saving}>
+          <Button size="lg" onClick={save} disabled={filled.length === 0 || saving}>
             {saving && <IconLoader2 className="animate-spin" data-icon="inline-start" />}
             <span>
               {saving

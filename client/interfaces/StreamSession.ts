@@ -31,6 +31,8 @@ export interface StreamSession {
   /** Null while the broadcast is still running. */
   ended_at: string | null
   peak_listeners: number
+  /** When the peak was first reached. Null if nobody listened, or for shows from before it was recorded. */
+  peak_at?: string | null
   source_type: StreamSessionSource
   /**
    * The broadcaster's software, when harbor saw one: "Mixxx 2.5.0",

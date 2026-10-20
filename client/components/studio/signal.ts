@@ -4,20 +4,8 @@ import { useEffect, useState } from "react"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
 import type { TransportStats } from "@/lib/broadcast"
+import { BITRATE_TIERS } from "@/lib/audioEngine"
 import { useCoarsePointer } from "@/lib/useCoarsePointer"
-
-/**
- * The One Meaning Rule palette for every lamp: emerald live, sky mic, red
- * fault, grey for the in-between states the go-live page shows. The studio
- * lamp, the banner on other pages and the go-live lamp each used to carry
- * their own copy of this table.
- */
-export const SIGNAL_TONE = {
-  idle: { strip: "bg-white/[0.03] border-white/[0.08]", chip: "bg-white/[0.07] text-muted-foreground", text: "text-muted-foreground" },
-  live: { strip: "bg-live/[0.08] border-live/25", chip: "bg-live text-[#03140d]", text: "text-live-text" },
-  mic: { strip: "bg-mic/[0.10] border-mic/30", chip: "bg-mic text-[#04121c]", text: "text-mic-text" },
-  fault: { strip: "bg-fault/[0.12] border-fault/40", chip: "bg-fault text-[#1f0404]", text: "text-fault-text" },
-} as const
 
 /** How often the send-path readout samples the transport. */
 const HEALTH_POLL_MS = 2000
@@ -78,6 +66,7 @@ export type SignalCode =
   | "suspended"
   | "silence"
   | "dropping"
+  | "slow-connection"
 
 export interface StudioSignal {
   code: SignalCode
@@ -86,6 +75,8 @@ export interface StudioSignal {
   label: string
   /** One sentence: what listeners hear, and what to do about it. */
   detail: string
+  /** The phone band's version, when `detail` won't share a row with the lamp. */
+  short?: string
 }
 
 /**
@@ -136,9 +127,12 @@ function liveSignal(touch: boolean): StudioSignal {
     code: "live",
     tone: "live",
     label: "Live",
+    // Just the one way to lose it: the LIVE lamp already says you're live. The delay is on the talk
+    // pad (PushToTalk), where the host is when it matters.
     detail: touch
-      ? "Listeners hear you about 15–20 seconds after you speak. Switching apps or locking the screen stops the broadcast."
-      : "Listeners hear you about 15–20 seconds after you speak. Closing this tab ends the broadcast.",
+      ? "Switching apps or locking the screen ends the broadcast."
+      : "Closing this tab ends the broadcast.",
+    short: touch ? "Stay on this screen." : "Keep this tab open.",
   }
 }
 
@@ -201,19 +195,19 @@ function computeSignal(
     }
   }
   if (!micOpen && !playing) {
+    // Worded as the mobile band words it: what is (not) going out, then the
+    // one thing to do — which depends on whether there is music to play.
+    const queued = (engine?.getQueue().length ?? 0) > 0
+    const play = input === "touch" ? "tap play" : input === "keys" ? "press play (K)" : "open the studio and press play"
+    const talk = input === "touch" ? "hold the talk pad" : input === "keys" ? "hold Space to talk" : "talk"
+    const doThis = micDisabled
+      ? queued ? play : "add music to play"
+      : queued ? `${play} or ${talk}` : `add music or ${talk}`
     return {
       code: "silence",
       tone: "fault",
       label: "Silence",
-      detail: micDisabled
-        ? `Nothing is playing. Listeners are connected and hearing nothing — ${
-            input === "touch" ? "tap play" : input === "keys" ? "press play (K)" : "open the studio and press play"
-          }.`
-        : input === "touch"
-          ? "Nothing is playing and your mic is closed. Tap play, or press and hold the talk button."
-          : input === "keys"
-            ? "Nothing is playing and your mic is closed. Press play (K) or hold Space to talk."
-            : "Nothing is playing and your mic is closed. Open the studio to press play or talk.",
+      detail: `Nothing is going out. ${doThis.charAt(0).toUpperCase()}${doThis.slice(1)}.`,
     }
   }
   if (transport?.droppingNow) {
@@ -224,16 +218,36 @@ function computeSignal(
       detail: `Your connection is losing audio — ${lostSeconds.toFixed(1)}s lost so far. Pause other uploads if you can.`,
     }
   }
+  // Behind but not yet losing audio: the moment to act, before the drop.
+  if (transport?.stats?.congested) {
+    const { bitrate } = transport.stats
+    // At the lowest tier there is nothing left to step down to.
+    const remedy = bitrate === BITRATE_TIERS[BITRATE_TIERS.length - 1]
+      ? `The studio is already at its lowest quality (${bitrate} kbps).`
+      : `The studio is lowering quality to catch up (now ${bitrate} kbps).`
+    return {
+      code: "slow-connection",
+      tone: "fault",
+      label: "Slow connection",
+      detail: `Your upload can't keep up, so listeners are falling behind. ${remedy} Pause other uploads or move closer to your Wi-Fi.`,
+    }
+  }
   if (micOpen) {
     return {
       code: "mic",
       tone: "mic",
-      label: "Mic open",
+      label: "Live · Mic",
+      // The mobile band's words. The latch is the "Keep mic open" switch
+      // under the talk pad (L on a keyboard).
       detail: engine?.isMicLatched()
         ? input === "keys"
-          ? "Your voice is going out live and the mic stays on. Press L or Mic off to close it."
-          : `Your voice is going out live and the mic stays on. ${input === "touch" ? "Tap" : "Press"} Mic off to close it.`
-        : "Your voice is going out live. The music dips underneath you.",
+          ? "Mic stays open. Switch off Keep mic open (L) to close."
+          : "Mic stays open. Switch off Keep mic open to close."
+        // "Silent" in the mic settings takes the music right out; saying it
+        // dips would describe the wrong mix.
+        : engine?.getMicPrefs().duck === "silence"
+          ? "You\u2019re talking. Music is off while you talk. Let go to close."
+          : "You\u2019re talking. Music dips under you. Let go to close.",
     }
   }
   return liveSignal(touch)

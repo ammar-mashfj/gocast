@@ -1,7 +1,11 @@
 import Link from "next/link"
-import { IconCheck } from "@tabler/icons-react"
+import { Button, buttonVariants } from "@/components/ds/Button"
+import { StatusLamp } from "@/components/ds/StatusLamp"
+import { Tag } from "@/components/ds/Tag"
+import { PRO_FEATURES, PRO_PRICE_USD } from "@/interfaces/Plan"
+import { cn } from "@/lib/utils"
+import { Section, SectionIntro } from "./Section"
 import WaitlistButton from "./WaitlistButton"
-import { PRO_PRICE_USD } from "@/interfaces/Plan"
 
 const LAST_UPDATED = "14 October 2026"
 
@@ -20,168 +24,129 @@ const FREE_FEATURES = [
   "Listeners need no app or account",
 ]
 
-// Condensed for the compact card — the full list lives in the docs.
-const PRO_FEATURES = [
-  "24/7 AutoDJ from your library (3 GB)",
-  "Playlists and a weekly schedule",
-  "Broadcast from BUTT, Mixxx or any Icecast encoder",
-  "Public stream URL for TuneIn & Sonos",
-  "Embed your player, on your own domain",
-  "1,000 concurrent listeners",
-  "90 days of listener analytics, by country",
-  "Priority support",
+
+// Custom is scoped by hand, so this list can carry things we build to order
+// rather than things you can switch on: the website is one of those (see
+// docs/STATION-CMS-PLAN.md), and bespoke design is the add-on under it.
+const CUSTOM_FEATURES = [
+  "Unlimited listeners",
+  "A white-label player",
+  "A full website around your player — pages, widgets and templates",
+  "Something we haven't built yet",
 ]
+
+function FeatureList({ items }: { items: string[] }) {
+  return (
+    <ul role="list" className="flex flex-col">
+      {items.map((f) => (
+        <li key={f} className="border-t border-line py-2.75 text-sm leading-[1.35] font-medium text-foreground">
+          {f}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const CARD = "flex flex-col gap-4.5 rounded-card p-6 sm:p-7"
 
 export default function PricingSection() {
   return (
-    <section className="px-4 md:px-10 py-12 md:py-24" id="pricing">
-      <div className="flex flex-col items-center text-center gap-3.5 mb-12 md:mb-16">
-        <div className="flex items-center gap-2 text-xs tracking-[0.25em] uppercase text-violet-muted">
-          <span className="size-1.5 rounded-full bg-violet-muted animate-pulse" />
-          Pricing
-        </div>
-        <h2 className="font-display text-3xl md:text-4xl lg:text-5xl font-semibold -tracking-wide leading-[1.08] text-balance max-w-[16ch]">
-          Free is the whole product.
-        </h2>
-        <p className="text-base text-text-secondary tracking-[0.01em] max-w-[52ch] leading-relaxed">
-          Free needs no card and never runs out. Everything below is live
-          today — Pro is there when you outgrow it.
-        </p>
-      </div>
+    <Section id="pricing" tone="card">
+      <SectionIntro
+        eyebrow="Pricing"
+        title="Free is the whole product."
+        lead="Free needs no card and never runs out. Everything below is live today — Pro is there when you outgrow it."
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-5 lg:gap-7 items-stretch max-w-5xl mx-auto">
-        {/* Free — the only plan you can actually start on.
-            Wrapped in a column so it can carry an eyebrow label matching the
-            roadmap column's. The label is not decoration: it takes its height
-            out of the card, which is stretched to the taller column and had
-            been paying for the difference in dead space. */}
-        <div className="flex flex-col gap-4">
-          <div className="text-[11px] tracking-[0.2em] uppercase text-violet-muted/70">
-            Where everyone starts
+      <div className="grid items-stretch gap-3.5 lg:grid-cols-3">
+        {/* Free — the only plan you can actually start on. */}
+        <div className={cn(CARD, "bg-surface-raised")}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="eyebrow text-text-faint">Where everyone starts</span>
+            <StatusLamp tone="onair" size="sm">Live now</StatusLamp>
           </div>
-
-          <div className="flex flex-col flex-1 rounded-2xl border border-violet-border/40 px-6 md:px-10 py-8 md:py-10 bg-[radial-gradient(120%_100%_at_0%_0%,rgba(139,92,246,0.13),rgba(139,92,246,0)_62%)] shadow-[0_0_60px_rgba(139,92,246,0.1)]">
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div className="flex flex-col gap-3">
-                <span className="text-xs tracking-[0.25em] uppercase text-text-muted">Free</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-5xl md:text-6xl font-bold -tracking-[0.04em] leading-[0.9] text-text-primary">
-                    $0
-                  </span>
-                  <span className="text-base text-text-faint">/ forever</span>
-                </div>
-              </div>
-              <span className="inline-flex shrink-0 items-center gap-1.5 bg-violet-full/15 border border-violet-border/50 text-violet-muted text-[10px] tracking-[0.2em] uppercase font-medium px-2.5 py-1 rounded-full">
-                <span className="size-1.5 rounded-full bg-violet-muted" />
-                Live now
-              </span>
-            </div>
-
-            <p className="text-base text-text-muted leading-relaxed max-w-[34ch] mb-7">
-              You&apos;re the station. Go live from any browser, share one link, done.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3.5 pt-6 pb-2 border-t border-white/[0.07] mb-7">
-              {FREE_FEATURES.map((feature) => (
-                <div key={feature} className="flex items-start gap-2.5 text-base text-text-secondary leading-snug text-pretty">
-                  <IconCheck size={14} className="text-violet-muted shrink-0 mt-0.5" />
-                  {feature}
-                </div>
-              ))}
-            </div>
-
-            {/* Free's counterpart to the Pro card's closing paragraph. It states
-                the limits rather than leaving them to be discovered, because the
-                heading above makes a naked claim ("Free is the whole product")
-                and an unqualified claim on a pricing page reads as a catch being
-                hidden. It also hands the reader the exact reason Pro exists,
-                which is the card sitting next to it. */}
-            <p className="mt-auto pt-6 border-t border-white/[0.07] text-sm text-text-muted leading-relaxed">
-              One station. Broadcast mic, files or both — it plays while your
-              browser is open, and goes quiet when you close it.
-            </p>
-
-            <Link
-              href="/auth/register"
-              className="block w-full mt-7 py-4 rounded-lg text-base text-center cursor-pointer font-semibold no-underline bg-violet-full text-white border border-violet-full shadow-[0_4px_20px_rgba(139,92,246,0.25)] hover:brightness-110 hover:shadow-[0_4px_30px_rgba(139,92,246,0.4)] transition-all"
-            >
-              Start broadcasting free
-            </Link>
+          <div className="flex flex-col gap-1.5">
+            <span className="font-display text-display">Free</span>
+            <span className="font-mono text-base font-semibold">
+              $0 <span className="text-text-faint">/ forever</span>
+            </span>
           </div>
+          <p className="text-body text-muted-foreground">You’re the station. Go live from any browser, share one link, done.</p>
+          <FeatureList items={FREE_FEATURES} />
+          {/* States the limits rather than leaving them to be discovered: the
+              heading above makes a naked claim, and an unqualified claim on a
+              pricing page reads as a catch being hidden. It also hands the
+              reader the exact reason Pro exists, which is the card next door. */}
+          <p className="text-body-sm text-text-faint">
+            Broadcast mic, files or both. It plays while your browser is open, and goes quiet when you close it.
+          </p>
+          <Button asChild size="lg" full className="mt-auto">
+            <Link href="/auth/register" className="no-underline">Start broadcasting free</Link>
+          </Button>
         </div>
 
-        {/* Roadmap column — neither of these is self-serve: both start with a request */}
-        <div className="flex flex-col gap-4">
-          <div className="text-[11px] tracking-[0.2em] uppercase text-amber-300/70">
-            When you outgrow it
+        {/* Pro — payment is arranged by email. Deliberately no button: a request
+            from someone who has never signed up is not something anyone can
+            act on, and the form used to convert curious visitors into
+            form-fills instead of the signup we actually want. */}
+        <div className={cn(CARD, "bg-pro-tint")}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="eyebrow text-fault-text">When you outgrow it</span>
           </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="font-display text-display">Pro</span>
+            <span className="font-mono text-base font-semibold">
+              ${PRO_PRICE_USD} <span className="text-fault-text">/ month</span>
+            </span>
+          </div>
+          <p className="text-body text-fault-text">Everything in Free, plus:</p>
+          <FeatureList items={PRO_FEATURES} />
+          <p className="mt-auto text-body-sm text-fault-text">
+            Ask for it from your dashboard once your station is set up, and we’ll email you how to pay.
+          </p>
+        </div>
 
-          <div className="flex flex-col gap-4 rounded-xl border border-amber-500/30 bg-[radial-gradient(120%_100%_at_0%_0%,rgba(245,158,11,0.10),rgba(245,158,11,0)_62%)] shadow-[0_0_60px_rgba(245,158,11,0.08)] px-6 py-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-lg font-semibold text-text-primary">Pro</span>
-                <span className="text-base text-text-muted">
-                  ${PRO_PRICE_USD}/mo
-                </span>
-              </div>
-            </div>
-
-            <p className="text-base text-text-muted leading-relaxed">
-              Everything in Free, plus:
-            </p>
-
-            <div className="flex flex-col gap-3.5">
-              {PRO_FEATURES.map((feature) => (
-                <div key={feature} className="flex items-start gap-2.5 text-base text-text-secondary leading-snug text-pretty">
-                  <IconCheck size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                  {feature}
-                </div>
-              ))}
-            </div>
-
-            {/* Deliberately not a button. Pro is granted by hand after looking
-                at a real station, so a request from someone who has never
-                signed up is not something anyone can act on — and the form
-                used to convert a curious visitor into a form-fill instead of
-                the signup we actually want. The card stays because the price
-                and the feature list still do their job unclicked. */}
-            <p className="mt-1 pt-4 border-t border-white/[0.06] text-sm text-text-muted leading-relaxed">
-              Ask for it from your dashboard once your station is set up, and
-              we&apos;ll email you how to pay.
+        {/* Custom — the one card whose button is a form, because a network
+            sizing up a white-label deal has no account yet and should not
+            need one to talk to us. */}
+        <div className={cn(CARD, "bg-on-air-tint")}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="eyebrow text-on-air-text">By hand</span>
+            <Tag variant="onair">Made to order</Tag>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="font-display text-display">Custom</span>
+            <span className="font-mono text-base font-semibold">
+              Let’s talk <span className="text-on-air-text">/ quoted to fit</span>
+            </span>
+          </div>
+          <p className="text-body text-on-air-text">Everything in Pro, shaped around you:</p>
+          <FeatureList items={CUSTOM_FEATURES} />
+          {/* The one paid extra, set apart from the list so it reads as an
+              add-on with its own quote, not a fourth bullet. */}
+          <div className="flex flex-col gap-1.5 rounded-well bg-background/45 p-4">
+            <span className="eyebrow text-on-air-text">Add-on · Custom design</span>
+            <p className="text-sm leading-[1.35] font-medium text-foreground">
+              We design your site and player around your brand — your colours, your type, your layout. Quoted on top.
             </p>
           </div>
-
-          {/* Crimson, to sit alongside violet (Free) and amber (Pro). Three
-              tiers, three temperatures — the card used to be the only grey one
-              on the row, which read as disabled rather than as a third option. */}
-          <div className="flex flex-col gap-4 rounded-xl border border-rose-500/30 bg-[radial-gradient(120%_100%_at_0%_0%,rgba(244,63,94,0.10),rgba(244,63,94,0)_62%)] shadow-[0_0_60px_rgba(244,63,94,0.08)] px-6 py-6">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-base font-semibold text-text-primary">Custom</span>
-              <span className="inline-flex shrink-0 items-center gap-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[10px] tracking-[0.2em] uppercase font-medium px-2.5 py-1 rounded-full">
-                <span className="size-1.5 rounded-full bg-rose-400" />
-                By hand
-              </span>
-            </div>
-            <p className="text-sm text-text-muted leading-relaxed">
-              Bigger limits, white-label player, or something we haven&apos;t built yet.
-            </p>
-            <WaitlistButton
-              plan="custom"
-              title="Tell us what you need"
-              description="Custom plans are put together one at a time. Tell us about your station and what you're missing."
-              confirmation="Thanks — we've got your note. We'll read it properly and get back to you."
-              submitLabel="Send request"
-              className="text-left text-sm font-medium text-rose-300 underline underline-offset-4 decoration-rose-400/40 cursor-pointer hover:text-rose-200 hover:decoration-rose-300 transition-all"
-            >
-              Talk to us →
-            </WaitlistButton>
-          </div>
+          <p className="text-body-sm text-on-air-text">
+            Tell us what you’re running — a network, a campus station, a festival — and we’ll scope it with you.
+          </p>
+          <WaitlistButton
+            plan="custom"
+            className={cn(buttonVariants({ variant: "ghost", size: "lg", full: true }), "mt-auto")}
+            title="Tell us what you need"
+            description="Custom plans are put together one at a time. Tell us about your station and what you're missing."
+            confirmation="Thanks — we've got your note. We'll read it properly and get back to you."
+            submitLabel="Send request"
+          >
+            Talk to us →
+          </WaitlistButton>
         </div>
       </div>
 
-      <p className="text-xs text-text-faint text-center mt-8 md:mt-10">
-        Pricing last updated {LAST_UPDATED}
-      </p>
-    </section>
+      <p className="font-mono text-caption text-text-faint">Pricing last updated {LAST_UPDATED}</p>
+    </Section>
   )
 }

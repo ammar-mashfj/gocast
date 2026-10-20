@@ -53,6 +53,7 @@ class PlaylistController extends Controller
         $playlist = $station->playlists()->create([
             'name' => $data['name'],
             'order' => $data['order'] ?? Playlist::ORDER_SEQUENTIAL,
+            'color' => isset($data['color']) ? strtolower($data['color']) : null,
             'position' => ((int) $station->playlists()->max('position')) + 1,
         ]);
 
@@ -80,7 +81,10 @@ class PlaylistController extends Controller
                 $playlist->forceFill(['is_default' => true]);
             }
 
-            $playlist->fill(array_intersect_key($data, array_flip(['name', 'order'])))->save();
+            if (array_key_exists('color', $data) && $data['color'] !== null) {
+                $data['color'] = strtolower($data['color']);
+            }
+            $playlist->fill(array_intersect_key($data, array_flip(['name', 'order', 'color'])))->save();
         });
 
         return new PlaylistResource($this->reloadAggregates($playlist));

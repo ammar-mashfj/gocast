@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { ZoomableImage } from "@/components/content/ZoomableImage"
 
 export default function Body() {
@@ -22,12 +21,6 @@ export default function Body() {
           fill those in: this is where a stranger decides whether to stay.
         </li>
         <li>
-          <strong>Your show times</strong>, if you have set any under{" "}
-          <strong>Show times</strong>{" "}in Station settings &mdash; &ldquo;Mon&ndash;Fri at 7pm&rdquo; and the like.
-          These are advertising, not automation: they tell listeners when to
-          come back and change nothing about what your station plays.
-        </li>
-        <li>
           <strong>Share buttons and your own links</strong>{" "}&mdash; whatever
           socials you added in settings.
         </li>
@@ -38,7 +31,7 @@ export default function Body() {
         alt="A station player page: large artwork, the station name and description, Follow and Share buttons, social links, and a player bar along the bottom showing what is on air."
         width={3360}
         height={2010}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+       
       />
 
       <h2>When You Are Off Air</h2>
@@ -60,14 +53,6 @@ export default function Body() {
         width={2352}
         height={196}
       />
-
-      <h2>Show Times Are Not the Schedule</h2>
-      <p>
-        Show times, in Station settings, are text for listeners. The{" "}
-        <Link href="/help/schedule-playlists-by-time">AutoDJ slots</Link>{" "}on
-        the Schedule page decide what your station actually plays, and
-        listeners never see them. They share a timezone and nothing else.
-      </p>
     </>
   )
 }

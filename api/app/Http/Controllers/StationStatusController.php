@@ -44,7 +44,8 @@ class StationStatusController extends Controller
         // dashboard, and resolve() reads the slots and the default as
         // relations.
         $station->load(['autodjSlots.playlist', 'defaultPlaylist']);
-        $playlist = $programme->resolve($station)['playlist'];
+        $resolved = $programme->resolve($station);
+        $playlist = $resolved['playlist'];
 
         return response()->json([
             'data' => [
@@ -95,6 +96,14 @@ class StationStatusController extends Controller
                 'now_playing' => $this->nowPlaying($status),
                 'elapsed' => $status['elapsed'] ?? null,
                 'remaining' => $status['remaining'] ?? null,
+                // Which playlist that is, so a silent station can say which
+                // one is empty ("Test is empty") rather than "add tracks",
+                // and whether a slot put it there or it's the default.
+                'playlist' => $playlist === null ? null : [
+                    'id' => $playlist->getKey(),
+                    'name' => $playlist->name,
+                    'scheduled' => $resolved['slot'] !== null,
+                ],
                 'playlist_length' => $this->playlistLength($playlist),
                 'up_next' => $this->upNext($playlist, $status),
             ],

@@ -6,8 +6,7 @@ export default function Body() {
     <>
       <p>
         A station is the thing listeners tune into: a name, a look, and an
-        address of its own. On the free plan you get one; on Pro you can run up
-        to five.
+        address of its own. Every account has one, on Free and on Pro.
       </p>
 
       <h2>What You Are Asked For</h2>
@@ -18,25 +17,28 @@ export default function Body() {
           chat. It can be changed later.
         </li>
         <li>
-          <strong>An address.</strong>{" "}Built from the name &mdash; &ldquo;Night
-          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>.
-          Worth a moment&#39;s thought: people will bookmark it, and changing it
-          later breaks every link already out there.
+          <strong>A link.</strong>{" "}Built from the name &mdash; &ldquo;Night
+          Shift Radio&rdquo; becomes <code>/station/night-shift-radio</code>{" "}
+          &mdash; and shown while you type, so you see it before you create
+          the station. If somebody already has that name, a number is added.
+          It never changes, even if you rename the station later, so every
+          link you’ve shared keeps working.
         </li>
         <li>
-          <strong>Artwork and a description.</strong>{" "}Both optional at creation
-          and both worth doing before you share anything, because they are what
-          a stranger sees first. Two lines saying what you play does more work
-          than any other text on the page.
+          <strong>A genre, artwork and a description.</strong>{" "}All optional at
+          creation and all worth doing before you share anything, because they
+          are what a stranger sees first. The preview beside the form is what a
+          listener will see. One line saying what you play does more work than
+          any other text on the page.
         </li>
       </ul>
 
       <ZoomableImage
         src="/help/station-header.webp"
-        alt="A station header showing its artwork, the name Night Shift Radio, a genre tag and a one-line description."
-        width={2042}
-        height={360}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+        alt="A station&apos;s header on its Overview: artwork, the name Night Shift Radio, a genre tag, when it started and was last live, and Copy player link, QR code &amp; embed and Open."
+        width={1546}
+        height={424}
+       
       />
 
       <h2>Creating It Does Not Start It</h2>
@@ -44,7 +46,7 @@ export default function Body() {
         A new station is off air. That is not a step somebody forgot &mdash; a
         station only holds a broadcast server while it is switched on, which is
         why an off-air station has no stream, no listener count and nothing
-        playing. Pressing the power button, or simply going live, starts it. See{" "}
+        playing. Starting AutoDJ (Pro), or simply going live, starts it. See{" "}
         <Link href="/help/turning-your-station-on-and-off">
           turning your station on and off
         </Link>
@@ -53,11 +55,11 @@ export default function Body() {
 
       <h2>The Checklist</h2>
       <p>
-        Your station page shows a short list of things still worth doing
-        &mdash; artwork, a description, your first broadcast. It disappears for
-        good once they are all done, rather than sitting there as a row of
-        ticks. If an item is missing from your list, it is because it does not
-        apply to your plan.
+        The <strong>set up</strong>{" "}chip in the top bar (&ldquo;2 of 5 set
+        up&rdquo;) opens what is still worth doing &mdash; artwork, a
+        description, music for AutoDJ, your links, your first listener &mdash;
+        each one a row that takes you straight to it. The chip disappears once
+        everything is done. Music for AutoDJ only appears on Pro.
       </p>
     </>
   )

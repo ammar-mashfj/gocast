@@ -35,10 +35,10 @@ export default function Body() {
         studio.
       </p>
 
-      <h2>3. Check Encoder Health, Not the Level Meter</h2>
+      <h2>3. Check Audio Lost, Not the Level Meter</h2>
       <p>
-        The studio shows how much audio has actually <em>left</em>{" "}your
-        computer. This is the readout that matters, because a level meter
+        The studio&rsquo;s <strong>Audio lost</strong>{" "}figure shows how much
+        audio never <em>left</em>{" "}your computer. This is the readout that matters, because a level meter
         happily bounces along through a completely dead connection &mdash; it
         sits before the point of failure.
       </p>
@@ -47,7 +47,7 @@ export default function Body() {
         whatever else is using it, and use a cable rather than wifi if you can.
       </p>
 
-      <h2>4. Does the Status Say &ldquo;Not Reaching Listeners&rdquo;?</h2>
+      <h2>4. Does the Status Say &ldquo;Not Heard&rdquo;?</h2>
       <p>
         Then it is not you. That status means your station is running and
         producing audio, but it is not getting out to listeners &mdash; a fault

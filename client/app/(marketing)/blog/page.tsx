@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { pageMetadata } from "@/lib/seo"
 import Link from "next/link"
+import { IconArrowRight } from "@tabler/icons-react"
 import { ARTICLES } from "./_content/articles"
 
 export const metadata: Metadata = pageMetadata({
@@ -18,43 +19,53 @@ const DATE_FMT = new Intl.DateTimeFormat("en-US", {
 export default function BlogIndexPage() {
   const sorted = [...ARTICLES].sort((a, b) => b.date.localeCompare(a.date))
 
+  // The page container the navbar uses, edge to edge: from lg each entry is
+  // a row with the date in a left column and the piece on the right, which
+  // is how the width gets used without the description lines running long.
   return (
-    <main className="px-4 md:px-10 pt-12 md:pt-20 pb-16 md:pb-24">
-      <div className="max-w-[1024px] mx-auto">
-        <header className="mb-12 md:mb-16">
-          <h1 className="font-display text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tighter leading-tight mb-4">
-            Blog
-          </h1>
-          <p className="text-base md:text-lg text-text-muted leading-relaxed max-w-[520px]">
-            Guides, comparisons, and notes on internet radio.
-          </p>
-        </header>
+    <main className="mx-auto w-full max-w-page px-gutter pt-12 pb-16 sm:pt-16 sm:pb-24">
+      {/* The title is the plain section name: a sentence set this large read
+          as something to click, next to a list of things that are. */}
+      <header className="flex max-w-3xl flex-col gap-3.5">
+        <h1 className="font-display text-section">Blog</h1>
+        <p className="text-section-lead text-muted-foreground text-pretty">
+          Notes on internet radio — guides, comparisons, and what we learned building a station that never signs off.
+        </p>
+      </header>
 
-        <ul className="list-none p-0 m-0">
-          {sorted.map((article) => (
-            <li key={article.slug} className="border-b border-white/[0.06]">
-              <Link
-                href={`/blog/${article.slug}`}
-                className="group block py-7 md:py-9 no-underline"
-              >
-                <p className="text-[11px] tracking-[0.18em] uppercase text-text-faint mb-3">
-                  <time dateTime={article.date}>
-                    {DATE_FMT.format(new Date(article.date))}
-                  </time>
-                  <span className="mx-2 text-white/20">·</span>
-                  {article.readingTime}
-                </p>
-                <h2 className="font-display text-2xl md:text-3xl font-semibold -tracking-wide text-white mb-3 group-hover:text-violet-full transition-colors">
+      <ul className="mt-10 flex flex-col sm:mt-14">
+        {sorted.map((article) => (
+          <li key={article.slug} className="border-t border-line last:border-b">
+            {/* Each row says it is a link three ways: the violet title, the
+                arrow at the end, and the row lifting under the pointer. */}
+            <Link
+              href={`/blog/${article.slug}`}
+              className="group -mx-4 grid gap-3 rounded-card px-4 py-7 no-underline transition-colors hover:bg-card sm:py-9 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-start lg:gap-10"
+            >
+              <p className="flex items-center gap-2.5 font-mono text-caption font-semibold tracking-wider text-text-faint uppercase lg:flex-col lg:items-start lg:gap-1.5 lg:pt-2">
+                <time dateTime={article.date}>{DATE_FMT.format(new Date(article.date))}</time>
+                <span aria-hidden className="lg:hidden">·</span>
+                <span>{article.readingTime}</span>
+              </p>
+              <span className="flex min-w-0 flex-col gap-3">
+                <h2 className="font-display text-title-lg text-balance text-on-air-text transition-colors group-hover:text-foreground">
                   {article.title}
                 </h2>
-                <p className="text-base text-text-secondary tracking-[0.01em] leading-relaxed max-w-[640px]">
-                  {article.description}
-                </p>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
+                <p className="max-w-[72ch] text-body text-muted-foreground text-pretty">{article.description}</p>
+                <span className="inline-flex items-center gap-1.5 text-body-sm font-semibold text-foreground lg:hidden">
+                  Read the article <IconArrowRight size={14} aria-hidden="true" />
+                </span>
+              </span>
+              <span
+                aria-hidden="true"
+                className="hidden size-11 items-center justify-center self-center rounded-full bg-surface-control text-muted-foreground transition-colors group-hover:bg-foreground group-hover:text-background lg:flex"
+              >
+                <IconArrowRight size={18} />
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </main>
   )
 }

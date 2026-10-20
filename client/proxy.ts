@@ -26,7 +26,7 @@ export function proxy(request: NextRequest) {
   const sessionExpired = request.nextUrl.searchParams.get("expired") === "1"
 
   if (authRoutes.some((route) => pathname.startsWith(route)) && token && isVerified && !sessionExpired) {
-    return NextResponse.redirect(new URL("/dashboard/stations", request.url))
+    return NextResponse.redirect(new URL("/dashboard", request.url))
   }
 
   if (protectedRoutes.some((route) => pathname.startsWith(route)) && (!token || !isVerified)) {

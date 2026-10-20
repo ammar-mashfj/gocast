@@ -12,10 +12,10 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/music-library.webp"
-        alt="The music library with seven playlists listed down the left — Main rotation carrying a default badge — and the tracks of the selected playlist on the right."
-        width={2824}
-        height={1266}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+        alt="The Playlists page: Main rotation, Morning Soul, Lofi Afternoon, Night Ambient and Weekend Mix down the left, each with its track count and running time; on the right the open playlist, Main rotation, which plays when nothing is scheduled."
+        width={2552}
+        height={1628}
+       
       />
 
       <h2>The Rules Worth Knowing</h2>
@@ -41,8 +41,9 @@ export default function Body() {
         <li>
           <strong>One playlist is the default.</strong>{" "}It plays whenever
           nothing is scheduled, it is where uploads land unless you say
-          otherwise, and it cannot be deleted. You can move the default badge to
-          a different playlist whenever you like.
+          otherwise, and it cannot be deleted. Its tag reads{" "}
+          <strong>Plays when nothing’s scheduled</strong>. To hand the job to
+          another playlist, open it and press <strong>Make default</strong>.
         </li>
       </ul>
 
@@ -61,14 +62,11 @@ export default function Body() {
         a syndicated show, an audiobook &mdash; all of it works the same way.
         Put it in its own playlist and give that playlist a slot.
       </p>
-
-      <ZoomableImage
-        src="/help/autodj-rotation.webp"
-        alt="The AutoDJ rotation card on a station page, naming the playlist on air, when it ends, which playlist follows it, and the tracks queued up."
-        width={2088}
-        height={626}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
-      />
+      <p>
+        The <strong>Right now</strong>{" "}card at the top of the{" "}
+        <strong>Schedule</strong>{" "}page says which playlist AutoDJ has lined up
+        at this moment, until when, and what takes over after it.
+      </p>
     </>
   )
 }

@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import api from "@/lib/axios"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import type { Track } from "@/interfaces/Track"
-import { batchFiles, isAudioFile, uploadErrorMessage } from "./upload"
+import { batchFiles, partitionUploads, skippedFilesMessage, uploadErrorMessage } from "./upload"
 
 /**
  * What the meter needs to say. Everything is in *file* bytes rather than
@@ -69,9 +69,10 @@ export function useTrackUpload({ slug, kind, playlistId, noun, onUploaded }: Opt
       }
       if (busy.current) return
 
-      const list = Array.from(files).filter(isAudioFile)
+      const { accepted: list, skipped } = partitionUploads(Array.from(files))
+      if (skipped.length > 0) toast.error(skippedFilesMessage(skipped))
       if (list.length === 0) {
-        toast.error("No audio files in selection.")
+        if (skipped.length === 0) toast.error("No audio files in selection.")
         return
       }
 

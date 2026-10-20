@@ -1,23 +1,30 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import Image from "next/image"
 import {
   IconLoader2,
   IconMusic,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
+  IconVolume,
+  IconVolume2,
+  IconVolumeOff,
 } from "@tabler/icons-react"
 import type { Station } from "@/interfaces/Station"
+import type { EmbedOptions } from "@/lib/embed"
 import { env } from "@/lib/env"
 import { taggedStationUrl } from "@/lib/share"
 import { cn } from "@/lib/utils"
 import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed } from "@/hooks/usePublicStationStats"
 import { useStreamPlayback, type NowPlaying } from "@/hooks/useStreamPlayback"
+import { Slider } from "@/components/ui/slider"
 
 interface EmbedPlayerProps {
   station: Station
+  /** Extra controls from the snippet's address; none is the plain player. */
+  options?: EmbedOptions
 }
 
 /**
@@ -32,7 +39,7 @@ interface EmbedPlayerProps {
  * the station page rather than doing anything simpler: an embed listener is
  * a real listener and has to appear in the owner's audience numbers.
  */
-export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
+export function EmbedPlayer({ station: initial, options = {} }: EmbedPlayerProps) {
   const [station, setStation] = useState(initial)
   const [listeners, setListeners] = useState<number | null>(null)
   const [polled, setPolled] = useState<NowPlaying>({
@@ -124,6 +131,10 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
         )}
       </div>
 
+      {(options.volume || options.mute) && (
+        <VolumeControls audioRef={audioRef} slider={!!options.volume} muteButton={!!options.mute} />
+      )}
+
       {/* Play / pause */}
       <button
         type="button"
@@ -156,6 +167,89 @@ export function EmbedPlayer({ station: initial }: EmbedPlayerProps) {
         <span className="text-[9px] tracking-widest uppercase">on</span>
         <span className="text-xs font-semibold">GoCast</span>
       </a>
+    </div>
+  )
+}
+
+/**
+ * iPhone and iPad: the page can't set the volume there (only the device's
+ * own buttons can), so a slider would move and change nothing. False on the
+ * server and on the first paint, so the markup hydrates the same either way.
+ */
+function useIgnoresVolume(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+    () => false,
+  )
+}
+const noSubscribe = () => () => {}
+
+/**
+ * The volume slider and the mute button, whichever the owner ticked. Mute is
+ * the element's own `muted`, not volume 0: it is the one that works on iOS,
+ * and unmuting gives back the level the listener had. Moving the slider
+ * unmutes, as every player does. The slider gives way first when the host's
+ * box is narrow (below 360px), so the station name keeps its room.
+ */
+function VolumeControls({
+  audioRef,
+  slider,
+  muteButton,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement | null>
+  slider: boolean
+  muteButton: boolean
+}) {
+  const [volume, setVolume] = useState(100)
+  const [muted, setMuted] = useState(false)
+  const ignoresVolume = useIgnoresVolume()
+  const showSlider = slider && !ignoresVolume
+
+  function changeVolume([v]: number[]) {
+    setVolume(v)
+    const audio = audioRef.current
+    if (!audio) return
+    audio.volume = v / 100
+    if (muted && v > 0) {
+      audio.muted = false
+      setMuted(false)
+    }
+  }
+
+  function toggleMute() {
+    const audio = audioRef.current
+    const next = !muted
+    if (audio) audio.muted = next
+    setMuted(next)
+  }
+
+  const silent = muted || volume === 0
+  const Icon = silent ? IconVolumeOff : volume < 50 ? IconVolume2 : IconVolume
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {muteButton && (
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute" : "Mute"}
+          aria-pressed={muted}
+          className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Icon className="size-5" />
+        </button>
+      )}
+      {showSlider && (
+        <Slider
+          value={[muted ? 0 : volume]}
+          max={100}
+          step={1}
+          onValueChange={changeVolume}
+          aria-label="Volume"
+          className="w-20 max-[359px]:hidden"
+        />
+      )}
     </div>
   )
 }

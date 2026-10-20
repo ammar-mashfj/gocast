@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\NormalizesTimezone;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -25,6 +26,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class ReplaceStationSchedulesRequest extends FormRequest
 {
+    use NormalizesTimezone;
+
     public function authorize(): bool
     {
         return true;

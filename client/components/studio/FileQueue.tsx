@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useRef, useCallback, useMemo } from "react"
+import { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import { flushSync } from "react-dom"
 import { toast } from "sonner"
-import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash } from "@tabler/icons-react"
+import { IconPlus, IconX, IconGripVertical, IconUpload, IconTrash, IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react"
 import {
   DndContext,
   PointerSensor,
@@ -23,7 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useEngineVersion } from "@/lib/useEngine"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import { QUEUE_BYTE_LIMIT, type QueueTrack, type RepeatMode } from "@/lib/audioEngine"
 import { formatBytes, formatTrackTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -95,9 +95,9 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         // two digits, 6px gaps: the old 36px handle, 8px gaps and a
         // right-aligned digit in a 28px column left ~40px of nothing
         // between the grip and the number on a phone.
-        "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-lg py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
+        "grid min-h-12 grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_36px] items-center gap-1.5 rounded-chip py-1.5 pr-1 transition-colors sm:grid-cols-[32px_minmax(1.25rem,auto)_minmax(0,1fr)_auto_52px_36px]",
         isDragging && "relative z-10 bg-popover shadow-lg",
-        isPlaying ? "bg-white/[0.04]" : "hover:bg-white/[0.025]",
+        isPlaying ? "bg-foreground/[0.05]" : "hover:bg-foreground/[0.03]",
       )}
     >
       <button
@@ -106,7 +106,7 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
         {...attributes}
         {...listeners}
         aria-label={`Move ${track.title}`}
-        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-tag text-muted-foreground hover:text-foreground active:cursor-grabbing"
       >
         <IconGripVertical size={20} />
       </button>
@@ -123,20 +123,22 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
       </div>
       <div className="whitespace-nowrap text-xs">
         {isPlaying ? (
-          <span className="rounded-full border border-white/15 px-2 py-0.5 font-medium text-foreground">
+          <span className="font-mono text-micro font-semibold uppercase tracking-widest text-foreground">
             Playing
           </span>
         ) : airsAt ? (
-          <span className="font-mono text-muted-foreground tabular-nums">{clockTime(airsAt)}</span>
+          // When it airs: desktop only. On a phone or tablet the names need
+          // the room more than the clock times.
+          <span className="font-mono text-muted-foreground tabular-nums max-lg:hidden">{clockTime(airsAt)}</span>
         ) : null}
       </div>
       <div className="hidden text-right font-mono text-xs text-muted-foreground tabular-nums sm:block">
         {formatTrackTime(track.duration)}
       </div>
       <Button
-        variant="ghost"
+        variant="quiet"
         size="icon"
-        className="size-9 text-muted-foreground"
+        className="size-9"
         onClick={onRemove}
         aria-label={`Remove ${track.title}`}
         title="Remove from the running order"
@@ -154,7 +156,20 @@ function SortableRow({ track, position, isPlaying, airsAt, onRemove }: SortableR
  * Shared by both layouts now. The phone layout used to carry its own copy of
  * this list — no air times, no keyboard reordering, unlabelled buttons.
  */
-export function FileQueue() {
+export function FileQueue({
+  className,
+  expanded = false,
+  onToggleExpand,
+}: {
+  className?: string
+  /**
+   * Expanded: the studio hides Now playing (and, with a mic, the mic
+   * column) so this has their room. It still scrolls inside its card; this
+   * prop only flips the button.
+   */
+  expanded?: boolean
+  onToggleExpand?: () => void
+} = {}) {
   const { engine } = useBroadcast()
   const version = useEngineVersion(engine)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -283,6 +298,9 @@ export function FileQueue() {
   return (
     <section
       aria-labelledby="running-order-title"
+      // Named for the studio's Expand transition (studio/page.tsx), so the
+      // card's box animates between sizes instead of cross-fading.
+      style={{ viewTransitionName: "studio-running-order" }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return
         e.preventDefault()
@@ -293,8 +311,11 @@ export function FileQueue() {
       }}
       onDrop={handleDrop}
       className={cn(
-        "flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-2xl border bg-panel transition-colors",
-        dragOver ? "border-violet/60" : "border-white/[0.09]",
+        // A card like the rest of the console; the edge only appears while a
+        // file is dragged over it.
+        "flex max-h-136 min-h-45 flex-col overflow-hidden rounded-card border bg-card transition-colors",
+        dragOver ? "border-foreground/40" : "border-transparent",
+        className,
       )}
     >
       <input
@@ -309,12 +330,33 @@ export function FileQueue() {
         }}
       />
 
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/[0.06] px-4 py-3 sm:px-5">
-        <div className="min-w-0">
-          <h2 id="running-order-title" className="text-sm font-semibold">Running order</h2>
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-5">
+        <div className="min-w-0 flex-1">
+          {/* Expand beside the title, on its line: below it, it took a row
+              of its own on a phone. */}
+          <div className="flex items-center justify-between gap-3 max-sm:mb-1.5">
+            <h2 id="running-order-title" className="text-base font-bold">Running order</h2>
+            {onToggleExpand && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9"
+                onClick={onToggleExpand}
+                aria-expanded={expanded}
+                title={expanded ? "Show Now playing and the mic pad again" : "Give the running order more room"}
+              >
+                {expanded ? <IconArrowsMinimize /> : <IconArrowsMaximize />}
+                {expanded ? "Collapse" : "Expand"}
+              </Button>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground tabular-nums">
             {/* "Running order" is radio for the show's playlist; said once, here. */}
-            Your show&apos;s playlist · {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
+            {/* The preamble goes where the column is narrow (below xl), so the
+                line doesn't wrap. */}
+            <span className="max-xl:hidden">Your show’s playlist · </span>
+            {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTrackTime(totalDuration)}
+            {engine && currentIndex >= 0 && <LoopsIn engine={engine} />}
             {queue.length > 0 && (
               <span>
                 {" · "}
@@ -325,11 +367,11 @@ export function FileQueue() {
             )}
           </p>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
+        <div className="flex w-full flex-wrap items-center gap-1.5">
           {/* No "off": running off the end of a queue puts dead air on a live
               station, so the queue always continues. The only real choice is
               whether it moves on to the next track or holds this one. */}
-          <div role="group" aria-label="When a track ends" className="flex rounded-lg border border-white/10 p-0.5">
+          <div role="group" aria-label="When a track ends" className="flex gap-0.75 rounded-item bg-background p-0.75">
             {(["all", "one"] as const).map((mode) => (
               <button
                 key={mode}
@@ -347,9 +389,10 @@ export function FileQueue() {
                 // strong enough to read at a glance — Clarity showed people
                 // toggling this four to six times to find out which was on.
                 className={cn(
-                  "h-8 whitespace-nowrap rounded-md px-2 text-xs font-medium transition-colors sm:px-2.5",
+                  // The design system's Segmented: the choice is off-white.
+                  "h-8 whitespace-nowrap rounded-segment px-2 text-xs font-semibold transition-colors sm:px-2.5",
                   repeatMode === mode
-                    ? "bg-primary/20 text-foreground ring-1 ring-inset ring-primary/50"
+                    ? "bg-foreground text-background"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -358,37 +401,41 @@ export function FileQueue() {
             ))}
           </div>
           {queue.length > 0 && (
-            // Icon-only on a phone, where the words push Add files off the
-            // edge; it comes with an undo, so a bare icon is safe to press.
+            // Icon-only wherever the card is narrow (a phone, and the
+            // tablet's two-column studio below xl), where the words push Add
+            // files onto a row of its own; it comes with an undo, so a bare
+            // icon is safe to press.
             // Kept in the row (invisible) whenever there is a queue, even with
             // nothing upcoming: mounting it as the first track started moved
             // Add files out from under the pointer.
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
-              className={cn("h-9 text-muted-foreground", upcoming === 0 && "invisible")}
+              className={cn("h-9", upcoming === 0 && "invisible")}
               title="Clear upcoming"
               disabled={upcoming === 0}
               aria-hidden={upcoming === 0 || undefined}
               onClick={() => removeWithUndo("upcoming")}
             >
-              <IconTrash className="sm:hidden" />
-              <span className="max-sm:sr-only">Clear upcoming</span>
+              <IconTrash className="xl:hidden" />
+              <span className="max-xl:sr-only">Clear upcoming</span>
             </Button>
           )}
-          <Button variant="outline" size="sm" className="ml-auto h-9 sm:ml-0" onClick={() => fileInputRef.current?.click()}>
+          {/* "Add" on a phone: with the full words the row was ~20px too wide
+              for the card, and Add files wrapped onto a line of its own. */}
+          <Button variant="ghost" size="sm" className="ml-auto h-9" onClick={() => fileInputRef.current?.click()} aria-label="Add files">
             <IconPlus data-icon="inline-start" />
-            Add files
+            Add<span className="max-sm:hidden"> files</span>
           </Button>
         </div>
       </header>
 
-      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-md:pb-24 sm:px-3">
         {queue.length === 0 ? (
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/12 text-center transition-colors hover:border-white/25"
+            className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 rounded-item border border-dashed border-input text-center transition-colors hover:border-foreground/30"
           >
             <IconUpload size={20} className="text-muted-foreground" />
             <span className="text-sm font-medium">Drop audio files here, or browse</span>
@@ -424,11 +471,44 @@ export function FileQueue() {
         )}
       </div>
 
+      {/* Dragging files in is a desktop gesture: not on a phone or tablet (below lg). */}
       {queue.length > 0 && (
-        <p className="border-t border-white/[0.06] px-5 py-2 text-xs text-muted-foreground">
+        <p className="border-t border-border px-5 py-2 text-xs text-muted-foreground max-lg:hidden">
           {dragOver ? "Drop to add to the end of the running order" : "Drag files anywhere onto this panel to add them"}
         </p>
       )}
     </section>
   )
+}
+
+/**
+ * Seconds until the running order wraps back to its first track: what is
+ * left of the one playing, plus every track after it. Unknown durations (a
+ * file whose metadata hasn't loaded) count as nothing rather than guessed.
+ */
+export function secondsUntilLoop(durations: readonly number[], currentIndex: number, elapsed: number): number {
+  if (currentIndex < 0 || currentIndex >= durations.length) return 0
+  const left = Math.max(0, (durations[currentIndex] || 0) - elapsed)
+  return durations.slice(currentIndex + 1).reduce((sum, d) => sum + (d || 0), left)
+}
+
+/**
+ * "· loops in 9:12" in the running order's header, so the host knows how long
+ * before the list comes round again. Ticks once a second on its own, so the
+ * list itself doesn't re-render with it. On Repeat track it never loops.
+ */
+function LoopsIn({ engine }: { engine: NonNullable<ReturnType<typeof useBroadcast>["engine"]> }) {
+  const read = () =>
+    engine.getRepeatMode() === "one"
+      ? null
+      : secondsUntilLoop(engine.getQueue().map((t) => t.duration), engine.getCurrentIndex(), engine.getElapsed())
+  const [left, setLeft] = useState(read)
+  useEffect(() => {
+    const timer = setInterval(() => setLeft(read()), 1000)
+    return () => clearInterval(timer)
+    // `read` closes over the engine only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine])
+
+  return <span>{left === null ? " · repeating this track" : ` · loops in ${formatTrackTime(Math.round(left))}`}</span>
 }

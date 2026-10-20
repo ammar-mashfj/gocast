@@ -12,7 +12,12 @@ arch('notifications extend the Laravel base notification')
     // The one thing under App\Notifications that is not a notification: the
     // payload every bell notification returns. It lives beside them because
     // that is where it is read and written, and it is a value object.
-    ->ignoring('App\Notifications\Bell\BellPayload');
+    // RawEmailDraft is the same kind of thing: the words of an admin-composed
+    // email, rendered once per recipient by the RawEmail notification.
+    ->ignoring([
+        'App\Notifications\Bell\BellPayload',
+        'App\Notifications\RawEmailDraft',
+    ]);
 
 // The rule that actually protects the bell contract — nothing reaches the
 // database channel except through BellNotification — is not expressible here,

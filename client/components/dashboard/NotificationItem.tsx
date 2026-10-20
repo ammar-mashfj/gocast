@@ -2,11 +2,12 @@
 
 import Link from "next/link"
 import { IconX } from "@tabler/icons-react"
-import { NotificationIcon } from "@/components/dashboard/NotificationIcon"
 import { formatDate } from "@/lib/format"
-import { resolveNotificationAction, notificationLevelClass } from "@/lib/notifications"
+import { resolveNotificationAction, notificationDotClass } from "@/lib/notifications"
 import { cn } from "@/lib/utils"
 import type { Notification } from "@/interfaces/Notification"
+import { NotificationIcon } from "@/components/dashboard/NotificationIcon"
+import { useLinkEndsShow } from "@/contexts/BroadcastContext"
 
 interface NotificationItemProps {
   notification: Notification
@@ -19,7 +20,7 @@ interface NotificationItemProps {
    * navigating, for a payload whose action says to expand.
    *
    * A callback rather than a dialog rendered here, because the thing that
-   * opens is not allowed to be a child of the popover — see NotificationBell.
+   * opens is not allowed to be a child of the popover — see UpdatesMenu.
    */
   onExpand: (notification: Notification) => void
 }
@@ -54,38 +55,32 @@ export function NotificationItem({
 }: NotificationItemProps) {
   const unread = notification.read_at === null
   const behaviour = resolveNotificationAction(notification)
+  const endsShow = useLinkEndsShow(behaviour.kind === "link" ? behaviour.href : null)
 
-  // `pr-9` on the row reserves the corner that the unread dot and the dismiss
-  // button share — they swap on hover rather than sitting side by side, which
-  // keeps the row one consistent width in both states.
-  const rowClass = cn(
-    "flex w-full gap-3 py-3 pr-9 pl-3 text-left transition-colors hover:bg-muted/60",
-    unread && "bg-primary/[0.03]",
-  )
+  // `pr-10` keeps the title clear of the dismiss button in the corner.
+  const rowClass = "flex w-full gap-3 rounded-control py-3 pr-10 pl-3 text-left transition-colors hover:bg-surface-strong"
 
   const content = (
     <>
-      <div className={cn("mt-0.5 shrink-0", notificationLevelClass(notification.level))}>
-        <NotificationIcon name={notification.icon} />
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <p className={cn("text-sm leading-snug", unread ? "font-medium" : "text-muted-foreground")}>
+      <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", notificationDotClass(notification.level, unread))} />
+      {/* The dot says how urgent; the glyph says what about (the payload's
+          icon key), and fades with the title once read. */}
+      <span aria-hidden className={cn("mt-px shrink-0", unread ? "text-foreground" : "text-text-faint")}>
+        <NotificationIcon name={notification.icon} size={16} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className={cn("text-sm leading-snug font-semibold", !unread && "text-muted-foreground")}>
           {notification.title}
-        </p>
-
+          {unread && <span className="sr-only"> (unread)</span>}
+        </span>
         {notification.body && (
-          // Clamped rather than truncated to one line: the body is a sentence
-          // or two, and the first few words are rarely the useful part.
-          <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {notification.body}
-          </p>
+          // Clamped, not cut to one line: the first few words are rarely the useful part.
+          <span className="line-clamp-2 text-body-sm text-muted-foreground">{notification.body}</span>
         )}
-
-        <p className="mt-1 text-[0.6875rem] text-muted-foreground">
+        <span className="font-mono text-micro tracking-wider text-text-faint uppercase">
           {formatDate(notification.created_at, "relative")}
-        </p>
-      </div>
+        </span>
+      </span>
     </>
   )
 
@@ -103,7 +98,7 @@ export function NotificationItem({
   }
 
   return (
-    <div className="group/row relative border-b last:border-b-0">
+    <div className="group/row relative">
       {behaviour.kind === "none" ? (
         // No action means nowhere to go, so the row is a button whose only job
         // is to mark itself read — still clickable, because a row that looks
@@ -120,7 +115,9 @@ export function NotificationItem({
         <button type="button" className={rowClass} onClick={handleExpand}>
           {content}
         </button>
-      ) : behaviour.external ? (
+      ) : behaviour.external || endsShow ? (
+        // A link out of the dashboard mid-show opens a new tab: in this one
+        // it would unmount the broadcast and end the show.
         <a
           href={behaviour.href}
           target="_blank"
@@ -136,22 +133,13 @@ export function NotificationItem({
         </Link>
       )}
 
-      {/* Hidden on hover, when the dismiss button takes this corner. */}
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute top-4 right-3.5 size-2 rounded-full transition-opacity",
-          unread ? "bg-primary group-hover/row:opacity-0" : "opacity-0",
-        )}
-      />
-
       {/* Outside the link, not inside it: a button nested in an anchor is
           invalid HTML and still navigates in some browsers. Absolutely
           positioned so it overlaps the row without being part of it. */}
       <button
         type="button"
         aria-label={`Dismiss "${notification.title}"`}
-        className="absolute top-2.5 right-2 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none group-hover/row:opacity-100"
+        className="absolute top-2.5 right-2 inline-flex size-7 items-center justify-center rounded-item text-muted-foreground opacity-0 transition-opacity hover:bg-surface-control hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover/row:opacity-100"
         onClick={() => onRemove(notification.id)}
       >
         <IconX size={14} />

@@ -89,17 +89,33 @@ interface BroadcastContextValue {
    * sample it on their own cadence.
    */
   getTransportStats: () => TransportStats | null
-  start: (stationId: string, options?: BroadcastStartOptions) => Promise<void>
+  /**
+   * Run the go-live checklist. Ends in `ready`, with nothing on air yet.
+   * Resolves false, having done nothing, when another start still holds the
+   * provider, so a caller that changed its own state for the start can undo it.
+   */
+  start: (stationId: string, options?: BroadcastStartOptions) => Promise<boolean>
+  /**
+   * Run the checklist again with the last start's station and options —
+   * the studio's Try again, which never saw the Go Live page's choices.
+   * `overrides` changes some of them (a blocked mic → music only).
+   */
+  retry: (overrides?: BroadcastStartOptions) => Promise<void>
+  /** Go on air from `ready`. See {@link BroadcastManager.goLive}. */
+  goLive: () => Promise<void>
   /**
    * End the broadcast. `releaseStation` additionally takes the station off
    * air, and belongs to callers that know the account has no AutoDJ to hand
-   * over to — see {@link releaseStation}.
+   * over to — see {@link releaseStation}. `'if-started-here'` is the Cancel
+   * button's version: take it off air only if the checklist being cancelled
+   * is what turned it on, so a station the host had left running stays
+   * running.
    */
-  stop: (options?: { releaseStation?: boolean }) => Promise<void>
+  stop: (options?: { releaseStation?: boolean | 'if-started-here' }) => Promise<void>
 }
 
 /**
- * Provides broadcast state (idle / connecting / live / error), connection
+ * Provides broadcast state (idle / connecting / ready / live / error), connection
  * step progress, the audio engine, and mic stream to all dashboard pages.
  * Wrap the dashboard layout with {@link BroadcastProvider} and consume
  * via {@link useBroadcast}.
@@ -122,19 +138,44 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   // harbor mount and the second is refused with Mount_taken — killing a
   // broadcast that was, in fact, already live. Reproduced by a double click
   // and by React's development double-invoke.
-  const startingRef = useRef(false)
+  // Holds the pending start's own token: stop() clears it, so a Go live
+  // pressed after Cancel isn't refused while the cancelled checks wind down,
+  // and that old start's `finally` can't clear a newer start's guard.
+  const startingRef = useRef<object | null>(null)
+  // The checklist (or go-live) the current manager is running, for a Cancel
+  // that wants to hand back only what that run took: whether it turned the
+  // station on is only known once it has wound down past `POST /start`.
+  const inFlightRef = useRef<Promise<void> | null>(null)
+
+  const lastStartRef = useRef<{ stationId: string; options?: BroadcastStartOptions } | null>(null)
 
   const start = useCallback(async (stationId: string, options?: BroadcastStartOptions) => {
-    if (startingRef.current) return
-    startingRef.current = true
+    if (startingRef.current) return false
+    lastStartRef.current = { stationId, options }
+    const token = {}
+    startingRef.current = token
 
     try {
-      if (managerRef.current) {
+      const previous = managerRef.current
+      // Try again after a run that turned the station on: the new manager
+      // will find it running and think it was already on, so a Back to setup
+      // after the retry would leave it up. The station is still this show's.
+      const carriedStart = !!previous?.startedStationThisRun && stationIdRef.current === stationId
+      if (previous) {
+        // Silenced first: its `idle` would land before the new manager's
+        // `connecting`, and the studio sends an idle tab to pre-flight —
+        // Try again would leave the studio instead of retrying. What `idle`
+        // would have cleared is cleared here instead.
+        previous.detach()
+        setMicStream(null)
+        setEngine(null)
         // Don't let a tear-down failure on the previous (possibly errored)
         // manager block a fresh start — Try again must always reach the new
         // manager.start() below.
-        try { await managerRef.current.stop() } catch { /* discard */ }
+        try { await previous.stop() } catch { /* discard */ }
       }
+      // Cancelled during that teardown: don't build a manager nobody will stop.
+      if (startingRef.current !== token) return true
 
       setError(null)
       // A new start is a new show. A broadcast that died of exhausted
@@ -157,6 +198,10 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
             fireOnce('broadcaster:first-live', () => {
               toast.success("🎙️ You're live for the first time — share your link!")
             })
+          } else if (s === 'ready') {
+            // The mic is open though nothing is on air yet: the studio's mic
+            // meter and device name can show it while goLive connects.
+            setMicStream(manager.getMicStream())
           } else if (s === 'idle') {
             setMicStream(null)
             setEngine(null)
@@ -165,14 +210,32 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         },
         onError: setError,
       })
+      manager.startedStationThisRun = carriedStart
       managerRef.current = manager
       stationIdRef.current = stationId
       setStationSlug(stationId)
       setMicDisabled(!!options?.skipMic)
-      await manager.start(options)
+      const run = manager.start(options)
+      inFlightRef.current = run
+      await run
+      return true
     } finally {
-      startingRef.current = false
+      if (startingRef.current === token) startingRef.current = null
     }
+  }, [])
+
+  const retry = useCallback(async (overrides?: BroadcastStartOptions) => {
+    const last = lastStartRef.current
+    if (!last) return
+    await start(last.stationId, { ...last.options, ...overrides })
+  }, [start])
+
+  const goLive = useCallback(async () => {
+    const manager = managerRef.current
+    if (!manager) return
+    const run = manager.goLive()
+    inFlightRef.current = run
+    await run
   }, [])
 
   const getTransportStats = useCallback(
@@ -180,18 +243,28 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const stop = useCallback(async (options?: { releaseStation?: boolean }) => {
-    // Captured before the teardown below clears it.
+  const stop = useCallback(async (options?: { releaseStation?: boolean | 'if-started-here' }) => {
+    // Captured before the teardown below clears them.
     const slug = stationIdRef.current
+    const manager = managerRef.current
+    const inFlight = inFlightRef.current
+    startingRef.current = null
+    inFlightRef.current = null
 
-    if (managerRef.current) {
-      await managerRef.current.stop()
+    if (manager) {
+      await manager.stop()
+      // Go live was pressed again during that await: the refs and state below
+      // belong to the new run now, and wiping them would orphan its manager
+      // (mic open, unreachable by Go live / Cancel / End). Its station too.
+      if (managerRef.current !== manager) return
       managerRef.current = null
     }
-    if (stationIdRef.current) {
-      try { localStorage.removeItem(`broadcast:micDisabled:${stationIdRef.current}`) } catch {}
-      stationIdRef.current = null
-    }
+    // `broadcast:micDisabled:{slug}` is deliberately left alone: it is the
+    // "Music only" choice the go-live page remembers for the next show.
+    stationIdRef.current = null
+    // The manager says `idle` itself, unless start() detached it for a retry
+    // and this Cancel caught it mid-teardown.
+    setState('idle')
     setStationSlug(null)
     setLiveSince(null)
     setMicStream(null)
@@ -202,9 +275,32 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
 
     // Last, and after the socket is definitely closed: harbor only reports the
     // disconnect once it sees it, and the stop is refused until it does.
-    if (options?.releaseStation && slug) {
-      await releaseStation(slug)
+    if (!options?.releaseStation || !slug) return
+    if (options.releaseStation === 'if-started-here') {
+      // The cancelled checklist gives up at its next await, which can be the
+      // far side of `POST /start` (or a mic prompt the host has yet to
+      // answer). Only once it has can the manager say whether it turned the
+      // station on. The page is already back on pre-flight: nothing above
+      // waited for this.
+      await inFlight?.catch(() => {})
+      if (!manager?.startedStationThisRun) return
+      // Go live was pressed again in the meantime: the station is the new
+      // run's now, and taking it off air would be pulling its chair away.
+      if (managerRef.current) return
     }
+    await releaseStation(slug)
+  }, [])
+
+  // Leaving the dashboard in this tab (sign-out, the logo, any link out of
+  // /dashboard) unmounts the provider: end the show with it. Left running,
+  // the socket, mic and engine kept broadcasting with nothing on screen to
+  // stop them. A Free station left on is the sweep's to turn off.
+  useEffect(() => () => {
+    const manager = managerRef.current
+    if (!manager) return
+    managerRef.current = null
+    manager.detach()
+    void manager.stop().catch(() => {})
   }, [])
 
   // Warn before a refresh or tab close takes the broadcast down. Lives here,
@@ -249,7 +345,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   }, [engine])
 
   return (
-    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, stop }}>
+    <BroadcastContext.Provider value={{ state, stationSlug, steps, error, micStream, micDisabled, engine, liveSince, getTransportStats, start, retry, goLive, stop }}>
       {children}
     </BroadcastContext.Provider>
   )
@@ -268,4 +364,16 @@ export function useBroadcast() {
  */
 export function useBroadcastOptional(): BroadcastContextValue | null {
   return useContext(BroadcastContext)
+}
+
+/**
+ * Whether following this in-app link in the same tab would end the show:
+ * anything outside /dashboard unmounts the provider, and the unmount stops
+ * the broadcast. Links that can take the host there mid-show (notifications)
+ * open in a new tab instead.
+ */
+export function useLinkEndsShow(href: string | null): boolean {
+  const ctx = useContext(BroadcastContext)
+  if (!href || !ctx || ctx.state === 'idle') return false
+  return !/^\/dashboard(?:[/?#]|$)/.test(href)
 }

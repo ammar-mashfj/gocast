@@ -1,6 +1,6 @@
 ---
 feature: Notifications and email (bell, transactional mail, outreach, station-live alerts, Resend webhook)
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - api/app/Notifications/Bell/BellNotification.php
   - api/app/Notifications/Bell/BellPayload.php
@@ -31,6 +31,7 @@ sources:
   - api/app/Webhooks/Resend/ResendWebhookHandler.php
   - api/app/Services/AdminTelegram.php
   - api/app/Jobs/SendAdminTelegramAlert.php
+  - api/app/Console/Commands/CheckQueueBacklog.php
   - api/app/Models/EmailVerificationCode.php
   - api/app/Models/PasswordResetCode.php
   - api/app/Http/Controllers/AuthController.php
@@ -75,10 +76,9 @@ sources:
   - api/database/migrations/2026_04_20_122249_create_station_notify_subscriptions_table.php
   - api/database/migrations/2026_09_15_100000_add_created_at_index_to_notifications_table.php
   - api/database/migrations/2026_09_15_130100_create_email_suppressions_table.php
-  - client/components/dashboard/NotificationBell.tsx
   - client/components/dashboard/NotificationItem.tsx
-  - client/components/dashboard/NotificationDetailDialog.tsx
   - client/components/dashboard/NotificationIcon.tsx
+  - client/components/dashboard/NotificationDetailDialog.tsx
   - client/hooks/useNotifications.ts
   - client/lib/notifications.ts
   - client/interfaces/Notification.ts
@@ -92,7 +92,8 @@ sources:
   - api/tests/Feature/PruneNotificationsTest.php
   - api/tests/Feature/SendAnnouncementTest.php
   - api/tests/Feature/Admin/RawEmailTest.php
-fingerprint: f0607d5cfdefd3bf
+  - client/components/dashboard/shell/UpdatesMenu.tsx
+fingerprint: 1087e67c02efc507
 ---
 
 # Notifications and email
@@ -110,18 +111,18 @@ Plus one inbound path: a Resend webhook that forwards received email to the admi
 
 ## Catalogue: every email and bell notification
 
-Queued = the class `implements ShouldQueue`. Laravel queues one job per channel, so a bell row and its email are independent jobs. Queue connection default in `api/config/queue.php` is `database`; `.env.example` sets `redis`. With no worker running, no queued mail leaves the system.
+Queued = the class `implements ShouldQueue`. Laravel queues one job per channel, so a bell row and its email are independent jobs. Queue connection default in `api/config/queue.php` is `database`; `.env.example` sets `redis`. No notification class names a queue, so all of them ride `default`; in production each queue has a worker of its own (`gocast-queue` for `default`, `gocast-realtime`, `gocast-analysis`), because a worker given several queues blocks `block_for` seconds on the first before looking at the next and a steady trickle there starves the rest (the `config/queue.php` comment records `default` stalling for an hour on 2026-10-10). `queue:check-backlog` (every minute) posts "Queue stuck: default" to the admin Telegram once the oldest waiting job is older than `QUEUE_ALERT_DEFAULT_SECONDS` (300 s; `realtime` 60 s, `analysis` 3600 s). With no worker running, no queued mail leaves the system.
 
 | Class | Trigger (file) | Recipient | Channels | Queued | Dedup / throttle |
 |---|---|---|---|---|---|
-| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min, `/email/verify` 10/min |
-| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min |
+| `VerifyEmailCode` | `User::sendEmailVerificationNotification()`: register (`AuthController` line ~59), login of an unverified user (~100), `POST /email/resend` (answers "already verified" and sends nothing when the account is verified), email change (`AccountController::updateProfile`) | the user | mail | yes | one code per user (`EmailVerificationCode::updateOrCreate`), 15 min TTL (`EmailVerificationCode::CODE_TTL_MINUTES`); `/email/resend` throttled 6/min (`throttle:6,1,email-resend`), `/email/verify` 10/min (`throttle:10,1,email-verify`) |
+| `PasswordResetCode` (imported as `PasswordResetCodeNotification`) | `POST /auth/password/forgot` (`PasswordResetController::forgot`), only if the account exists (response is identical either way) | the user | mail | yes | one code per email, 15 min TTL; route throttled 3/min (`throttle:3,1,password-forgot`) |
 | `PasswordChangedNotification` | `PasswordResetController::reset` and `AccountController::updatePassword`; carries the request IP | the user | mail | yes | none |
 | `EmailChangedNotification` | `AccountController::updateProfile` when the email changed; routed with `Notification::route('mail', $previousEmail)` | the **old** address | mail | yes | none |
 | `WelcomeNotification` | `Verified` event listener in `AppServiceProvider` (email code verified, or Google sign-up) unless the account has both `invite_id` and a plan (then `InviteRedeemed`); a Google sign-up that is already verified fires no event | the user | database + mail | yes | fires once per `Verified` event; nothing else prevents a second |
 | `InviteRedeemed` | same `Verified` listener when `user->invite_id` and plan are set (replaces Welcome); also `InviteRedemption` for an already-verified account | the user | database + mail | yes | none |
-| `ProAccessGranted` | `Admin/AccessRequestController::approve`, and `Admin/StationController::upgrade` (with a required free-text note, 1-2000 chars) | station/account owner | database + mail | yes | none |
-| `PlanExpired` | `plans:expire` (`ExpirePlans`), hourly, when a paid account is moved to Free | the user | database + mail | yes | the account's `plan_expires_at` is nulled in the same loop, so it matches once. The move to Free happens for every expired row, but the notification is sent only when the ended plan exists and is not Free; the command fails with no changes if no `free` plan exists |
+| `ProAccessGranted` | `Admin/AccessRequestController::approve` and `::renew` (both via `grant()`, after the row-locked transaction commits), and `Admin/StationController::upgrade` (with a required free-text note, 1-2000 chars) | station/account owner | database + mail | yes | approve claims the pending row under a lock; renew refuses when the account's end date differs from the `seen_until` the page showed; upgrade refuses when its `seen` plan fingerprint changed |
+| `PlanExpired` | `plans:expire` (`ExpirePlans`), hourly, when a paid account is moved to Free | the user | database + mail | yes | each matching id is re-read under `lockForUpdate` in its own transaction and skipped if an admin renewed it since the scan; `plan_expires_at` is nulled in that write, so it matches once. The move to Free happens for every expired row, but the notification is sent only when the ended plan exists and is not Free; the command fails with no changes if no `free` plan exists |
 | `InactiveBroadcasterNudge` | `app:nudge-inactive-broadcasters`, daily 16:00 | the user | database + mail | yes | checks `notifications` for an existing row of this class |
 | `ProductUpdate` | `notifications:announce` command and `/admin/announcements` (`AnnouncementSender`) | **every** non-soft-deleted `User` | database only | **no** | per-announcement `key`, checked against existing rows |
 | `StationLiveNotification` | `SendStationLiveNotifications` job | the subscribed email (on-demand route) | mail | yes | one email per subscription until re-armed |
@@ -136,7 +137,7 @@ Transport: `config/mail.php` default mailer is `log` (`MAIL_MAILER`); `.env.exam
 
 - **WelcomeNotification** bell: level `success`, category `station`, icon `radio`, mode `expand`, heading "Getting started" with four points, action "Create your first station" to `/dashboard/stations`. Mail subject "Welcome to GoCast — go live in under a minute".
 - **InviteRedeemed** bell: level `success`, category `plan`, icon `invite`, expands "What you get" (listener cap from `plan->max_listeners`; AutoDJ lines only when `plan->autodj_enabled`; steps start at creating a station). Includes the end date when `until` is set, with "nothing is charged when it ends" (mail and bell). Does not quote `max_stations`.
-- **ProAccessGranted**: variants by `($until, $note, $term, $paid, $extended)`. With a note (admin upgrade) the note becomes the opening paragraph(s) of the mail (split on blank lines, also on a paid grant) and the first bell point; subject is "You're on GoCast {plan}", with " — {term} on us" appended only when there is a term, no note and it is not paid (a free `extended` grant reads "GoCast {plan} — {term} more on us"). `paid` swaps "free of charge" for "Thanks for your payment" in the mail and the bell body; `extended` (from `renew`) words the term as added to the existing end date. The bell action is "Open AutoDJ" to the first station's library when the plan has AutoDJ and a station exists, else "Open your dashboard". `stations()->first()` is read **at delivery time** (worker time), for bell and mail. The mail also lists the three hardcoded social links (X, Facebook, Instagram in `SOCIALS`).
+- **ProAccessGranted**: variants by `($until, $note, $term, $paid, $extended, $renewed)`. `renewed` (a `renew` of a request whose grant had already lapsed, never with `extended`) opens the bell with "Your {plan} is back on" and the mail with "Your {plan} is back on. Your station is on {plan} again for {term}, free of charge." With a note (admin upgrade) the note becomes the opening paragraph(s) of the mail (split on blank lines, also on a paid grant) and the first bell point; subject is "You're on GoCast {plan}", with " — {term} on us" appended only when there is a term, no note and it is not paid (a free `extended` grant reads "GoCast {plan} — {term} more on us"). `paid` swaps "free of charge" for "Thanks for your payment" in the mail and the bell body; `extended` (from `renew`) words the term as added to the existing end date. The bell action is "Open AutoDJ" to the first station's library when the plan has AutoDJ and a station exists, else "Open your dashboard". `stations()->first()` is read **at delivery time** (worker time), for bell and mail. The mail also lists the three hardcoded social links (X, Facebook, Instagram in `SOCIALS`).
 - **PlanExpired**: level `warning`, icon `plan-expired`; adds "The AutoDJ library no longer accepts new uploads" only when the ended plan had AutoDJ and the new one does not. Says nothing is deleted.
 - **InactiveBroadcasterNudge**: the bell carries only the "hardest part is hitting the button" paragraph, the mail adds the "signed up about a week ago" opener and a reply invitation. Bell mode is `link` (no detail). Action goes to `/dashboard/stations/{slug}/live` if the user has a station, else `/dashboard/stations`. Mail subject "Ready for your first broadcast on GoCast?".
 - **ProductUpdate**: bell only. Built from JSON (`fromArray`): `key` and `headline` required, `points` a list of non-empty strings, optional `summary`, `url`, `link_label`, `icon` (default `megaphone`), `level` (default `info`), `detail_heading` (default "What's new"). `key` must match `KEY_PATTERN` (`/^[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?$/`). Category is always `system`. With points it is mode `expand`, else `link`. A `url` starting with `/` is prefixed with the frontend origin; no `url` means "Open your dashboard" to `/dashboard`; with a `url` and no `link_label` the label is "Take a look". `meta.announcement` stores the key (this is the dedup handle).
@@ -167,11 +168,11 @@ Rows are always looked up through `$request->user()->notifications()->findOrFail
 
 ### Web UI (`client/`)
 
-- `NotificationBell` is mounted in `DashboardHeader`. Popover 22rem/24rem wide, feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications" with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
+- The bell is **Updates** (`components/dashboard/shell/UpdatesMenu.tsx`), a text button in the dashboard top bar with an unread count badge (`formatUnreadCount`, capped at the API's `capped_at`, e.g. "99+"). Popover `min(22rem, 100vw − 2rem)` wide (24rem from `sm`), feed max height 26rem, "Mark all read" when there are unread, skeleton while loading, "Couldn't load notifications." with retry (only when nothing was ever loaded), empty state "You're all caught up", "Load older" button for the next cursor page.
 - `useNotifications` polls `/notifications/unread-count` every 60 s **only while the tab is visible** (stops on hidden, refreshes on becoming visible if 60 s have passed). The feed loads when the popover opens. Read/mark-all/delete are optimistic with rollback and a sequence guard so an in-flight feed response cannot overwrite a newer mutation. The UI never passes `filter` or `category`.
-- `NotificationItem`: unread rows have a dot and a tint; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
-- `NotificationIcon` maps only these icon keys: `bell`, `radio`, `microphone`, `invite`, `plan-upgraded`, `plan-expired`, `megaphone`, `warning`. Anything else (including a custom announcement `icon`) renders the bell.
-- Level colours: `info` muted, `success` violet, `warning` foreground, `error` fault text.
+- `NotificationItem`: a dot before each row coloured by level while unread (`notificationDotClass` in `lib/notifications.ts`), grey once read, then a 16 px glyph for the payload's `icon` key, then title, body (clamped to two lines) and a relative date; a hover "x" dismisses (delete). Click behaviour comes from `resolveNotificationAction`: `expand` (mode `expand` with points) opens `NotificationDetailDialog`; `link` navigates (internal links via Next `Link`, links to another origin open in a new tab with `noopener`); an action URL that is not http(s) or unparsable degrades to `none` (click only marks read). Clicking marks it read first.
+- `NotificationIcon` (`components/dashboard/NotificationIcon.tsx`, now tracked) maps the `icon` key to a Tabler glyph: `bell`, `radio`, `microphone`, `invite` (gift), `plan-upgraded` (sparkles), `plan-expired` (arrow down), `megaphone`, `warning`; any other key renders the bell. The glyph fades with the title once read. The dot says how urgent, the glyph what about.
+- Level dot colours (`LEVEL_DOTS`, tokens from `app/dashboard.css`): `info` and `warning` `bg-foreground` (off-white in dark), `success` `bg-on-air-text` (the lavender on-air token), `error` `bg-error`; a read row's dot is `bg-surface-strong`.
 - No realtime push: the only update paths are the 60 s poll and opening the popover. (`api/routes/channels.php` mentions moving the bell onto the Ably transport as a future idea; it is not done.)
 
 ### Mobile
@@ -180,7 +181,7 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Station-live alerts ("Notify me when live")
 
-1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60` (5 per 60 minutes per IP). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
+1. **Subscribe**: `POST /public/stations/{slug}/notify` (`StationNotifyController::store`), public, `throttle:5,60,station-notify` (5 per 60 minutes per IP, its own counter). Body `email` (lower-cased, trimmed; `required|string|email|max:255`). Unknown or soft-deleted slug is a 404. It `firstOrNew`s a `station_notify_subscriptions` row (unique on `station_id, email`) and **sets `notified_at = null`**, so re-subscribing re-arms an already-notified address. Always returns `{message: "We'll email you when {name} goes live."}`. There is no double opt-in, no ownership check of the address, no plan gate, and no unsubscribe for the subscriber.
 2. **Trigger**: two places dispatch `SendStationLiveNotifications` with a **2-minute delay**: `StreamSessionController::store` (a broadcast session started via the API; skipped if the station was already live, sampled before closing stragglers and excluding a ghost session) and `StationEventController::openSession` (harbor/encoder connect event that opens a new session; not dispatched when an open session already exists).
 3. **Send**: the job (`SendStationLiveNotifications::handle`) exits silently if the station is gone or the specific session has ended. Otherwise it sends `StationLiveNotification` (mail only, queued) to every subscription with `notified_at IS NULL` via `Notification::route('mail', $email)` and stamps `notified_at` after handing each to the queue. Each subscription therefore gets one email per (re)subscription, ever.
 4. **Email**: subject "{Station} is live on GoCast", "Listen now" button to `{FRONTEND_URL}/station/{slug}`, footer "You asked us to let you know when this station started broadcasting." No unsubscribe link or header.
@@ -195,13 +196,14 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 ## Admin-sent mail (senders only; the admin screens are in [Admin panel](admin-panel.md))
 
+- **Payment email** (not a notification class): `GET /admin/requests/{entry}/payment-email` (`AccessRequestController::paymentEmail`) redirects to the raw email composer with the fields pre-filled, subject "GoCast Pro: how to pay", greeting "Hey {name}," (blank if over 120 chars), and a Markdown body with the `PRICES_USD` table (1 month $20, 3 months $52, 6 months $96, 12 months $160), USDT payment by reply, a 7-day free trial on request, and the prorated refund rule. The station name is passed through `EmailMarkdown::escape` (backslash-escapes CommonMark and table markup so a `|` or `[x](url)` in it renders as typed). Only for a `pro` request with an account that is not dismissed. Nothing is sent until the admin previews and sends it from the composer; the request status is untouched.
 - **Raw email** (`/admin/emails`, `RawEmailController`): preview then send (two POSTs). `SendRawEmailRequest`: recipients split on whitespace/comma/semicolon, de-duplicated case-insensitively, max **100** (`MAX_RECIPIENTS`), each a valid email <=255; `subject` <=150, `body` <=20000 (required, Markdown), optional `greeting` <=120, `headline` <=200, `sign_off` <=120 (default "— The GoCast team"), `preheader` <=150 (default: first 140 chars of the plain body), `cta_url` (http/https, <=2048) and `cta_label` (<=40), which must be given together; `marketing` boolean. `RawEmailDraft` also rejects an empty rendered body. One `RawEmail` notification is queued per recipient; the send is logged once via the activity log ("sent email" with `sent`/`suppressed` lists). The preview page renders the HTML and text with the unsubscribe URL of the first sendable recipient. The history list shows the last 15. Body Markdown is rendered by `EmailMarkdown` with inline styles for Outlook: raw HTML is escaped, unsafe links disallowed, images dropped (only their text remains), tables supported, nesting limit 10.
 - **Invite email**: sent by `Admin/InviteController` on minting (if an address was entered) or via the send action (only if the invite is still redeemable). `InviteOffer` is routed to a bare address so it reads nothing off `$notifiable`; the greeting uses `recipient_name` (else "Hi there,"), never the admin's private `label`; the plan caption says "N months" when `duration_days` is a multiple of 30, else days, or "{Plan}, free. No card required." with no term; "Open until {date}." only when the link has an expiry. `sent_at` is stamped when queued, not when delivered; each send logs "sent invite" (and minting logs "minted invite").
 - **Announcements** (`notifications:announce {file} [--dry-run] [--force]` and `/admin/announcements`): `AnnouncementSender::send` takes `Cache::lock('announcement:{key}', 900 s)`, else throws `AnnouncementInProgressException`. Audience is `User::query()` (every non-soft-deleted user; no verified, plan or activity filter). Users who already hold a `ProductUpdate` row whose `data` contains `"announcement":"{key}"` are skipped. Admin sends log "sent announcement" with `sent`/`skipped`; the index lists the last 20 announcements with recipient counts. It calls `$user->notify()` synchronously per user in lazy 500-row chunks (the web request calls `set_time_limit(0)`); this is deliberate: bell only, not queued. `StoreAnnouncementRequest` limits: key <=64 (auto-generated `YYYY-MM-slug` if blank), headline <=120, summary <=300, `detail_heading` <=60, up to 6 points of <=200, `url` either `https?://...` or a path starting `/` (<=500), `link_label` <=40, level required, `icon` `[a-z0-9-]+` <=40.
 
 ## Inbound email and the Resend webhook
 
-`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1`), public but signed:
+`POST /api/webhooks/resend` (`ResendWebhookController`, `throttle:120,1,resend-webhook`), public but signed:
 
 1. Empty `RESEND_WEBHOOK_SECRET` returns `503 Webhook not configured`.
 2. Svix signature checked with `Resend\WebhookSignature::verify` (`svix-id`, `svix-timestamp`, `svix-signature`); failure returns `401`.
@@ -211,6 +213,8 @@ There is no bell, feed or push registration anywhere in `mobile/src`. The only "
 
 To handle another event, add a class implementing `ResendWebhookHandler` and register it in `HANDLERS`.
 
+`AdminTelegram` has five other callers, none of them email: model hooks in `AppServiceProvider` post a new registration, a new or updated access request, a new station and every broadcast start (all queued `SendAdminTelegramAlert`, `afterCommit`), and `AdminTelegram::opsAlert()` posts infrastructure alerts from the calling process, bypassing the queue, throttled to one per key per 15 minutes via `Cache::add` (callers: `queue:check-backlog`, and `stations:sync-listeners` nearing Icecast's source limit). Those messages are documented in [Admin panel](admin-panel.md).
+
 ## Scheduled commands (`api/routes/console.php`)
 
 | Command | Schedule | Effect |
@@ -218,8 +222,9 @@ To handle another event, add a class implementing `ResendWebhookHandler` and reg
 | `app:nudge-inactive-broadcasters` (`--dry-run`) | daily 16:00, no overlap | Candidates: verified users created between 8 and 7 days ago, on the `free` plan, with no station (including soft-deleted) that has any ended stream session. Skips anyone with an existing `InactiveBroadcasterNudge` row. Uses their first station's slug if any. See [Accounts, plans and invites](accounts-plans-invites.md). |
 | `plans:expire` | hourly | Sends `PlanExpired` (see catalogue). |
 | `notifications:prune` | daily 05:00 | Bell retention. |
+| `queue:check-backlog` | every minute, `withoutOverlapping(5)` | Telegram `opsAlert` when the oldest waiting job on `realtime`/`default`/`analysis` has waited longer than `config('queue.backlog_alert_seconds')`. On the `sync` driver (tests) it reports nothing to check. |
 
-Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `FRONTEND_URL`, `QUEUE_CONNECTION`, `NOTIFICATION_RETENTION_DAYS`, `NOTIFICATION_PER_PAGE`, `NOTIFICATION_UNREAD_COUNT_CAP`.
+Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `FRONTEND_URL`, `QUEUE_CONNECTION`, `QUEUE_ALERT_REALTIME_SECONDS` / `_DEFAULT_` / `_ANALYSIS_`, `NOTIFICATION_RETENTION_DAYS`, `NOTIFICATION_PER_PAGE`, `NOTIFICATION_UNREAD_COUNT_CAP`.
 
 ## Gaps and traps
 
@@ -237,11 +242,12 @@ Env vars: `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `RESEND_API_KEY`
 12. **Transactional mail has no idempotency.** A double `Verified` event would send two welcomes; `PasswordChangedNotification` sends on every change; nothing limits `POST /notify` beyond IP throttling.
 13. **Defaults are safe-but-silent.** `config/mail.php` defaults to `log`, `config/queue.php` to `database` (the example env file uses `redis`); a missing worker or `RESEND_API_KEY` produces no errors to users, only missing email. The `PasswordResetCode` notification shares a name with the `PasswordResetCode` model (aliased in `PasswordResetController`).
 14. **Unsubscribe page copy is invite-specific** ("If you were sent an invite link, it still works") even though it is also used by marketing `RawEmail` sends.
-15. **Mobile parity gap.** The web has a bell; the mobile app has none, so plan-expiry or upgrade notices reach mobile-only users only by email.
+15. **Two price lists.** The payment email's prices are `AccessRequestController::PRICES_USD`; the site's are `PRO_PRICE_USD = 20` and `PRO_PRICE_YEAR_USD = 160` in `client/interfaces/Plan.ts`, kept equal only by a comment saying they must match. Changing one leaves the other quoting the old number. The paid/free choice on a grant only changes the email's wording; nothing records a payment.
+16. **Mobile parity gap.** The web has a bell; the mobile app has none, so plan-expiry or upgrade notices reach mobile-only users only by email.
 
 ## Tests
 
-`api/tests/Feature/Notifications/BellContractTest.php` (payload validation, base-class rules, queued-with-mail), `NotificationControllerTest.php`, `PruneNotificationsTest.php`, `NudgeInactiveBroadcastersTest.php`, `SendAnnouncementTest.php`, `StationNotifySubscriptionTest.php`, `UnsubscribeTest.php`, `ResendWebhookTest.php`, `Admin/RawEmailTest.php`. Mail-sending paths are also covered in `Auth/EmailVerificationCodeTest.php`, `Auth/PasswordResetTest.php`, `Auth/InviteRedemptionTest.php`, `Auth/ProfileEmailChangeTest.php`, `Account/PasswordChangeNotificationTest.php`, `Admin/InviteTest.php`, `Admin/AccessRequestReviewTest.php`, `Admin/StationUpgradeTest.php` and `Console/ExpirePlansTest.php`. There are no client tests for the bell.
+`api/tests/Feature/Notifications/BellContractTest.php` (payload validation, base-class rules, queued-with-mail), `NotificationControllerTest.php`, `PruneNotificationsTest.php`, `NudgeInactiveBroadcastersTest.php`, `SendAnnouncementTest.php`, `StationNotifySubscriptionTest.php`, `UnsubscribeTest.php`, `ResendWebhookTest.php`, `Admin/RawEmailTest.php`, `CheckQueueBacklogTest.php` (stand-in queue connection; alert once per stall, retry on refused send). Mail-sending paths are also covered in `Auth/EmailVerificationCodeTest.php`, `Auth/PasswordResetTest.php`, `Auth/InviteRedemptionTest.php`, `Auth/ProfileEmailChangeTest.php`, `Account/PasswordChangeNotificationTest.php`, `Admin/InviteTest.php`, `Admin/AccessRequestReviewTest.php`, `Admin/StationUpgradeTest.php` and `Console/ExpirePlansTest.php`. There are no client tests for the bell.
 
 ## History
 

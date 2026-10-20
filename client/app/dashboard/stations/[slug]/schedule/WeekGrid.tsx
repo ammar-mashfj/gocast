@@ -1,9 +1,8 @@
 "use client"
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
-import Link from "next/link"
+import { Fragment, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { cn } from "@/lib/utils"
-import type { StationSchedule } from "@/interfaces/Station"
+import { SWATCHES, type Swatch } from "@/lib/playlistSwatches"
 import {
   DAY_MINUTES,
   SNAP,
@@ -13,7 +12,6 @@ import {
   fromSpan,
   segments,
   toClock,
-  toMinutes,
   weekSpan,
   type Block,
 } from "./weekModel"
@@ -24,25 +22,18 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 /** Hour labels over the grid: every two hours, so they never crowd at laptop widths. */
 const HOUR_LABELS = Array.from({ length: 13 }, (_, i) => i * 2)
+/** Pixels a press on an edge handle may wander and still open the slot. */
+const CLICK_SLOP = 3
+/** The narrowest press target a slot gets, however short it is. */
+const MIN_HIT = 24
+/** Day-row heights `fitWindow` may choose between, in px (58 is the default). */
+const ROW_MIN = 40
+const ROW_MAX = 58
 
-/**
- * Every slot is AutoDJ airtime, so every swatch is a step on the on-air
- * violet ramp (DESIGN.md, the One Meaning Rule) rather than a rainbow, with
- * the ink that reads on it. Indexed by playlist order.
- */
-export const SWATCHES = [
-  { fill: "bg-violet-950 ring-1 ring-inset ring-violet-400/40", ink: "text-violet-100", dot: "bg-violet-950 ring-1 ring-violet-400/60" },
-  { fill: "bg-violet-full/75", ink: "text-white", dot: "bg-violet-full" },
-  { fill: "bg-indigo-300/85", ink: "text-indigo-950", dot: "bg-indigo-300" },
-  { fill: "bg-violet-200/90", ink: "text-violet-950", dot: "bg-violet-200" },
-]
-
-export type Swatch = (typeof SWATCHES)[number]
+export { SWATCHES, type Swatch }
 
 interface Props {
   blocks: Block[]
-  shows: StationSchedule[]
-  showsHref: string
   swatchFor: (playlistId: string) => Swatch
   nameFor: (block: Block) => string
   selectedKey: string | null
@@ -56,6 +47,14 @@ interface Props {
   /** A new slot on `day`, as a week-minute span. */
   onCreate: (day: number, span: [number, number]) => void
   onChange: (block: Block) => void
+  /** Stretch the day rows to fill the parent's height (the expanded view). */
+  fill?: boolean
+  /**
+   * Size the day rows (40–58px) so the whole page fits the window without
+   * scrolling, when it can. Measured, not guessed: the chrome above (status
+   * band or not) and the content below vary.
+   */
+  fitWindow?: boolean
 }
 
 type EdgeDrag = {
@@ -68,6 +67,8 @@ type EdgeDrag = {
   origin: number
   other: number
   limits: [number, number]
+  /** Past the click threshold: a resize, not a press that opens the slot. */
+  moved: boolean
 }
 type CreateDrag = {
   kind: "create"
@@ -97,14 +98,9 @@ type CreateDrag = {
  * mornings and weekend mornings can differ without any setting for it.
  * Everything snaps to 15 minutes and stops at the neighbouring slot, because
  * the server refuses overlaps.
- *
- * Show times are drawn as dashed marks for context — going live takes over
- * from any slot — and link to Station settings, where they are edited.
  */
 export function WeekGrid({
   blocks,
-  shows,
-  showsHref,
   swatchFor,
   nameFor,
   selectedKey,
@@ -115,8 +111,38 @@ export function WeekGrid({
   onSelect,
   onCreate,
   onChange,
+  fill = false,
+  fitWindow = false,
 }: Props) {
   const drag = useRef<EdgeDrag | CreateDrag | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [rowHeight, setRowHeight] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (!fitWindow) return
+    const fit = () => {
+      const rows = gridRef.current?.querySelectorAll<HTMLElement>("[data-day-row]")
+      if (!rows?.length) return
+      const first = rows[0].getBoundingClientRect()
+      const last = rows[rows.length - 1].getBoundingClientRect()
+      if (first.height === 0) return // hidden (phone width)
+      const top = first.top + window.scrollY
+      const below = document.documentElement.scrollHeight - (last.bottom + window.scrollY)
+      const gaps = last.bottom - first.top - first.height * rows.length
+      const room = (window.innerHeight - top - below - gaps) / rows.length
+      const next = Math.max(ROW_MIN, Math.min(ROW_MAX, Math.floor(room)))
+      setRowHeight((prev) => (prev === next ? prev : next))
+    }
+    fit()
+    window.addEventListener("resize", fit)
+    // The page's own height moves when a notice or the status band appears.
+    const observer = new ResizeObserver(fit)
+    observer.observe(document.body)
+    return () => {
+      window.removeEventListener("resize", fit)
+      observer.disconnect()
+    }
+  }, [fitWindow])
   const [ghost, setGhost] = useState<{ day: number; from: number; to: number } | null>(null)
 
   const allSegments = blocks.flatMap(segments)
@@ -137,7 +163,7 @@ export function WeekGrid({
     // carried this handle no longer does, so the captured span unmounts and
     // its pointerup never arrives. The window still hears the release.
     window.addEventListener("pointerup", endEdge)
-    window.addEventListener("pointercancel", endEdge)
+    window.addEventListener("pointercancel", cancelEdge)
     const [start, end] = weekSpan(block)
     drag.current = {
       kind: "edge",
@@ -148,9 +174,12 @@ export function WeekGrid({
       origin: edge === "start" ? start : end,
       other: edge === "start" ? end : start,
       limits: edgeLimits(blocks, block, edge),
+      moved: false,
     }
     // No onSelect here: selecting opens the slot dialog, which would cover
-    // the grid mid-drag. A drag is its own edit; a click opens the dialog.
+    // the grid mid-drag. A drag is its own edit; a press that never moves
+    // opens the dialog on release (endEdge). On a short slot the two handles
+    // cover all of it, so without that it could never be opened.
   }
 
   function moveEdge(e: ReactPointerEvent<HTMLSpanElement>) {
@@ -159,19 +188,25 @@ export function WeekGrid({
     // A hover, not a drag: the release was missed, so end it here rather
     // than rewrite the slot under a pointer with no button down.
     if (e.buttons === 0) {
-      endEdge()
+      cancelEdge()
       return
     }
+    if (Math.abs(e.clientX - d.originX) > CLICK_SLOP) d.moved = true
+    if (!d.moved) return
     const value = Math.min(d.limits[1], Math.max(d.limits[0], snap(d.origin + (e.clientX - d.originX) / d.scale)))
     onChange(d.edge === "start" ? fromSpan(d.block, value, d.other) : fromSpan(d.block, d.other, value))
   }
 
-  function endEdge() {
+  function finishEdge(release: boolean) {
     window.removeEventListener("pointerup", endEdge)
-    window.removeEventListener("pointercancel", endEdge)
-    if (drag.current?.kind !== "edge") return
+    window.removeEventListener("pointercancel", cancelEdge)
+    const d = drag.current
+    if (d?.kind !== "edge") return
     drag.current = null
+    if (release && !d.moved) onSelect(d.block.key)
   }
+  const endEdge = () => finishEdge(true)
+  const cancelEdge = () => finishEdge(false)
 
   // ── Drawing a new slot ──
 
@@ -220,10 +255,16 @@ export function WeekGrid({
   return (
     // Seven 24-hour rows need room to be touched; below ~44rem the grid
     // scrolls sideways rather than shrinking slots to slivers.
-    <div className="-mx-1 overflow-x-auto px-1 pb-1">
-      <div className="grid min-w-[44rem] grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2 gap-y-1.5">
+    <div className={cn("-mx-1 overflow-x-auto px-1 pb-1", fill && "h-full")}>
+      <div
+        ref={gridRef}
+        className={cn(
+          "grid min-w-[44rem] grid-cols-[4.375rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5",
+          fill && "h-full grid-rows-[auto_repeat(7,minmax(3.625rem,1fr))]",
+        )}
+      >
         <span />
-        <div className="relative mb-1 h-4 font-mono text-[10.5px] text-muted-foreground tabular-nums">
+        <div className="relative mb-1 h-4 font-mono text-micro text-text-faint tabular-nums">
           {HOUR_LABELS.map((h) => (
             <span
               key={h}
@@ -242,13 +283,13 @@ export function WeekGrid({
           const isToday = now?.day === day
           return (
             <div key={day} className="contents">
-              <span
-                className={cn(
-                  "self-center text-xs",
-                  isToday ? "font-semibold text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {DAY_SHORT[day]}
+              <span className="flex flex-col gap-0.5 self-center">
+                <span className={cn("font-mono text-caption font-semibold tracking-widest uppercase", isToday ? "text-foreground" : "text-muted-foreground")}>
+                  {DAY_SHORT[day]}
+                </span>
+                {/* No dates: slots repeat every week, and "20 OCT" read as a
+                    one-off. Today is the one tie to the calendar. */}
+                {isToday && <span className="font-mono text-micro font-semibold tracking-widest text-on-air-text uppercase">Today</span>}
               </span>
               <div
                 data-day-row
@@ -260,21 +301,23 @@ export function WeekGrid({
                   setGhost(null)
                 }}
                 className={cn(
-                  "relative h-12 touch-pan-x touch-pan-y rounded-md bg-white/[0.025] select-none",
-                  isToday && "bg-white/[0.045]",
+                  "relative touch-pan-x touch-pan-y rounded-control bg-surface-inset select-none",
+                  !fill && "h-14.5",
+                  isToday && "bg-surface-raised",
                   !readOnly && "cursor-crosshair",
                 )}
                 // Hour lines; the six-hourly ones are drawn stronger below.
                 style={{
-                  backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px)",
+                  backgroundImage: "linear-gradient(to right, rgb(244 241 236 / 0.05) 1px, transparent 1px)",
                   backgroundSize: "calc(100% / 24) 100%",
+                  height: !fill && rowHeight !== null ? rowHeight : undefined,
                 }}
               >
                 {[6, 12, 18].map((h) => (
                   <span
                     key={h}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 w-px bg-white/[0.09]"
+                    className="pointer-events-none absolute inset-y-0 w-px bg-foreground/[0.1]"
                     style={{ left: pct(h * 60) }}
                   />
                 ))}
@@ -288,17 +331,31 @@ export function WeekGrid({
                     const clash = overlaps.has(s.block.key)
                     const narrow = s.to - s.from < 90
                     return (
+                      <Fragment key={`${s.block.key}-${s.head ? "h" : "t"}`}>
+                      {/* A short slot is a few pixels wide; this gives it a
+                          MIN_HIT-wide target, centred on it. It sits under
+                          every slot (z-0 vs z-1), so it only takes presses on
+                          empty grid, never a neighbour's. Not a tab stop or
+                          a label: the slot's own button is both. */}
+                      {!readOnly && (
+                        <span
+                          aria-hidden="true"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => onSelect(s.block.key)}
+                          className="absolute inset-y-1.25 z-0 -translate-x-1/2 cursor-pointer"
+                          style={{ left: pct((s.from + s.to) / 2), width: pct(s.to - s.from), minWidth: MIN_HIT }}
+                        />
+                      )}
                       <div
-                        key={`${s.block.key}-${s.head ? "h" : "t"}`}
                         className={cn(
-                          "absolute inset-y-1 overflow-hidden rounded-md",
+                          "absolute inset-y-1.25 z-1 overflow-hidden rounded-chip transition-[filter] hover:brightness-110",
                           swatch.fill,
                           swatch.ink,
-                          selected && "z-10 outline-2 outline-offset-1 outline-white",
-                          sibling && "outline-1 outline-offset-1 outline-white/45",
+                          selected && "z-10 outline-2 outline-offset-1 outline-foreground",
+                          sibling && "outline-1 outline-offset-1 outline-foreground/45",
                           clash && "outline-2 outline-offset-1 outline-fault",
                         )}
-                        style={{ left: pct(s.from), width: pct(s.to - s.from) }}
+                        style={{ ...swatch.style, left: pct(s.from), width: pct(s.to - s.from) }}
                       >
                         <button
                           type="button"
@@ -308,12 +365,12 @@ export function WeekGrid({
                           className={cn(
                             "flex h-full w-full min-w-0 flex-col justify-center px-2.5 text-left leading-tight",
                             !readOnly && "cursor-pointer",
-                            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white",
+                            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground",
                           )}
                         >
-                          <span className="truncate text-[12px] font-semibold">{nameFor(s.block)}</span>
+                          <span className="truncate font-display text-body-sm font-bold">{nameFor(s.block)}</span>
                           {!narrow && (
-                            <span className="truncate font-mono text-[10.5px] opacity-80 tabular-nums">
+                            <span className="truncate font-mono text-micro opacity-80 tabular-nums">
                               {s.head
                                 ? `${s.block.start}–${s.block.end}${s.block.startMode === "hard" ? " · on time" : ""}`
                                 : `→ ${s.block.end}`}
@@ -326,7 +383,7 @@ export function WeekGrid({
                             onPointerDown={(e) => startEdge(e, s.block, "start")}
                             onPointerMove={moveEdge}
                             onPointerUp={endEdge}
-                            onPointerCancel={endEdge}
+                            onPointerCancel={cancelEdge}
                             className="group absolute inset-y-0 left-0 flex w-2.5 cursor-ew-resize touch-none items-center justify-center"
                           >
                             <span className="h-4 w-0.5 rounded-full bg-current opacity-40 group-hover:opacity-90" />
@@ -338,39 +395,26 @@ export function WeekGrid({
                             onPointerDown={(e) => startEdge(e, s.block, "end")}
                             onPointerMove={moveEdge}
                             onPointerUp={endEdge}
-                            onPointerCancel={endEdge}
+                            onPointerCancel={cancelEdge}
                             className="group absolute inset-y-0 right-0 flex w-2.5 cursor-ew-resize touch-none items-center justify-center"
                           >
                             <span className="h-4 w-0.5 rounded-full bg-current opacity-40 group-hover:opacity-90" />
                           </span>
                         )}
                       </div>
+                      </Fragment>
                     )
                   })}
 
                 {ghost?.day === day && (
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-1 z-20 flex items-center overflow-hidden rounded-md border border-on-air bg-on-air/25 px-2 font-mono text-[10.5px] whitespace-nowrap text-foreground tabular-nums"
+                    className="pointer-events-none absolute inset-y-1.25 z-20 flex items-center overflow-hidden rounded-chip border border-on-air bg-on-air/25 px-2 font-mono text-micro whitespace-nowrap text-foreground tabular-nums"
                     style={{ left: pct(ghost.from), width: pct(ghost.to - ghost.from) }}
                   >
                     {toClock(ghost.from)}–{toClock(ghost.to)}
                   </div>
                 )}
-
-                {shows
-                  .filter((show) => show.days.includes(day))
-                  .map((show) => (
-                    <Link
-                      key={`${show.id}-${day}`}
-                      href={showsHref}
-                      title={`${show.label ?? "Show time"} · ${show.start_time}. Edit in Station settings.`}
-                      className="absolute inset-y-1 z-20 flex min-w-9 items-center justify-center rounded-md border border-dashed border-live/70 bg-background/85 px-1 font-mono text-[9.5px] font-semibold tracking-[0.12em] text-live-text hover:border-live"
-                      style={{ left: pct(toMinutes(show.start_time)) }}
-                    >
-                      SHOW
-                    </Link>
-                  ))}
 
                 {isToday && now && (
                   <span

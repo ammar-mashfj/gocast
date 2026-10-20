@@ -1,0 +1,195 @@
+import { describe, expect, it } from "vitest"
+import { airState, type AirInput } from "./airState"
+import type { StationStatus } from "@/interfaces/StationStatus"
+import type { StudioSignal } from "@/components/studio/signal"
+import { stationHero, type HeroInput } from "./stationHero"
+
+function status(over: Partial<StationStatus> = {}): StationStatus {
+  return {
+    slug: "night-shift",
+    state: "on_air",
+    desired_state: "running",
+    started_at: null,
+    reachable: true,
+    ready: true,
+    icecast_connected: true,
+    last_ready_at: null,
+    source: "autodj",
+    broadcaster: false,
+    live_source: null,
+    now_playing: { title: "Neon Rain", artist: "Koto Blue" },
+    elapsed: 10,
+    remaining: 100,
+    playlist_length: 12,
+    up_next: [],
+    ...over,
+  }
+}
+
+const signal = (over: Partial<StudioSignal>): StudioSignal => ({
+  code: "live",
+  tone: "live",
+  label: "Live",
+  detail: "Listeners hear you about 15–20 seconds after you speak.",
+  ...over,
+})
+
+const heroInput = (s: StationStatus): HeroInput => ({
+  stationState: "live",
+  status: s,
+  loading: false,
+  slow: false,
+  liveFromThisBrowser: false,
+  autoDjLocked: false,
+  lastNowPlaying: null,
+  playlistName: null,
+})
+
+function input(over: Partial<AirInput> = {}): AirInput {
+  return {
+    status: status(),
+    statusLoading: false,
+    broadcastState: "idle",
+    signal: null,
+    micLatched: false,
+    autoDjLocked: false,
+    onStudio: false,
+    ...over,
+  }
+}
+
+describe("airState — from the poll", () => {
+  it("says the show ended, not who is live, while the station hands over", () => {
+    // The read from mid-show: a browser broadcaster, live audio on air.
+    const stale = status({ source: "live", broadcaster: true, live_source: { type: "browser", client: "Chrome" } })
+    expect(airState(input({ status: stale, showEnding: true }))).toMatchObject({ label: "SHOW ENDED", tone: "off", action: null, onAir: false })
+    expect(airState(input({ status: stale })).message).toBe("You’re live from another browser.")
+  })
+
+  it("says checking until the first read, then no answer if it failed", () => {
+    expect(airState(input({ status: null, statusLoading: true }))).toMatchObject({ label: "CHECKING", tone: "off", action: null })
+    expect(airState(input({ status: null, statusLoading: false }))).toMatchObject({ label: "NO ANSWER", action: null })
+  })
+
+  it("offers Start AutoDJ off air, or Go live when the plan has no AutoDJ", () => {
+    const off = status({ state: "offline", reachable: false, source: null, now_playing: null })
+    expect(airState(input({ status: off }))).toMatchObject({ tone: "off", label: "OFF AIR", action: "start-autodj", onAir: false })
+    expect(airState(input({ status: off, autoDjLocked: true }))).toMatchObject({ action: "go-live" })
+  })
+
+  it("names the AutoDJ track and offers no action", () => {
+    expect(airState(input())).toMatchObject({
+      tone: "onair",
+      label: "ON AIR · AUTODJ",
+      message: "AutoDJ is playing Neon Rain by Koto Blue.",
+      action: null,
+      onAir: true,
+    })
+    expect(airState(input({ status: status({ now_playing: null }) })).message).toBe("AutoDJ is playing.")
+  })
+
+  it("names the empty default playlist and opens it", () => {
+    const quiet = status({ source: "silence", now_playing: null, playlist: { id: "p1", name: "Test", scheduled: false }, playlist_length: 0 })
+    expect(airState(input({ status: quiet }))).toMatchObject({
+      tone: "warn",
+      label: "SILENCE",
+      message: "Your default playlist, Test, is empty. Listeners hear silence.",
+      short: "Playlist is empty.",
+      action: "open-playlist",
+      playlistId: "p1",
+    })
+  })
+
+  it("names an empty scheduled playlist as scheduled", () => {
+    const quiet = status({ source: "silence", now_playing: null, playlist: { id: "p2", name: "Morning drive", scheduled: true }, playlist_length: 0 })
+    expect(airState(input({ status: quiet })).message).toBe("The scheduled playlist, Morning drive, is empty. Listeners hear silence.")
+  })
+
+  it("warns when AutoDJ has nothing to play", () => {
+    expect(airState(input({ status: status({ source: "silence", now_playing: null }) }))).toMatchObject({
+      tone: "warn",
+      label: "SILENCE",
+      action: "add-tracks",
+    })
+  })
+
+  it("doesn't blame AutoDJ for the silence before this tab goes live", () => {
+    const quiet = status({ source: "silence", now_playing: null })
+    for (const broadcastState of ["ready", "connecting"] as const) {
+      expect(airState(input({ status: quiet, broadcastState, autoDjLocked: true }))).toMatchObject({
+        label: "GOING LIVE",
+        action: null,
+      })
+    }
+  })
+
+  it("warns when the station runs but nobody can hear it", () => {
+    expect(airState(input({ status: status({ state: "degraded" }) }))).toMatchObject({ tone: "warn", label: "NOT HEARD" })
+  })
+
+  it("says starting while the container boots", () => {
+    expect(airState(input({ status: status({ state: "starting", reachable: false }) }))).toMatchObject({ label: "STARTING", action: null })
+  })
+
+  it("shows a broadcaster from elsewhere as live, with no transport", () => {
+    const s = status({ state: "live", source: "live", broadcaster: true, live_source: { type: "external", client: "BUTT" } })
+    expect(airState(input({ status: s }))).toMatchObject({
+      tone: "live",
+      label: "LIVE",
+      message: "You’re live from your DJ software.",
+      broadcasting: false,
+      action: null,
+    })
+  })
+
+  it("trusts the open session when the container predates `broadcaster`", () => {
+    const s = status({ state: "live", broadcaster: null, live_source: { type: "browser", client: null } })
+    expect(airState(input({ status: s })).message).toBe("You’re live from another browser.")
+  })
+
+  it("says the show ended, not AutoDJ, while another source's last seconds play out", () => {
+    // The broadcaster has gone; the live arm is still what's on air.
+    const draining = status({ state: "live", source: "live", broadcaster: false, live_source: null, now_playing: { title: "Live broadcast", artist: null } })
+    for (const autoDjLocked of [false, true]) {
+      expect(airState(input({ status: draining, autoDjLocked }))).toMatchObject({ label: "SHOW ENDED", tone: "off", action: null, onAir: true })
+    }
+    expect(stationHero(heroInput(draining)).title).toBe("Your show has ended.")
+  })
+
+  it("says no answer, like the overview hero, when only the session says live", () => {
+    // The session row outlives an unreachable container's say-so.
+    const s = status({ state: "live", reachable: false, broadcaster: null, source: null, live_source: { type: "browser", client: null } })
+    expect(airState(input({ status: s }))).toMatchObject({ label: "NO ANSWER", onAir: false })
+    expect(stationHero(heroInput(s)).headline).toBe("no_answer")
+  })
+})
+
+describe("airState — this tab is broadcasting", () => {
+  const live = { broadcastState: "live" as const }
+
+  it("outranks the poll", () => {
+    const r = airState(input({ ...live, status: status({ state: "offline" }), signal: signal({}) }))
+    expect(r).toMatchObject({ tone: "live", label: "LIVE", broadcasting: true, action: "open-studio" })
+  })
+
+  it("has no button on the studio page", () => {
+    expect(airState(input({ ...live, signal: signal({}), onStudio: true })).action).toBeNull()
+  })
+
+  it("turns solid red with the mic open, and offers Close mic only when latched", () => {
+    const mic = signal({ code: "mic", tone: "mic", label: "Live · Mic", detail: "You’re talking." })
+    expect(airState(input({ ...live, signal: mic }))).toMatchObject({ tone: "mic", label: "LIVE · MIC", action: "open-studio" })
+    expect(airState(input({ ...live, signal: mic, micLatched: true })).action).toBe("close-mic")
+    expect(airState(input({ ...live, signal: mic, micLatched: true, onStudio: true })).action).toBeNull()
+  })
+
+  it("turns amber on a fault, with the signal's own words", () => {
+    const silence = signal({ code: "silence", tone: "fault", label: "Silence", detail: "Nothing is going out." })
+    expect(airState(input({ ...live, signal: silence }))).toMatchObject({ tone: "warn", label: "SILENCE", message: "Nothing is going out." })
+  })
+
+  it("treats reconnecting as broadcasting", () => {
+    const rec = signal({ code: "reconnecting", tone: "fault", label: "Reconnecting", detail: "Nothing is reaching listeners." })
+    expect(airState(input({ broadcastState: "reconnecting", signal: rec }))).toMatchObject({ tone: "warn", label: "RECONNECTING", broadcasting: true })
+  })
+})

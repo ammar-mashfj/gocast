@@ -105,7 +105,10 @@
                             </p>
                             <ul class="label flex flex-col gap-0.5">
                                 <li><code>/dashboard/station/settings</code> — their own station's settings</li>
-                                <li><code>/dashboard/station/library</code> — AutoDJ and jingles</li>
+                                <li><code>/dashboard/station/library</code> — their AutoDJ tracks</li>
+                                <li><code>/dashboard/station/playlists</code> — AutoDJ playlists</li>
+                                <li><code>/dashboard/station/jingles</code> — jingles</li>
+                                <li><code>/dashboard/station/schedule</code> — the AutoDJ schedule</li>
                                 <li><code>/dashboard/station/audience</code> — listener stats</li>
                                 <li><code>/dashboard/settings</code> — their account</li>
                             </ul>

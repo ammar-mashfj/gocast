@@ -1,14 +1,13 @@
 import type { Metadata } from "next"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/AppSidebar"
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader"
-import { BroadcastMiniController } from "@/components/dashboard/BroadcastMiniController"
-import { LiveBanner } from "@/components/dashboard/LiveBanner"
+import { DashboardShell } from "@/components/dashboard/shell/DashboardShell"
 import { BroadcastProvider } from "@/contexts/BroadcastContext"
 import { AccountProvider, type Account } from "@/contexts/AccountContext"
 import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
+import { StationStatusProvider } from "@/contexts/StationStatusContext"
 import { ProRequestProvider } from "@/contexts/ProRequestContext"
 import { RealtimeProvider } from "@/contexts/RealtimeContext"
 import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
@@ -91,6 +90,7 @@ export default async function DashboardLayout({
               artwork_url: s.artwork_url,
               genre: s.genre,
               description: s.description,
+              timezone: s.timezone,
             }
           : null,
       )
@@ -108,25 +108,18 @@ export default async function DashboardLayout({
     <RealtimeProvider userId={user.id}>
       <BroadcastProvider>
         <AccountProvider account={account}>
-          {/* Inside AccountProvider: the dialog prefills from the account. */}
-          <ProRequestProvider>
-            <StationProvider station={station}>
-              <SidebarProvider>
-                <AppSidebar user={user} />
-                <SidebarInset>
-                  <DashboardHeader />
-                  <LiveBanner />
-                  {/* The mini controller docks over the bottom of the page
-                      and flags itself on <html>; while it is there the page
-                      ends above it instead of under it. */}
-                  <main className="flex-1 p-6 [html[data-mini-controller]_&]:pb-28">
-                    {children}
-                  </main>
-                  <BroadcastMiniController />
-                </SidebarInset>
-              </SidebarProvider>
-            </StationProvider>
-          </ProRequestProvider>
+          <StationProvider station={station}>
+            {/* Inside AccountProvider and StationProvider: the dialog prefills
+                from the account, and won't open at all without a station. */}
+            <ProRequestProvider>
+              <StationStatusProvider>
+                <SidebarProvider data-surface="dashboard">
+                  <AppSidebar user={user} />
+                  <DashboardShell>{children}</DashboardShell>
+                </SidebarProvider>
+              </StationStatusProvider>
+            </ProRequestProvider>
+          </StationProvider>
         </AccountProvider>
       </BroadcastProvider>
     </RealtimeProvider>

@@ -18,6 +18,8 @@ export interface Playlist {
   name: string
   is_default: boolean
   order: PlaylistOrder
+  /** `#rrggbb` the owner picked, or null for the automatic shade by position. */
+  color: string | null
   /** Display order among the station's playlists; the default is always shown first regardless. */
   position: number
   /** Present on the list endpoint, computed server-side without loading members. */

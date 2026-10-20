@@ -143,6 +143,16 @@ class StationEvent extends Model
     public const TYPE_STUDIO_DROP = 'studio_drop';
 
     /**
+     * Studio: the go-live connection check's verdict (UplinkCheckController).
+     * One row per attempt to go live from the browser, `outcome` ok, lowered
+     * (sent below 128 kbps), blocked (too slow, refused) or failed (couldn't
+     * measure; that report may not arrive, being sent over the same line).
+     * Here to tune the thresholds in client/lib/uplinkProbe.ts against real
+     * lines rather than guesses.
+     */
+    public const TYPE_UPLINK_CHECK = 'uplink_check';
+
+    /**
      * Types a station's container is allowed to report.
      *
      * StationEventController holds the same list for its own validation. This
@@ -178,6 +188,7 @@ class StationEvent extends Model
         self::TYPE_PLAYLIST_CHANGED,
         self::TYPE_STREAM_KEY_ROTATED,
         self::TYPE_STUDIO_DROP,
+        self::TYPE_UPLINK_CHECK,
     ];
 
     /** @var list<string> */

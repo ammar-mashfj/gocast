@@ -63,7 +63,7 @@ class Playlist extends Model
     public const DEFAULT_NAME = 'Main rotation';
 
     /** @var list<string> */
-    protected $fillable = ['name', 'order', 'position'];
+    protected $fillable = ['name', 'order', 'color', 'position'];
 
     /** @var array<string, mixed> */
     protected $attributes = [

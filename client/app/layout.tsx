@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import { Bricolage_Grotesque, JetBrains_Mono, Onest } from "next/font/google";
+import { Bricolage_Grotesque, IBM_Plex_Mono, IBM_Plex_Sans_Arabic, JetBrains_Mono, Onest } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
@@ -35,8 +35,14 @@ const body = Onest({
   variable: '--font-body',
   display: 'swap',
 });
+/* `opsz` is the axis that makes Bricolage a display face: without it every
+   size renders from the 14px master, so a 30px heading is visibly heavier
+   and wider than the design, which loads the font with opsz 12..96. The
+   browser picks the optical size from the font size (font-optical-sizing:
+   auto); nothing else has to change. */
 const display = Bricolage_Grotesque({
   subsets: ['latin'],
+  axes: ['opsz'],
   variable: '--font-display-face',
   display: 'swap',
 });
@@ -45,6 +51,26 @@ const display = Bricolage_Grotesque({
 const mono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-mono-face',
+  display: 'swap',
+  preload: false,
+});
+/* The dashboard's mono (docs/DASHBOARD-DESIGN-SYSTEM-ROLLOUT.md): clocks,
+   counters and status labels. globals.css points --font-mono-face at it only
+   inside the dashboard, so marketing never downloads it. */
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-plex-mono',
+  display: 'swap',
+  preload: false,
+});
+/* The dashboard's fallback for Arabic station names and track titles, which
+   Bricolage has no glyphs for. Its unicode-range keeps the browser from
+   downloading it until an Arabic character is actually on screen. */
+const plexArabic = IBM_Plex_Sans_Arabic({
+  subsets: ['arabic'],
+  weight: ['500', '600', '700'],
+  variable: '--font-plex-arabic',
   display: 'swap',
   preload: false,
 });
@@ -160,6 +186,8 @@ export default function RootLayout({
         body.variable,
         display.variable,
         mono.variable,
+        plexMono.variable,
+        plexArabic.variable,
       )}
     >
       <head>
@@ -207,7 +235,12 @@ y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
           />
         )}
         {children}
-        <Toaster />
+        {/* Bottom offsets read a variable so a page with a bottom bar (the
+            dashboard's phone tab bar) can lift its toasts clear of it. */}
+        <Toaster
+          offset={{ bottom: "var(--toast-offset-bottom, 24px)" }}
+          mobileOffset={{ bottom: "var(--toast-offset-bottom, 16px)" }}
+        />
         <RouterBridge />
       </body>
     </html>

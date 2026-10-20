@@ -47,8 +47,8 @@ export default function Body() {
       </p>
       <p>
         To talk for longer without holding anything, press{" "}
-        <strong>Keep mic on</strong>{" "}(or <kbd>L</kbd>). The mic stays open until
-        you press <strong>Mic off</strong>.
+        <strong>Keep mic open</strong>{" "}(or <kbd>L</kbd>). The mic stays open until
+        you press <strong>Close mic</strong>.
       </p>
 
       <h2>Monitoring</h2>
@@ -63,7 +63,7 @@ export default function Body() {
         system&#39;s own monitoring. Never speakers.
       </p>
 
-      <h2>Encoder Health</h2>
+      <h2>Audio Lost</h2>
       <p>
         The important readout, and the one people ignore. It counts audio that{" "}
         <em>actually left your computer</em>{" "}&mdash; not what the mixer thinks
@@ -71,7 +71,7 @@ export default function Body() {
         connection; this will not.
       </p>
       <p>
-        It shows lost time as a duration, like &ldquo;3.2s lost&rdquo;, because
+        It shows lost time as a duration, like &ldquo;3.2 s&rdquo;, because
         that is the number you can act on. A second or two over a long show is
         nothing. Seconds accumulating steadily means your upload is struggling:
         close whatever else is using it, and prefer a cable to wifi for anything

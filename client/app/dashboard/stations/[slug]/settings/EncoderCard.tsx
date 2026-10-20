@@ -1,17 +1,18 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useConfirm } from "@/components/ui/use-confirm"
+import { useConfirm } from "@/components/ds/ConfirmDialog"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { IconCheck, IconLoader2, IconRefresh } from "@tabler/icons-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { EncoderConnection } from "@/components/dashboard/EncoderConnection"
+import Link from "next/link"
+import { Button } from "@/components/ds/Button"
+import { SettingsTile } from "./SettingsTile"
+import { ProTag } from "@/components/ds/Tag"
+import { EncoderConnection, HowToConnectLink } from "@/components/dashboard/EncoderConnection"
 import { useProRequest } from "@/contexts/ProRequestContext"
 import { StationEncoder } from "@/interfaces/Station"
 import api from "@/lib/axios"
+import { copyText } from "@/lib/clipboard"
 
 interface EncoderCardProps {
   slug: string
@@ -28,23 +29,23 @@ interface EncoderCardProps {
 }
 
 /**
- * Everything a DJ types into BUTT, Mixxx or RadioDJ.
+ * "Use your own DJ software" on Station settings: where you find it, and
+ * where the stream key is rotated. The values themselves and the live
+ * connection feedback are on the Go live page (Use DJ software instead,
+ * opened directly by Open Go live via ?dj=1), where connecting happens; two
+ * copies of them were two things to keep in step. A key made here is shown
+ * once, since pasting it is the only reason to make one.
  *
- * It is a settings CARD rather than a dialog because it is not a one-off: the
- * same five values get retyped on a second machine, after a reinstall, and
- * whenever somebody's encoder forgets them. That is also why the key is
- * redisplayed rather than shown once — see the migration that added the
- * column.
- *
- * The prose here is not decoration. Every line of it is a support ticket that
- * has already been paid for somewhere: the wrong server type, a station that
- * is switched off, and a rotation that did not kick the person who was on air.
+ * Free plans get the tile LOCKED, not hidden: it's a Pro selling point.
  */
 export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardProps) {
   const [confirm, confirmDialog] = useConfirm()
   const router = useRouter()
   const proRequest = useProRequest()
+  const [open, setOpen] = useState(false)
   const [revealed, setRevealed] = useState(false)
+  /** A key was made in this dialog: show it, once, until the dialog closes. */
+  const [justRotated, setJustRotated] = useState(false)
   const [rotating, setRotating] = useState(false)
   /**
    * The key the rotate endpoint just handed back, held only until the
@@ -88,6 +89,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
       title: "Generate a new stream key?",
       description: "Your encoders keep working until they next reconnect, and then they need the new key.",
       confirmLabel: "Generate new key",
+      keepLabel: "Keep current key",
     })
     if (!ok) return
 
@@ -106,6 +108,7 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
       })
       // Reveal it: the only reason to rotate is to go and paste the new one.
       setRevealed(true)
+      setJustRotated(true)
       toast.success("New stream key generated")
       router.refresh()
     } catch {
@@ -115,137 +118,163 @@ export function EncoderCard({ slug, stationName, encoder, locked }: EncoderCardP
     }
   }
 
-  // Free plans get the card LOCKED, not hidden. It is a Pro selling point, and
-  // a feature nobody can see sells nothing — the same call StationShare makes
-  // for the embed.
+  const password = rotated ? rotated.key : encoder?.password ?? null
+
+  // Free plans get the fold LOCKED, not hidden: it's a Pro selling point, and
+  // a feature nobody can see sells nothing.
   if (locked) {
     return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-medium">
-            Broadcast from your own software
-            <Badge variant="pro" className="ml-2 align-middle">Pro</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Go live from BUTT, Mixxx, RadioDJ, Audio Hijack — any encoder that can
-            send to an Icecast server — instead of the browser studio. Your
-            station gets its own server address and stream key, and you can keep
+      <SettingsTile
+        id="encoder"
+        title={
+          <span className="inline-flex items-center gap-2">
+            Use your own DJ software <ProTag />
+          </span>
+        }
+        description="Go live from BUTT, Mixxx or RadioDJ instead of the browser."
+        open={open}
+        onOpenChange={setOpen}
+      >
+        <div className="flex flex-col items-start gap-4 text-body-sm text-muted-foreground">
+          <p>
+            Any software that can send to an Icecast server can go live on {stationName}, with its own server address and stream key, so you keep
             broadcasting with the tools you already know.
           </p>
-          <div>
-            {/* Outline: on this page the section saves are the filled ones.
-                Opens the request form — payment is arranged by email. */}
-            <Button variant="outline" onClick={proRequest.open} disabled={proRequest.requested}>
-              {proRequest.requested && <IconCheck size={16} data-icon="inline-start" />}
-              <span>{proRequest.requested ? "Request sent" : "Get Pro"}</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          {/* Opens the request form — payment is arranged by email. */}
+          {/* Closed first: the request form is a dialog of its own. */}
+          <Button
+            variant="pro"
+            size="lg"
+            className="w-full"
+            onClick={() => {
+              setOpen(false)
+              proRequest.open()
+            }}
+            disabled={proRequest.requested}
+          >
+            {proRequest.requested ? "Request sent" : "Get Pro"}
+          </Button>
+        </div>
+      </SettingsTile>
     )
   }
-
-  // The plan allows it, but this deployment has no ingest router published, so
-  // there is no honest address to print.
-  if (!encoder) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">Broadcast from your own software</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            External encoder ingest isn&apos;t available on this server yet. The
-            browser studio still works for {stationName}.
-          </p>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  // The server holds a key it can no longer decrypt — an APP_KEY rotation.
-  // Everything else on the card is still correct and still worth showing; only
-  // the credential is gone, and "New key" above mints a working one.
-  // The just-rotated value wins until the prop catches up. It is also the way
-  // out of the unreadable-key state EncoderConnection renders: rotating mints
-  // a key the server CAN read, and the card has to stop saying otherwise the
-  // moment it does.
-  //
-  // A ternary rather than `rotated.key ?? encoder.password`, so that once a
-  // rotation has happened the old key can never come back on screen. It is
-  // dead — the server replaced it — and "Unavailable" is a worse answer than a
-  // working key but a much better one than a credential that will fail at the
-  // next reconnect with nothing to explain why. Only reachable if the rotate
-  // response somehow carried no key at all, which minting one makes impossible.
-  const password = rotated ? rotated.key : encoder.password
 
   return (
-    <Card id="encoder" className="scroll-mt-6">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-medium">Broadcast from your own software</CardTitle>
-        <Button variant="ghost" size="sm" onClick={rotate} disabled={rotating}>
-          {rotating ? (
-            <IconLoader2 size={14} className="animate-spin" data-icon="inline-start" />
-          ) : (
-            <IconRefresh size={14} data-icon="inline-start" />
-          )}
-          <span>New key</span>
-        </Button>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-4">
-        {/* Said first so that someone who opened Settings for something else
-            knows they can scroll past five server fields: most stations never
-            need them. */}
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Optional, for desktop DJ apps. If you go live from the browser studio,
-          you can skip this.
+    // The id is an anchor: settings#encoder opens this (help pages link it).
+    <SettingsTile
+      id="encoder"
+      title="Use your own DJ software"
+      description="Optional. Skip this if you go live from the browser."
+      dialogDescription={encoder ? <HowToConnectLink /> : undefined}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) {
+          setJustRotated(false)
+          setRevealed(false)
+        }
+      }}
+    >
+      {!encoder ? (
+        // The plan allows it, but this deployment has no ingest router
+        // published, so there is no honest address to print.
+        <p className="text-body-sm text-muted-foreground">
+          Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.
         </p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Set your encoder&apos;s server type to{" "}
-          <span className="text-foreground font-medium">Icecast 2</span> and fill in
-          these five values. Works with BUTT, Mixxx, RadioDJ, Audio Hijack, ffmpeg —
-          any encoder that can send to an Icecast server.
-        </p>
+      ) : (
+        // No values and no connection watching here: connecting happens on
+        // the Go live page (Use DJ software instead), which has the values,
+        // says if the station is off and confirms the connection. This is
+        // where you find it, and where the key is rotated.
+        <div className="flex flex-col gap-5 text-body-sm text-muted-foreground">
+          <div className="flex flex-col items-start gap-3">
+            <p>
+              Connect from the Go live page: open Go live and choose{" "}
+              <span className="font-semibold text-foreground">Use DJ software instead</span>. Your connection details are there.
+            </p>
+            <Button asChild>
+              <Link href={`/dashboard/stations/${slug}/live?dj=1`}>Open Go live</Link>
+            </Button>
+          </div>
 
-        <EncoderConnection
-          encoder={encoder}
-          password={password}
-          revealed={revealed}
-          onToggleReveal={() => setRevealed((r) => !r)}
-        />
-
-        {/* Each of these is a support conversation that happens without it. */}
-        <ul className="border-t border-border pt-4 flex flex-col gap-2 list-none p-0 m-0 text-sm text-muted-foreground leading-relaxed">
-          <li>
-            <span className="text-foreground">Switch {stationName} on first.</span>{" "}
-            Press Start AutoDJ on the station page, then connect. Your encoder
-            connects to the station itself, so there is nothing listening while
-            it is off air.
-          </li>
-          <li>
-            <span className="text-foreground">Not Shoutcast.</span> Shoutcast
-            can&apos;t send the Mount value above, so it never reaches your
-            station. Pick Icecast 2 even if your encoder defaults to the other.
-          </li>
-          <li>
-            <span className="text-foreground">A new key doesn&apos;t kick anyone off.</span>{" "}
-            A broadcast already on air keeps running; the new key applies the next
-            time an encoder connects. To cut one off now, press Turn station off on
-            the station page and confirm, then come back here for a new key so
-            whoever was broadcasting cannot reconnect.
-          </li>
-          <li>
-            <span className="text-foreground">This connection isn&apos;t encrypted.</span>{" "}
-            Your encoder sends the key as plain text. Treat it like a password on
-            a shared network, and generate a new one if you ever paste it
-            somewhere public.
-          </li>
-        </ul>
-      </CardContent>
+          <div className="flex flex-col gap-3 border-t border-line pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-semibold text-foreground">Stream key</span>
+                <span>Pasted it somewhere public? Make a new one.</span>
+              </div>
+              <Button size="sm" variant="ghost" onClick={rotate} disabled={rotating}>
+                {rotating ? "Making a new key…" : "New key"}
+              </Button>
+            </div>
+            {/* The only reason to rotate is to paste the new key, so it is
+                shown here once, after a rotation in this dialog. */}
+            {justRotated && password && (
+              <KeyRow password={password} revealed={revealed} onToggleReveal={() => setRevealed((r) => !r)} />
+            )}
+          </div>
+        </div>
+      )}
       {confirmDialog}
-    </Card>
+    </SettingsTile>
+  )
+}
+
+/**
+ * The Go live page's DJ-software dialog body: the values to type into the
+ * software. (Settings no longer shows them: it points to Go live and
+ * rotates the key.)
+ */
+export function EncoderPanel({
+  stationName,
+  encoder,
+  password,
+  revealed,
+  onToggleReveal,
+}: {
+  stationName: string
+  encoder?: StationEncoder
+  password: string | null
+  revealed: boolean
+  onToggleReveal: () => void
+}) {
+  return (
+    <div className="text-body-sm text-muted-foreground">
+      {!encoder ? (
+        <p>Own-software broadcasting isn’t available on this server yet. The browser studio still works for {stationName}.</p>
+      ) : (
+        <EncoderConnection encoder={encoder} password={password} revealed={revealed} onToggleReveal={onToggleReveal} />
+      )}
+    </div>
+  )
+}
+
+/** The freshly made key: masked, Show and Copy. */
+function KeyRow({ password, revealed, onToggleReveal }: { password: string; revealed: boolean; onToggleReveal: () => void }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex flex-col gap-1 rounded-control bg-surface-inset px-3.5 py-2.5">
+      <div className="flex min-h-8.5 items-center gap-3">
+        <span className="w-20 shrink-0 eyebrow-sm text-text-faint">New key</span>
+        <span className="min-w-0 flex-1 font-mono text-body-sm break-all text-foreground">{revealed ? password : "•".repeat(16)}</span>
+        <Button size="sm" variant="quiet" onClick={onToggleReveal} aria-label={revealed ? "Hide stream key" : "Show stream key"}>
+          {revealed ? "Hide" : "Show"}
+        </Button>
+        <Button
+          size="sm"
+          variant="subtle"
+          aria-label="Copy stream key"
+          onClick={async () => {
+            if (await copyText(password)) {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1600)
+            } else toast.error("Couldn't copy — select the key and copy it manually")
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <p className="text-caption text-text-faint">Your software keeps working until it reconnects; then it needs this key.</p>
+    </div>
   )
 }

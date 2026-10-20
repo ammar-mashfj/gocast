@@ -1,11 +1,10 @@
 ---
 feature: Public player page, Pro embed and listener-facing SEO
-verified: 2026-09-29 against ea570df plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - client/app/station/[slug]/page.tsx
   - client/app/station/[slug]/getStation.ts
   - client/app/station/[slug]/PlayerView.tsx
-  - client/app/station/[slug]/ScheduleBlock.tsx
   - client/app/station/[slug]/NotifyMeForm.tsx
   - client/app/station/[slug]/RelatedStations.tsx
   - client/app/station/[slug]/opengraph-image.tsx
@@ -37,10 +36,7 @@ sources:
   - client/hooks/useListenerSession.ts
   - client/hooks/usePublicStationStats.ts
   - client/components/dashboard/EmbedDialog.tsx
-  - client/components/dashboard/StationShare.tsx
-  - client/app/dashboard/stations/[slug]/LinksEditor.tsx
   - client/contexts/AccountContext.tsx
-  - client/components/studio/StreamPanel.tsx
   - client/.env.example
   - api/routes/api.php
   - api/app/Http/Controllers/PublicStationController.php
@@ -64,16 +60,25 @@ sources:
   - api/tests/Feature/PublicEmbedTest.php
   - api/tests/Feature/PublicStationSeoTest.php
   - api/tests/Feature/StationNotifySubscriptionTest.php
-fingerprint: ff28ce24bdaeef12
+  - client/components/dashboard/overview/OverviewHeader.tsx
+  - client/components/dashboard/share/ShareButton.tsx
+  - client/components/dashboard/share/TuneInCodeDialog.tsx
+  - client/components/dashboard/share/ShareDialog.tsx
+  - client/app/dashboard/stations/[slug]/settings/LinksCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/StreamCard.tsx
+  - client/app/dashboard/stations/[slug]/settings/StreamLink.tsx
+  - client/components/ds/CopyField.tsx
+  - client/lib/clipboard.ts
+fingerprint: d551015f54c7060f
 ---
 
 # Public player page, Pro embed and listener-facing SEO
 
-Everything a listener (or a crawler) touches: the full player page at `/station/{slug}`, the Pro-only iframe player at `/embed/{slug}`, the share images, sitemaps and robots rules, and the dashboard pieces that hand out the link, QR code, embed snippet and social links. The page is server-rendered from the public API, plays audio over **HLS first with an Icecast fallback**, and reports each playing browser to the listener-analytics endpoints.
+Everything a listener (or a crawler) touches: the full player page at `/station/{slug}`, the Pro-only iframe player at `/embed/{slug}`, the share images, sitemaps and robots rules, and the dashboard pieces that hand out the link, QR code, embed snippet and social links. The player page no longer shows show times (the schedule sheet and `ScheduleBlock.tsx` are gone). The page is server-rendered from the public API, plays audio over **HLS first with an Icecast fallback**, and reports each playing browser to the listener-analytics endpoints.
 
 The thing people get wrong: **the embed gate lives in the API, not in the page or in headers.** `/embed/{slug}` is a plain public URL that only renders because `GET /public/stations/{slug}/embed` answers 200 for a Pro owner; free stations get a 404 that looks exactly like an unknown slug. And the player page itself is *never* gated by plan: a Free station's `/station/{slug}` works fully, only its `<meta robots>` may say `noindex` (see Indexing).
 
-Related docs: [Listener analytics](listener-analytics.md) (what the session endpoints do with the token), [Notifications and email](notifications-and-email.md) (what happens after someone subscribes to notify-me), [Station lifecycle](station-lifecycle.md) (what makes `is_on_air` true), [Accounts, plans, invites](accounts-plans-invites.md) (where `embed_enabled` comes from), [Schedule](schedule.md) (the "Weekly schedule" sheet's data), [Liquidsoap station script](liquidsoap-station-script.md) (HLS encoder).
+Related docs: [Listener analytics](listener-analytics.md) (what the session endpoints do with the token), [Notifications and email](notifications-and-email.md) (what happens after someone subscribes to notify-me), [Station lifecycle](station-lifecycle.md) (what makes `is_on_air` true), [Accounts, plans, invites](accounts-plans-invites.md) (where `embed_enabled` comes from), [Liquidsoap station script](liquidsoap-station-script.md) (HLS encoder).
 
 ## Routes at a glance
 
@@ -96,10 +101,10 @@ All endpoints are unauthenticated, in `api/routes/api.php` under `throttle:publi
 
 | Endpoint | Controller | Used by |
 |---|---|---|
-| `GET /public/stations/{slug}` | `PublicStationController::show` | Player page, OG image. Eager-loads `schedules`, `withIndexability()`. 404 via `firstOrFail`, for **any** station regardless of state |
+| `GET /public/stations/{slug}` | `PublicStationController::show` | Player page, OG image. Eager-loads `schedules` (still, though nothing on the page reads them now, see Gaps), `withIndexability()`. 404 via `firstOrFail`, for **any** station regardless of state |
 | `GET /public/stations/{slug}/embed` | `PublicEmbedController::show` | Embed page. 404 unless `$station->user->canEmbed()` |
 | `GET /public/stations/{slug}/listeners` | `ListenerCountController::show` | The 10s feed (count, `is_live`, `is_on_air`, `now_playing`) |
-| `POST /public/stations/{slug}/notify` | `StationNotifyController::store` | Notify-me box. Extra `throttle:5,60` (5 per hour per IP) on top of `public` |
+| `POST /public/stations/{slug}/notify` | `StationNotifyController::store` | Notify-me box. Extra `throttle:5,60,station-notify` (5 per hour per IP, its own limiter) on top of `public` |
 | `GET /public/sitemap/stations` | `PublicStationController::sitemap` | Stations sitemap. Placed outside `/public/stations/` so it cannot shadow a station slugged "sitemap" |
 | `GET /public/featured` | `PublicStationController::featured` | `RelatedStations` (dead, see Gaps) and the homepage rail |
 | `GET /public/stations`, `GET /public/genres` | `index`, `genres` | Only the dead Discover page |
@@ -161,19 +166,15 @@ State machine, in words:
 - **In-band ID3**: `readCues` reads `TIT2` (title), `TPE1` (artist) and the `TXXX` frame described as `StreamTitle` (ICY string, split on `" - "`) from a `metadata` text track set to `hidden`. A tag without a title is ignored so the poll stays in charge. Placeholder values (`unknown`, `n/a`, `-`, `none`, `null`, `untitled`, empty) become null.
 - **Tab title**: while playing, `▶ {title} · {artist} · {station} | GoCast` (`useDocumentTitle`).
 - **Media Session**: while playing, sets lock-screen metadata (artwork falls back to `/media-icon-512.png`, declared `512x512 image/png` regardless of the real image), handlers for play/pause/stop; seek and track handlers set to null.
-- **Volume** (desktop only; the control is hidden below a 900px container width and slides in only while playing): slider 0-100, default 80, mute restores the previous level.
+- **Volume** (desktop only; the control is hidden below a 900px container width and slides in only while playing): slider 0-100, default 80. Mute sets the element's `audio.muted` (not volume 0, which iPhone/iPad ignore); the slider shows 0 while muted, unmute restores the previous level, and moving the slider sets `muted = (v === 0)`.
 - **Follow** (heart): `listenerLibrary` localStorage helpers `isSaved/toggleSaved/subscribeLibrary`. **`recordListen`** is called when the listener presses play (feeds the homepage "pick up where you left off" row). Neither touches the server.
 - **Share**: `shareOrCopy(url, name, "Listening to {name} on GoCast")` (`lib/share.ts`): `navigator.share` if present (any error, including cancel, falls through to clipboard), else `navigator.clipboard.writeText` with a toast; if clipboard is unavailable, an error toast shows the URL for 8s.
 - **Social links**: `StationLinks` renders `station.social_links` through `resolveSocialLink`; malformed rows are skipped, not thrown. Anchors use `target=_blank`, `rel="noopener noreferrer nofollow ugc"`. Known platforms show only a glyph; unknown hosts show a globe plus the label (max 16ch). See Social links below.
 - **Description**: three-line clamp; a "Read more" button appears only when measured text overflows (ResizeObserver, re-measured after fonts load) and opens a sheet with the full text (`whitespace-pre-line`).
-- **Schedule**: a "Full schedule" button in the dock appears when `station.schedules.length > 0` and opens a "Weekly schedule" sheet (`ScheduleList`). These are advertised show times only; they do nothing to audio (see [Schedule](schedule.md)). `StationSheet` is a centred `Dialog` on desktop and a bottom `Sheet` on mobile (`useIsMobile`).
+- **No schedule**: the "Full schedule" dock button and the "Weekly schedule" sheet were removed with `ScheduleBlock.tsx`; show times are retired from the web (see [Schedule](schedule.md)). The remaining sheets (About, Just played) use `StationSheet`, a centred `Dialog` on desktop and a bottom `Sheet` on mobile (`useIsMobile`).
 - **Featured**: a rosette icon with tooltip "Hand-picked by GoCast" next to the name when `station.featured`.
 - **Footer of the dock**: "Powered by GoCast" (hidden below 520px) and a "Launch your own station" link to `/auth/register`.
 - The page never spins the artwork; the vinyl only "ripples" while `playing`.
-
-### Schedule sheet time conversion (`ScheduleBlock.tsx`)
-
-`ScheduleList` prints each row in the station's clock. When the viewer's zone (`Intl` resolved zone) differs from `station.timezone`, it converts using the row's `next_occurrence` (one real instant computed by the API): the viewer's time is shown as the main value with the station's day/time in brackets, and the day set is shifted by the weekday difference (normalised to -1/0/+1). Documented approximation: across a DST change a row can be an hour out, which only matters within an hour of midnight. Contiguous day runs of 3 or more collapse to "Mon–Fri"; all seven is "Every day". A station with no timezone shows raw `start_time` values only.
 
 ## Audio transport
 
@@ -253,28 +254,34 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 
 ## Pro embed
 
-- **Snippet**: `lib/embed.ts` `embedSnippet(slug, name)` produces an `<iframe src="{APP_URL}/embed/{slug}" title="{name} on GoCast" width="100%" height="88" style="border:0;border-radius:12px;overflow:hidden" allow="autoplay" loading="lazy">`. `EMBED_HEIGHT = 88`. Station name has `"` escaped as `&quot;` (other characters are not escaped).
-- **Where owners get it**: `EmbedDialog` (snippet in a `<pre>`, live preview in a real iframe at 88px height, "Copy code"). Opened from `StationShare` (dashboard overview card "Share your station") and from the studio `StreamPanel`. Both check `useEmbedLocked()` (`contexts/AccountContext.tsx`): true only when the plan is known and `embed_enabled` is false. Locked accounts see a "Pro" badge on the button, and clicking opens the Pro-request dialog (`useProRequest`) instead of the snippet. An unknown plan renders unlocked; the embed page is what actually refuses.
+- **Snippet**: `lib/embed.ts` `embedSnippet(slug, name, options)` produces an `<iframe src="{embedUrl(slug, options)}" title="{name} on GoCast" width="100%" height="88" style="border:0;border-radius:12px;overflow:hidden" allow="autoplay" loading="lazy">`. `EMBED_HEIGHT = 88`. Station name has `"` escaped as `&quot;` (other characters are not escaped). `embedUrl` appends `?volume=1` and/or `mute=1` for the ticked options (`EmbedOptions`); with neither it is the bare `/embed/{slug}`, so older snippets render as before. `parseEmbedOptions` reads them back (`"1"` only).
+- **Where owners get it**: `EmbedDialog` (live preview in a real iframe at 88px height, an "Add to the player" fieldset with **Mute button** and **Volume slider** checkboxes (the latter labelled "not on iPhone and iPad", linking `/help/embed-the-player#volume-on-iphone`) that rewrite both the preview src and the snippet, the snippet in a `<pre>` hidden below `sm`, and "Copy code" in the footer). Focus opens on "Copy code", not in the preview, because Esc inside the iframe goes to the player and the dialog would not hear it. Its copy goes through `copyText` (`lib/clipboard.ts`: the Clipboard API, then a hidden-textarea copy for plain-http pages); if both fail it toasts "Couldn't copy — select the code and copy it manually". Opened only from the overview header's **QR code & embed** button (`share/ShareButton.tsx` → `ShareDialog` → Embed); `YourLinkCard` is no longer mounted anywhere, and the studio has no share pieces. `ShareButton` checks `useEmbedLocked()` (`contexts/AccountContext.tsx`): true only when the plan is known and `embed_enabled` is false. Locked accounts see a PRO tag on the Embed choice, and picking it opens the Pro-request dialog (`useProRequest`) instead of the snippet. An unknown plan renders unlocked; the embed page is what actually refuses.
 - **Gate**: `PublicEmbedController::show` loads `user.plan` and does `abort_unless($station?->user?->canEmbed(), 404)`. `User::canEmbed()` is `plan?->embed_enabled ?? false` (no plan row is free). Migration `2026_09_08_100000` sets it true for `pro` and for every plan other than `free`/`pro`, false for `free`. 404 rather than 403 so a stranger cannot learn that a slug exists and is on Free. The station's public payload (`/public/stations/{slug}`) does **not** reveal the plan and still works for Free.
+- **Options**: `embed/[slug]/page.tsx` reads `searchParams` and passes `parseEmbedOptions(...)` to `EmbedPlayer`.
 - **Downgrade takes effect within about 30s** of cache expiry: `embed/[slug]/page.tsx` fetches with `next: { revalidate: 30 }` (dev: `no-store`, two attempts, 3s timeout). On any non-OK or fetch error it returns `null` and the page 404s. Caveat: an API error therefore also 404s an embed (unlike the station page, which distinguishes).
 - **Metadata**: title `"{name} — Player"` (or "Not available"), `robots: {index:false, follow:false}`, canonical pointing at the station page.
 - **Framing headers** (`next.config.ts` `headers()`): every path except `/embed/...` (negative lookahead `/((?!embed/).*)`) gets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. `/embed/:path*` gets only `nosniff` and the referrer policy: **no X-Frame-Options and no `frame-ancestors`, no CSP at all** (`frame-ancestors *` would not match `file://` pages). So any site can frame any embeddable station. There is no per-customer domain allowlist. Nothing in `client/` sets a CSP. The API nginx vhost sets `X-Frame-Options SAMEORIGIN` (`infra/native/nginx/gocast-api.conf`) but that is the API, not this page.
-- **Middleware** (`client/proxy.ts`): the matcher excludes `api`, `embed`, `_next/static`, `_next/image`, `.png`, `.svg`, so the embed never touches the auth-cookie logic. `/dashboard*` redirects to `/auth/login` without a verified `user` cookie; `/auth/login` and `/auth/register` redirect signed-in verified users to `/dashboard/stations`.
-- **`EmbedPlayer`**: one row (56px artwork, name, LIVE pill when `is_live && !offAir`, subtitle, listener count when > 0 and not off air, 44px play button, and a "on GoCast" link to `/station/{slug}` in a new tab, hidden below the `sm` breakpoint; the link carries `?utm_source=embed&utm_medium=share`, see `taggedStationUrl` in `lib/share.ts`). Subtitle is "Off air" / "Artist — Title" / "Live now" / "On air". The play button is disabled when off air. Uses `useStreamPlayback` (dynamic hls.js import), `useListenerSession` (so embed listeners count in the owner's audience) and the shared 10s feed. In-band ID3 wins over the poll once present (`inband ?? polled`). When the feed says off air while loading, it calls `stop()`.
-- The embed does **not** have: volume, follow, share, schedule, notify-me, recent tracks, social links, or the owner chip.
+- **Middleware** (`client/proxy.ts`): the matcher excludes `api`, `embed`, `_next/static`, `_next/image`, `.png`, `.svg`, so the embed never touches the auth-cookie logic. `/dashboard*` redirects to `/auth/login` without a verified `user` cookie; `/auth/login` and `/auth/register` redirect signed-in verified users to `/dashboard/stations`, except with `?expired=1` (a dashboard page whose API call came back 401 sends the user there; bouncing back would loop on the same 401).
+- **`EmbedPlayer`**: one row (56px artwork, name, LIVE pill when `is_live && !offAir`, subtitle, listener count when > 0 and not off air, 44px play button, and a "on GoCast" link to `/station/{slug}` in a new tab, hidden below the `sm` breakpoint; the link carries `?utm_source=embed&utm_medium=share`, see `taggedStationUrl` in `lib/share.ts`). Subtitle is "Off air" / "Artist — Title" / "Live now" / "On air". The play button is disabled when off air. With `mute`/`volume` options it draws `VolumeControls` before the play button: a mute button (`audio.muted`, icon by level) and a slider (default 100; moving it above 0 unmutes). The slider is not drawn on iPhone/iPad (`useIgnoresVolume`: UA match, or `MacIntel` with touch points; false on the server and first paint) and is hidden below 360px wide (`max-[359px]:hidden`). Uses `useStreamPlayback` (dynamic hls.js import), `useListenerSession` (so embed listeners count in the owner's audience) and the shared 10s feed. In-band ID3 wins over the poll once present (`inband ?? polled`). When the feed says off air while loading, it calls `stop()`.
+- The embed does **not** have: follow, share, schedule, notify-me, recent tracks, social links, or the owner chip.
 - The embed inherits the root layout, so in production it also loads the site's third-party scripts (see Gaps).
 
 ## Social links
 
 - Storage: `stations.social_links` JSON. Validation (`UpdateStationRequest`): `nullable|array|max:8` (`Station::MAX_SOCIAL_LINKS`), each item `array:label,url` (no extra keys), `url`: `required|string|url:http,https|max:2048`, `label`: `nullable|string|max:30`. The client mirrors 8 as `MAX_SOCIAL_LINKS`.
-- Icon resolution is by hostname only (`lib/socialLinks.ts`): `www.` stripped, then labels peeled from the front until a `PLATFORMS` key matches (stops at two labels), so `artist.bandcamp.com` matches `bandcamp.com`. About 40 hosts are known (Instagram, Facebook, X/Twitter, YouTube, TikTok, SoundCloud, Bandcamp, Spotify, Apple Podcasts (`podcasts.apple.com` only), Deezer, Tidal, Twitch, Kick, Discord, Telegram, WhatsApp, Threads, Bluesky, `mastodon.social` only, Reddit, Linktree, Patreon, PayPal, Cash App, LinkedIn, Pinterest, Snapchat, VK, GitHub, Medium). Anything else, and any other Mastodon instance, gets the globe plus its name. Only `http:` and `https:` render.
-- Editor (`LinksEditor.tsx`, on Station settings under `#links`): rows of URL + optional label (max 30). Scheme is prepended (`normalizeSocialUrl`) on blur and on save; empty rows are dropped; an invalid URL is caught client-side with a toast naming the URL; a save with only empty new rows is refused with "Paste a link into the new row first." Save is a full-list `PUT /stations/{slug}` with `{social_links: [...]}`. The label field prefills with the platform name or hostname on focus only for unknown hosts.
+- Icon resolution is by hostname only (`lib/socialLinks.ts`): `www.` stripped, then labels peeled from the front until a `PLATFORMS` key matches (stops at two labels), so `artist.bandcamp.com` matches `bandcamp.com`. About 40 hosts are known (Instagram, Facebook, X/Twitter, YouTube, TikTok, SoundCloud, Bandcamp, Spotify, Apple Podcasts (`podcasts.apple.com` only), Deezer, Tidal, Twitch, Kick, Discord, Telegram, WhatsApp, Threads, Bluesky, `mastodon.social` only, Reddit, Linktree, Patreon, PayPal, Cash App, LinkedIn, Pinterest, Snapchat, VK, GitHub, Medium). Anything else, and any other Mastodon instance, gets the globe plus its name. Only `http:` and `https:` render, and only when the hostname is dot-separated labels of letters, digits, `-` and `_` (Chromium accepts `https://not a url` by percent-encoding the spaces into the host; the API's url rule refuses it).
+- Editor (`settings/LinksCard.tsx`, Station settings "Links on your player page", `#links`): the tile opens a dialog holding a draft. **Add link** is a menu of `PICKER_PLATFORMS` (13: Instagram, Facebook, YouTube, TikTok, X, Threads, WhatsApp, Telegram, Discord, Spotify, SoundCloud, Twitch, Bluesky; one each) where the owner types only the handle after a fixed base, plus **Other link** (full address and optional name). Rows can be reordered and removed; **Save** sends the whole list as one `PUT /stations/{slug}` with `{social_links: [...]}`; closing the dialog keeps the draft and the tile says "Unsaved changes".
+  - `cleanHandle`: a pasted full address keeps only what follows the base; `at: "strip"` platforms drop a typed `@`; `at: "add"` platforms (YouTube, TikTok, Threads) prepend `@` **only to a plain name** (`/^[\w.-]+$/`), so `watch?v=…` or `channel/UC…` stays a working address.
+  - Loading: `matchPickerPlatform` puts a saved link back in its platform row only if it starts with the base, has no `?` or `#`, and would round-trip unchanged through `cleanHandle`; anything else (other hosts, `youtu.be`, `m.facebook.com`, a video, `youtube.com/OldName`) loads as an Other link, so saving leaves it as it was.
+  - Refused before save with a toast: an empty handle, a handle containing whitespace ("Your {platform} name can't have spaces."), an Other link with no address or one `resolveSocialLink` rejects. API errors toast the first validation message.
 - Owner links carry `nofollow ugc` on the player page.
 
 ## Dashboard share pieces
 
-- `StationShare` (overview page): link with copy button, "Tune-in code" (QR via `qrcode.react`, canvas rendered at 640px and shown at 224px, error-correction level H, 4-module margin, logo occupying 22% of the width with `excavate`, foreground `#4c1d95` on white, "Download PNG" as `{slug}-qr.png`), and "Embed" (Pro-gated as above). The player URL is built from `NEXT_PUBLIC_APP_URL`.
-- The studio `StreamPanel` has its own copy of the link and a 180px QR (no logo, default error level) plus the same `EmbedDialog`.
+- **Overview header** (`overview/OverviewHeader.tsx`): **Copy player link** (copies the `owner`-tagged URL, `?utm_source=owner&utm_medium=share`, through `lib/clipboard.ts` `copyText`: the Clipboard API, else a hidden-textarea `execCommand("copy")`, which is what works over plain-http LAN testing; on failure the label becomes "Copy it yourself" and the full link appears selected in a read-only input), **QR code & embed** (`share/ShareButton.tsx`), and **Open ↗** (bare player URL, new tab). The player URL is built from `NEXT_PUBLIC_APP_URL`. `YourLinkCard` still exists in `overview/` but nothing renders it.
+- `share/ShareDialog` ("QR code & embed"): three choices, **Tune-in code**, **Embed** (PRO tag when locked) and, only where `navigator.share` exists, **Send with…** (system share sheet of the `owner`-tagged URL with "Listen to {name} on GoCast"). There is no copy, WhatsApp, Email or X entry. Picking the code or the embed closes this dialog and opens that one without handing focus back in between.
+- `share/TuneInCodeDialog`: a QR of the `qr`-tagged URL via `qrcode.react`, canvas rendered at 640px and shown at 224px, error-correction level H, the logo excavated in the centre (22%), foreground `#4c1d95` on white, "Download PNG" as `{slug}-qr.png`. It is the only QR in the app.
+- Station settings "Where listeners find you" (`settings/StreamCard.tsx`) shows the player link and the direct stream address (`NEXT_PUBLIC_ICECAST_URL` + `icecast_mount`, with the app URL in front when that's a same-origin path), each a `StreamLink` row: label, Copy (and Open ↗ for the player page), and the full address as wrapping text. The old "Quality" row is gone.
 
 ## Configuration
 
@@ -298,7 +305,7 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 | Limiter | Value | Keyed by |
 |---|---|---|
 | `public` | 60/min, bypassed with a valid render key | IP |
-| `throttle:5,60` on notify | 5/hour | IP (on top of `public`) |
+| `throttle:5,60,station-notify` on notify | 5/hour | IP (on top of `public`) |
 | `listener-start` | 30/min | IP |
 | `listener-beat` | 20/min | session token (`beat` and `end`) |
 
@@ -306,8 +313,8 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 
 - **Player page**: `/station/{slug}` (this doc).
 - **Embed**: `/embed/{slug}`, Pro only.
-- **Dashboard**: overview share card, studio stream panel, settings > Links; the Embed button is Pro-badged for Free.
-- **Marketing/help**: `client/app/(marketing)/help/_content/your-player-page.tsx` and `share-your-station.tsx` describe these features to owners; not read for this doc (copy may drift).
+- **Dashboard**: overview header (Copy player link, QR code & embed, Open ↗), settings > Where listeners find you and Links; the Embed choice is Pro-tagged for Free.
+- **Marketing/help**: `client/app/(marketing)/help/_content/your-player-page.tsx`, `share-your-station.tsx` and `embed-the-player.tsx` describe these features to owners; see [Marketing, help and blog](marketing-site-help-blog.md).
 - **Mobile**: not covered here; the app has its own player.
 - **Admin**: none.
 
@@ -327,7 +334,9 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 12. **Sitemap cap**: `/public/sitemap/stations` truncates silently at 50,000; the frontend does not split files.
 13. **Media Session artwork** is always declared `512x512 image/png` even when it is the station's own artwork (any size or type), and falls back to `/media-icon-512.png`.
 14. **Free stations have a fully public, playable page.** Only the embed is plan-gated; `hls_url`/`icecast_mount` are public in the JSON. There is no access control on who can listen.
-15. **Notify-me is unauthenticated and unverified**: anyone can subscribe any email address to any existing station (5/hour per IP), and this endpoint sends no confirmation. Whether the eventual email carries an unsubscribe link is not checked here; see the notifications doc.
+15. **The public show payload still carries `schedules`.** `PublicStationController::show` eager-loads them and `StationResource` returns them, but the player page no longer renders show times; every station-page render pays for a query nobody reads.
+16. **Embed volume defaults differ**: the embed slider starts at 100 (`VolumeControls`), the station page at 80, and neither remembers the level.
+17. **Notify-me is unauthenticated and unverified**: anyone can subscribe any email address to any existing station (5/hour per IP), and this endpoint sends no confirmation. Whether the eventual email carries an unsubscribe link is not checked here; see the notifications doc.
 
 ## Tests
 
@@ -339,4 +348,4 @@ Segments are immutable, which is only safe because Liquidsoap puts a per-boot to
 
 ## History
 
-Plans and handoffs (history only, not spec): `docs/features/schedule.md` for the schedule sheet; embed decision, SEO fixes, HLS iOS reload-loop fix (commit `ea570df`) and the harbor/HLS latency change are recorded in the project memory notes and `docs/` plans, which are stale where they disagree with the code above.
+Plans and handoffs (history only, not spec): embed decision, SEO fixes, HLS iOS reload-loop fix (commit `ea570df`) and the harbor/HLS latency change are recorded in the project memory notes and `docs/` plans, which are stale where they disagree with the code above.

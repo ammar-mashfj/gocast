@@ -53,14 +53,14 @@ export function UploadProgressBar({
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className="shrink-0 tabular-nums text-muted-foreground">{detail}</span>
+      <div className="flex items-baseline justify-between gap-3 text-body-sm">
+        <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
+        <span className="shrink-0 font-mono text-caption text-muted-foreground tabular-nums">{detail}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="h-1 overflow-hidden rounded-full bg-foreground/8">
         <div
           className={cn(
-            "h-full rounded-full bg-primary",
+            "h-full rounded-full bg-foreground",
             // No width transition while bytes are moving: progress events
             // arrive faster than the animation settles and the bar lags
             // visibly behind the percentage next to it.

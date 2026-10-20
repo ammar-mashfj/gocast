@@ -1,22 +1,14 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { IconPlayerStopFilled } from "@tabler/icons-react"
+import { useEffect, useState } from "react"
+import { toast } from "sonner"
 import { useBroadcast } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { getSessionPeak } from "@/hooks/useBroadcastStats"
 import { useStationStatus } from "@/hooks/useStationStatus"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ds/Button"
+import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
+import { formatAirtime } from "@/lib/format"
 
 /** What the overview's sign-off card reads after a show ends. */
 export interface ShowSummary {
@@ -25,6 +17,8 @@ export interface ShowSummary {
   durationSeconds: number
   peakListeners: number
   lostSeconds: number
+  /** Tracks that started during the show. Absent on summaries from before it was counted. */
+  tracksPlayed?: number
   /**
    * What the station did next. `autodj`: the rotation took it back. `silence`:
    * AutoDJ took it back with nothing to play, so it goes silent and the sweep
@@ -37,15 +31,59 @@ export interface ShowSummary {
 export const signOffKey = (slug: string) => `gocast:signoff:${slug}`
 
 /**
- * Ending a show, in one place for every surface that offers it.
- *
- * The mobile bar used to call `stop()` straight from a 28px button — one
- * stray thumb cut every listener off. Now both layouts open the same dialog,
- * and both leave the same summary behind for the station overview.
+ * "End show": asks once, then ends the broadcast and leaves a summary for
+ * the wrap screen (studio/wrap). The summary is written before the stop,
+ * because the studio moves to the wrap screen the moment the socket closes.
  */
-export function EndBroadcastButton({ className, compact = false }: { className?: string; compact?: boolean }) {
-  const router = useRouter()
-  const { stop, stationSlug, liveSince, getTransportStats } = useBroadcast()
+type Broadcast = ReturnType<typeof useBroadcast>
+
+/**
+ * End the show and leave its summary for the wrap screen. Also the studio's
+ * way out of a show that went off air for good (reconnects spent), where the
+ * manager has already torn down but the station may still be up.
+ */
+export async function endShow({ slug, liveSince, getTransportStats, engine, after, stop, autoDjLocked }: {
+  slug: string
+  liveSince: number | null
+  getTransportStats: Broadcast["getTransportStats"]
+  engine: Broadcast["engine"]
+  after: ShowSummary["after"]
+  stop: Broadcast["stop"]
+  autoDjLocked: boolean
+}): Promise<void> {
+  const summary: ShowSummary = {
+    slug,
+    endedAt: Date.now(),
+    durationSeconds: liveSince ? Math.round((Date.now() - liveSince) / 1000) : 0,
+    peakListeners: getSessionPeak(slug, liveSince),
+    lostSeconds: (getTransportStats()?.droppedMs ?? 0) / 1000,
+    tracksPlayed: engine?.getTracksPlayed() ?? 0,
+    after,
+  }
+  // Written BEFORE stop(): stop() goes idle first and the studio moves to
+  // the wrap screen on that — on Free, long before stop() returns from
+  // releasing the station.
+  try {
+    sessionStorage.setItem(signOffKey(slug), JSON.stringify(summary))
+  } catch {
+    // Storage blocked — the show still ends; the wrap screen falls back to the overview.
+  }
+  // Not removed if this throws: stop() may already have gone idle and sent
+  // the studio to the wrap screen, which reads the summary as it opens. A
+  // leftover is overwritten by the next End show and goes stale in 30 min.
+  await stop({ releaseStation: autoDjLocked })
+}
+
+/** What End show tells the host when ending it threw (stop() or the release). */
+export function endShowFailed() {
+  toast.error("Something went wrong ending your show. Check on the overview that your station is off air.")
+}
+
+/** Opens End show's confirmation from elsewhere: the studio's back-gesture guard. */
+export const ASK_END_SHOW_EVENT = "gocast:ask-end-show"
+
+export function EndBroadcastButton({ className }: { className?: string }) {
+  const { stop, stationSlug, liveSince, getTransportStats, engine } = useBroadcast()
   // No AutoDJ means there is nothing for the station to fall back to, so
   // ending the broadcast takes the station off air too. With AutoDJ it is a
   // handover and the station stays up. False while the plan is unknown, so an
@@ -53,6 +91,22 @@ export function EndBroadcastButton({ className, compact = false }: { className?:
   const autoDjLocked = useAutoDjLocked()
   const [open, setOpen] = useState(false)
   const [ending, setEnding] = useState(false)
+  /** How long the show has run, read when the question is asked. */
+  const [onFor, setOnFor] = useState<number | null>(null)
+  function ask() {
+    setOnFor(liveSince ? Math.round((Date.now() - liveSince) / 1000) : null)
+    setOpen(true)
+  }
+
+  // The system back gesture in the live studio asks the same question.
+  useEffect(() => {
+    const onAsk = () => {
+      setOnFor(liveSince ? Math.round((Date.now() - liveSince) / 1000) : null)
+      setOpen(true)
+    }
+    window.addEventListener(ASK_END_SHOW_EVENT, onAsk)
+    return () => window.removeEventListener(ASK_END_SHOW_EVENT, onAsk)
+  }, [liveSince])
 
   // "AutoDJ takes over" is only true if it has something to play. The
   // rotation's length rides on the status poll, which only runs here while
@@ -67,35 +121,12 @@ export function EndBroadcastButton({ className, compact = false }: { className?:
   async function end() {
     if (!stationSlug) return
     setEnding(true)
-    const slug = stationSlug
-    const summary: ShowSummary = {
-      slug,
-      endedAt: Date.now(),
-      durationSeconds: liveSince ? Math.round((Date.now() - liveSince) / 1000) : 0,
-      peakListeners: getSessionPeak(slug, liveSince),
-      lostSeconds: (getTransportStats()?.droppedMs ?? 0) / 1000,
-      after,
-    }
-    // Written BEFORE stop(): stop() goes idle first, the studio redirects to
-    // the overview on that, and ShowSignOff reads storage once on mount — on
-    // Free, long before stop() returns from releasing the station.
     try {
-      sessionStorage.setItem(signOffKey(slug), JSON.stringify(summary))
+      // Idle takes the studio to the wrap screen (StudioPage); a replace here
+      // raced its step off the back-guard.
+      await endShow({ slug: stationSlug, liveSince, getTransportStats, engine, after, stop, autoDjLocked })
     } catch {
-      // Storage blocked — the show still ends; the card just won't appear.
-    }
-    try {
-      try {
-        await stop({ releaseStation: autoDjLocked })
-      } catch (err) {
-        try { sessionStorage.removeItem(signOffKey(slug)) } catch {}
-        throw err
-      }
-      router.push(`/dashboard/stations/${slug}`)
-      // The station page is server-rendered from desired_state, and the
-      // studio redirects there the moment the socket closes — ahead of the
-      // stop above. Without this it shows the old state until its next poll.
-      router.refresh()
+      endShowFailed()
     } finally {
       setEnding(false)
     }
@@ -103,45 +134,35 @@ export function EndBroadcastButton({ className, compact = false }: { className?:
 
   return (
     <>
-      <Button
-        variant="outline"
-        onClick={() => setOpen(true)}
-        // Neutral on purpose: on a healthy studio the only red thing must be
-        // a fault. The consequence is carried by the dialog, whose confirm is
-        // the one destructive button.
-        className={cn("h-11", className)}
-      >
-        <IconPlayerStopFilled data-icon="inline-start" />
-        {compact ? "End" : "End broadcast"}
+      {/* The `stop` style (red outline and words), like Turn station off:
+          it ends the show for everyone, so it shouldn't read as just
+          another button. Outlined, not filled, so it stays quieter than the
+          live controls; the dialog still carries the consequence. */}
+      <Button size="lg" variant="stop" full onClick={ask} className={className}>
+        End show
       </Button>
 
-      {/* A dialog, not an inline confirm: the consequence has to be read
-          before the only irreversible action in the studio. Not dismissable
-          while the stop is in flight — it closes the socket and navigates. */}
-      <Dialog open={open} onOpenChange={(next) => !ending && setOpen(next)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>End this broadcast?</DialogTitle>
-            <DialogDescription>
-              Everyone tuned in right now is cut off{" "}
-              {after === "off_air"
-                ? "and the station goes off air."
-                : after === "silence"
-                  ? "and AutoDJ takes over with nothing to play, so the station goes silent and switches off in a few minutes."
-                  : "and AutoDJ takes over, so the station stays on air."}{" "}
-              Your queue is kept for next time.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" className="h-11" disabled={ending} onClick={() => setOpen(false)}>
-              Keep going
-            </Button>
-            <Button variant="destructive" className="h-11" disabled={ending} onClick={end}>
-              {ending ? "Ending…" : "Yes, end it"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Not dismissable while the stop is in flight: it closes the socket
+          and navigates. Primary, not red: ending a show is ordinary, and red
+          means "you're live". */}
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        onConfirm={end}
+        busy={ending}
+        title="End your show?"
+        description={
+          (onFor !== null ? `You’ve been on for ${formatAirtime(onFor)}. ` : "") +
+          (after === "off_air"
+            ? "Everyone listening is cut off and the station goes off air."
+            : after === "silence"
+              ? "Your show stops for everyone listening. AutoDJ has nothing to play, so they hear silence and the station switches off in a few minutes."
+              : "Your show stops for everyone listening, and they hear AutoDJ straight away.") +
+          " Your queue is kept for next time."
+        }
+        confirmLabel={ending ? "Ending…" : "End show"}
+        keepLabel="Keep going"
+      />
     </>
   )
 }

@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs'
 import { saveQueue, loadQueue, clearQueue as clearStoredQueue, savePlayback, loadPlayback, isReadable } from './queueStore'
+import { fitFiles } from './preflightQueue'
 import { DUCK_GAIN, FADE_TIME_CONSTANT, loadMicPrefs, saveMicPrefs, type MicPrefs } from './micPrefs'
 
 export interface QueueTrack {
@@ -41,12 +42,19 @@ const MIC_BOOST = 3
 const SAMPLE_RATE = 44100
 
 /**
- * Ingest bitrate, stereo. Liquidsoap re-encodes to the station's Icecast
- * output (%mp3 128k today), so this only needs enough headroom that the
- * transcode isn't the weak link — 192 is comfortably above it without
- * wasting the broadcaster's upstream.
+ * Ingest bitrates, stereo, best first. Liquidsoap re-encodes to the station's
+ * Icecast output (%mp3 128k today), so anything above 128 only spends the
+ * broadcaster's upload: 192 used to be the default and was the difference
+ * between a slow line holding and dropping (kerygma, 2026-09-30).
+ *
+ * The lower two exist for slow uploads. The studio starts at whatever the
+ * go-live connection check allows and steps down (and back up) mid-show; see
+ * uplinkProbe.ts and BroadcastManager. All three stay at SAMPLE_RATE: the
+ * vendored lamejs is patched not to resample (see encoder-worker.js).
  */
-const MP3_BITRATE = 192
+export const BITRATE_TIERS = [128, 96, 64] as const
+export type Bitrate = (typeof BITRATE_TIERS)[number]
+export const DEFAULT_BITRATE: Bitrate = 128
 
 /**
  * Client-side cap on total queued audio bytes. The browser will already
@@ -99,10 +107,12 @@ export function assertBroadcastSupported(options?: { skipMic?: boolean }): void 
 export type RepeatMode = 'all' | 'one'
 
 /**
- * Default monitor level. Speakers-only, never the stream — the monitor bus
- * hangs off `fileGain` and is deliberately not part of the encode path.
+ * Monitor level. Speakers-only, never the stream — the monitor bus hangs
+ * off `fileGain` and is deliberately not part of the encode path. Full: the
+ * studio has no volume control for it any more (it's on/off), and the
+ * device's own volume is the one to turn down.
  */
-const MONITOR_DEFAULT_VOLUME = 0.62
+const MONITOR_DEFAULT_VOLUME = 1
 
 export interface AddFilesResult {
   added: number
@@ -122,6 +132,9 @@ export interface AddFilesResult {
  */
 const METADATA_TIMEOUT_MS = 4000
 
+/** How long a track has to air before the wrap screen counts it as played. */
+const TRACK_PLAYED_AFTER_S = 30
+
 /** Resolves at once if the tab is showing, otherwise when it is next shown. */
 function whenTabVisible(): Promise<void> {
   if (typeof document === 'undefined' || document.visibilityState === 'visible') return Promise.resolve()
@@ -135,7 +148,7 @@ function whenTabVisible(): Promise<void> {
   })
 }
 
-function readDurationFromFile(file: File): Promise<number> {
+export function readDurationFromFile(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const audio = new Audio()
@@ -173,7 +186,7 @@ function readDurationFromFile(file: File): Promise<number> {
  * artist is '', not a placeholder: the player already hides an empty one.
  * The parser loads on first use, so it costs nothing until files are added.
  */
-async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
+export async function readTagsFromFile(file: File): Promise<{ title: string; artist: string }> {
   const base = file.name.replace(/\.[^.]+$/, '')
   const dash = base.match(/^(.+?)\s+[-–—]\s+(.+)$/)
   const fallback = dash && !/^\d+$/.test(dash[1].trim())
@@ -224,6 +237,7 @@ export class AudioEngine {
   private micPrefs: MicPrefs = loadMicPrefs()
   private workletNode: AudioWorkletNode
   private encoderWorker: Worker
+  private bitrate: Bitrate = DEFAULT_BITRATE
 
   /**
    * Speaker monitor. Tapped off `fileGain` — post-duck, so the broadcaster
@@ -237,8 +251,11 @@ export class AudioEngine {
   private monitorVolume = MONITOR_DEFAULT_VOLUME
 
   private micSource: MediaStreamAudioSourceNode | null = null
+  /** Head of the voice chain, so a new mic can be wired into it. */
+  private micVoiceIn: BiquadFilterNode | null = null
   private isTalking = false
   private micLatched = false
+  private tracksPlayed = 0
   private repeatMode: RepeatMode = 'all'
 
   // File playback — each track is streamed through an HTMLAudioElement so the
@@ -256,7 +273,9 @@ export class AudioEngine {
    * by track id so a queue edit that moves the current index can't hand the
    * offset to a different song.
    */
-  private cued: { trackId: string; offset: number } | null = null
+  private cued: { trackId: string; offset: number; counted?: boolean } | null = null
+  /** The playing element's track has already been counted (see countPlayed). */
+  private currentCounted = false
   /** Slug of the station whose queue this engine persists. */
   private readonly station: string
   private progressTimer: ReturnType<typeof setInterval> | null = null
@@ -367,6 +386,7 @@ export class AudioEngine {
       comp.release.value = 0.15
 
       this.micSource.connect(highpass)
+      this.micVoiceIn = highpass
       highpass.connect(presence)
       presence.connect(comp)
       comp.connect(this.micWet)
@@ -435,6 +455,7 @@ export class AudioEngine {
    * @param station Slug of the station this show is for. The saved queue and
    *   playback position are kept per station, so two stations run from one
    *   browser no longer share a running order.
+   * @param bitrate MP3 bitrate to encode at; see {@link setBitrate} to change it mid-show.
    * @param signal Aborts a build that is taking too long. A browser that has
    *   just killed one engine can hang building the next, and the context made
    *   here has to be closed by someone; on abort or any failure part-way,
@@ -444,6 +465,7 @@ export class AudioEngine {
     micStream: MediaStream | null,
     onChunk: (data: ArrayBuffer) => void,
     station: string,
+    bitrate: Bitrate = DEFAULT_BITRATE,
     signal?: AbortSignal,
   ): Promise<AudioEngine> {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
@@ -491,12 +513,14 @@ export class AudioEngine {
       const channel = new MessageChannel()
       workletNode.port.postMessage({ type: 'init', port: channel.port1 }, [channel.port1])
       encoder.postMessage(
-        { type: 'init', sampleRate: SAMPLE_RATE, bitrate: MP3_BITRATE, port: channel.port2 },
+        { type: 'init', sampleRate: SAMPLE_RATE, bitrate, port: channel.port2 },
         [channel.port2],
       )
       await unlessAborted(ready)
 
-      return new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+      const engine = new AudioEngine(ctx, workletNode, encoder, micStream, onChunk, station)
+      engine.bitrate = bitrate
+      return engine
     } catch (err) {
       worker?.terminate()
       if (ctx.state !== 'closed') void ctx.close().catch(() => {})
@@ -506,10 +530,23 @@ export class AudioEngine {
 
   /**
    * Encoder settings, for the webcast hello frame — harbor is told what it is
-   * about to receive rather than having to sniff it.
+   * about to receive rather than having to sniff it. Harbor only reads this
+   * at connect; a later {@link setBitrate} needs no new hello, because every
+   * MP3 frame carries its own bitrate.
    */
-  static encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
-    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: MP3_BITRATE, encoder: 'libmp3lame' }
+  encoderInfo(): { channels: number; samplerate: number; bitrate: number; encoder: string } {
+    return { channels: 2, samplerate: SAMPLE_RATE, bitrate: this.bitrate, encoder: 'libmp3lame' }
+  }
+
+  /**
+   * Re-encode at a new bitrate from the next frame on. The worker flushes the
+   * old encoder's tail first, so no audio is lost, but the seam carries a few
+   * tens of ms of silence (see encoder-worker.js).
+   */
+  setBitrate(bitrate: Bitrate): void {
+    if (bitrate === this.bitrate) return
+    this.bitrate = bitrate
+    this.encoderWorker.postMessage({ type: 'bitrate', bitrate })
   }
 
   /**
@@ -885,15 +922,29 @@ export class AudioEngine {
   }
 
   /**
-   * Resume playback at the saved position, if any. Pairs with
-   * {@link restoreQueue}; call only after the webcast socket is live.
+   * Start the show's music: at the saved position when the last show left
+   * one, otherwise from the first track. Pairs with {@link restoreQueue};
+   * call only after the webcast socket is live.
    *
-   * @param fromStart Cue the same song but from 0:00 — the broadcaster's
-   *   choice on the Go Live page, for a show that shouldn't open mid-song.
+   * Loaded tracks with no saved spot used to sit idle until the host pressed
+   * play, so a show whose music was picked on the Go Live page opened silent
+   * (and the band said so). Picking it is the intent to play it.
+   *
+   * @param fromStart Start the running order from the top (track 1, 0:00)
+   *   and ignore the saved spot — the Go Live page's "From the top", which
+   *   it also picks when the host reorders (a new order is a new show). The
+   *   saved spot itself is left alone, so it's still there if they back out.
    */
   async resumePlayback(options?: { fromStart?: boolean }): Promise<void> {
+    if (options?.fromStart) {
+      if (this.queue.length > 0) await this.playIndex(0)
+      return
+    }
     const playback = await loadPlayback(this.station)
-    if (!playback || playback.currentIndex < 0) return
+    if (!playback || playback.currentIndex < 0) {
+      if (this.queue.length > 0) await this.playIndex(0)
+      return
+    }
     // The saved index is into the queue as stored; the restore may have taken
     // unreadable tracks out since. A song that went with them resumes on the
     // next one, from its start.
@@ -902,7 +953,7 @@ export class AudioEngine {
     // No clamp against track.duration here: restoreQueue fills durations in
     // behind the queue, so it is usually still 0 at this point and would send
     // every resume back to 0:00. playIndexAtOffset clamps to the real length.
-    const offset = options?.fromStart || !sameTrack ? 0 : Math.max(0, playback.offset)
+    const offset = !sameTrack ? 0 : Math.max(0, playback.offset)
     if (offset > 0) {
       await this.playIndexAtOffset(index, offset)
     } else {
@@ -916,16 +967,12 @@ export class AudioEngine {
    * actual audio data is streamed from the File on demand at play time.
    */
   async addFiles(files: FileList | File[]): Promise<AddFilesResult> {
-    const skipped: File[] = []
+    const audio = Array.from(files).filter((f) => f.type.startsWith('audio/'))
+    // The same rule pre-flight applies (usePreflightQueue), so both agree on what fits.
+    const { fit, skipped } = fitFiles(audio, this.getQueueBytes(), QUEUE_BYTE_LIMIT)
     let added = 0
-    let currentBytes = this.getQueueBytes()
 
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('audio/')) continue
-      if (currentBytes + file.size > QUEUE_BYTE_LIMIT) {
-        skipped.push(file)
-        continue
-      }
+    for (const file of fit) {
       const [duration, tags] = await Promise.all([
         readDurationFromFile(file).catch(() => 0),
         readTagsFromFile(file),
@@ -937,7 +984,6 @@ export class AudioEngine {
         artist: tags.artist,
         duration,
       })
-      currentBytes += file.size
       added++
     }
     if (added > 0) {
@@ -1071,8 +1117,8 @@ export class AudioEngine {
         }
       } else {
         const track = this.queue[this.currentIndex]
-        const offset = track && this.cued?.trackId === track.id ? this.cued.offset : 0
-        await this.playIndexAtOffset(this.currentIndex, offset)
+        const same = !!track && this.cued?.trackId === track.id
+        await this.playIndexAtOffset(this.currentIndex, same ? this.cued!.offset : 0, same && !!this.cued!.counted)
       }
     }
   }
@@ -1086,16 +1132,16 @@ export class AudioEngine {
    * Cueing paused creates no audio element: nothing reaches the mix until
    * Play, which picks the offset up from `cued`.
    */
-  async cueAt(index: number, offset: number, play: boolean): Promise<void> {
+  async cueAt(index: number, offset: number, play: boolean, alreadyCounted = false): Promise<void> {
     if (index < 0 || index >= this.queue.length) return
     if (play) {
-      await this.playIndexAtOffset(index, offset)
+      await this.playIndexAtOffset(index, offset, alreadyCounted)
       return
     }
     this.stopCurrent()
     this.currentIndex = index
     this.playing = false
-    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset) }
+    this.cued = { trackId: this.queue[index].id, offset: Math.max(0, offset), counted: alreadyCounted }
     this.notify()
   }
 
@@ -1134,6 +1180,25 @@ export class AudioEngine {
     await this.playIndex(prevIdx >= 0 ? prevIdx : this.queue.length - 1)
   }
 
+  /**
+   * Tracks that aired in this engine's life — one show, since each go-live
+   * builds a new engine: played for TRACK_PLAYED_AFTER_S, or to the end.
+   */
+  getTracksPlayed(): number {
+    return this.tracksPlayed
+  }
+
+  /** Whether the track now playing has already gone into getTracksPlayed. */
+  isCurrentTrackCounted(): boolean {
+    // A paused cue with no element yet keeps its own flag.
+    return this.currentAudio !== null ? this.currentCounted : !!this.cued?.counted
+  }
+
+  /** Carry the count over from the engine this one replaces mid-show. */
+  carryTracksPlayed(count: number) {
+    this.tracksPlayed += count
+  }
+
   getElapsed(): number {
     if (this.currentIndex < 0) return 0
     if (!this.currentAudio) {
@@ -1146,10 +1211,16 @@ export class AudioEngine {
     await this.playIndexAtOffset(index, 0)
   }
 
-  private async playIndexAtOffset(index: number, offset: number) {
+  /**
+   * @param alreadyCounted The track was counted before this element: an
+   *   engine rebuilt mid-song carries the count across (carryTracksPlayed),
+   *   and counting the same song again would make the wrap screen one high.
+   */
+  private async playIndexAtOffset(index: number, offset: number, alreadyCounted = false) {
     this.stopCurrent()
     this.currentIndex = index
     this.cued = null
+    this.currentCounted = alreadyCounted
 
     const track = this.queue[index]
     if (!track) return
@@ -1183,9 +1254,24 @@ export class AudioEngine {
       this.dropTracks(new Set([track.id]), 'unplayable', true)
     })
 
+    // The wrap screen's "Tracks": one that aired for TRACK_PLAYED_AFTER_S
+    // from where it started, or to its end. A skip straight past it, or
+    // stepping back and forth, isn't a track the audience heard.
+    let counted = alreadyCounted
+    const countPlayed = () => {
+      if (counted) return
+      counted = true
+      this.tracksPlayed++
+      if (this.currentAudio === audio) this.currentCounted = true
+    }
+    audio.addEventListener('timeupdate', () => {
+      if (this.currentAudio === audio && audio.currentTime - offset >= TRACK_PLAYED_AFTER_S) countPlayed()
+    })
+
     audio.addEventListener('ended', () => {
       // Ignore ended events from a superseded element (track switch in flight).
       if (this.currentAudio !== audio) return
+      countPlayed()
       // Auto-advance is the only place repeat applies; an explicit skip always
       // moves. Re-cueing the same index rebuilds the element from the same
       // File, which is the identical path a 1-track queue already took when

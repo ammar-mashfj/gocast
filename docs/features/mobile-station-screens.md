@@ -1,6 +1,6 @@
 ---
 feature: Mobile station console (Overview, Audience, Schedule, Library, Show times)
-verified: 2026-09-29 against 360c382 plus uncommitted work
+verified: 2026-10-18 against 73158c8 plus uncommitted work (feat/dashboard-design)
 sources:
   - mobile/src/app/station/[slug]/_layout.tsx
   - mobile/src/app/station/[slug]/index.tsx
@@ -40,6 +40,7 @@ sources:
   - api/app/Http/Requests/ReplaceAutodjSlotsRequest.php
   - api/app/Http/Requests/ReplaceStationSchedulesRequest.php
   - api/app/Http/Resources/StationResource.php
+  - api/app/Http/Resources/AutodjSlotResource.php
   - api/app/Http/Resources/TrackResource.php
   - api/app/Http/Resources/PlaylistResource.php
   - api/app/Services/StationLifecycleException.php
@@ -51,14 +52,14 @@ sources:
   - api/app/Models/User.php
   - api/config/liquidsoap.php
   - api/config/analytics.php
-fingerprint: 09478f306ffba268
+fingerprint: 27fb3a5c90ad75be
 ---
 
 # Mobile station console
 
 The Android app's station screen is a shell with four bottom tabs (Overview, Audience, Schedule, Library) plus one pushed screen (Show times). It is a thin client over the same owner endpoints the web dashboard uses. It has no endpoints of its own, no cache and no offline mode. Everything below is read from `mobile/src/`.
 
-**The one thing people get wrong:** it looks like a small dashboard, but it is not feature-equal to the web one. It cannot create or rename playlists, reorder or retag tracks, change settings, rotate a stream key, skip a track, or change the timezone. And the Overview's "Show times" and the Schedule tab's slots are two different things (see [Schedule](schedule.md)).
+**The one thing people get wrong:** it looks like a small dashboard, but it is not feature-equal to the web one. It cannot create or rename playlists, reorder or retag tracks, change settings, rotate a stream key, skip a track, or change the timezone. And the Overview's "Show times" and the Schedule tab's slots are two different things (see [Schedule](schedule.md)). Show times are now **app-only**: the web retired them from its UI and the public player page no longer renders them, yet every show-time screen and line of copy here still says they appear on the player page (see gaps).
 
 Going live, the studio, and the encoder are documented in [mobile-studio-and-encoder.md](mobile-studio-and-encoder.md). Sign-in, the app shell, routing and the Account screen are in [mobile-app-shell-and-auth.md](mobile-app-shell-and-auth.md). This doc covers the five console screens only.
 
@@ -111,8 +112,8 @@ Going live, the studio, and the encoder are documented in [mobile-studio-and-enc
 | Data | Endpoint | Refresh |
 |---|---|---|
 | Station (name, artwork, `state`, `stats`, `schedules`) | `GET /stations/{slug}` via the shell | On mount; after any power action; pull-to-refresh |
-| Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle 120/min) |
-| Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`) | Focus + every 30 s |
+| Container truth | `GET /stations/{slug}/status` via `useStationStatus` | Adaptive, see above (route throttle `station-status`, 120/min) |
+| Recent shows | `GET /stations/{slug}/sessions` (paginated, 20 per page, latest first; the phone reads page 1 and `total`, and ignores the newer `summary` block and `?finished=1` filter the web uses) | Focus + every 30 s |
 | Listener count | `GET /public/stations/{slug}/listeners` via `useListeners` (`broadcast/hooks.ts`) | Every 10 s (`LISTENERS_POLL_MS`), only while the station runs and this phone is not live |
 
 One `useListeners` call in `Loaded` feeds both the hero and the LISTENING tile. While live from this phone the tab does not poll at all and reads `broadcast.session.listeners` (the broadcast manager's own 10 s poll) instead; when the station is not running the count is `0`; otherwise it is `null` ("-" / "Counting listeners...") until the first poll answers.
@@ -137,7 +138,7 @@ An action error (start/stop failure) renders as a line inside the hero, not a to
 
 | Action | Call | Notes |
 |---|---|---|
-| Start AutoDJ | `POST /stations/{slug}/start` (throttle 20/min) | `busy='start'`; on success runs `onChanged` (reload station, poll status, reload sessions). API returns 202; the container needs a few seconds, so the card shows STARTING... until status says otherwise. |
+| Start AutoDJ | `POST /stations/{slug}/start` (throttle `station-start`, 20/min) | `busy='start'`; on success runs `onChanged` (reload station, poll status, reload sessions). API returns 202; the container needs a few seconds, so the card shows STARTING... until status says otherwise. |
 | Turn station off | `POST /stations/{slug}/stop`, no body | Button "Turn station off" at the foot of the page, **only when `canTurnOff`**. If the source is `autodj` and nothing is attached, the phone asks first (bottom sheet: "Turn <name> off?" / "Keep it on"). Otherwise it stops immediately. Disabled until a status snapshot exists. |
 | Force stop | Same call with `{force: true}` | Only offered after the API answers **409 `station_is_live_external`** (an encoder is on air). The sheet becomes "Cut the broadcast off?" with the API's message and "Cut it off". Any other error code closes the sheet and shows the error line. |
 
@@ -159,7 +160,7 @@ Errors are read from `ApiError.body.code`. The API's codes for these calls come 
 **"Your link" card**
 
 - The player URL (`APP_URL/station/{slug}` with the scheme stripped) as a tappable well that opens the page in an in-app browser (`openWeb`, Custom Tab with `enableBarCollapsing`), plus a **Share** button (same share sheet as the header). Footnote: "Listeners open it in any browser. No app, no account."
-- A **Show times** row underneath: summary "None yet. Tell listeners when you're usually on." or "N on your player page" (`station.schedules.length`), which opens `/show-times/[slug]`.
+- A **Show times** row underneath: summary "None yet. Tell listeners when you're usually on." or "N on your player page" (`station.schedules.length`; the player page does not actually show them any more, see gaps), which opens `/show-times/[slug]`.
 
 **Recent shows card**: up to **4 finished** sessions (client-filtered from the first 20 the API returned) with when ("Today, 22:04", "Yesterday, ...", weekday, or "12 Sep, 22:00", 24-hour), source label and peak, a length bar scaled to the longest of those four, and `Xh 05m` or `Nm`. Empty text: "No shows yet. They appear here after you go live." The "All N" link (shown when `total > finished.length`, so it also appears when there is an open session or more than 4) opens `/dashboard/stations/{slug}` on the web. The API's `total` includes the open session.
 
@@ -167,7 +168,7 @@ Errors are read from `ApiError.body.code`. The API's codes for these calls come 
 
 ## Audience (`audience.tsx`)
 
-- Endpoint: `GET /stations/{slug}/audience[?days=N]` (throttle 60/min), refetched every 60 s and on focus. Initial call has no `days`.
+- Endpoint: `GET /stations/{slug}/audience[?days=N]` (throttle `station-audience`, 60/min), refetched every 60 s and on focus. Initial call has no `days`.
 - The API answers **200 for every plan**; entitlement is in the payload (`AudienceController`). `analytics_days <= 0` (Free, or a user with no plan row) returns `locked: true` with only `live` and `peak_all_time`. Otherwise `plan_days` is clamped to the retention config (default 90) and `days` is honoured only when it is 7, 30 or 90 (`min(requested, plan_days)`), else the plan's window.
 - Range picker: a `7d / 30d / 90d` segmented control, shown only when more than one option is `<= plan_days`. A Pro plan gets all three. Default is the plan's own window (90), so the first paint is the 90-day view.
 
@@ -194,15 +195,15 @@ This tab is **AutoDJ's programme** (violet, Pro). It also draws show times read-
 | Row | Shown to | Content | Tap |
 |---|---|---|---|
 | Show time (coral) | everyone | start time, label or "Show time", "Show time - on your player page" | opens `/show-times/[slug]` |
-| AutoDJ slot (violet) | Pro only | "HH:mm - HH:mm", label or playlist name or "AutoDJ", "AutoDJ - N tracks on shuffle / in order" | opens the slot editor |
+| AutoDJ slot (violet) | Pro only | "HH:mm - HH:mm" (with " - on time" appended when `start_mode === 'hard'`, see below), label or playlist name or "AutoDJ", "AutoDJ - N tracks on shuffle / in order" | opens the slot editor |
 | Default playlist, "All day" (violet) | Pro only, when **no slot covers that weekday** | default playlist name (else "Default playlist") and the same "AutoDJ - N tracks on shuffle / in order" line | nothing |
 
 - **NOW badge** on a slot (or on the all-day default row): only when the selected day is the phone's today, the station `is_on_air && !is_live` (intent-derived, from the station payload, not the container), and `station.programme.slot_id` equals the slot (or is empty for the default row). The programme is computed server-side at fetch time and this tab does not poll, so NOW can be stale until the next focus or pull. It also assumes the phone and the station are in the same timezone: "today" is the phone's date, while slots are in the station's zone.
 - **Free:** no "+ Add" button, no slot or default rows, no playlists fetched. With no show times that day the empty note reads "Scheduling what AutoDJ plays is part of Pro. Your show times are under Show times on the Overview." A Free owner with show times sees them here as read-only coral rows.
 - Empty day on Pro (cannot really happen, because the default row fills in): "Nothing scheduled on <day>."
-- Footer: "Times are in <timezone>. Change it in Station settings on the web." Only when the station has a timezone. With no timezone there is **no hint at all** (see gaps).
+- Footer: "Times are in <timezone>. Change it in Station settings on the web." Only when the station has a timezone. With no timezone there is **no hint at all** (see gaps). The pointer is stale: the web's timezone editor is now the `TimezoneDialog` on the Schedule page (`client/app/dashboard/stations/[slug]/schedule/SchedulePlanner.tsx`), and Station settings has none.
 
-**Adding and editing** (Pro): **+ Add** creates a draft `{days:[selected day], 06:00-12:00, first non-default playlist (else the first)}` and opens `ScheduleEditor` as a bottom sheet. Tapping a slot opens the same sheet with that slot. Saving builds the **full list** from `station.autodj_slots` (label, playlist_id, days, start_time, end_time), pushes/replaces/splices the one changed row **by array index** (the API returns slots ordered by `position`, which matches), and sends **`PUT /stations/{slug}/autodj-slots`** with `{slots: [...]}`. It sends **no `timezone`**, so the API keeps the station's. API rules (`ReplaceAutodjSlotsRequest`): up to 50 slots, label up to 60, 1 to 7 days each, `H:i` times, the playlist must belong to the station, and overlapping windows are refused ("Slots can touch but not overlap", overnight and week-wrap included). The endpoint itself does **not** check the plan; the Pro gate here is the phone hiding the controls. The call is not optimistic; on success the shell station is reloaded and the sheet closes. On failure the API's message shows in the sheet (validation `message`, first error), and the sheet stays open.
+**Adding and editing** (Pro): **+ Add** creates a draft `{days:[selected day], 06:00-12:00, first non-default playlist (else the first)}` and opens `ScheduleEditor` as a bottom sheet. Tapping a slot opens the same sheet with that slot. Saving builds the **full list** from `station.autodj_slots` (label, playlist_id, days, start_time, end_time, start_mode), pushes/replaces/splices the one changed row **by array index** (the API returns slots ordered by `position`, which matches), and sends **`PUT /stations/{slug}/autodj-slots`** with `{slots: [...]}`. It sends **no `timezone`**, so the API keeps the station's. **`start_mode`** (`soft` or `hard`, "starts on time") is only editable on the web Schedule; the phone has no control for it, but it sends the field for every slot (a new slot is `soft`, an edited one keeps what it had) because the API reads a missing `start_mode` as `soft` (`AutodjSlotController::replace`) and a save without it would turn every on-time slot back to soft. API rules (`ReplaceAutodjSlotsRequest`): up to 50 slots, label up to 60, 1 to 7 days each, `H:i` times, optional `start_mode` in `soft`/`hard`, the playlist must belong to the station, and overlapping windows are refused ("Slots can touch but not overlap", overnight and week-wrap included). The endpoint itself does **not** check the plan; the Pro gate here is the phone hiding the controls. The call is not optimistic; on success the shell station is reloaded and the sheet closes. On failure the API's message shows in the sheet (validation `message`, first error), and the sheet stays open.
 
 One row = one slot, and a slot can span several weekdays. The phone edits **all days of that row at once** through the day chips; there is no per-day edit like the web grid's edge drags. Editing a multi-day slot from a day's list changes every day it covers.
 
@@ -214,13 +215,13 @@ A separate stack screen (not a tab), reached only from the Overview link card or
 - "+ Add" opens `ScheduleEditor` with `{kind:'show', days:[], start:'20:00'}`. Days must be picked or the sheet says "Pick at least one day."
 - Save/delete build the whole list from `station.schedules` and `PUT /stations/{slug}/schedules` with `{timezone, schedules:[{label, days, start_time}]}`. **`timezone` = `station.timezone ?? the phone's Intl zone`**, so the first save from a phone stamps the phone's zone on the station. There is no timezone picker on mobile. If the station already has one, it is sent back unchanged.
 - API rules (`ReplaceStationSchedulesRequest`, `StationScheduleController`): up to 20 rows, label up to 60 chars, 1 to 7 days, `H:i` start time; no overlap check. An empty list is allowed (deleting the last row). A non-empty list needs a timezone (422 "Set the station timezone before adding show times."). Show times have no end time. Like the slots endpoint, it is not plan-gated.
-- Under the list the screen shows "Times are in <timezone>. Change it in Station settings on the web." when the station has a zone. The header **+ Add** appears once the station has loaded; the back button falls back to `router.replace('/')` when there is no history. They do nothing except appear on the player page (see [schedule.md](schedule.md)).
+- Under the list the screen shows "Times are in <timezone>. Change it in Station settings on the web." when the station has a zone. The header **+ Add** appears once the station has loaded; the back button falls back to `router.replace('/')` when there is no history. They drive nothing in the audio path. The screen's own copy says they "appear on your player page", but `client/app/station/[slug]/` no longer renders `schedules` (the API's public payload still carries them, `PublicStationController`); the web dashboard has no show-times editor either, so this screen is the only place they can be seen or edited.
 - The screen's copy says nothing starts on its own and you still press Go live.
 
 ## The schedule editor sheet (`components/station/ScheduleEditor.tsx`)
 
 - One component, two `kind`s chosen by the caller: `show` (coral, "Goes live at") and `slot` (violet, "Starts"/"Ends", with a playlist radio list). There is deliberately **no switch** between them (a "Live show | AutoDJ" picker was removed on 2026-09-29 because it made show times look like programming).
-- Fields: Name (max 60), Days (M T W T F S S chips, Monday first, values 0 = Sunday), times, and for slots a playlist list (colour swatch, "N tracks - shuffle / in order").
+- Fields: Name (max 60), Days (M T W T F S S chips, Monday first, values 0 = Sunday), times, and for slots a playlist list (colour swatch, "N tracks - shuffle / in order"). There is no on-time switch; the slot explainer reads "What AutoDJ plays while you're not live. It starts after the song playing at its start time, unless it's set on the web to start exactly on time. Going live always takes over."
 - Times use Android's native clock dial (`@expo/ui/jetpack-compose` `DateTimePicker`, 24-hour). The dial is seeded when opened and remounted per field; tapping the open field closes it. It is a Jetpack Compose control, so it is **Android-only**.
 - A slot whose end is at or before its start shows "Ends (next day)" and is treated by the API as overnight (start equal to end is refused client-side: "The slot needs to end at a different time than it starts.").
 - Client checks: at least one day. Everything else (overlaps, missing playlist, missing timezone) is left to the API and its message is shown as the error.
@@ -265,7 +266,7 @@ API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `Trac
 
 - **Long-press** a track to start selecting (rows become checkboxes and a "Done" pill replaces the Add button). Tap rows to toggle; unticking the last one ends select mode. Selection is by track id, **across playlists**.
 - A bottom bar shows "Delete N track(s)" (disabled at 0), which opens a bottom sheet: "Delete N tracks? They're removed from your library and from every playlist they're in, and AutoDJ stops playing them. This can't be undone." with Delete / Keep them.
-- `DELETE /stations/{slug}/tracks` with `{track_ids: [...]}` (`DestroyTracksRequest`: 1 to 2000 distinct ULIDs, all this station's). `TrackImporter::destroyMany` detaches the tracks from every playlist, deletes the rows, resequences, removes the files from disk, rewrites and reloads the playlist file (one reload for the whole batch) and records a `track_deleted` station event per file. The response is the fresh library (`meta.deleted`); the phone ignores it and reloads. Success notice "Deleted N track(s)."; failure notice with the error. Either way the lists reload.
+- `DELETE /stations/{slug}/tracks` with `{track_ids: [...]}` (`DestroyTracksRequest`: 1 to 2000 distinct ULIDs, all this station's). `TrackImporter::destroyMany` detaches the tracks from every playlist, deletes the rows, resequences (once per kind), removes the files from disk and records a `track_deleted` station event per file. Nothing is written for Liquidsoap any more: the container asks Laravel for one track at a time, so a deleted track simply stops being handed out. The response is the fresh library (`meta.deleted`); the phone ignores it and reloads. Success notice "Deleted N track(s)."; failure notice with the error. Either way the lists reload.
 - Deleting is **not plan-gated** (a downgraded owner can still delete), so Free can select and delete even though "+ Add" is hidden.
 - Deleting a track that is playing does not interrupt what is on air until the next track boundary (audio path; see [autodj.md](autodj.md)).
 
@@ -291,7 +292,7 @@ API rules on that endpoint (`StoreTrackRequest`, `TrackController::store`, `Trac
 
 All are under the `verified` middleware group except the public listeners endpoint (`api/routes/api.php`). An unverified account gets 403 "Your email address is not verified." on all of them.
 
-**Existing owner endpoints the phone never calls:** `POST /stations/{slug}/skip`, `stream-key` rotation, station PATCH/DELETE/creation, playlist CRUD, track PATCH/reorder, per-playlist track edits. The status payload's `up_next` and `playlist_length` are received and ignored.
+**Existing owner endpoints the phone never calls:** `POST /stations/{slug}/skip`, `stream-key` rotation, station PATCH/DELETE/creation, playlist CRUD, track PATCH/reorder, `GET /tracks/{track}/audio` (the web library's preview), per-playlist track edits. The status payload's `up_next`, `playlist_length` and `playlist` (`{id, name, scheduled}`, which playlist AutoDJ is on) are received and ignored; `StationStatus` in `lib/station.ts` does not declare `playlist`.
 
 ## Surfaces
 
@@ -304,7 +305,7 @@ All are under the `verified` middleware group except the public listeners endpoi
 ## Gaps and traps
 
 1. **The Jingles card in Library is dead.** `library.tsx` builds it from `tracks.filter(kind==='jingle')`, but `GET /stations/{slug}/tracks` defaults to `kind=music` (`TrackController::index`), so the array is always empty. Jingles are unreachable on mobile, even though the storage meter (which does count jingle bytes) can be "full" with nothing visible to delete.
-2. **Slot saves fail silently-ish on a station with no timezone.** A Pro owner with no timezone sees no hint on the Schedule tab (the footer only shows when there is a zone), taps + Add, and the save returns 422 "Set the station timezone before adding slots." The way out is to add a Show time first (which stamps the phone's zone) or use the web settings. The web disables Save with an explanation; the phone does not.
+2. **Slot saves fail silently-ish on a station with no timezone.** A Pro owner with no timezone sees no hint on the Schedule tab (the footer only shows when there is a zone), taps + Add, and the save returns 422 "Set the station timezone before adding slots." The way out is to add a Show time first (which stamps the phone's zone) or set the timezone on the web Schedule page. The web disables Save with an explanation; the phone does not.
 3. **The first Show times save silently sets the station timezone to the phone's.** It then re-times both show times and every AutoDJ slot. There is no confirmation and no mobile picker.
 4. **Show times screen and the shell disagree after a save.** The screen owns a separate `GET /stations/{slug}` copy. The Overview's "N on your player page" and the Schedule tab's coral rows are refreshed only by their own reloads (Schedule reloads on focus; Overview does not).
 5. **"Get Pro" is not a request.** It only opens the web `/dashboard` in an in-app browser. Free owners get no direct upgrade path in the app, and the copy elsewhere ("comes with Pro") sends them nowhere.
@@ -318,7 +319,9 @@ All are under the `verified` middleware group except the public listeners endpoi
 13. **Hand-copied API types.** `lib/station.ts` mirrors the resources by hand; a resource change will not fail a build.
 14. **Dead helpers:** `formatAgo`, `formatWhen`, `formatDays` and `DAY_SHORT` in `lib/station.ts` are referenced nowhere in `mobile/src`. `addHours` has one fallback use (an empty `end_time`, which the API never returns).
 15. **Sessions and status errors are mostly invisible on Overview.** If `GET /sessions` fails, Recent shows stays on its skeleton forever (`data` stays `null`, the error is never rendered). A failing status poll only changes the hero label to STATUS UNKNOWN.
-16. **No automated tests for any mobile screen.** No `*.test.*` or `*.spec.*` file exists under `mobile/` outside `node_modules`.
+16. **Show times claim a player page they no longer reach.** The Overview row ("N on your player page"), the Schedule tab's coral rows ("Show time - on your player page", `scheduleRows.ts`), the editor explainer (`ScheduleEditor.tsx`: "it shows on your player page") and the Show times screen's intro all promise listeners will see them. The public player page (`client/app/station/[slug]/PlayerView.tsx`) does not render `schedules`, and the web dashboard dropped show times on 2026-10-18 (DB and API kept). An owner who adds show times on the phone publishes nothing.
+17. **"Change it in Station settings on the web" points at nothing.** Both the Schedule tab footer and the Show times screen say it; the timezone is now edited only from the web Schedule page's timezone dialog.
+18. **No automated tests for any mobile screen.** No `*.test.*` or `*.spec.*` file exists under `mobile/` outside `node_modules`.
 
 ## Tests
 

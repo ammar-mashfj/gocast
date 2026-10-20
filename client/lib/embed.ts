@@ -10,8 +10,31 @@ import { env } from "@/lib/env"
  */
 export const EMBED_HEIGHT = 88
 
-export function embedUrl(slug: string): string {
-  return `${env.appUrl}/embed/${slug}`
+/**
+ * Extra controls the owner ticked in the Embed dialog. Each rides on the
+ * iframe's address (`?volume=1&mute=1`) and the embed page reads it back;
+ * none set is the original player, so snippets pasted before these existed
+ * render exactly as they did.
+ */
+export interface EmbedOptions {
+  /** A volume slider. Not drawn on iPhone and iPad, which ignore it. */
+  volume?: boolean
+  /** A mute / unmute button. */
+  mute?: boolean
+}
+
+export function embedUrl(slug: string, options: EmbedOptions = {}): string {
+  const query = new URLSearchParams()
+  if (options.volume) query.set("volume", "1")
+  if (options.mute) query.set("mute", "1")
+  const qs = query.toString()
+  return `${env.appUrl}/embed/${slug}${qs ? `?${qs}` : ""}`
+}
+
+/** The options back out of the embed page's query (`"1"` is on). */
+export function parseEmbedOptions(params: Record<string, string | string[] | undefined>): EmbedOptions {
+  const on = (key: string) => params[key] === "1"
+  return { volume: on("volume"), mute: on("mute") }
 }
 
 /**
@@ -22,11 +45,11 @@ export function embedUrl(slug: string): string {
  * starts without a click. `loading="lazy"` keeps a footer embed from
  * fetching the player bundle for a visitor who never scrolls to it.
  */
-export function embedSnippet(slug: string, stationName: string): string {
+export function embedSnippet(slug: string, stationName: string, options: EmbedOptions = {}): string {
   const title = stationName.replace(/"/g, "&quot;")
   return [
     `<iframe`,
-    `  src="${embedUrl(slug)}"`,
+    `  src="${embedUrl(slug, options)}"`,
     `  title="${title} on GoCast"`,
     `  width="100%"`,
     `  height="${EMBED_HEIGHT}"`,

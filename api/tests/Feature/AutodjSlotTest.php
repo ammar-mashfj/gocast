@@ -262,3 +262,27 @@ describe('on air', function () {
         Carbon::setTestNow();
     });
 });
+
+it('answers a station save with the programme, in the new timezone', function () {
+    // Monday 09:00 in Madrid is 03:00 in New York: inside the slot, then not.
+    Carbon::setTestNow(CarbonImmutable::parse('2026-09-21 09:00', 'Europe/Madrid'));
+    // An empty scheduled playlist falls through to the default.
+    $this->calm->tracks()->attach(Track::factory()->for($this->station)->create()->id, ['position' => 1]);
+    putSlots($this->owner, $this->station, [
+        ['label' => 'Mornings', 'playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '06:00', 'end_time' => '12:00'],
+    ])->assertOk();
+
+    actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/stations/{$this->station->slug}", ['timezone' => 'Europe/Madrid'])
+        ->assertOk()
+        ->assertJsonPath('data.programme.playlist.id', $this->calm->id);
+
+    $moved = actingAs($this->owner, 'sanctum')
+        ->patchJson("/api/stations/{$this->station->slug}", ['timezone' => 'America/New_York'])
+        ->assertOk();
+
+    expect($moved->json('data.programme'))->not->toBeNull()
+        ->and($moved->json('data.programme.slot_id'))->toBeNull();
+
+    Carbon::setTestNow();
+});

@@ -1,132 +1,115 @@
 "use client"
 
-import { IconMusic, IconPlaylist, IconPlus, IconStarFilled } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { IconChevronRight } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
+import { Tag } from "@/components/ds/Tag"
 import { formatAirtime } from "@/lib/format"
+import { playlistDot, playlistDotTitle } from "@/lib/playlistSwatches"
 import type { Playlist } from "@/interfaces/Playlist"
 
-/** The pseudo-entry for the whole library, alongside the real playlists. */
+/** `selected` when the whole library is in view rather than a playlist (the Library page). */
 export const LIBRARY_KEY = "library"
 
 interface Props {
   playlists: Playlist[]
-  libraryCount: number
-  /** A playlist id, or LIBRARY_KEY. */
+  /** A playlist id. */
   selected: string
   onSelect: (key: string) => void
-  onCreate: () => void
-  /** No AutoDJ on this plan: creating is blocked, browsing is not. */
-  locked: boolean
 }
 
 /**
- * Where the owner picks what they are looking at: every file they own, or one
- * of the rotations built from them. A column beside the list from md up; a
- * scrolling row of chips above it on a phone, where a column would push the
- * list below the fold.
- *
- * The two groups are LABELLED rather than merely separated. "All tracks" used
- * to sit above a hairline divider styled exactly like the playlists under it,
- * so the one entry that manages files — upload, delete, fix tags — read as
- * just another rotation and went unnoticed. A divider says "these are
- * different"; only a label says how.
- *
- * Labels are md-and-up only. Below that the rail is a horizontal chip row and
- * headings in the middle of it would break the line.
+ * The Playlists page's list: every playlist, each with the violet shade it
+ * wears on the schedule. A column beside the open playlist from lg up;
+ * below lg, PlaylistPhoneList instead (a 240px column squeezed the playlist
+ * on a tablet).
  */
-export function PlaylistRail({
-  playlists,
-  libraryCount,
-  selected,
-  onSelect,
-  onCreate,
-  locked,
-}: Props) {
+export function PlaylistRail(props: Props) {
   return (
-    <nav
-      aria-label="Music"
-      className="flex min-w-0 max-w-full md:flex-col gap-1 md:w-56 shrink-0 overflow-x-auto md:overflow-visible pb-1 md:pb-0"
-    >
-      <RailLabel>Library</RailLabel>
-
-      <RailItem
-        active={selected === LIBRARY_KEY}
-        onClick={() => onSelect(LIBRARY_KEY)}
-        icon={<IconMusic size={15} />}
-        label="All tracks"
-        detail={`${libraryCount} track${libraryCount === 1 ? "" : "s"}`}
-        title="Every file you own. Upload, delete and fix tags here."
-      />
-
-      <RailLabel className="md:pt-3">Playlists</RailLabel>
-
-      {playlists.map((playlist) => (
+    <nav aria-label="Playlists" className="hidden w-60 shrink-0 flex-col gap-1 lg:flex">
+      {props.playlists.map((playlist, i) => (
         <RailItem
           key={playlist.id}
-          active={selected === playlist.id}
-          onClick={() => onSelect(playlist.id)}
-          icon={
-            playlist.is_default ? (
-              <IconStarFilled size={13} className="text-violet-muted" />
-            ) : (
-              <IconPlaylist size={15} />
-            )
-          }
+          active={props.selected === playlist.id}
+          onClick={() => props.onSelect(playlist.id)}
+          swatch={playlistDot(playlist, i)}
+          swatchTitle={playlistDotTitle(playlist)}
           label={playlist.name}
           detail={railDetail(playlist)}
-          title={playlist.is_default ? "Default — plays whenever nothing else is scheduled." : undefined}
+          title={playlist.is_default ? "Plays whenever nothing else is scheduled." : undefined}
         />
       ))}
-
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onCreate}
-        disabled={locked}
-        title={locked ? "Playlists are part of AutoDJ, which isn't in your plan." : undefined}
-        className="h-9 justify-start text-muted-foreground shrink-0"
-      >
-        <IconPlus size={15} data-icon="inline-start" />
-        New playlist
-      </Button>
     </nav>
   )
 }
 
-/** A group heading inside the rail. Invisible on a phone — see the note above. */
-function RailLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+/**
+ * Phones and tablets (below lg): the Playlists page opens on this list, and
+ * a tap opens that playlist on its own screen (LibraryView). It replaced a
+ * "Change" picker above the open playlist, which nobody read as belonging
+ * to the card under it.
+ */
+export function PlaylistPhoneList({ playlists, onOpen }: { playlists: Playlist[]; onOpen: (id: string) => void }) {
+  if (playlists.length === 0) {
+    return <p className="rounded-card bg-card px-5.5 py-10 text-center text-body text-muted-foreground">No playlists yet. Make one to choose what AutoDJ plays.</p>
+  }
   return (
-    <span
-      className={cn(
-        "hidden md:block px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none",
-        className,
-      )}
-    >
-      {children}
-    </span>
+    <nav aria-label="Playlists" className="flex flex-col rounded-card bg-card p-1.5 [&>button+button]:border-t [&>button+button]:border-line">
+      {playlists.map((playlist, i) => (
+        <button
+          key={playlist.id}
+          type="button"
+          onClick={() => onOpen(playlist.id)}
+          className="flex min-h-16 cursor-pointer items-center gap-3 rounded-control px-3.5 py-3 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span aria-hidden title={playlistDotTitle(playlist)} className={cn("size-3 shrink-0 rounded-swatch", playlistDot(playlist, i).className)} style={playlistDot(playlist, i).style} />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate text-body font-semibold">{playlist.name}</span>
+              {playlist.is_default && <Tag className="shrink-0">Default</Tag>}
+            </span>
+            <span className="text-body-sm text-muted-foreground">{pickerDetail(playlist)}</span>
+          </span>
+          <IconChevronRight aria-hidden className="size-5 shrink-0 text-text-faint" />
+        </button>
+      ))}
+    </nav>
   )
 }
 
+/** Compact, for the rail and the sheet's rows: "12 · 48m", or "Empty". */
 function railDetail(playlist: Playlist): string {
   const count = playlist.track_count ?? 0
   const seconds = playlist.duration_seconds ?? 0
-  // Words, not a bare "1 · 1h 17m": the number alone didn't say what it
-  // counted. The rail is narrow, so "tracks" rather than a longer phrase.
-  const tracks = `${count} track${count === 1 ? "" : "s"}`
+  if (count === 0) return "Empty"
+  return seconds > 0 ? `${count} · ${formatAirtime(seconds)}` : String(count)
+}
+
+/** In words, for the phone list, where there's room: "12 tracks · 48m". */
+function pickerDetail(playlist: Playlist): string {
+  const count = playlist.track_count ?? 0
+  const seconds = playlist.duration_seconds ?? 0
+  if (count === 0) return "No tracks yet"
+  const tracks = `${count} ${count === 1 ? "track" : "tracks"}`
   return seconds > 0 ? `${tracks} · ${formatAirtime(seconds)}` : tracks
 }
 
-interface RailItemProps {
+function RailItem({
+  active,
+  onClick,
+  swatch,
+  swatchTitle,
+  label,
+  detail,
+  title,
+}: {
   active: boolean
   onClick: () => void
-  icon: React.ReactNode
+  swatch?: { className: string; style?: React.CSSProperties }
+  swatchTitle?: string
   label: string
   detail: string
   title?: string
-}
-
-function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps) {
+}) {
   return (
     <button
       type="button"
@@ -134,14 +117,16 @@ function RailItem({ active, onClick, icon, label, detail, title }: RailItemProps
       title={title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-h-9 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-left shrink-0 md:shrink cursor-pointer transition-colors",
-        "min-w-0 max-w-[14rem] md:max-w-none",
-        active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+        "flex min-w-0 items-center justify-between gap-2.5 rounded-control p-3 text-left transition-colors outline-none",
+        "focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "bg-card text-foreground" : "text-muted-foreground hover:bg-surface-raised hover:text-foreground",
       )}
     >
-      <span className="shrink-0 inline-flex">{icon}</span>
-      <span className="truncate flex-1">{label}</span>
-      <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">{detail}</span>
+      <span className="flex min-w-0 items-center gap-2.5">
+        {swatch && <span aria-hidden title={swatchTitle} className={cn("size-2.5 shrink-0 rounded-swatch", swatch.className)} style={swatch.style} />}
+        <span className="truncate text-body font-semibold">{label}</span>
+      </span>
+      <span className="shrink-0 font-mono text-caption text-text-faint tabular-nums">{detail}</span>
     </button>
   )
 }

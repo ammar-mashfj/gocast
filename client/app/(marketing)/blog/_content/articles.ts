@@ -100,7 +100,7 @@ export const ARTICLES: Article[] = [
       {
         question: "Does a scheduled playlist start exactly on time?",
         answer:
-          "Close to it. A slot takes over at the next track boundary rather than cutting a song in half, so it can start a couple of minutes after the time you wrote. For something that has to begin on the minute, go live — that takes over instantly.",
+          "Your choice, slot by slot. Normally a slot takes over at the next track boundary rather than cutting a song in half, so it can start a couple of minutes after the time you wrote. Switch on “Start exactly on time” and it starts on the dot: AutoDJ picks a song that ends in time, or fades out the one playing.",
       },
       {
         question: "What happens if I go live during a scheduled slot?",
@@ -116,11 +116,6 @@ export const ARTICLES: Article[] = [
         question: "Can the same track be in more than one playlist?",
         answer:
           "Yes, and it only takes up space once. Your 3 GB allowance is counted per file, not per playlist entry.",
-      },
-      {
-        question: "Is scheduling the same as the show times on my settings page?",
-        answer:
-          "No. Show times are what you advertise to listeners and change nothing about your audio. Slots are what your station actually plays and are never shown to listeners. They share a timezone and nothing else.",
       },
     ],
   },

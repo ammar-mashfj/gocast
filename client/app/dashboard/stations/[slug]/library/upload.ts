@@ -20,21 +20,58 @@ export function isAudioFile(file: File): boolean {
   return file.type.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name)
 }
 
+/** StoreTrackRequest's per-file `max:307200` rule (kilobytes), in bytes. */
+export const MAX_FILE_BYTES = 307_200 * 1024
+
+/**
+ * Split a selection into what the server will take and what it would refuse.
+ * The server validates a whole request at once, so one 400 MB mix in a drop
+ * of twenty songs failed the request it rode in — and the loop stopped there,
+ * so every batch after it never went up either. Weeding those out first lets
+ * the rest land.
+ */
+export function partitionUploads(files: File[]): { accepted: File[]; skipped: File[] } {
+  const accepted: File[] = []
+  const skipped: File[] = []
+  for (const file of files) {
+    if (isAudioFile(file) && file.size <= MAX_FILE_BYTES) accepted.push(file)
+    else skipped.push(file)
+  }
+  return { accepted, skipped }
+}
+
+/** One toast for every refused file, naming the first few. */
+export function skippedFilesMessage(skipped: File[]): string {
+  const shown = skipped.slice(0, 3).map((f) => f.name)
+  const more = skipped.length - shown.length
+  const names = more > 0 ? `${shown.join(", ")} and ${more} more` : shown.join(", ")
+  return `Skipped ${names} — only MP3, M4A, AAC, FLAC, OGG or WAV files up to 300 MB each.`
+}
+
 /**
  * Pull something sayable out of an upload failure. The server answers with
- * either Laravel validation errors (per-file: too big, wrong format) or a
- * plain message (the quota, which is raised from the importer), and the
+ * Laravel validation errors (per-file: too big, wrong format), the
+ * importer's own per-file list (the quota), or a plain message; the
  * difference is not worth showing the user.
  */
 export function uploadErrorMessage(err: unknown): string {
   const body = (
     err as {
-      response?: { data?: { message?: string; errors?: Record<string, string[]> } }
+      response?: { data?: { message?: string; errors?: unknown } }
     }
   ).response?.data
 
-  if (body?.errors) {
-    return Object.values(body.errors).flat()[0] ?? "Upload failed"
+  // Two shapes arrive here. Laravel's validation 422 keys an array of
+  // messages by field; TrackController's own 422 (every file refused, e.g.
+  // the storage cap) is a list of {index, message}. Handing the latter's
+  // object to a toast crashed it.
+  const errors = body?.errors
+  if (errors && typeof errors === "object") {
+    const first = (Array.isArray(errors) ? errors : Object.values(errors)).flat()[0] as unknown
+    if (typeof first === "string") return first
+    if (first && typeof first === "object" && typeof (first as { message?: unknown }).message === "string") {
+      return (first as { message: string }).message
+    }
   }
 
   return body?.message ?? "Upload failed"

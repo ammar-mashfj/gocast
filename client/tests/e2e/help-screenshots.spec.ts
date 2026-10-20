@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { test, expect, type Page, type Locator } from "@playwright/test"
+import { E2E_PASSWORD } from "./support/auth"
 
 /**
  * Captures the screenshots used by the /help articles.
@@ -17,12 +18,36 @@ import { test, expect, type Page, type Locator } from "@playwright/test"
  * of silently slicing it. Every box is logged, which is how you check the
  * framing without opening the files.
  *
- * Run against a DRESSED database (see the shoot scripts in the scratchpad):
- *   npx playwright test help-screenshots --grep @screenshots
+ * Runs against the help account `php artisan e2e:seed` builds
+ * (help@gocast.test, "Night Shift Radio": real artwork, believable names,
+ * a week of programming, months of shows and listeners — a station a reader
+ * can learn from) and changes nothing in it. Two pieces of staging happen in
+ * the page only:
+ *   - `dress()` shows dev's encoder address as the hostname a reader sees;
+ *   - the Schedule shots draw a few slots on screen and never press Save
+ *     (the planner sends nothing until Save).
+ *
+ *   npm run test:help-shots   (E2E_CAPTURE=1 lifts the config's grepInvert)
+ *
+ * PNGs land in tests/e2e/.screenshots/; convert to webp for public/help/:
+ *   for f in tests/e2e/.screenshots/*.png; do
+ *     convert "$f" -quality 85 "public/help/$(basename "${f%.png}").webp"; done
+ *
+ * A second capture shoots the scheduling blog post's pictures
+ * (public/blog/schedule/) from blog@gocast.test, "Riverside Radio", the
+ * week that post walks through (also seeded by e2e:seed). Its PNGs are
+ * named blog-*.png; the post's hero (1200x630) is the week shot laid on a
+ * dark card:
+ *   convert -size 1200x630 xc:'#0d0c0b' \( tests/e2e/.screenshots/blog-week.png -resize 1100x \) \
+ *     -gravity center -composite -quality 85 public/blog/schedule/hero.webp
+ *
+ * The public player page shots (player-page, player-now-playing) are not
+ * taken here any more: that page wasn't part of the dashboard redesign and
+ * the review station has no stream to show.
  */
 
 const OUT = path.resolve(process.cwd(), "tests/e2e/.screenshots")
-const STATION = "test"
+const STATION = "night-shift-radio"
 const at = (page: string) => `/dashboard/stations/${STATION}${page}`
 
 test.use({
@@ -32,18 +57,61 @@ test.use({
   // Wide enough that the dashboard's two-up card rows stay side by side; they
   // stack below roughly 1500 and the framing changes completely.
   viewport: { width: 1680, height: 1050 },
+  // A locator that can't be found fails in seconds, not at the 5-minute cap.
+  actionTimeout: 10_000,
 })
 
 test.beforeAll(() => {
   fs.mkdirSync(OUT, { recursive: true })
 })
 
-async function signIn(page: Page) {
+async function signIn(page: Page, email = "help@gocast.test") {
   await page.goto("/auth/login")
-  await page.getByLabel("Email").fill("ammarmashfj.ru@gmail.com")
-  await page.getByLabel("Password").fill("ShootPass123!")
+  await page.getByLabel("Email").fill(email)
+  await page.getByRole("textbox", { name: "Password" }).fill(E2E_PASSWORD)
   await page.getByRole("button", { name: "Sign in" }).click()
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 })
+}
+
+/**
+ * Page-only staging: dev's encoder server is the machine's address. Show the
+ * kind of hostname a reader will see (the shots before these did the same).
+ * Nothing is saved.
+ */
+async function dress(page: Page) {
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.nodeValue?.includes("127.0.0.1")) n.nodeValue = n.nodeValue.replace("127.0.0.1", "ingest.gocast.fm")
+    }
+  })
+  await page.waitForTimeout(200)
+}
+
+/** Close the slot dialog and wait for it to go, so the next click lands on the week. */
+async function done(page: Page) {
+  await page.getByRole("dialog").getByRole("button", { name: "Done" }).click()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+}
+
+/** Click a day row of the Schedule week at an hour, which opens a new one-hour slot. */
+async function clickHour(page: Page, weekRow: number, hour: number) {
+  const row = page.locator("[data-day-row]").nth(weekRow)
+  const box = (await row.boundingBox())!
+  await page.mouse.click(box.x + (box.width * (hour + 0.5)) / 24, box.y + box.height / 2)
+  await expect(page.getByRole("dialog")).toBeVisible()
+}
+
+/** Fill the open slot dialog: name, playlist, times, and extra days to tick. */
+async function fillSlot(page: Page, opts: { name: string; playlist: string; from: string; to: string; days?: string[] }) {
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Name").fill(opts.name)
+  await dialog.getByRole("radio", { name: new RegExp(opts.playlist) }).click()
+  const times = dialog.locator('input[type="time"]')
+  await times.nth(0).fill(opts.from)
+  await times.nth(1).fill(opts.to)
+  // The chips are named in full ("Monday"); they only show two letters.
+  for (const day of opts.days ?? []) await dialog.getByRole("button", { name: day, exact: true }).click({ timeout: 5_000 })
 }
 
 /**
@@ -64,7 +132,7 @@ async function settle(page: Page, opts: { status?: boolean } = {}) {
     )
   })
   if (opts.status) {
-    await expect(page.getByText("Checking…").first()).toBeHidden({ timeout: 30_000 })
+    await expect(page.getByText("Checking…")).toHaveCount(0, { timeout: 30_000 })
   }
   await page.waitForTimeout(600)
 }
@@ -141,102 +209,140 @@ async function shot(page: Page, name: string, clip?: Box) {
 test.describe("@screenshots", () => {
   test("capture help article screenshots", async ({ page }) => {
     test.setTimeout(300_000)
+    // Headless tabs report hidden, which pauses the status poll.
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "visibilityState", { get: () => "visible" })
+      Object.defineProperty(document, "hidden", { get: () => false })
+    })
     await signIn(page)
 
-    // ---- station overview: the two power cards, side by side --------------
+    // ---- station overview -------------------------------------------------
     await page.goto(at(""))
     await settle(page, { status: true })
+    await dress(page)
 
-    const powerCard = page.locator("section").filter({ hasText: "ON AIR" }).first()
-    const nowPlaying = page.locator("section").filter({ hasText: "NOW PLAYING" }).first()
-    await shot(page, "station-power", await clipOf(page, [powerCard, nowPlaying]))
+    // The hero: what's on air, the buttons that change it, listening now.
+    // The section itself: its headline depends on the state, and off air
+    // it has none.
+    const hero = page.getByRole("region", { name: "On air now" })
+    await shot(page, "station-power", padded(page, (await hero.boundingBox())!, 0))
 
-    const artwork = page.getByRole("img", { name: /Night Shift Radio/i }).first()
-    const blurb = page.getByText(/Late-night electronic, ambient and lo-fi/)
-    await shot(page, "station-header", await clipOf(page, [artwork, blurb], 18))
+    const header = page.locator("header").filter({ has: page.locator("h1") }).first()
+    await shot(page, "station-header", await clipOf(page, [header.locator("button").first(), header.locator("h1").locator("xpath=../..")], 18))
 
-    await shot(page, "autodj-rotation",
-      padded(page, await cardBox(page.getByText("AutoDJ rotation").first(), 700, 180)))
+    // ---- tune-in QR -------------------------------------------------------
+    // Inside QR code & embed, beside Copy player link.
+    await page.getByRole("button", { name: "QR code & embed" }).click()
+    await page.getByRole("button", { name: "Tune-in code" }).click()
+    const qr = page.getByRole("dialog")
+    await expect(qr).toBeVisible()
+    await page.waitForTimeout(700)
+    // Stop above the URL line: it reads localhost in dev, the one dev-ism a
+    // reader would mistake for their own address.
+    const qrBox = (await qr.boundingBox())!
+    // The white tile around the code, not the code: it has its own padding.
+    const qrImg = (await qr.locator("canvas, img, svg").first().locator("..").boundingBox())!
+    await shot(page, "share-qr", { x: qrBox.x, y: qrBox.y, width: qrBox.width, height: qrImg.y + qrImg.height + 18 - qrBox.y })
+    await page.keyboard.press("Escape")
 
-    // ---- library ----------------------------------------------------------
-    await page.goto(at("/library"))
+    // ---- AutoDJ playlists -------------------------------------------------
+    // The playlist list beside the open playlist (All tracks is its own
+    // Library page now).
+    await page.goto(at("/playlists"))
     await settle(page)
-    await shot(page, "music-library",
-      padded(page, await cardBox(page.getByText("Showing 8 of 8"), 1300, 400), 18))
+    await shot(page, "music-library", padded(page, await cardBox(page.getByRole("button", { name: "New playlist" }).first(), 1100, 400), 18))
 
     // ---- schedule ---------------------------------------------------------
     await page.goto(at("/schedule"))
     await settle(page)
-    const onNow = page.getByText("ON NOW").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    await shot(page, "schedule-on-now", await clipOf(page, [onNow], 8))
+    await shot(page, "schedule-on-now", padded(page, await cardBox(page.getByText("Right now", { exact: true }), 1100, 80), 0))
 
-    const firstSlot = page.getByPlaceholder("Label (optional)").first()
-    await firstSlot.scrollIntoViewIfNeeded()
+    // Draw a believable week on screen. Nothing is saved.
+    await page.locator("[data-day-row] button[title^='Morning Soul']").first().click()
+    await fillSlot(page, { name: "Breakfast", playlist: "Morning Soul", from: "06:00", to: "10:00", days: ["Monday", "Tuesday", "Thursday", "Friday"] })
+    await page.waitForTimeout(300)
+    const slotDialog = page.getByRole("dialog")
+    await shot(page, "schedule-slots", padded(page, (await slotDialog.boundingBox())!, 0))
+    await done(page)
+
+    await clickHour(page, 0, 17)
+    await fillSlot(page, { name: "Drive time", playlist: "Main rotation", from: "16:00", to: "19:00", days: ["Tuesday", "Wednesday", "Thursday", "Friday"] })
+    await done(page)
+
+    // Friday 23:00–02:00 carries into Saturday: the crossing-midnight case.
+    await clickHour(page, 4, 22)
+    await fillSlot(page, { name: "After hours", playlist: "Main rotation", from: "23:00", to: "02:00" })
+    await done(page)
     await page.waitForTimeout(400)
-    await shot(page, "schedule-slots", padded(page, await cardBox(firstSlot, 1300, 480), 18))
 
-    const week = page.getByText("THIS WEEK").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
+    const week = page.locator("#schedule-week")
     await week.scrollIntoViewIfNeeded()
-    await page.waitForTimeout(400)
-    await shot(page, "schedule-week", await clipOf(page, [week]))
+    await page.waitForTimeout(300)
+    await shot(page, "schedule-week", padded(page, await cardBox(week, 1100, 400), 0))
 
-    // ---- settings / encoder ----------------------------------------------
+    // ---- settings: own DJ software ---------------------------------------
+    // The planner has unsaved slots; leaving would prompt, so drop the guard.
+    page.on("dialog", (d) => d.accept())
     await page.goto(at("/settings"))
     await settle(page)
-    const encoder = page.getByText("Broadcast from your own software")
-    await encoder.scrollIntoViewIfNeeded()
+    await page.getByRole("button", { name: /Use your own DJ software/ }).click()
+    // The tile opens a dialog now, not a card that unfolds in the page.
+    const djCard = page.getByRole("dialog", { name: "Use your own DJ software" })
+    await expect(djCard).toBeVisible()
     await page.waitForTimeout(400)
-    // Take the card's width but stop at the troubleshooting link, so the shot
-    // ends on a complete thought instead of mid-sentence at the viewport edge.
-    const encCard = await cardBox(encoder, 520, 320)
-    const encEnd = (await page.getByText(/Not connecting\?/).boundingBox())!
-    await shot(page, "encoder-connection", padded(page, {
-      ...encCard,
-      height: encEnd.y + encEnd.height - encCard.y,
-    }))
+    await dress(page)
+    // From the dialog's top to the end of the five values.
+    const cardTop = (await djCard.boundingBox())!
+    const keyHint = (await page.getByText("Also called the stream key or source password.").boundingBox())!
+    await shot(page, "encoder-connection", padded(page, { ...cardTop, height: keyHint.y + keyHint.height + 28 - cardTop.y }, 0))
 
     // ---- audience ---------------------------------------------------------
     await page.goto(`${at("/audience")}?days=30`)
     await settle(page)
-    const stats = page.getByText("Listening time").first().locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    const chart = page.getByText("Last 30 days").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    await shot(page, "audience-chart", await clipOf(page, [stats, chart]))
+    const tiles = page.getByText("Listening time", { exact: true }).first()
+    const chart = page.getByRole("heading", { name: "Listening time per day" })
+    // The four tiles (a row at least 1100 wide) down to the chart card's foot.
+    const tileRow = await cardBox(tiles, 1100, 60)
+    const chartCard = (await chart.locator('xpath=ancestor::*[@data-slot="ds-card"][1]').boundingBox())!
+    await shot(page, "audience-chart", padded(page, { ...tileRow, height: chartCard.y + chartCard.height - tileRow.y }, 0))
 
-    const countries = page.getByText("Countries").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    const referrers = page.getByText("Where they came from").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
+    const countries = page.getByRole("heading", { name: "Countries" })
     await countries.scrollIntoViewIfNeeded()
-    await page.waitForTimeout(400)
-    await shot(page, "audience-breakdowns", await clipOf(page, [countries, referrers]))
+    await page.waitForTimeout(300)
+    await shot(page, "audience-breakdowns", padded(page, await cardBox(countries, 1100, 300), 0))
+  })
 
-    // ---- tune-in QR -------------------------------------------------------
-    await page.goto(at(""))
-    await settle(page, { status: true })
-    await page.getByRole("button", { name: "Tune-in code" }).first().click()
-    await page.waitForTimeout(900)
-    // Stop above the URL line: it reads http://localhost:3000/... in dev, which
-    // is the one dev-ism a reader would mistake for their own address.
-    const qrDialog = (await page.getByRole("dialog").first().boundingBox())!
-    const qrImg = (await page.getByRole("dialog").first().locator("canvas, img, svg").first().boundingBox())!
-    await shot(page, "share-qr", {
-      x: qrDialog.x,
-      y: qrDialog.y,
-      width: qrDialog.width,
-      height: qrImg.y + qrImg.height + 18 - qrDialog.y,
+  test("capture the scheduling blog post's screenshots", async ({ page }) => {
+    test.setTimeout(300_000)
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "visibilityState", { get: () => "visible" })
+      Object.defineProperty(document, "hidden", { get: () => false })
     })
-    await page.keyboard.press("Escape")
+    await signIn(page, "blog@gocast.test")
+    const blog = (p: string) => `/dashboard/stations/riverside-radio${p}`
 
-    // ---- go-live steps ----------------------------------------------------
-    await page.goto(at("/live"))
+    // Playlists first: "Slots point at playlists".
+    await page.goto(blog("/playlists"))
     await settle(page)
-    const preflight = page.getByText("You're about to go live on").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    await shot(page, "go-live-preflight", await clipOf(page, [preflight], 0))
+    await shot(page, "blog-library", padded(page, await cardBox(page.getByRole("button", { name: "New playlist" }).first(), 1100, 400), 18))
 
-    // ---- public player page ----------------------------------------------
-    await page.goto(`/station/${STATION}`)
+    // The saved week, nothing drawn: this station's own six slots.
+    await page.goto(blog("/schedule"))
     await settle(page)
-    await shot(page, "player-page")
+    await shot(page, "blog-on-now", padded(page, await cardBox(page.getByText("Right now", { exact: true }), 1100, 80), 0))
+    const week = page.locator("#schedule-week")
+    await week.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(300)
+    await shot(page, "blog-week", padded(page, await cardBox(week, 1100, 400), 0))
 
-    const playerBar = page.getByText("NOW PLAYING").locator("xpath=ancestor::div[contains(@class,'rounded')][1]").first()
-    await shot(page, "player-now-playing", await clipOf(page, [playerBar], 0))
+    // One slot, opened: a playlist, days, a start and an end, a label.
+    await page.locator("[data-day-row] button[title^='News at Six']").first().click()
+    const slot = page.getByRole("dialog")
+    await expect(slot).toBeVisible()
+    // The dialog opens with its name selected, ready to retype; a picture of
+    // it shouldn't look half-edited.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.waitForTimeout(400)
+    await shot(page, "blog-slot", padded(page, (await slot.boundingBox())!, 0))
   })
 })

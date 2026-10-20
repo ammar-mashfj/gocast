@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { pageMetadata } from "@/lib/seo"
+import { LEGAL_UPDATED, formatLegalDate } from "@/lib/legal"
 
 export const metadata: Metadata = pageMetadata({
   title: "Privacy Policy",
@@ -12,7 +13,7 @@ export default function PrivacyPage() {
     <main className="max-w-2xl mx-auto px-6 py-16">
       <h1 className="font-display text-3xl font-semibold mb-2">Privacy Policy</h1>
       <p className="text-sm text-text-muted mb-12">
-        Last updated: September 26, 2026
+        Last updated: {formatLegalDate(LEGAL_UPDATED.privacy)}
       </p>
 
       <div className="flex flex-col gap-10 text-base text-text-secondary tracking-[0.01em] leading-[1.7] text-pretty">

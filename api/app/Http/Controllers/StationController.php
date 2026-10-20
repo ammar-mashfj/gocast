@@ -73,6 +73,12 @@ class StationController extends Controller
 
         $station->update($data);
 
+        // With the slots, so the reply carries `programme` resolved in the
+        // (possibly new) timezone: the Schedule page rebuilds its "Right now"
+        // card from this after a timezone save, and without them the key was
+        // simply absent and the card fell back to the default playlist.
+        $station->load(['autodjSlots.playlist', 'defaultPlaylist']);
+
         return new StationResource($station);
     }
 

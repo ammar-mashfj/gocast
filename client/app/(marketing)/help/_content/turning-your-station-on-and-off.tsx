@@ -5,11 +5,11 @@ export default function Body() {
   return (
     <>
       <p>
-        Your station page has one panel that decides whether anybody can hear
-        anything. Everything that changes the answer &mdash; going live,
-        starting AutoDJ, turning the station off &mdash; lives in that one
-        place, so there is never a second button somewhere else that also means
-        &ldquo;begin&rdquo;.
+        The big card at the top of your station’s <strong>Overview</strong>{" "}
+        says whether anybody can hear anything, and holds the buttons that
+        change it: going live, starting AutoDJ, turning the station off. The
+        strip at the top of every dashboard page shows the same status, with a
+        shortcut to the next thing you’d want to do.
       </p>
 
       <h2>Two Questions, Not One</h2>
@@ -36,10 +36,10 @@ export default function Body() {
 
       <ZoomableImage
         src="/help/station-power.webp"
-        alt="The two cards on a station page: the power card reading On air with Take over live and Take off air, and beside it the now playing card showing the AutoDJ track and what is up next."
-        width={2088}
-        height={440}
-        className="md:w-[calc(100%+7rem)] md:-ml-14 md:max-w-none"
+        alt="The top card of a station&apos;s Overview while it is off air: the station&apos;s artwork and name, Copy player link, QR code &amp; embed and Open, then the Go live now and Start AutoDJ buttons, with Listening now and the station&apos;s totals beside it."
+        width={2480}
+        height={660}
+       
       />
 
       <h2>What Each Status Means</h2>
@@ -60,26 +60,56 @@ export default function Body() {
             <td>The server is coming up. A few seconds, normally.</td>
           </tr>
           <tr>
-            <td><strong>Live</strong></td>
-            <td>A person is broadcasting, from the studio or an encoder.</td>
-          </tr>
-          <tr>
-            <td><strong>On air</strong></td>
+            <td><strong>Going live</strong></td>
             <td>
-              The station is running with nobody live. On Pro, that is AutoDJ
-              playing your library. The line under Now playing says what from.
+              The station is on and waiting for you to start your show.
+              Listeners hear silence until you do.
             </td>
           </tr>
           <tr>
-            <td><strong>Checking&hellip;</strong> / <strong>Status unknown</strong></td>
+            <td><strong>Live</strong> / <strong>Live · Mic</strong></td>
             <td>
-              The dashboard hasn&rsquo;t heard back from the station yet. This
-              says nothing about what listeners hear; it clears on the next
-              answer.
+              A person is broadcasting, from the studio or an encoder. The
+              second reads while your mic is open from this browser.
             </td>
           </tr>
           <tr>
-            <td><strong>Not reaching listeners</strong></td>
+            <td><strong>Show ended</strong></td>
+            <td>
+              Your show from this browser has just finished and the dashboard
+              is checking what is on air now. Gone in a moment.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>On air · AutoDJ</strong></td>
+            <td>
+              The station is running with nobody live: AutoDJ (Pro) is playing
+              your music. The card says which playlist.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Silence</strong></td>
+            <td>
+              The station is running but playing silence &mdash; AutoDJ with
+              nothing to play. Add tracks to AutoDJ’s playlist, or go live.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Checking</strong></td>
+            <td>
+              The dashboard has just opened and hasn&rsquo;t heard from the
+              station yet. It says nothing about what listeners hear.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>No answer</strong></td>
+            <td>
+              The dashboard can&rsquo;t reach the station right now and keeps
+              trying. It clears on the next answer.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Not heard</strong></td>
             <td>
               The station is running and producing audio, but it is not getting
               out. Nobody can hear it. This one is ours to fix &mdash; if it
@@ -92,21 +122,25 @@ export default function Body() {
       <h2>The Buttons</h2>
       <ul>
         <li>
-          <strong>Go live</strong>{" "}opens the studio so you can broadcast from
-          your browser. If AutoDJ is playing, it pauses until you finish.
+          <strong>Go live now</strong>{" "}opens the studio, where you check your
+          mic and running order before you go on air from your browser. If
+          AutoDJ is playing, it pauses until you finish.
         </li>
         <li>
           <strong>Start AutoDJ</strong>{" "}(Pro) switches the station on and
           plays your music with nobody live.
         </li>
         <li>
-          <strong>Turn station off</strong>{" "}stops everything. Anyone listening
-          is cut off, and the player page shows the station as off air.
+          <strong>Turn station off</strong>{" "}&mdash; it reads{" "}
+          <strong>Stop AutoDJ</strong>{" "}while AutoDJ is playing, and asks first
+          &mdash; stops everything. Anyone listening is cut off, and the player
+          page shows the station as off air.
         </li>
       </ul>
       <p>
-        If you are live from another browser or computer, the dashboard shows{" "}
-        <strong>Live from another browser</strong>{" "}and no stop button. End the
+        If you are live from another browser or computer, the card says{" "}
+        <strong>You’re live from another browser</strong>{" "}and has no stop
+        button. End the
         show from the studio in that browser: stopping it from here would only
         make that studio reconnect and start the station again.
       </p>

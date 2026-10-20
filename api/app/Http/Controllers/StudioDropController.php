@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Station;
 use App\Models\StationEvent;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,8 @@ use Illuminate\Support\Facades\Cache;
  * the studio writes a report at the drop, keeps it on the device, and sends it
  * here once it knows how the reconnect ended. Reports can therefore arrive in
  * batches, late, and more than once (a page-close send can't be confirmed);
- * the per-report `id` is what makes a repeat harmless.
+ * the per-report `id` is what makes a repeat harmless. The one repeat that
+ * changes the row is a definite outcome arriving after a provisional one.
  *
  * Admin monitoring only, like every StationEvent. Nothing branches on these
  * rows, and a report that fails validation is simply not recorded.
@@ -28,6 +30,14 @@ class StudioDropController extends Controller
 
     /** One report per id is kept for this long; resends after it are rare. */
     private const DEDUPE_SECONDS = 86400 * 2;
+
+    /**
+     * Outcomes sent before the reconnect has finished: a flush of a report
+     * still in progress, or the page-close send. A phone that fires pagehide
+     * and then comes back from the back/forward cache sends the same id again
+     * with the real outcome, and that one should win.
+     */
+    private const PROVISIONAL_OUTCOMES = ['unknown', 'page_closed'];
 
     /**
      * Property whitelist, in display order. Anything not listed here is
@@ -41,6 +51,7 @@ class StudioDropController extends Controller
         'visibility', 'hidden_for_ms', 'shown_ago_ms', 'resumed_ago_ms', 'frozen',
         'online', 'offline_ago_ms', 'net_type', 'net_effective', 'net_downlink', 'net_rtt', 'save_data',
         'buffered_bytes', 'peak_buffered_bytes', 'wake_lock', 'standalone',
+        'bitrate', 'uplink_kbps',
         'audio_state', 'frame_age_ms', 'engine_rebuilds',
     ];
 
@@ -76,6 +87,8 @@ class StudioDropController extends Controller
             'drops.*.peak_buffered_bytes' => ['nullable', 'integer', 'min:0'],
             'drops.*.wake_lock' => ['nullable', 'boolean'],
             'drops.*.standalone' => ['nullable', 'boolean'],
+            'drops.*.bitrate' => ['nullable', 'integer', 'min:0', 'max:320'],
+            'drops.*.uplink_kbps' => ['nullable', 'integer', 'min:0'],
             'drops.*.audio_state' => ['nullable', 'string', 'max:16'],
             'drops.*.frame_age_ms' => ['nullable', 'integer', 'min:0'],
             'drops.*.engine_rebuilds' => ['nullable', 'integer', 'min:0', 'max:100'],
@@ -84,10 +97,8 @@ class StudioDropController extends Controller
         $recorded = 0;
 
         foreach ($validated['drops'] as $drop) {
-            // add() is atomic: only the first delivery of an id gets through.
-            if (! Cache::add('studio-drop:'.$station->getKey().':'.$drop['id'], 1, self::DEDUPE_SECONDS)) {
-                continue;
-            }
+            $key = 'studio-drop:'.$station->getKey().':'.$drop['id'];
+            $provisional = in_array($drop['outcome'], self::PROVISIONAL_OUTCOMES, true);
 
             $properties = [];
             foreach (self::FIELDS as $field) {
@@ -96,16 +107,72 @@ class StudioDropController extends Controller
                 }
             }
 
-            StationEvent::record(
+            // One delivery of an id at a time. A page-close send and the
+            // resend after a back/forward-cache restore can land together, and
+            // the second must see the first's row, not a half-written entry.
+            try {
+                $recorded += Cache::lock($key.':lock', 10)->block(5, fn () => $this->apply($key, $provisional, $properties, $station, $request));
+            } catch (LockTimeoutException) {
+                // Another delivery of this id held the lock past the wait
+                // and is recording it; this copy is the repeat.
+            }
+        }
+
+        return response()->json(['recorded' => $recorded]);
+    }
+
+    /**
+     * Records the first delivery of a report, or corrects its row when a
+     * definite outcome follows a provisional one. Returns how many rows it
+     * wrote (0 or 1). Runs under the id's lock.
+     *
+     * A non-array value is the `1` an earlier release stored for an id it
+     * recorded: seen, with nothing kept to correct it by.
+     *
+     * @param  array<string, mixed>  $properties
+     */
+    private function apply(string $key, bool $provisional, array $properties, Station $station, Request $request): int
+    {
+        $seen = Cache::get($key);
+
+        if ($seen !== null && ! is_array($seen)) {
+            return 0;
+        }
+
+        if ($seen === null) {
+            $event = StationEvent::record(
                 $station,
                 StationEvent::TYPE_STUDIO_DROP,
                 StationEvent::SOURCE_OWNER,
                 $properties,
                 $request->user(),
             );
-            $recorded++;
+            // record() swallows its own failures and returns null. The id is
+            // only remembered once its row exists, so the next delivery of it
+            // (the bfcache resend after a page-close send) records it instead
+            // of being deduped against nothing.
+            if (! $event) {
+                return 0;
+            }
+            // Remember which row to correct if the real outcome follows.
+            Cache::put($key, ['event' => $event->getKey(), 'provisional' => $provisional], self::DEDUPE_SECONDS);
+
+            return 1;
         }
 
-        return response()->json(['recorded' => $recorded]);
+        // A repeat. Only a definite outcome over a provisional one is news;
+        // anything else is the resend this dedupe exists for.
+        if ($provisional || ! $seen['provisional']) {
+            return 0;
+        }
+
+        Cache::put($key, ['event' => $seen['event'], 'provisional' => false], self::DEDUPE_SECONDS);
+        $event = StationEvent::query()->whereKey($seen['event'])->where('station_id', $station->getKey())->first();
+        if (! $event) {
+            return 0;
+        }
+        $event->update(['properties' => $properties]);
+
+        return 1;
     }
 }

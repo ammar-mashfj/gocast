@@ -3,8 +3,9 @@
 import { useEffect } from "react"
 import Link from "next/link"
 import { IconArrowRight, IconRefresh } from "@tabler/icons-react"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds/Button"
 import { useBroadcast } from "@/contexts/BroadcastContext"
+import { reloadOnceForStaleBuild } from "@/lib/staleBuild"
 
 /**
  * A dashboard page failed to render.
@@ -31,14 +32,17 @@ export default function DashboardError({
 
   useEffect(() => {
     console.error("[dashboard] page error:", error)
-  }, [error])
+    // A tab from before a deploy (lib/staleBuild) reloads itself, but never
+    // mid-show: the reload would end the broadcast. Live hosts get Try again.
+    if (!live) reloadOnceForStaleBuild(error)
+  }, [error, live])
 
   return (
     <div className="flex max-w-2xl flex-col gap-6 py-4">
       <div className="flex flex-col gap-3">
         {/* No "Page error" pill above this: it was a kicker (DESIGN.md bans
             them), and the heading already says the same thing. */}
-        <h1 className="font-display text-2xl font-semibold tracking-tight">This page didn&apos;t load</h1>
+        <h1 className="font-display text-page">This page didn’t load</h1>
         <p className="max-w-[60ch] text-sm leading-relaxed text-muted-foreground">
           {/* Keyed spans, not fragments: page translation moves bare text
               nodes, and swapping them in place throws (instrumentation-client). */}
@@ -56,11 +60,11 @@ export default function DashboardError({
       <div className="flex flex-wrap gap-2">
         {/* unstable_retry, not reset: reset() re-renders without re-fetching,
             so a failed server fetch just failed again (Next 16 error.md). */}
-        <Button className="h-11" onClick={() => unstable_retry()}>
+        <Button size="lg" onClick={() => unstable_retry()}>
           <IconRefresh data-icon="inline-start" />
           Try again
         </Button>
-        <Button variant="outline" className="h-11" asChild>
+        <Button variant="ghost" size="lg" asChild>
           {/* A Link, never an anchor: a full page load would tear down the
               broadcast this page just promised is still running. */}
           {/* The broadcasting station, not the current one: they differ when
@@ -72,7 +76,7 @@ export default function DashboardError({
         </Button>
       </div>
 
-      <details className="max-w-[60ch] border-t border-white/[0.07] pt-4 text-xs text-muted-foreground">
+      <details className="max-w-[60ch] rounded-button bg-card px-4 py-3 text-xs text-muted-foreground">
         <summary className="cursor-pointer hover:text-foreground">Details for support</summary>
         <p className="mt-2 font-mono break-words">
           {error.message || "No message"}
