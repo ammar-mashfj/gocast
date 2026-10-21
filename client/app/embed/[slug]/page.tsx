@@ -30,10 +30,10 @@ async function getEmbeddableStation(slug: string): Promise<Station | null> {
       const res = await fetch(`${env.apiUrl}/public/stations/${slug}/embed`, {
         headers: publicApiHeaders(),
         signal: isDev ? AbortSignal.timeout(3000) : undefined,
-        // A short window rather than the station page's 60s: a downgrade
-        // is supposed to take embeds down promptly, and this payload is one
-        // row per embed load, not per listener.
-        ...(isDev ? { cache: "no-store" as const } : { next: { revalidate: 30 } }),
+        // Uncached: Next's fetch cache only stores a 200 and keeps a stale
+        // entry when the refetch fails, so a downgraded or deleted station's
+        // embed stayed up forever instead of coming down. See getStation.ts.
+        cache: "no-store",
       })
       if (!res.ok) return null
       const json = await res.json()
