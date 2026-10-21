@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { getMyStation } from "@/lib/station-server"
+import { redirectIfSessionExpired } from "@/lib/api-server"
 
 /**
  * Slug-free links into the signed-in user's own station.
@@ -46,7 +47,11 @@ export default async function MyStationPage({
   params: Promise<{ path?: string[] }>
 }) {
   const { path } = await params
-  const station = await getMyStation()
+  const station = await getMyStation().catch((err) => {
+    // A stale cookie goes to the login page, not the error page.
+    redirectIfSessionExpired(err)
+    throw err
+  })
 
   // No station yet. /dashboard is the onboarding page in that case, so this
   // sends them somewhere that makes sense rather than to a slug-shaped hole —

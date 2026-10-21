@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { getMyStation } from "@/lib/station-server"
+import { redirectIfSessionExpired } from "@/lib/api-server"
 import { CreateStation } from "@/components/dashboard/station-form/CreateStation"
 
 /**
@@ -12,7 +13,11 @@ import { CreateStation } from "@/components/dashboard/station-form/CreateStation
  * station URL, because this is the one route that can resolve the slug.
  */
 export default async function DashboardPage() {
-  const station = await getMyStation()
+  const station = await getMyStation().catch((err) => {
+    // A stale cookie goes to the login page, not the error page.
+    redirectIfSessionExpired(err)
+    throw err
+  })
   if (station) redirect(`/dashboard/stations/${station.slug}`)
 
   return <CreateStation />

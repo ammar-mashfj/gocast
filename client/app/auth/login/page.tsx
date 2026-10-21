@@ -9,7 +9,7 @@ import { PasswordField, TextField } from "@/components/ds/Field"
 import { AuthCard, AuthFooter, AuthLink, OrRule } from "@/components/auth/AuthCard"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
-import { saveAuth, getUser } from "@/actions/auth"
+import { saveAuth, getUser, clearAuth } from "@/actions/auth"
 import { signInWithGoogle } from "@/lib/google-auth"
 import { VerifyEmailDialog } from "@/components/dashboard/account/VerifyEmailDialog"
 
@@ -39,7 +39,19 @@ function LoginForm() {
   // unverified signup days ago), surface the verify modal immediately instead
   // of making them re-enter credentials. Verified sessions are sent straight
   // to the dashboard.
+  //
+  // Except on `?expired=1`: the API has already refused these cookies, and
+  // bouncing to the dashboard sends the visitor straight back here — a loop
+  // that never lets them sign in. The browser-side 401 (lib/axios) clears the
+  // `user` cookie before coming here, but a server render's 401
+  // (redirectIfSessionExpired) cannot, so it is cleared here instead. The
+  // HttpOnly token is out of reach; the next sign-in overwrites it.
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("expired") === "1") {
+      clearAuth()
+      return
+    }
+
     const existingUser = getUser()
     if (!existingUser) return
 
