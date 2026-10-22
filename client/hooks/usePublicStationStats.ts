@@ -80,9 +80,17 @@ async function read(slug: string, feed: Feed): Promise<void> {
     const response = await fetch(`${env.apiUrl}/public/stations/${slug}/listeners`, {
       headers: { Accept: "application/json" },
     })
-    if (!response.ok) return
+    // 404 is not a hiccup: the station was deleted (or renamed) under an open
+    // page. Say it is off air, or a player keeps trusting the `is_on_air` it
+    // was rendered with and plays whatever segments are left on disk.
+    const stats: PublicStationStats | null =
+      response.status === 404
+        ? { count: null, is_live: false, is_on_air: false, now_playing: { title: null, artist: null } }
+        : response.ok
+          ? normalise(await response.json())
+          : null
+    if (!stats) return
 
-    const stats = normalise(await response.json())
     feed.latest = stats
     feed.readAt = Date.now()
 

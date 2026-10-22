@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { getMyStation } from "@/lib/station-server"
+import { redirectIfSessionExpired } from "@/lib/api-server"
 
 /**
  * The AutoDJ library is owned per-station, and a user has one station — so
@@ -10,7 +11,11 @@ import { getMyStation } from "@/lib/station-server"
  * fixed nav item and cannot know the slug.
  */
 export default async function LibraryIndexPage() {
-  const station = await getMyStation()
+  const station = await getMyStation().catch((err) => {
+    // A stale cookie goes to the login page, not the error page.
+    redirectIfSessionExpired(err)
+    throw err
+  })
 
   // No station yet — /dashboard is the onboarding page, and the library is
   // meaningless until it exists.

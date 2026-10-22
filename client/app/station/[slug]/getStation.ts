@@ -16,6 +16,12 @@ import { publicApiHeaders } from "@/lib/public-api"
  * how a page gets dropped from the index. A 5xx gets retried.
  *
  * `cache` so generateMetadata and the page share one request per render.
+ *
+ * Never Next's fetch cache (`revalidate`). It only stores a 200, and a stale
+ * entry whose background refetch answers 404 is simply kept — so a station
+ * deleted after anyone opened its page stayed "live" there indefinitely,
+ * playing the last segments still on disk. The page is dynamic anyway (it
+ * reads cookies); this is one API call per view.
  */
 export const getStation = cache(async (slug: string): Promise<Station | null> => {
   // Dev: undici holds keep-alive sockets longer than FrankenPHP keeps them
@@ -31,7 +37,7 @@ export const getStation = cache(async (slug: string): Promise<Station | null> =>
       res = await fetch(`${env.apiUrl}/public/stations/${encodeURIComponent(slug)}`, {
         headers: publicApiHeaders(),
         signal: isDev ? AbortSignal.timeout(3000) : undefined,
-        ...(isDev ? { cache: "no-store" as const } : { next: { revalidate: 60 } }),
+        cache: "no-store",
       })
     } catch (err) {
       // Earlier attempts retry the stale-socket case; the last one gives up

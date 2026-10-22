@@ -45,12 +45,14 @@
   .page { --btn: 68px; --ppad: 20px; --wave: 40px; }
 }
 
-/* Narrow + tall: stacked, with the artwork taking the spare height. The
+/* Narrow + tall: stacked, with the artwork taking the spare height. 680px
+   and not more: a phone with Chrome's address and gesture bars showing has
+   about 700–750px, and the thumbnail layout on those looked like a tablet's. The
    artwork's size is not computed here: the page is pinned to the screen
    height and the artwork's box takes whatever the details and the player
    leave over (see .artBox), so a two-line name or description shrinks the
    artwork instead of pushing the page into a scroll. */
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .page {
     --art: min(100cqw, 100cqh);
     --art-radius: 28px;
@@ -58,14 +60,14 @@
   }
 }
 
-@media (min-height: 740px) and (min-width: 400px) {
+@media (min-height: 680px) and (min-width: 400px) {
   .page { --name: 40px; }
 }
 
 /* A tablet held upright is still stacked, but a full-width column would put
    a small square over a long, wide card. A narrower column lets the artwork
    fill it edge to edge, the same width as the player below. */
-@media (min-height: 740px) and (min-width: 600px) {
+@media (min-height: 680px) and (min-width: 600px) {
   .page { --name: 52px; }
   .page .column { max-width: 720px; }
 }
@@ -114,7 +116,7 @@
   min-height: 0;
 }
 
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .hero { flex-direction: column; }
 }
 
@@ -126,7 +128,7 @@
    itself from --art. */
 .artBox { display: contents; }
 
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .page { height: 100dvh; }
   .main { min-height: 0; }
   .hero { flex: 1 1 auto; }
@@ -137,8 +139,10 @@
     justify-content: center;
     flex: 1 1 0;
     /* Below this the page scrolls rather than shrinking the artwork to a
-       stamp. */
-    min-height: 160px;
+       stamp. Everything else stacked takes up to ~544px on a phone (two-line
+       name and description), so at the 680px switch the artwork still gets
+       this much and the page doesn't scroll. */
+    min-height: 136px;
     container-type: size;
   }
 }
@@ -159,7 +163,7 @@
 }
 
 /* Stacked on a phone, the artwork sits centred above the left-aligned text. */
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .art { align-self: center; }
 }
 
@@ -169,7 +173,7 @@
 
 /* Stacked on a phone, the whole block is centred on one axis under the
    artwork. Beside a thumbnail or the wide artwork it stays left-aligned. */
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .info { align-items: center; text-align: center; }
   .centreRow { justify-content: safe center; }
 }
@@ -185,7 +189,7 @@
    big enough to carry it. */
 .callsign { display: none; }
 
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .callsign { display: block; }
 }
 
@@ -246,7 +250,7 @@
   .desc { display: -webkit-box; }
 }
 
-@media (min-height: 740px) {
+@media (min-height: 680px) {
   .desc { -webkit-line-clamp: 2; }
 }
 

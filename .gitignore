@@ -34,3 +34,4 @@ infra/native/env/*.env
 /*.liq
 
 suby
+screenshots/
