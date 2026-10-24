@@ -654,15 +654,7 @@ class LiquidsoapSupervisor
         ];
 
         foreach ($commands as $assignment) {
-            try {
-                $this->telnet($station, 'var.set '.$assignment);
-            } catch (\Throwable $e) {
-                Log::info('Watermark settings not applied live', [
-                    'station' => $station->slug,
-                    'command' => $assignment,
-                    'error' => $e->getMessage(),
-                ]);
-
+            if (! $this->setInteractiveVar($station, $assignment, 'Watermark settings not applied live')) {
                 return false;
             }
         }
@@ -674,11 +666,13 @@ class LiquidsoapSupervisor
      * Push the owner's crossfade switch into a running container, live. It
      * takes effect at the next song change; nobody is disconnected.
      *
-     * Best-effort like the watermark: the value is also rendered into the
-     * script as its starting state, so a container that is down or
-     * unreachable is right again on its next boot. A script rendered with
-     * crossfade off for the install has no such variable and only hard cuts,
-     * so there is nothing to push.
+     * Best-effort like the watermark. The script on disk is rewritten too,
+     * because its starting value is the station's saved one: without that,
+     * Docker restarting this same container after a crash would bring the
+     * old setting back. Liquidsoap only reads the file at start, so the
+     * rewrite restarts nothing. A script rendered with crossfade off for the
+     * install has no such variable and only hard cuts, so there is nothing
+     * to push.
      */
     public function applyCrossfadeSetting(Station $station): bool
     {
@@ -686,21 +680,40 @@ class LiquidsoapSupervisor
             return true;
         }
 
+        $this->renderLiqFile($station);
+
         $assignment = self::VAR_CROSSFADE.' = '.(($station->crossfade_enabled ?? true) ? 'true' : 'false');
 
-        try {
-            $this->telnet($station, 'var.set '.$assignment);
-        } catch (\Throwable $e) {
-            Log::info('Crossfade setting not applied live', [
-                'station' => $station->slug,
-                'command' => $assignment,
-                'error' => $e->getMessage(),
-            ]);
+        return $this->setInteractiveVar($station, $assignment, 'Crossfade setting not applied live');
+    }
 
-            return false;
+    /**
+     * `var.set` over telnet. Liquidsoap answers an unknown variable (a
+     * container started from an older script) or a bad value with a reply,
+     * not a dropped connection, so the reply is read as well: probed on the
+     * image, success is "Variable x set." and failure is "Syntax error or
+     * variable not found."
+     */
+    private function setInteractiveVar(Station $station, string $assignment, string $failureMessage): bool
+    {
+        try {
+            $reply = $this->telnet($station, 'var.set '.$assignment);
+            $error = str_contains($reply, 'variable not found') ? trim($reply) : null;
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
         }
 
-        return true;
+        if ($error === null) {
+            return true;
+        }
+
+        Log::info($failureMessage, [
+            'station' => $station->slug,
+            'command' => $assignment,
+            'error' => $error,
+        ]);
+
+        return false;
     }
 
     /**

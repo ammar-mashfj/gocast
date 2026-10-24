@@ -512,7 +512,7 @@ def autodj_next() =
         ("Accept", "text/plain"),
         ("X-Internal-Key", {!! json_encode($internalApiKey) !!}),
         ("X-Gocast-Remaining", string.float(decimal_places=3, autodj_remaining_now())),
-        ("X-Gocast-Lead", {!! json_encode(number_format($autodjLeadSeconds, 1, '.', '')) !!})
+        ("X-Gocast-Lead", {!! json_encode(number_format($autodjLeadSeconds, 3, '.', '')) !!})
       ],
       timeout=5.
     )
@@ -689,8 +689,8 @@ autodj_leveled = autodj_rotation
 # you will hear abrupt changes in the volume." These were one value for both
 # until now, i.e. permanently in exactly that broken case. Laravel clamps the
 # fade below the window before rendering.
-autodj_cross_duration = {{ number_format($crossfadeDuration, 1, '.', '') }}
-autodj_cross_fade = {{ number_format($crossfadeFade, 1, '.', '') }}
+autodj_cross_duration = {{ number_format($crossfadeDuration, 3, '.', '') }}
+autodj_cross_fade = {{ number_format($crossfadeFade, 3, '.', '') }}
 autodj_cross_high = {{ number_format($crossfadeHigh, 1, '.', '') }}
 autodj_cross_medium = {{ number_format($crossfadeMedium, 1, '.', '') }}
 autodj_cross_margin = {{ number_format($crossfadeMargin, 1, '.', '') }}
@@ -879,18 +879,28 @@ output_source = rms(duration={{ number_format($rmsWindow, 1, '.', '') }}, mixed)
 # remaining() frozen, nothing logged (docs/CROSSFADE-INVESTIGATION.md). This
 # callback runs on the clock thread once per frame (~25/s, ~0.1% CPU measured)
 # and the handlers read these refs instead. Values are at most a frame old.
+#
+# Read through st_alive(), never st_ready() alone: if the clock stalls, this
+# callback stops and st_ready keeps its last value (true) forever, so a wedged
+# container would pass its healthcheck. st_frame_at is when it last ran.
 st_ready = ref(false)
+st_frame_at = ref(time())
 st_live = ref(false)
 st_autodj = ref(false)
 st_elapsed = ref(0.)
 st_remaining = ref(-1.)
 output_source.on_frame(synchronous=true, before=false, fun () -> begin
   st_ready := output_source.is_ready()
+  st_frame_at := time()
   st_live := live.is_ready()
   st_autodj := autodj_mix.is_ready()
   st_elapsed := output_source.elapsed()
   st_remaining := output_source.remaining()
 end)
+
+def st_alive() =
+  st_ready() and time() - st_frame_at() < 5.
+end
 
 # === Listener-facing metadata ===
 #
@@ -1111,7 +1121,7 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
     response.json(
       {
         slug = {!! json_encode($station->slug) !!},
-        ready = st_ready(),
+        ready = st_alive(),
         # Whether the audio graph produces frames is NOT the same question as
         # whether anyone can hear it: if Icecast rejects the source (bad
         # password, Icecast down) the graph is perfectly ready and the mount
@@ -1169,8 +1179,9 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
 # that needs a secret is a healthcheck that breaks when the secret rotates.
 harbor.http.register(port={{ $harborPort }}, method="GET", "/healthz", fun (_, response) ->
   begin
-    if not st_ready() then response.status_code(503) end
-    response.json({ ready = st_ready(), icecast = ice_up(), source = current_source() })
+    ready = st_alive()
+    if not ready then response.status_code(503) end
+    response.json({ ready = ready, icecast = ice_up(), source = current_source() })
   end
 )
 

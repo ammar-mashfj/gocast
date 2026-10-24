@@ -290,8 +290,8 @@ it('decides transitions by loudness instead of always overlapping', function () 
         ->and($script)->toContain('autodj_cross_margin = 4.0')
         // The fade must be strictly shorter than the cross window, or the
         // envelopes never complete (book §6.4). These were one value once.
-        ->and($script)->toContain('autodj_cross_duration = 5.0')
-        ->and($script)->toContain('autodj_cross_fade = 3.0')
+        ->and($script)->toContain('autodj_cross_duration = 5.000')
+        ->and($script)->toContain('autodj_cross_fade = 3.000')
         ->and($script)->toContain('duration=autodj_cross_fade, s)')
         ->and($script)->not->toContain('fade.out(type="sin", duration=autodj_cross_duration');
 });
@@ -326,7 +326,7 @@ it('emits liquidsoap-valid floats for the crossfade thresholds', function () {
         'crossfadeHigh' => -12.5,
     ]);
 
-    expect($script)->toContain('autodj_cross_duration = 3.0')
+    expect($script)->toContain('autodj_cross_duration = 3.000')
         ->and($script)->toContain('autodj_cross_high = -12.5')
         ->and($script)->not->toContain('3..')
         ->and($script)->not->toContain('-12.5.');
@@ -433,6 +433,17 @@ it('answers healthz with a status code, because docker greps the status line', f
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('response.status_code(503)');
+});
+
+it('fails healthz when the clock stops, not just when the graph is not ready', function () {
+    // st_ready is copied on the clock thread, so a stalled clock leaves it
+    // true forever. Health must also require a recent frame.
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('st_frame_at := time()')
+        ->and($script)->toContain('st_ready() and time() - st_frame_at() < 5.')
+        ->and($script)->toContain('ready = st_alive()')
+        ->and($script)->not->toMatch('/if not st_ready\(\) then/');
 });
 
 it('keeps the icecast connection out of the health verdict', function () {
@@ -873,9 +884,18 @@ it('keeps a fractional harbor timeout intact', function () {
 });
 
 it('tells laravel the lead it was rendered with', function () {
-    expect(renderStationScript($this->station))->toContain('("X-Gocast-Lead", "5.0")')
+    expect(renderStationScript($this->station))->toContain('("X-Gocast-Lead", "5.000")')
         ->and(renderStationScript($this->station, ['crossfadeEnabled' => false, 'autodjLeadSeconds' => 0.0]))
-        ->toContain('("X-Gocast-Lead", "0.0")');
+        ->toContain('("X-Gocast-Lead", "0.000")');
+});
+
+it('renders the lead at the precision the cross window runs at', function () {
+    // The scheduler falls back to the unrounded config value for containers
+    // without the header; both must agree with the window cross() really uses.
+    $script = renderStationScript($this->station, ['crossfadeDuration' => 2.25, 'autodjLeadSeconds' => 2.25]);
+
+    expect($script)->toContain('autodj_cross_duration = 2.250')
+        ->and($script)->toContain('("X-Gocast-Lead", "2.250")');
 });
 
 it('makes the owner crossfade switch a live flag inside the transition', function () {
