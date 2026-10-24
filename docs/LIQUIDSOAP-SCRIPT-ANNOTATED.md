@@ -115,8 +115,11 @@ install that watermarks free ones.
 **Crossfade is off by default** (`crossfade_enabled` defaults to `false`), and
 the 60-line comment at 645–689 explains why: on Liquidsoap 2.4.0 every form of
 `cross()` wedged AutoDJ at a track boundary, emitting one buffered frame forever
-with nothing logged. Fixed upstream in 2.4.3 (savonet#4851) and the image is
-pinned to 2.4.5, but the flag stayed as the rollback.
+with nothing logged. That one was savonet#4851, fixed in 2.4.3, but it kept
+freezing on 2.4.5 and 2.4.6 because the script called `remaining()`/`is_ready()`
+on post-`cross()` sources from the HTTP thread. The image is now on 2.4.6 and
+those values are cached on the clock thread (`st_*`); see
+`docs/CROSSFADE-INVESTIGATION.md`. The flag stays as the rollback.
 
 ---
 

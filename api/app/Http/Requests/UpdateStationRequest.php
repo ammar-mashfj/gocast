@@ -61,6 +61,8 @@ class UpdateStationRequest extends FormRequest
             'social_links.*.label' => ['nullable', 'string', 'max:30'],
             'theme_config' => ['nullable', 'array'],
             'jingles_enabled' => ['sometimes', 'boolean'],
+            // Applied live, from the next song change (StationObserver).
+            'crossfade_enabled' => ['sometimes', 'boolean'],
             'jingle_mode' => ['sometimes', Rule::in(Station::JINGLE_MODES)],
             // 1 minute floor: below that the delay operator stops being a
             // spacing rule and starts being "a jingle between every track",

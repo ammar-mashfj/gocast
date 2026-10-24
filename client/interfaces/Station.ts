@@ -195,6 +195,10 @@ export interface Station {
   encoder?: StationEncoder
   /** Play station IDs between AutoDJ tracks. Off means the jingle list is stored but silent. */
   jingles_enabled: boolean
+  /** Blend one AutoDJ song into the next. Off is a clean cut. Applied live, no restart. */
+  crossfade_enabled: boolean
+  /** False while crossfade is off for the whole install: the switch would do nothing. */
+  crossfade_available: boolean
   /**
    * How jingles are spaced. "interval" is predictable in wall-clock terms
    * (legal IDs, sponsor reads) but drifts on stations with long tracks;

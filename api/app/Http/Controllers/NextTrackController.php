@@ -32,6 +32,9 @@ use Illuminate\Http\Response;
  * seconds. The answer starts when that track ends, which is what lets the
  * scheduler plan on-time starts and jingles. A container rendered before the
  * header existed does not send it and is served the way it always was.
+ *
+ * X-Gocast-Lead is the crossfade window that container was rendered with
+ * (0 without cross()). Without it the install's current setting is assumed.
  */
 class NextTrackController extends Controller
 {
@@ -58,7 +61,13 @@ class NextTrackController extends Controller
 
         $remaining = $request->header('X-Gocast-Remaining');
 
-        $uri = $scheduler->next($station, is_numeric($remaining) ? (float) $remaining : null);
+        $lead = $request->header('X-Gocast-Lead');
+
+        $uri = $scheduler->next(
+            $station,
+            is_numeric($remaining) ? (float) $remaining : null,
+            is_numeric($lead) ? (float) $lead : null,
+        );
 
         if ($uri === null) {
             return response('', 204);

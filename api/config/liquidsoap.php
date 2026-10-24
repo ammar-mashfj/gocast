@@ -329,30 +329,23 @@ return [
     |   margin — dB difference beyond which two tracks are "far apart"
     */
 
-    // Still defaults to FALSE, but the reason is now historical rather than
-    // structural — read this before deciding.
+    // Defaults to FALSE until it has run a full day on staging. Read
+    // docs/CROSSFADE-INVESTIGATION.md before changing it.
     //
-    // On Liquidsoap 2.4.0 cross() never survived a transition on this graph.
-    // Three formulations were tried — the crossfade() wrapper, a hand-written
-    // cross() transition, and the cross.smart port with duration annotated —
-    // and each wedged AutoDJ, the last on its very first track boundary. Output
-    // degenerated to a single buffered frame looping forever: a static harmonic
-    // spectrum, unchanging for 20s, heard as a stuck-PC buzz. elapsed() climbed
-    // past the track length, remaining() froze, decoder End_of_file stopped
-    // firing, and nothing at all was logged.
+    // History: on 2.4.0 cross() wedged AutoDJ on every track boundary
+    // (savonet#4851, fixed in 2.4.3). It kept wedging on 2.4.5 and 2.4.6:
+    // a single buffered frame looping forever (a stuck-PC buzz), elapsed()
+    // climbing past the track length, remaining() frozen, nothing logged.
+    // That later freeze was the station script: /status, /healthz and
+    // current_source() called remaining()/is_ready() on post-cross() sources
+    // from the harbor HTTP thread, racing the clock thread. The script now
+    // copies those values on the clock thread (st_* refs), and with that on
+    // 2.4.6, crossfade got through ~860 transitions in 11 scenarios with no
+    // crash and no freeze; the same image without the copies froze in 92s.
     //
-    // That was an upstream bug, not our config: savonet#4851 attached the
-    // crossfade's `transition` and `pre_buffer` sources to the passive child
-    // clock instead of the top-level one, so nothing animated them. Fixed in
-    // Liquidsoap 2.4.3; the image is now pinned to 2.4.5, which additionally
-    // fixes savonet#5194 (cross/crossfade crash when source.skip is called
-    // from a harbor.http handler — this graph serves /status over harbor.http).
-    //
-    // So this is expected to work now. It stays off by default only because it
-    // has not yet been observed working here. To adopt it: confirm the station
-    // is healthy on 2.4.5 with this false, then set it true and relaunch, and
-    // watch for End_of_file every track length and elapsed+remaining summing to
-    // the track duration. Prefer a playlist with more than one track.
+    // To adopt: set this true and let stations:reconcile recreate the
+    // containers. Watch /status for `remaining` stuck while `elapsed` climbs,
+    // and for no further next-track requests while AutoDJ is on air.
     'crossfade_enabled' => (bool) env('LIQUIDSOAP_CROSSFADE_ENABLED', false),
     // Two DIFFERENT things, which must not share a value:
     //

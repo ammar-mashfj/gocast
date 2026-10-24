@@ -487,6 +487,12 @@ live = live_raw
 # script leaves jingles to Laravel; a container on an older script, without
 # the header, is served music only.
 #
+# X-Gocast-Lead is how far ahead of listeners this script reads the next
+# track: the crossfade window whenever cross() is in the graph (even with the
+# owner's switch off, since cross() still buffers), 0 without it. Rendered in
+# rather than looked up: the install switch can change while this container
+# keeps running the old script until its show ends.
+#
 # Read through a ref because the source it measures is defined below, from
 # this very function. 0 before anything has played: the answer starts now.
 # Measured on 2.4.5: remaining() honours liq_cue_out, and the start time it
@@ -505,7 +511,8 @@ def autodj_next() =
       headers=[
         ("Accept", "text/plain"),
         ("X-Internal-Key", {!! json_encode($internalApiKey) !!}),
-        ("X-Gocast-Remaining", string.float(decimal_places=3, autodj_remaining_now()))
+        ("X-Gocast-Remaining", string.float(decimal_places=3, autodj_remaining_now())),
+        ("X-Gocast-Lead", {!! json_encode(number_format($autodjLeadSeconds, 1, '.', '')) !!})
       ],
       timeout=5.
     )
@@ -647,12 +654,18 @@ autodj_leveled = autodj_rotation
 # at a constant, decoder End_of_file stopped firing, and NOTHING was logged
 # while CPU and memory stayed healthy.
 #
-# Root cause was upstream, not this script: savonet#4851 attached the
-# crossfade's `transition` and `pre_buffer` sources to the passive child clock
-# instead of the top-level one, so nothing animated them. Fixed in Liquidsoap
-# 2.4.3. The image is pinned to 2.4.5, which also carries savonet#5194 — a
-# cross/crossfade crash when source.skip runs from a harbor.http handler, and
-# this script serves /status and /healthz over harbor.http.
+# The 2.4.0 wedge was savonet#4851 (fixed in 2.4.3), but 2.4.5 and 2.4.6 still
+# wedged here, and that one was THIS SCRIPT (docs/CROSSFADE-INVESTIGATION.md):
+# /status, /healthz and current_source() called remaining() and is_ready() on
+# sources at or after cross() from the harbor HTTP thread, racing the clock
+# thread that produces the audio. remaining() off-thread froze 4 of 4 runs,
+# is_ready() 3 of 3. Those values are now copied on the clock thread (see
+# `st_*` under output_source) and the handlers read the copies.
+#
+# THE RULE: nothing outside the clock thread — harbor.http handlers,
+# thread.run, telnet commands — may call a method on a source at or after
+# cross(). That is autodj_mix, live, mixed, output_source, listener_source.
+# Read an `st_*` ref instead, or add one.
 #
 # Detection, since none of it reaches the log: End_of_file should appear once
 # per track, and elapsed()+remaining() from /status should equal the track
@@ -681,6 +694,16 @@ autodj_cross_fade = {{ number_format($crossfadeFade, 1, '.', '') }}
 autodj_cross_high = {{ number_format($crossfadeHigh, 1, '.', '') }}
 autodj_cross_medium = {{ number_format($crossfadeMedium, 1, '.', '') }}
 autodj_cross_margin = {{ number_format($crossfadeMargin, 1, '.', '') }}
+
+# The owner's crossfade switch. cross() is in the graph whenever crossfade is
+# on for the install, because operators cannot be added or removed from a
+# running script; this flag picks the hard-cut branch below instead, at each
+# song change. Interactive so the dashboard can flip it over telnet without a
+# restart (LiquidsoapSupervisor::applyCrossfadeSetting), the same as the
+# watermark. Rendered with the station's saved value, so a restart keeps it.
+# Read inside the transition, which runs on the clock thread: reading a flag
+# there is not a source method, so THE RULE above is not touched.
+autodj_crossfade_on = interactive.bool({!! json_encode($crossfadeOnVar) !!}, {{ $crossfadeOn ? 'true' : 'false' }})
 
 def autodj_cross_fade_out(s) =
   fade.out(type="sin", duration=autodj_cross_fade, s)
@@ -732,6 +755,12 @@ def autodj_cross(a, b) =
     # every jingle Laravel hands out — a station with no jingles never
     # carries it, so this branch is simply never taken there.
     a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"
+  then
+    sequence([a.source, b.source])
+  elsif
+    # The owner turned crossfade off: every song change is a clean cut. Below
+    # the on-time cut on purpose, which still fades into its hard start.
+    not autodj_crossfade_on()
   then
     sequence([a.source, b.source])
   elsif
@@ -841,6 +870,27 @@ mixed = mksafe(fallback(track_sensitive=false, [live, autodj_mix, bed]))
 # any reachable container has a real reading, and let the sweep's multi-minute
 # silence timer — not this window — be what absorbs inter-track gaps.
 output_source = rms(duration={{ number_format($rmsWindow, 1, '.', '') }}, mixed)
+
+# Source state for the HTTP handlers, copied on the clock thread.
+#
+# /status, /healthz and current_source() run on the harbor HTTP thread. Calling
+# remaining() or is_ready() on a source at or after cross() from there races
+# the clock thread and wedges the crossfade: one buffered frame looped forever,
+# remaining() frozen, nothing logged (docs/CROSSFADE-INVESTIGATION.md). This
+# callback runs on the clock thread once per frame (~25/s, ~0.1% CPU measured)
+# and the handlers read these refs instead. Values are at most a frame old.
+st_ready = ref(false)
+st_live = ref(false)
+st_autodj = ref(false)
+st_elapsed = ref(0.)
+st_remaining = ref(-1.)
+output_source.on_frame(synchronous=true, before=false, fun () -> begin
+  st_ready := output_source.is_ready()
+  st_live := live.is_ready()
+  st_autodj := autodj_mix.is_ready()
+  st_elapsed := output_source.elapsed()
+  st_remaining := output_source.remaining()
+end)
 
 # === Listener-facing metadata ===
 #
@@ -1022,11 +1072,12 @@ end
 
 # Which source the fallback is currently taking. Derived from readiness in
 # priority order — the same order fallback() itself uses — so it can't drift
-# from what listeners actually hear.
+# from what listeners actually hear. Reads the clock-thread copies: this runs
+# on the HTTP thread (see st_* under output_source).
 def current_source() =
-  if live.is_ready() then
+  if st_live() then
     "live"
-  elsif autodj_mix.is_ready() then
+  elsif st_autodj() then
     "autodj"
   else
     "silence"
@@ -1060,7 +1111,7 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
     response.json(
       {
         slug = {!! json_encode($station->slug) !!},
-        ready = output_source.is_ready(),
+        ready = st_ready(),
         # Whether the audio graph produces frames is NOT the same question as
         # whether anyone can hear it: if Icecast rejects the source (bad
         # password, Icecast down) the graph is perfectly ready and the mount
@@ -1078,7 +1129,7 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         rms = output_source.rms(),
         title = meta["title"],
         artist = meta["artist"],
-        elapsed = finite(output_source.elapsed()),
+        elapsed = finite(st_elapsed()),
         # playlist_length and up_next deliberately do NOT appear here.
         # They used to call autodj.length()/remaining_files() — methods on the
         # very source cross() is fast-forwarding. Book §6.4: that fast-forward
@@ -1087,7 +1138,9 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         # polled every couple of seconds, so it was a second operator on a
         # crossfaded source on every single poll. Laravel serves both fields
         # from its own tracks table instead, where they are exact.
-        remaining = finite(output_source.remaining())
+        # From the clock-thread copy: remaining() called here, on the HTTP
+        # thread, is what wedged the crossfade (see st_* under output_source).
+        remaining = finite(st_remaining())
       }
     )
   end
@@ -1116,8 +1169,8 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
 # that needs a secret is a healthcheck that breaks when the secret rotates.
 harbor.http.register(port={{ $harborPort }}, method="GET", "/healthz", fun (_, response) ->
   begin
-    if not output_source.is_ready() then response.status_code(503) end
-    response.json({ ready = output_source.is_ready(), icecast = ice_up(), source = current_source() })
+    if not st_ready() then response.status_code(503) end
+    response.json({ ready = st_ready(), icecast = ice_up(), source = current_source() })
   end
 )
 

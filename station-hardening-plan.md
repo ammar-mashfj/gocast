@@ -35,6 +35,11 @@ Health drives automation; degraded drives attention.
 > (see the bump item below). Every "2.4.0" in this document is the version it was written
 > against, not the version now running. The API observations still hold; the crossfade
 > behaviour does not — 2.4.0's `cross()` clock bug (savonet#4851) is fixed from 2.4.3 on.
+>
+> **Correction (2026-10-21):** crossfade kept freezing on 2.4.5 and 2.4.6. That freeze was
+> our script calling `remaining()`/`is_ready()` on post-`cross()` sources from the harbor
+> HTTP thread, not #4851. The image is now on **2.4.6** and the script caches those values
+> on the clock thread. See `docs/CROSSFADE-INVESTIGATION.md`.
 
 Every claim was verified against the real `gocast/liquidsoap:latest` image
 (Liquidsoap 2.4.0) or read out of the current code — line references included so none of
@@ -375,6 +380,9 @@ Today: browser WHIP through MediaMTX. Present in the image and unused:
       `--describe-sources`, which is what you want when a station is wedged.
       Crossfade itself stays behind `LIQUIDSOAP_CROSSFADE_ENABLED` (default false) until
       a clean transition is actually observed on 2.4.5.
+      **Correction (2026-10-21):** the freeze survived 2.4.5 and 2.4.6; the cause was our
+      off-thread `remaining()`/`is_ready()` calls. Now on 2.4.6 with those cached on the
+      clock thread — see `docs/CROSSFADE-INVESTIGATION.md`.
 - [ ] **`cross.plot`** — dumps transition data for debugging crossfades.
 
 ---

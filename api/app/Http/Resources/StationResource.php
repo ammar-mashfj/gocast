@@ -272,6 +272,10 @@ class StationResource extends JsonResource
                 ],
             ),
             'jingles_enabled' => (bool) $this->jingles_enabled,
+            'crossfade_enabled' => (bool) ($this->crossfade_enabled ?? true),
+            // False while crossfade is off install-wide: the switch would do
+            // nothing, so the dashboard hides it.
+            'crossfade_available' => (bool) config('liquidsoap.crossfade_enabled'),
             'jingle_mode' => $this->jingle_mode,
             'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
             'jingle_every_tracks' => (int) $this->jingle_every_tracks,

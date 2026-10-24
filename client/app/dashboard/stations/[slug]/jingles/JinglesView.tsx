@@ -20,6 +20,7 @@ import { Select } from "@/components/ds/Select"
 import { SwitchRow } from "@/components/ds/Switch"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
+import { AutoDjSettingsButton } from "@/components/dashboard/autodj/AutoDjSettingsButton"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import type { Station } from "@/interfaces/Station"
 import type { Track, LibraryMeta } from "@/interfaces/Track"
@@ -230,10 +231,13 @@ export function JinglesView({
         actionsClassName="max-sm:w-full max-sm:*:flex-1"
         actions={
           !locked && (
-            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-              {uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
-              {uploading ? "Uploading…" : "Add jingles"}
-            </Button>
+            <>
+              <AutoDjSettingsButton station={station} />
+              <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                {uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
+                {uploading ? "Uploading…" : "Add jingles"}
+              </Button>
+            </>
           )
         }
       />
