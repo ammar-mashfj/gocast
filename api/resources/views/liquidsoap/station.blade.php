@@ -889,6 +889,8 @@ st_live = ref(false)
 st_autodj = ref(false)
 st_elapsed = ref(0.)
 st_remaining = ref(-1.)
+st_rms = ref(0.)
+st_meta = ref(([] : [(string * string)]))
 output_source.on_frame(synchronous=true, before=false, fun () -> begin
   st_ready := output_source.is_ready()
   st_frame_at := time()
@@ -896,6 +898,9 @@ output_source.on_frame(synchronous=true, before=false, fun () -> begin
   st_autodj := autodj_mix.is_ready()
   st_elapsed := output_source.elapsed()
   st_remaining := output_source.remaining()
+  st_rms := output_source.rms()
+  m = output_source.last_metadata()
+  st_meta := null.defined(m) ? null.get(m) : ([] : [(string * string)])
 end)
 
 def st_alive() =
@@ -1116,8 +1121,7 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
     response.status_code(403)
     response.data("forbidden")
   else
-    m = output_source.last_metadata()
-    meta = null.defined(m) ? null.get(m) : ([] : [(string * string)])
+    meta = st_meta()
     response.json(
       {
         slug = {!! json_encode($station->slug) !!},
@@ -1136,7 +1140,7 @@ harbor.http.register(port={{ $harborPort }}, method="GET", "/status", fun (req, 
         # Is sound ACTUALLY leaving this station? Ground truth, independent of
         # which arm won. 0.0 with no broadcaster and no rotation means the
         # silence bed; 0.0 with a rotation means the rotation is broken.
-        rms = output_source.rms(),
+        rms = st_rms(),
         title = meta["title"],
         artist = meta["artist"],
         elapsed = finite(st_elapsed()),

@@ -532,8 +532,10 @@ it('reads source state for the http handlers on the clock thread', function () {
 
     $handlers = preg_replace('/^\s*#.*$/m', '', substr($script, $start, $end - $start));
 
+    // Any method, not just the ones that wedged: last_metadata() and rms()
+    // were the next ones left in /status.
     expect($handlers)
-        ->not->toMatch('/\b(output_source|autodj_mix|live|mixed|listener_source|autodj_faded)\.(is_ready|remaining|elapsed)\(/');
+        ->not->toMatch('/\b(output_source|autodj_mix|live|mixed|listener_source|autodj_faded)\.\w+\(/');
 });
 
 it('leaves jingles to laravel: no jingle source in the graph', function () {

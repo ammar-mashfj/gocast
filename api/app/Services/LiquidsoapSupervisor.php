@@ -692,13 +692,15 @@ class LiquidsoapSupervisor
      * container started from an older script) or a bad value with a reply,
      * not a dropped connection, so the reply is read as well: probed on the
      * image, success is "Variable x set." and failure is "Syntax error or
-     * variable not found."
+     * variable not found." Anything but the success reply is a failure,
+     * including an empty one: a wedged container can accept the connection
+     * and answer nothing before the read times out.
      */
     private function setInteractiveVar(Station $station, string $assignment, string $failureMessage): bool
     {
         try {
             $reply = $this->telnet($station, 'var.set '.$assignment);
-            $error = str_contains($reply, 'variable not found') ? trim($reply) : null;
+            $error = preg_match('/^Variable \S+ set\./m', $reply) ? null : (trim($reply) ?: 'no reply');
         } catch (\Throwable $e) {
             $error = $e->getMessage();
         }

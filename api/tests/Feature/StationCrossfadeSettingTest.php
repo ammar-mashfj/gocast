@@ -71,6 +71,17 @@ it('lets the rest of the form resend the unchanged value on any plan', function 
         ->assertOk();
 });
 
+it('reads a form-encoded unchanged value as unchanged', function () {
+    // A multipart save (artwork upload) sends booleans as "1", which must not
+    // count as a change and 403 the whole update.
+    $owner = freeOwner();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->patch("/api/stations/{$station->slug}", ['crossfade_enabled' => '1', 'genre' => 'Jazz'], ['Accept' => 'application/json'])
+        ->assertOk();
+});
+
 it('reports the live push as applied when liquidsoap confirms the set', function () {
     config(['liquidsoap.crossfade_enabled' => true]);
     $station = Station::factory()->for(User::factory(), 'user')->create(['crossfade_enabled' => false]);
@@ -92,6 +103,18 @@ it('reports the live push as failed when the container has no such variable', fu
     $supervisor = crossfadeSupervisor();
     $supervisor->shouldReceive('telnet')->once()
         ->andReturn("Syntax error or variable not found.\nEND\nBye!\n");
+
+    expect($supervisor->applyCrossfadeSetting($station))->toBeFalse();
+});
+
+it('reports the live push as failed when liquidsoap answers nothing', function () {
+    // A wedged container can accept the connection and send no reply before
+    // the read times out; that is not a confirmed set.
+    config(['liquidsoap.crossfade_enabled' => true]);
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+
+    $supervisor = crossfadeSupervisor();
+    $supervisor->shouldReceive('telnet')->once()->andReturn('');
 
     expect($supervisor->applyCrossfadeSetting($station))->toBeFalse();
 });
