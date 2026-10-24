@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\LiquidsoapSupervisor;
@@ -10,16 +9,10 @@ use function Pest\Laravel\actingAs;
 
 /**
  * The owner's crossfade switch rides on the station update endpoint. It only
- * shapes AutoDJ and restarts the station, so it is gated like jingles.
- * proOwner() lives in StationJingleSettingsTest.
+ * shapes AutoDJ, so changing it is gated on the AutoDJ plan flag. It is
+ * applied live, without a restart. proOwner() and freeOwner() live in
+ * tests/Pest.php.
  */
-function freeOwner(): User
-{
-    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
-    $plan->update(['autodj_enabled' => false]);
-
-    return User::factory()->create(['plan_id' => $plan->id]);
-}
 
 /**
  * A supervisor with telnet left to the test, writing scripts to a scratch
@@ -92,7 +85,7 @@ it('reports the live push as applied when liquidsoap confirms the set', function
 
 it('reports the live push as failed when the container has no such variable', function () {
     // A container started from an older script answers instead of dropping
-    // the connection; the owner's toast must not claim the change landed.
+    // the connection, so the reply has to be read to know the set failed.
     config(['liquidsoap.crossfade_enabled' => true]);
     $station = Station::factory()->for(User::factory(), 'user')->create();
 

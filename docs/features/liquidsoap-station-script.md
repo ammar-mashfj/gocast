@@ -167,7 +167,7 @@ Only when `crossfade_enabled` is true, and **the config default is false** (`LIQ
 
 Fades are `sin` type via `fade.out` / `fade.in`. The sum is `add(normalize=false, [starting, ending])`, with the incoming track listed first so metadata reports the new track during the overlap (`add` relays the first source's metadata).
 
-Numbers, all from config and rendered with one decimal: window `duration` 5.0 (`LIQUIDSOAP_CROSSFADE_DURATION`), fade 3.0 (`LIQUIDSOAP_CROSSFADE_FADE`), high -15 (`_HIGH_DB`), medium -32 (`_MEDIUM_DB`), margin 4 (`_MARGIN_DB`). The supervisor clamps the fade to `min(fade, max(duration - 0.5, 0.1))` so fades are always strictly shorter than the window. It was switched off in 96143b9 because AutoDJ froze with it on. `docs/CROSSFADE-INVESTIGATION.md` (2026-10-10) traced the freeze to this script calling `remaining()` / `is_ready()` on post-`cross()` sources from the harbor HTTP thread (`/status`, `/healthz`, `current_source()`). The fix is in: the image is on 2.4.6, and the `st_*` refs (below) are copied on the clock thread so no handler touches those sources. The default stays false until a full day on staging with it on.
+Numbers, all from config (window and fade rendered with three decimals, the dB values with one): window `duration` 5.0 (`LIQUIDSOAP_CROSSFADE_DURATION`), fade 3.0 (`LIQUIDSOAP_CROSSFADE_FADE`), high -15 (`_HIGH_DB`), medium -32 (`_MEDIUM_DB`), margin 4 (`_MARGIN_DB`). The supervisor clamps the fade to `min(fade, max(duration - 0.5, 0.1))` so fades are always strictly shorter than the window. It was switched off in 96143b9 because AutoDJ froze with it on. `docs/CROSSFADE-INVESTIGATION.md` (2026-10-10) traced the freeze to this script calling `remaining()` / `is_ready()` on post-`cross()` sources from the harbor HTTP thread (`/status`, `/healthz`, `current_source()`). The fix is in: the image is on 2.4.6, and the `st_*` refs (below) are copied on the clock thread so no handler touches those sources. The default stays false until a full day on staging with it on.
 
 ### Limiter (lines 779-808 and 971-986)
 
@@ -214,7 +214,7 @@ Rendered only when `watermark_enabled` is true (`LIQUIDSOAP_WATERMARK_ENABLED`, 
 | `broadcaster` | `broadcaster_attached()` = `live_connected()` |
 | `rms` | `output_source.rms()` (0.0 to 1.0) |
 | `title`, `artist` | from `output_source.last_metadata()`; empty string when absent |
-| `elapsed` | `finite(output_source.elapsed())` |
+| `elapsed` | `finite(st_elapsed)` (copy of `output_source.elapsed()`) |
 | `remaining` | `finite(st_remaining)` (copy of `output_source.remaining()`) |
 
 `finite()` maps NaN and infinity to `-1.` because `response.json` raises on them and a raised handler closes the socket, which Laravel reads as "container unreachable". `remaining()` is infinite whenever the source has no end (the silence bed, a live stream). Laravel treats negative durations as null (`StationStatusService`). `playlist_length` and `up_next` are intentionally absent: calling `length()`/`remaining_files()` on the source `cross()` is driving is a second operator on it, every poll; Laravel serves those fields from the database. Laravel calls `/status` with `X-Internal-Key` and a 1.5s timeout (`liquidsoap.harbor_timeout`) and caches the answer 2s (`status_ttl_seconds`), 15s when Docker says the container is gone (`status_down_ttl_seconds`).

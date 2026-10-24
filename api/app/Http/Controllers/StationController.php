@@ -66,7 +66,9 @@ class StationController extends Controller
         }
 
         // Crossfade only shapes AutoDJ: a station without it would store a
-        // setting that can never be heard. Gated like jingles.
+        // setting that can never be heard. Unlike jingles, gated both ways:
+        // turning it off silences nothing, so there is no reason to let a
+        // downgraded owner change it.
         if (array_key_exists('crossfade_enabled', $data) && $data['crossfade_enabled'] !== $station->crossfade_enabled) {
             $this->lifecycle->assertAutoDjEnabled($request->user());
         }

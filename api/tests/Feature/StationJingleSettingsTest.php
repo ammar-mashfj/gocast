@@ -9,20 +9,6 @@ use function Pest\Laravel\actingAs;
 use function Pest\Laravel\patchJson;
 
 /**
- * An owner who can actually use jingles. They are part of AutoDJ — they only
- * play between rotation tracks — so turning them on is gated on the same plan
- * flag as uploading, and a test that skipped this would be asserting against
- * the free default.
- */
-function proOwner(): User
-{
-    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
-    $plan->update(['autodj_enabled' => true]);
-
-    return User::factory()->create(['plan_id' => $plan->id]);
-}
-
-/**
  * Jingle settings ride on the normal station update endpoint rather than an
  * endpoint of their own, because StationObserver already watches this table
  * for changes that need the container re-rendered and restarted. These tests
