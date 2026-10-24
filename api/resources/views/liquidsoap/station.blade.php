@@ -487,6 +487,12 @@ live = live_raw
 # script leaves jingles to Laravel; a container on an older script, without
 # the header, is served music only.
 #
+# X-Gocast-Lead is how far ahead of listeners this script reads the next
+# track: the crossfade window whenever cross() is in the graph (even with the
+# owner's switch off, since cross() still buffers), 0 without it. Rendered in
+# rather than looked up: the install switch can change while this container
+# keeps running the old script until its show ends.
+#
 # Read through a ref because the source it measures is defined below, from
 # this very function. 0 before anything has played: the answer starts now.
 # Measured on 2.4.5: remaining() honours liq_cue_out, and the start time it
@@ -505,7 +511,8 @@ def autodj_next() =
       headers=[
         ("Accept", "text/plain"),
         ("X-Internal-Key", {!! json_encode($internalApiKey) !!}),
-        ("X-Gocast-Remaining", string.float(decimal_places=3, autodj_remaining_now()))
+        ("X-Gocast-Remaining", string.float(decimal_places=3, autodj_remaining_now())),
+        ("X-Gocast-Lead", {!! json_encode(number_format($autodjLeadSeconds, 1, '.', '')) !!})
       ],
       timeout=5.
     )
@@ -688,6 +695,16 @@ autodj_cross_high = {{ number_format($crossfadeHigh, 1, '.', '') }}
 autodj_cross_medium = {{ number_format($crossfadeMedium, 1, '.', '') }}
 autodj_cross_margin = {{ number_format($crossfadeMargin, 1, '.', '') }}
 
+# The owner's crossfade switch. cross() is in the graph whenever crossfade is
+# on for the install, because operators cannot be added or removed from a
+# running script; this flag picks the hard-cut branch below instead, at each
+# song change. Interactive so the dashboard can flip it over telnet without a
+# restart (LiquidsoapSupervisor::applyCrossfadeSetting), the same as the
+# watermark. Rendered with the station's saved value, so a restart keeps it.
+# Read inside the transition, which runs on the clock thread: reading a flag
+# there is not a source method, so THE RULE above is not touched.
+autodj_crossfade_on = interactive.bool({!! json_encode($crossfadeOnVar) !!}, {{ $crossfadeOn ? 'true' : 'false' }})
+
 def autodj_cross_fade_out(s) =
   fade.out(type="sin", duration=autodj_cross_fade, s)
 end
@@ -738,6 +755,12 @@ def autodj_cross(a, b) =
     # every jingle Laravel hands out — a station with no jingles never
     # carries it, so this branch is simply never taken there.
     a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"
+  then
+    sequence([a.source, b.source])
+  elsif
+    # The owner turned crossfade off: every song change is a clean cut. Below
+    # the on-time cut on purpose, which still fades into its hard start.
+    not autodj_crossfade_on()
   then
     sequence([a.source, b.source])
   elsif

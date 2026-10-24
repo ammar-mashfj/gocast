@@ -37,6 +37,9 @@ function renderStationScript(Station $station, array $overrides = []): string
         'crossfadeHigh' => -15.0,
         'crossfadeMedium' => -32.0,
         'crossfadeMargin' => 4.0,
+        'autodjLeadSeconds' => 5.0,
+        'crossfadeOn' => true,
+        'crossfadeOnVar' => LiquidsoapSupervisor::VAR_CROSSFADE,
         'autodjRetryDelay' => 10.0,
         'nextTrackUrl' => 'http://api/api/internal/next-track?slug=night-shift',
         'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
@@ -867,4 +870,39 @@ it('keeps a fractional harbor timeout intact', function () {
     $script = renderStationScript($station, ['harborInputTimeout' => 7.5]);
 
     expect($script)->toContain('timeout=7.5,');
+});
+
+it('tells laravel the lead it was rendered with', function () {
+    expect(renderStationScript($this->station))->toContain('("X-Gocast-Lead", "5.0")')
+        ->and(renderStationScript($this->station, ['crossfadeEnabled' => false, 'autodjLeadSeconds' => 0.0]))
+        ->toContain('("X-Gocast-Lead", "0.0")');
+});
+
+it('makes the owner crossfade switch a live flag inside the transition', function () {
+    $on = renderStationScript($this->station);
+    $off = renderStationScript($this->station, ['crossfadeOn' => false]);
+
+    expect($on)->toContain('autodj_crossfade_on = interactive.bool("autodj_crossfade", true)')
+        ->and($off)->toContain('autodj_crossfade_on = interactive.bool("autodj_crossfade", false)')
+        ->and($on)->toContain('not autodj_crossfade_on()');
+
+    // The on-time cut keeps its fade with the switch off, so its branch
+    // must be tested first.
+    expect(strpos($on, 'a.metadata["liq_fade_out"] != ""'))->toBeLessThan(strpos($on, 'not autodj_crossfade_on()'));
+
+    // Without crossfade for the install there is no cross() and no flag.
+    $none = renderStationScript($this->station, ['crossfadeEnabled' => false]);
+    expect($none)->not->toContain('interactive.bool("autodj_crossfade"');
+});
+
+it('renders the station switch as the starting state', function () {
+    config(['liquidsoap.crossfade_enabled' => true]);
+    $supervisor = app(LiquidsoapSupervisor::class);
+    $render = new ReflectionMethod($supervisor, 'renderLiq');
+
+    $this->station->crossfade_enabled = false;
+    expect($render->invoke($supervisor, $this->station))->toContain('interactive.bool("autodj_crossfade", false)');
+
+    $this->station->crossfade_enabled = true;
+    expect($render->invoke($supervisor, $this->station))->toContain('interactive.bool("autodj_crossfade", true)');
 });
