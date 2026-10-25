@@ -100,6 +100,13 @@ class StationObserver
 
     public function updated(Station $station): void
     {
+        // The crossfade switch is a live flag in the script, not a value
+        // baked into it: pushed over telnet, from the next song change, with
+        // nobody disconnected. A stopped station picks it up when it starts.
+        if ($station->wasChanged('crossfade_enabled') && $station->isRunning()) {
+            $this->safely('crossfade', $station, fn () => $this->supervisor->applyCrossfadeSetting($station));
+        }
+
         if (! $station->wasChanged(self::LIQ_RELEVANT_COLUMNS)) {
             return;
         }

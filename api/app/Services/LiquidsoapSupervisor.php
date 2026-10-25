@@ -122,6 +122,13 @@ class LiquidsoapSupervisor
     public const VAR_WATERMARK_DUCK = 'watermark_duck';
 
     /**
+     * The owner's crossfade switch, interactive for the same reason as the
+     * watermark: flipping it must not restart the station and drop listeners.
+     * Only exists in scripts rendered with crossfade on for the install.
+     */
+    public const VAR_CROSSFADE = 'autodj_crossfade';
+
+    /**
      * Where the shared clip directory is mounted inside every container.
      * Read-only, and identical for all stations — it is platform content, not
      * station content.
@@ -647,20 +654,68 @@ class LiquidsoapSupervisor
         ];
 
         foreach ($commands as $assignment) {
-            try {
-                $this->telnet($station, 'var.set '.$assignment);
-            } catch (\Throwable $e) {
-                Log::info('Watermark settings not applied live', [
-                    'station' => $station->slug,
-                    'command' => $assignment,
-                    'error' => $e->getMessage(),
-                ]);
-
+            if (! $this->setInteractiveVar($station, $assignment, 'Watermark settings not applied live')) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * Push the owner's crossfade switch into a running container, live. It
+     * takes effect at the next song change; nobody is disconnected.
+     *
+     * Best-effort like the watermark. The script on disk is rewritten too,
+     * because its starting value is the station's saved one: without that,
+     * Docker restarting this same container after a crash would bring the
+     * old setting back. Liquidsoap only reads the file at start, so the
+     * rewrite restarts nothing. A script rendered with crossfade off for the
+     * install has no such variable and only hard cuts, so there is nothing
+     * to push.
+     */
+    public function applyCrossfadeSetting(Station $station): bool
+    {
+        if (! config('liquidsoap.crossfade_enabled')) {
+            return true;
+        }
+
+        $this->renderLiqFile($station);
+
+        $assignment = self::VAR_CROSSFADE.' = '.(($station->crossfade_enabled ?? true) ? 'true' : 'false');
+
+        return $this->setInteractiveVar($station, $assignment, 'Crossfade setting not applied live');
+    }
+
+    /**
+     * `var.set` over telnet. Liquidsoap answers an unknown variable (a
+     * container started from an older script) or a bad value with a reply,
+     * not a dropped connection, so the reply is read as well: probed on the
+     * image, success is "Variable x set." and failure is "Syntax error or
+     * variable not found." Anything but the success reply is a failure,
+     * including an empty one: a wedged container can accept the connection
+     * and answer nothing before the read times out.
+     */
+    private function setInteractiveVar(Station $station, string $assignment, string $failureMessage): bool
+    {
+        try {
+            $reply = $this->telnet($station, 'var.set '.$assignment);
+            $error = preg_match('/^Variable \S+ set\./m', $reply) ? null : (trim($reply) ?: 'no reply');
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+        }
+
+        if ($error === null) {
+            return true;
+        }
+
+        Log::info($failureMessage, [
+            'station' => $station->slug,
+            'command' => $assignment,
+            'error' => $error,
+        ]);
+
+        return false;
     }
 
     /**
@@ -1089,7 +1144,9 @@ class LiquidsoapSupervisor
      *
      * The watermark's starting state is rendered as off here: it follows the
      * owner's plan and is pushed into the running container live
-     * (applyWatermarkSettings), so a plan change must not read as drift.
+     * (applyWatermarkSettings), so a plan change must not read as drift. The
+     * owner's crossfade switch is rendered as on, for the same reason
+     * (applyCrossfadeSetting).
      *
      * Null when the image ID cannot be read (daemon timeout, image mid-rebuild):
      * a fingerprint without it would differ from every label at once.
@@ -1191,10 +1248,20 @@ class LiquidsoapSupervisor
             'watermarkInterval' => $this->watermarkInterval(),
             'watermarkDuck' => $this->watermarkDuck(),
             'watermarkFade' => (float) config('liquidsoap.watermark_fade_seconds'),
-            // AutoDJ track transitions. Off => hard cuts, which is the safe
-            // fallback if a transition ever wedges playback again.
-            'crossfadeEnabled' => (bool) config('liquidsoap.crossfade_enabled'),
+            // AutoDJ track transitions. The install-wide switch decides
+            // whether cross() is in the graph at all — off => hard cuts, the
+            // safe fallback if a transition ever wedges playback again. The
+            // owner's switch is a live flag inside it (applyCrossfadeSetting),
+            // rendered as on for the fingerprint so flipping it is not drift.
+            'crossfadeEnabled' => $crossfadeEnabled = (bool) config('liquidsoap.crossfade_enabled'),
+            'crossfadeOn' => $fingerprint || ($station->crossfade_enabled ?? true),
+            'crossfadeOnVar' => self::VAR_CROSSFADE,
             'crossfadeDuration' => $crossfadeDuration = (float) config('liquidsoap.crossfade_duration'),
+            // Sent with every next-track request (X-Gocast-Lead), so on-time
+            // starts follow what THIS container does: cross() buffers its
+            // window whether or not the owner's flag blends, and the install
+            // switch can change while an old container is still running.
+            'autodjLeadSeconds' => $crossfadeEnabled ? max(0.0, $crossfadeDuration) : 0.0,
             // The fade envelopes must fit strictly inside the cross window, or
             // they never complete and the transition jumps in volume (see the
             // Liquidsoap book §6.4). Clamped rather than trusted, so a bad env

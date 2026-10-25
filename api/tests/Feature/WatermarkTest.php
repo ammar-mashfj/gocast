@@ -159,7 +159,7 @@ it('pushes the watermark state in liquidsoap var syntax', function () {
         ->andReturnUsing(function ($_station, $command) use (&$sent) {
             $sent[] = $command;
 
-            return '';
+            return "Variable x set.\nEND\n";
         });
 
     expect($supervisor->applyWatermarkSettings($station))->toBeTrue()
@@ -180,8 +180,8 @@ it('clamps a watermark interval that would duck a host mid-sentence', function (
     config(['liquidsoap.watermark_interval_seconds' => 5]);
 
     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set watermark_interval = 60.0');
-    $supervisor->shouldReceive('telnet')->times(2)->andReturn('');
+    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set watermark_interval = 60.0')->andReturn("Variable x set.\nEND\n");
+    $supervisor->shouldReceive('telnet')->times(2)->andReturn("Variable x set.\nEND\n");
 
     $supervisor->applyWatermarkSettings($station);
 });
@@ -195,8 +195,8 @@ it('never mutes the station outright in place of ducking it', function () {
     config(['liquidsoap.watermark_duck' => 0]);
 
     $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
-    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set watermark_duck = 0.010');
-    $supervisor->shouldReceive('telnet')->times(2)->andReturn('');
+    $supervisor->shouldReceive('telnet')->once()->with($station, 'var.set watermark_duck = 0.010')->andReturn("Variable x set.\nEND\n");
+    $supervisor->shouldReceive('telnet')->times(2)->andReturn("Variable x set.\nEND\n");
 
     $supervisor->applyWatermarkSettings($station);
 });

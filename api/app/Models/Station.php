@@ -272,6 +272,7 @@ class Station extends Model
             'stream_key_rotated_at' => 'datetime',
             'featured_at' => 'datetime',
             'jingles_enabled' => 'boolean',
+            'crossfade_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
             'jingle_times' => 'array',

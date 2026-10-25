@@ -213,3 +213,29 @@ it('brings a restored running station back even with a stream session left open'
 
     $station->restore();
 });
+
+it('pushes the crossfade switch live instead of restarting', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    $supervisor->shouldReceive('applyCrossfadeSetting')->once()->andReturnTrue();
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['crossfade_enabled' => false]);
+});
+
+it('leaves a stopped station alone when its crossfade switch changes', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_STOPPED,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('up');
+    $supervisor->shouldNotReceive('applyCrossfadeSetting');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['crossfade_enabled' => false]);
+});
