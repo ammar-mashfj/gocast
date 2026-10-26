@@ -48,6 +48,10 @@ Route::middleware('auth:admin')->group(function () {
     // because the button's label already tells you which way it goes.
     Route::post('stations/{station}/feature', [StationController::class, 'feature'])->name('stations.feature');
 
+    // A bigger (or smaller) library for one station, agreed with its owner.
+    // Blank resets it to the install default.
+    Route::post('stations/{station}/storage', [StationController::class, 'storage'])->name('stations.storage');
+
     // A plan change with no access request behind it — for an owner the admin
     // spotted rather than one who asked. Emails them the admin's own reason.
     // Two POSTs, like announcements: the dialog posts to `preview`, and only

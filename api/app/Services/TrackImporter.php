@@ -47,7 +47,7 @@ class TrackImporter
      */
     public function ensureWithinQuota(Station $station, int $incomingBytes): void
     {
-        $cap = (int) config('liquidsoap.station_storage_bytes');
+        $cap = $station->storageCapBytes();
         $current = (int) $station->tracks()->sum('file_size_bytes');
 
         if ($current + $incomingBytes > $cap) {

@@ -76,7 +76,7 @@ class TrackController extends Controller
             ->where('kind', $kind)
             ->when($kind === Track::KIND_MUSIC, fn ($query) => $query->with('playlists:playlists.id'))
             ->get();
-        $cap = (int) config('liquidsoap.station_storage_bytes');
+        $cap = $station->storageCapBytes();
         // Usage is deliberately NOT scoped to `kind`: one cap covers the
         // whole station, so the meter must read the same number whichever
         // list you are looking at.

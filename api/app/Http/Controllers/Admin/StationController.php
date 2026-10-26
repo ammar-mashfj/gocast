@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /**
- * The station overview, and the two things an admin can change from it:
- * whether a station appears in the curated rail on the homepage, and which
- * plan its owner is on.
+ * The station overview, and the things an admin can change from it: whether
+ * a station appears in the curated rail on the homepage, which plan its owner
+ * is on, and how much audio the station may store.
  *
  * Deliberately queries the models directly rather than going through the API
  * resources: those are shaped for a station's own owner, and this view needs
@@ -36,6 +36,12 @@ class StationController extends Controller
      * lapse.
      */
     private const NO_END = 'none';
+
+    /**
+     * The unit the storage form is entered in. Binary, matching how the
+     * install default (3 * 1024^3) and the dashboard's meter count.
+     */
+    private const BYTES_PER_GB = 1024 * 1024 * 1024;
 
     public function index(Request $request, UserAgentParser $agents): View
     {
@@ -136,6 +142,7 @@ class StationController extends Controller
         // the owner's email and plan name, which is two queries per page view
         // hidden behind a `?->`.
         $station->load('user.plan')->loadCount('tracks');
+        $station->loadSum('tracks', 'file_size_bytes');
 
         return view('admin.station', [
             'station' => $station,
@@ -247,6 +254,70 @@ class StationController extends Controller
         }
 
         return back()->with('status', "{$station->name} is featured.");
+    }
+
+    /**
+     * Set or clear this station's storage cap.
+     *
+     * Entered in GB (GiB, so the default reads as the same "3 GB" the
+     * dashboard prints) and stored in bytes. Lowering it below what the
+     * station already holds deletes nothing: uploads stop until the owner
+     * makes room, which is what being over any cap already means.
+     */
+    public function storage(Request $request, Station $station): RedirectResponse
+    {
+        $validated = $request->validate([
+            // One decimal place, like the form's step="0.1": a finer value
+            // would be stored as typed but shown rounded.
+            'storage_gb' => ['nullable', 'numeric', 'decimal:0,1', 'min:0.1', 'max:10000'],
+        ]);
+
+        $gigabytes = $validated['storage_gb'] ?? null;
+
+        $station->update([
+            'storage_cap_bytes' => $gigabytes === null ? null : (int) round((float) $gigabytes * self::BYTES_PER_GB),
+        ]);
+
+        // Same reason as feature(): LogsActivity would record the change with
+        // nobody attached to it, and "who gave this station 50 GB?" is the
+        // question this row exists to answer.
+        activity()
+            ->causedBy($request->user('admin'))
+            ->performedOn($station)
+            ->log($gigabytes === null ? 'reset station storage cap' : 'set station storage cap');
+
+        return back()->with('status', sprintf(
+            '%s can now store %s.',
+            $station->name,
+            self::formatStorage($station->storageCapBytes()),
+        ));
+    }
+
+    /**
+     * Bytes for reading: GB from 1 GB up, MB or KB below it, the same steps
+     * as the dashboard's formatBytes(), so a 40 MB library does not read as
+     * "0 GB".
+     */
+    public static function formatStorage(int $bytes): string
+    {
+        if ($bytes < 1024 * 1024) {
+            return max(0, (int) round($bytes / 1024)).' KB';
+        }
+
+        if ($bytes < self::BYTES_PER_GB) {
+            return (int) round($bytes / 1024 / 1024).' MB';
+        }
+
+        return self::gigabytesInput($bytes).' GB';
+    }
+
+    /**
+     * Bytes as the admin types them into the storage form: GB, at most one
+     * decimal place, no unit.
+     */
+    public static function gigabytesInput(int $bytes): string
+    {
+        return rtrim(rtrim(number_format($bytes / self::BYTES_PER_GB, 1, '.', ''), '0'), '.');
     }
 
     /**

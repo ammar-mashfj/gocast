@@ -33,6 +33,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property bool $is_live
  * @property bool $featured
  * @property Carbon|null $featured_at
+ * @property int|null $storage_cap_bytes admin-set override; null is the install default, see storageCapBytes()
  * @property string $desired_state
  * @property Carbon|null $started_at
  * @property Carbon|null $silent_since
@@ -271,6 +272,7 @@ class Station extends Model
             'stream_key' => 'encrypted',
             'stream_key_rotated_at' => 'datetime',
             'featured_at' => 'datetime',
+            'storage_cap_bytes' => 'integer',
             'jingles_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
@@ -476,6 +478,19 @@ class Station extends Model
     }
 
     /**
+     * How many bytes of audio this station may hold, music and jingles
+     * together.
+     *
+     * The admin-set column when there is one, else the install default. Both
+     * the upload check and the library meter read it from here, so the number
+     * a DJ sees is the number they are held to.
+     */
+    public function storageCapBytes(): int
+    {
+        return $this->storage_cap_bytes ?? (int) config('liquidsoap.station_storage_bytes');
+    }
+
+    /**
      * Every uploaded audio file for this station — rotation AND jingles.
      * Ordered by manual position (drag-to-reorder UI); the `position` column
      * is gap-free per station AND kind, so this ordering is only meaningful
@@ -564,7 +579,7 @@ class Station extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'slug', 'description', 'genre', 'featured', 'desired_state'])
+            ->logOnly(['name', 'slug', 'description', 'genre', 'featured', 'desired_state', 'storage_cap_bytes'])
             // `featured_at` is deliberately absent: it moves in lockstep with
             // `featured`, and logging both would put the same decision in the
             // audit trail twice.
