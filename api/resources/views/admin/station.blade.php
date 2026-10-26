@@ -93,8 +93,8 @@
         <div class="stat">
             <div class="stat-title">Storage</div>
             <div class="stat-value text-lg tabular-nums">
-                {{ \App\Http\Controllers\Admin\StationController::formatGigabytes((int) $station->tracks_sum_file_size_bytes) }}
-                <span class="text-sm font-normal opacity-60">of {{ \App\Http\Controllers\Admin\StationController::formatGigabytes($station->storageCapBytes()) }}</span>
+                {{ \App\Http\Controllers\Admin\StationController::formatStorage((int) $station->tracks_sum_file_size_bytes) }}
+                <span class="text-sm font-normal opacity-60">of {{ \App\Http\Controllers\Admin\StationController::formatStorage($station->storageCapBytes()) }}</span>
             </div>
             <div class="stat-desc">{{ $station->storage_cap_bytes === null ? 'install default' : 'set by an admin' }}</div>
         </div>
@@ -111,8 +111,8 @@
                 <span>Storage limit (GB)</span>
                 <input type="number" name="storage_gb" step="0.1" min="0.1" max="10000"
                        class="input input-sm w-48 tabular-nums @error('storage_gb') input-error @enderror"
-                       value="{{ old('storage_gb', $station->storage_cap_bytes === null ? '' : rtrim(rtrim(number_format($station->storage_cap_bytes / 1024 ** 3, 1, '.', ''), '0'), '.')) }}"
-                       placeholder="Default: {{ \App\Http\Controllers\Admin\StationController::formatGigabytes((int) config('liquidsoap.station_storage_bytes')) }}">
+                       value="{{ old('storage_gb', $station->storage_cap_bytes === null ? '' : \App\Http\Controllers\Admin\StationController::gigabytesInput($station->storage_cap_bytes)) }}"
+                       placeholder="Default: {{ \App\Http\Controllers\Admin\StationController::formatStorage((int) config('liquidsoap.station_storage_bytes')) }}">
             </label>
             <button type="submit" class="btn btn-sm btn-primary">Save storage</button>
             <span class="text-xs opacity-60">Leave blank for the default. Lowering it deletes nothing; uploads stop until they make room.</span>

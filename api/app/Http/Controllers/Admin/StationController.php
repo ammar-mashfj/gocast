@@ -267,7 +267,9 @@ class StationController extends Controller
     public function storage(Request $request, Station $station): RedirectResponse
     {
         $validated = $request->validate([
-            'storage_gb' => ['nullable', 'numeric', 'min:0.1', 'max:10000'],
+            // One decimal place, like the form's step="0.1": a finer value
+            // would be stored as typed but shown rounded.
+            'storage_gb' => ['nullable', 'numeric', 'decimal:0,1', 'min:0.1', 'max:10000'],
         ]);
 
         $gigabytes = $validated['storage_gb'] ?? null;
@@ -287,16 +289,35 @@ class StationController extends Controller
         return back()->with('status', sprintf(
             '%s can now store %s.',
             $station->name,
-            self::formatGigabytes($station->storageCapBytes()),
+            self::formatStorage($station->storageCapBytes()),
         ));
     }
 
     /**
-     * Bytes as the admin typed them in: GB, at most one decimal place.
+     * Bytes for reading: GB from 1 GB up, MB or KB below it, the same steps
+     * as the dashboard's formatBytes(), so a 40 MB library does not read as
+     * "0 GB".
      */
-    public static function formatGigabytes(int $bytes): string
+    public static function formatStorage(int $bytes): string
     {
-        return rtrim(rtrim(number_format($bytes / self::BYTES_PER_GB, 1, '.', ''), '0'), '.').' GB';
+        if ($bytes < 1024 * 1024) {
+            return max(0, (int) round($bytes / 1024)).' KB';
+        }
+
+        if ($bytes < self::BYTES_PER_GB) {
+            return (int) round($bytes / 1024 / 1024).' MB';
+        }
+
+        return self::gigabytesInput($bytes).' GB';
+    }
+
+    /**
+     * Bytes as the admin types them into the storage form: GB, at most one
+     * decimal place, no unit.
+     */
+    public static function gigabytesInput(int $bytes): string
+    {
+        return rtrim(rtrim(number_format($bytes / self::BYTES_PER_GB, 1, '.', ''), '0'), '.');
     }
 
     /**

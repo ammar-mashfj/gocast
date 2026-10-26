@@ -2,6 +2,7 @@
 
 use App\Models\Admin;
 use App\Models\Station;
+use App\Models\Track;
 use App\Models\User;
 use Spatie\Activitylog\Models\Activity;
 
@@ -49,7 +50,7 @@ it('rejects a value that is not a positive number', function (mixed $value) {
         ->assertSessionHasErrors('storage_gb');
 
     expect($station->refresh()->storage_cap_bytes)->toBe(10 * 1024 ** 3);
-})->with(['0', '-5', 'lots', '20000']);
+})->with(['0', '-5', 'lots', '20000', '4.25']);
 
 it('records which admin changed the cap', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create();
@@ -74,6 +75,17 @@ it('shows usage against the cap on the station page', function () {
         ->assertSee('of 10 GB')
         ->assertSee('set by an admin')
         ->assertSee('value="10"', false);
+});
+
+it('shows a small library in MB rather than 0 GB', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create();
+    Track::factory()->for($station)->create(['file_size_bytes' => 40 * 1024 ** 2]);
+
+    $this->get(route('admin.stations.show', $station))
+        ->assertOk()
+        ->assertSee('40 MB')
+        ->assertSee('of 3 GB')
+        ->assertDontSee('0 GB of');
 });
 
 it('is not reachable without an admin session', function () {
