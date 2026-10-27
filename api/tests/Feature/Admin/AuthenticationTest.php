@@ -85,6 +85,31 @@ it('locks out after five failed attempts', function () {
     $this->assertGuest('admin');
 });
 
+/**
+ * The email+IP key alone hands out five fresh guesses per email typed in.
+ * The per-IP budget is what stops a client rotating emails.
+ */
+it('locks out an IP that keeps switching emails', function () {
+    Event::fake([Lockout::class]);
+
+    $admin = Admin::factory()->create();
+
+    foreach (range(1, 20) as $attempt) {
+        $this->post(route('admin.login.store'), [
+            'email' => "guess{$attempt}@example.com",
+            'password' => 'wrong',
+        ]);
+    }
+
+    $this->post(route('admin.login.store'), [
+        'email' => $admin->email,
+        'password' => 'password',
+    ])->assertSessionHasErrors('email');
+
+    Event::assertDispatched(Lockout::class);
+    $this->assertGuest('admin');
+});
+
 it('redirects guests away from the panel', function () {
     $this->get(route('admin.stations.index'))
         ->assertRedirect(route('admin.login'));

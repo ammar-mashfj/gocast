@@ -46,19 +46,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ['middleware' => ['api', 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trust the Caddy/FrankenPHP container sitting directly in front of
-        // Laravel so `$request->ip()` returns the real client IP from
-        // X-Forwarded-For, not the proxy's own address. Without this, every
-        // visitor looks like the same IP — breaking rate limits and the
-        // login lockout counter.
+        // Host nginx talks to PHP-FPM over a unix socket and resolves the
+        // real client address itself (conf.d/cloudflare-realip.conf), so
+        // REMOTE_ADDR is already the visitor and nothing in front of Laravel
+        // needs trusting. Only loopback is trusted, for local tooling.
         //
-        // '*' is safe because Laravel is never internet-facing in this
-        // setup: Caddy is the only thing that can reach it. Behind
-        // Cloudflare, Caddy's `trusted_proxies cloudflare` directive
-        // (see api/Caddyfile.cloudflare) ensures the chain terminates at
-        // the real client IP before it reaches Laravel.
+        // This used to be '*', on the assumption that Caddy was the only
+        // thing that could reach Laravel. Under native nginx the origin is
+        // internet-facing, and '*' let anyone who connected to it directly
+        // pick their own `$request->ip()` with a forged X-Forwarded-For —
+        // walking straight past every IP-keyed rate limit and the login
+        // lockout. Do not widen this without a proxy that overwrites the
+        // header in front of every route to the app.
         $middleware->trustProxies(
-            at: '*',
+            at: ['127.0.0.1', '::1'],
             headers: Request::HEADER_X_FORWARDED_FOR
                 | Request::HEADER_X_FORWARDED_HOST
                 | Request::HEADER_X_FORWARDED_PORT

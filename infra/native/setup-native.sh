@@ -163,6 +163,9 @@ for conf in gocast-api gocast-app gocast-icecast gocast-stream; do
   ln -sf "/etc/nginx/sites-available/${conf}.conf" "/etc/nginx/sites-enabled/${conf}.conf"
   echo "  ✓ ${conf}.conf"
 done
+# http-level, not a vhost: real client IPs behind Cloudflare for every server.
+install -m 644 "$NATIVE/nginx/cloudflare-realip.conf" /etc/nginx/conf.d/cloudflare-realip.conf
+echo "  ✓ conf.d/cloudflare-realip.conf"
 # Ubuntu's stock default vhost is `default_server` on :80, which means it
 # answers any Host header that does not match ours — including the ACME
 # challenge for a hostname whose vhost has a typo. Removing it turns that
