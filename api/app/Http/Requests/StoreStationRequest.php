@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\OwnStorageUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -28,10 +29,8 @@ class StoreStationRequest extends FormRequest
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'genre' => ['nullable', 'string', 'max:255'],
-            // url:http,https, not a bare url — see UpdateStationRequest. The
-            // default protocol list passes file:// and data://, and this is
-            // rendered as an <img src> on a public page.
-            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048'],
+            // Our own storage only — see UpdateStationRequest and OwnStorageUrl.
+            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048', new OwnStorageUrl],
         ];
     }
 }

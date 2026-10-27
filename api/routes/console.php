@@ -157,3 +157,19 @@ Schedule::command('queue:check-backlog')
     ->everyMinute()
     ->withoutOverlapping(5)
     ->runInBackground();
+
+// Security signals from the nginx logs: one address piling up 4xx responses,
+// or repeatedly refused (444) for connecting to the origin without going
+// through Cloudflare. Every five minutes — the thresholds in
+// config/security.php are per scan, so the interval is part of their meaning.
+Schedule::command('security:scan-access-logs')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10)
+    ->runInBackground();
+
+// The public vhosts accept Cloudflare edges only; a range Cloudflare adds that
+// nginx lacks would silently refuse real visitors. Weekly is plenty: the list
+// changes a few times a decade. Alerts only — see CheckCloudflareRanges.
+Schedule::command('security:check-cloudflare-ranges')
+    ->weeklyOn(1, '09:00')
+    ->withoutOverlapping();

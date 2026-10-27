@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\NormalizesTimezone;
 use App\Models\Station;
+use App\Rules\OwnStorageUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -45,8 +46,10 @@ class UpdateStationRequest extends FormRequest
             // url:http,https rather than a bare url: the default protocol
             // list is the whole IANA registry, so file://, data:// and
             // view-source:// all pass it — and this value is rendered as an
-            // <img src> on a public page.
-            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048'],
+            // <img src> on a public page. OwnStorageUrl then narrows it to a
+            // file we serve ourselves: an external URL was the SSRF bait in
+            // the 2026-10-27 probe.
+            'artwork_url' => ['nullable', 'string', 'url:http,https', 'max:2048', new OwnStorageUrl],
             // Freeform station links. The cap is a layout bound, not a plan
             // one: past about eight the row on the player stops reading as a
             // set of icons and starts reading as a footer.

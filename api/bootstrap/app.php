@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureEmailIsVerified;
+use App\Http\Middleware\FlagCallbackDomains;
 use App\Http\Middleware\UseAuthTokenCookie;
 use App\Http\Middleware\VerifyInternalKey;
 use App\Services\InviteException;
@@ -77,6 +78,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             UseAuthTokenCookie::class,
         ]);
+
+        // Telegram alert when input carries an out-of-band callback host
+        // (dnslog.cn and friends) — the SSRF bait of the 2026-10-27 probe.
+        // Observe only; see FlagCallbackDomains.
+        $middleware->api(append: [FlagCallbackDomains::class]);
+        $middleware->web(append: [FlagCallbackDomains::class]);
 
         // One-click unsubscribe (RFC 8058). Gmail and Apple Mail POST to the
         // List-Unsubscribe-Post URL from their own infrastructure: no session,

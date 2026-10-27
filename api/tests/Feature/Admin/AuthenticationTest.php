@@ -15,8 +15,8 @@ it('renders the login page for guests', function () {
         ->assertSee('Sign in');
 });
 
-it('authenticates an admin and sends them to the stations page', function () {
-    $admin = Admin::factory()->create();
+it('authenticates an admin without two-factor and sends them to the stations page', function () {
+    $admin = Admin::factory()->withoutTwoFactor()->create();
 
     $this->post(route('admin.login.store'), [
         'email' => $admin->email,
@@ -27,7 +27,7 @@ it('authenticates an admin and sends them to the stations page', function () {
 });
 
 it('records the login timestamp', function () {
-    $admin = Admin::factory()->create(['last_login_at' => null]);
+    $admin = Admin::factory()->withoutTwoFactor()->create(['last_login_at' => null]);
 
     $this->post(route('admin.login.store'), [
         'email' => $admin->email,

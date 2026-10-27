@@ -10,7 +10,10 @@ use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RawEmailController;
 use App\Http\Controllers\Admin\StationController;
+use App\Http\Controllers\Admin\TwoFactorChallengeController;
+use App\Http\Controllers\Admin\TwoFactorSetupController;
 use App\Http\Controllers\Admin\WatermarkClipController;
+use App\Http\Middleware\EnsureAdminTwoFactor;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -28,9 +31,22 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('guest:admin')->group(function () {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('login', [AuthenticatedSessionController::class, 'store'])->name('login.store');
+
+    // Second sign-in step for an admin with two-factor on. Still guest:
+    // nothing is signed in until the code is accepted.
+    Route::get('two-factor', [TwoFactorChallengeController::class, 'create'])->name('two-factor.challenge');
+    Route::post('two-factor', [TwoFactorChallengeController::class, 'store'])->name('two-factor.verify');
 });
 
+// Setting up two-factor, and signing out, are the only pages an admin without
+// it can reach; EnsureAdminTwoFactor sends every other request here.
 Route::middleware('auth:admin')->group(function () {
+    Route::get('two-factor/setup', [TwoFactorSetupController::class, 'show'])->name('two-factor.setup');
+    Route::post('two-factor/setup', [TwoFactorSetupController::class, 'store'])->name('two-factor.confirm');
+    Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+});
+
+Route::middleware(['auth:admin', EnsureAdminTwoFactor::class])->group(function () {
     Route::redirect('/', '/admin/stations')->name('home');
     Route::get('stations', [StationController::class, 'index'])->name('stations.index');
 
@@ -117,6 +133,4 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('watermark', [WatermarkClipController::class, 'index'])->name('watermark.index');
     Route::post('watermark', [WatermarkClipController::class, 'store'])->name('watermark.store');
     Route::delete('watermark', [WatermarkClipController::class, 'destroy'])->name('watermark.destroy');
-
-    Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 });

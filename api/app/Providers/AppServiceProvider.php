@@ -19,6 +19,7 @@ use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\FakeGateway;
 use App\Services\Billing\Gateway\OxaPayGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\SecuritySignals;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -170,6 +171,14 @@ class AppServiceProvider extends ServiceProvider
         WaitlistEntry::updated(fn (WaitlistEntry $entry) => app(AdminTelegram::class)->accessRequested($entry, isNew: false));
         Station::created(fn (Station $station) => app(AdminTelegram::class)->stationCreated($station));
         StreamSession::created(fn (StreamSession $session) => app(AdminTelegram::class)->broadcastStarted($session));
+
+        // Sign-up bursts per address. Only inside a routed request: a seeder,
+        // an artisan command or a factory has no client address worth counting.
+        User::created(function (User $user) {
+            if (request()->route() !== null) {
+                app(SecuritySignals::class)->registered((string) request()->ip(), $user->email);
+            }
+        });
 
         // Send the welcome email the moment a user verifies. Anchored on
         // verification (not registration) so the email is reachable, and so

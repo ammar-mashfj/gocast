@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\Admin;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -20,6 +22,10 @@ use Illuminate\Validation\ValidationException;
  *
  * Authenticates against the `admin` guard only; a `users` row can never log
  * in here no matter what credentials it presents.
+ *
+ * Checks the password without signing in: an admin with two-factor login
+ * still has a code to give (TwoFactorChallengeController), so signing in is
+ * the controller's call once it knows which step comes next.
  */
 class LoginRequest extends FormRequest
 {
@@ -30,13 +36,14 @@ class LoginRequest extends FormRequest
 
     /**
      * Failed attempts allowed from one IP, across every email, per window.
+     * Shared with the two-factor code step, so guesses there spend it too.
      */
-    private const MAX_ATTEMPTS_PER_IP = 20;
+    public const MAX_ATTEMPTS_PER_IP = 20;
 
     /**
      * How long the per-IP budget takes to refill, in seconds.
      */
-    private const IP_DECAY_SECONDS = 900;
+    public const IP_DECAY_SECONDS = 900;
 
     public function authorize(): bool
     {
@@ -57,13 +64,20 @@ class LoginRequest extends FormRequest
     /**
      * @throws ValidationException
      */
-    public function authenticate(): void
+    public function authenticate(): Admin
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::guard('admin')->attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        $guard = Auth::guard('admin');
+        $credentials = $this->only('email', 'password');
+
+        if (! $guard->validate($credentials)) {
             RateLimiter::hit($this->throttleKey());
             RateLimiter::hit($this->ipThrottleKey(), self::IP_DECAY_SECONDS);
+
+            // attempt() would raise this itself; validate() does not, and the
+            // authentication log records failures from it.
+            event(new Failed('admin', $guard->getLastAttempted(), $credentials));
 
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
@@ -71,6 +85,11 @@ class LoginRequest extends FormRequest
         }
 
         RateLimiter::clear($this->throttleKey());
+
+        /** @var Admin $admin */
+        $admin = $guard->getLastAttempted();
+
+        return $admin;
     }
 
     /**
@@ -111,6 +130,11 @@ class LoginRequest extends FormRequest
      */
     public function ipThrottleKey(): string
     {
-        return 'admin-login-ip|'.$this->ip();
+        return self::ipThrottleKeyFor((string) $this->ip());
+    }
+
+    public static function ipThrottleKeyFor(string $ip): string
+    {
+        return 'admin-login-ip|'.$ip;
     }
 }

@@ -107,6 +107,10 @@ if ! id -u "$RUN_USER" >/dev/null 2>&1; then
 else
   echo "  · $RUN_USER exists"
 fi
+# `adm` reads /var/log/nginx: security:scan-access-logs (scheduler) alerts on
+# 4xx storms and direct-to-origin attempts from those logs.
+usermod -aG adm "$RUN_USER"
+echo "  ✓ $RUN_USER in adm (nginx logs)"
 
 echo "==> Per-station data directories"
 # GID 101 is the `liquidsoap` group inside savonet/liquidsoap. It is the one
@@ -158,7 +162,8 @@ docker build -t gocast/liquidsoap:latest "$REPO_ROOT/infra/liquidsoap/"
 echo "  ✓ gocast/liquidsoap:latest"
 
 echo "==> nginx vhosts"
-for conf in gocast-api gocast-app gocast-icecast gocast-stream; do
+# gocast-default is the catch-all for unknown hostnames (444 / refused TLS).
+for conf in gocast-api gocast-app gocast-icecast gocast-stream gocast-default; do
   render "$NATIVE/nginx/${conf}.conf" > "/etc/nginx/sites-available/${conf}.conf"
   ln -sf "/etc/nginx/sites-available/${conf}.conf" "/etc/nginx/sites-enabled/${conf}.conf"
   echo "  ✓ ${conf}.conf"
@@ -261,8 +266,14 @@ GOCAST_SUBNET="$(docker network inspect gocast-network \
 : "${GOCAST_SUBNET:?could not read the gocast-network subnet}"
 
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow 80/tcp  >/dev/null
-  ufw allow 443/tcp >/dev/null
+  # Once ufw-cloudflare-only.sh has narrowed 80/443 to Cloudflare, re-running
+  # setup must not quietly open them to everyone again.
+  if ufw status | grep -q '# cloudflare'; then
+    echo "  · 80/443 are Cloudflare-only (ufw-cloudflare-only.sh); left as they are"
+  else
+    ufw allow 80/tcp  >/dev/null
+    ufw allow 443/tcp >/dev/null
+  fi
   for cidr in "$GOCAST_SUBNET" 172.17.0.0/16; do
     ufw allow from "$cidr" to any port "$ICECAST_PORT"      proto tcp >/dev/null
     ufw allow from "$cidr" to any port "$INTERNAL_API_PORT" proto tcp >/dev/null
