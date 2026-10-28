@@ -59,7 +59,6 @@ sources:
   - client/app/dashboard.css
   - client/components/homepage/CtaSection.tsx
   - client/components/homepage/Footer.tsx
-  - client/components/homepage/heroSection/HeroLevelMeter.tsx
   - client/components/homepage/heroSection/HeroSection.tsx
   - client/components/homepage/heroSection/HeroStationPlayer.tsx
   - client/components/homepage/heroSection/official.ts

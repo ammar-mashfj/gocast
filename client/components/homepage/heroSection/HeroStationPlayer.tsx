@@ -2,17 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Hls from "hls.js"
-import { IconExternalLink, IconLoader2, IconPlayerPauseFilled, IconPlayerPlayFilled } from "@tabler/icons-react"
+import { IconChevronRight, IconLoader2, IconPlayerPauseFilled, IconPlayerPlayFilled } from "@tabler/icons-react"
 import { Station } from "@/interfaces/Station"
 import { env } from "@/lib/env"
 import { createNetworkRecovery } from "@/lib/hlsRecovery"
 import { createPlaylistLoader } from "@/lib/hlsPlaylistLoader"
 import { StationArtwork } from "@/components/StationArtwork"
 import { StatusLamp } from "@/components/ds/StatusLamp"
-import { Tag } from "@/components/ds/Tag"
 import { useListenerSession } from "@/hooks/useListenerSession"
 import { usePublicStationFeed, type PublicStationStats } from "@/hooks/usePublicStationStats"
-import { HeroLevelMeter } from "./HeroLevelMeter"
 import { OFFICIAL_SLUG } from "./official"
 
 /**
@@ -211,73 +209,42 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
   const title = stats.now_playing.title
   const artist = stats.now_playing.artist
 
-  // What the transport row says. The track only shows while audio is
-  // actually playing here: it comes from the poll, which only runs then.
-  const line = playing && !loading
-    ? title
+  // The line under the name. The track only shows while audio is actually
+  // playing here: it comes from the poll, which only runs then.
+  const line = loading
+    ? "Connecting…"
+    : playing && title
       ? artist
         ? `${title} — ${artist}`
         : title
-      : "You’re listening live"
-    : loading
-      ? "Connecting…"
       : offAir
-        ? "Nothing on air right now"
-        : "Listen in"
+        ? "Back on air shortly."
+        : "The station that never signs off."
 
   return (
-    <div className="flex flex-col gap-5 rounded-hero bg-card p-5 sm:p-7">
-      {/* Status row. Two states, like the station page: whether a person or
-          AutoDJ is on is the owner's business, so the public only sees
-          ON AIR or OFF AIR. */}
-      <div className="flex items-center justify-between gap-3">
-        {offAir ? (
-          <StatusLamp tone="off" variant="solid">Off air</StatusLamp>
-        ) : (
-          <StatusLamp tone="onair" variant="solid">On air</StatusLamp>
-        )}
-        {/* Unconditional, and a plain anchor rather than next/link: the slug
-            is a constant, so this survives the API being down, and a hero
-            link most visitors never take should not prefetch a whole route. */}
-        <a
-          href={`/station/${station?.slug ?? OFFICIAL_SLUG}`}
-          target="_blank"
-          rel="noopener"
-          className="inline-flex items-center gap-1 text-body-sm font-semibold text-on-air-text no-underline transition-colors hover:text-foreground"
-        >
-          Player page
-          <IconExternalLink size={14} aria-hidden="true" />
-          <span className="sr-only">(opens in a new tab)</span>
-        </a>
-      </div>
-
-      {/* Artwork + meta. A square tile: the artwork is a brand tile that
-          carries its own rings, so cropping it to a disc only threw away
-          its corners. */}
-      {/* Phone: a 104px tile and a 22px name, so "GoCast Official" fits the
-          text column on one line at 360 wide and the name wraps to two lines
-          that fill it; the comp's 148px tile leaves only ~120px of column
-          there and the name ends up three short lines. */}
-      <div className="grid grid-cols-[minmax(0,104px)_minmax(0,1fr)] items-center gap-4 sm:grid-cols-[minmax(0,148px)_minmax(0,1fr)] sm:gap-6">
+    <div className="flex flex-col gap-4 rounded-hero bg-card p-4 sm:gap-5 sm:p-5">
+      {/* Phones: the artwork full width, then name and play under it. From sm
+          one row: artwork, name, play. A square tile either way: the artwork
+          is a brand tile that carries its own rings. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-4 sm:grid-cols-[8.25rem_minmax(0,1fr)_auto] sm:gap-x-5">
         <StationArtwork
           src={OFFICIAL_ARTWORK}
           alt={name}
-          className="aspect-square w-full overflow-hidden rounded-well"
+          className="col-span-2 aspect-square w-full overflow-hidden rounded-well sm:col-span-1"
           iconSize={30}
-          sizes="(max-width: 640px) 104px, 148px"
-          priority
+          sizes="(max-width: 640px) 100vw, 132px"
         />
-        <div className="flex min-w-0 flex-col gap-2">
-          <Tag className="self-start font-mono uppercase tracking-widest text-foreground">Official</Tag>
-          <span className="font-display text-title-sm sm:text-title-lg sm:text-balance">{name}</span>
-          <span className="text-body text-muted-foreground">
-            {offAir ? "Back on air shortly" : "The station that never signs off"}
-          </span>
+        <div className="flex min-w-0 flex-col gap-2 sm:gap-2.5">
+          {/* Public states only, like the station page: whether a person or
+              AutoDJ is on is the owner's business. */}
+          {offAir ? (
+            <StatusLamp tone="off">Off air</StatusLamp>
+          ) : (
+            <StatusLamp tone="onair">{playing ? "On air · You’re listening" : "On air"}</StatusLamp>
+          )}
+          <span className="font-display text-title-sm sm:text-title">{name}</span>
+          <span className="hidden truncate text-body text-muted-foreground sm:block">{line}</span>
         </div>
-      </div>
-
-      {/* Transport well */}
-      <div className="flex items-center gap-4 rounded-card bg-surface-inset p-4">
         <button
           type="button"
           onClick={toggle}
@@ -285,29 +252,35 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
           // API saying the mount is down is reason enough to refuse a press.
           disabled={known === false && !playing && !loading}
           aria-label={playing ? `Pause ${name}` : `Play ${name}`}
-          className="flex size-14 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-[opacity,transform] duration-150 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.96] disabled:opacity-45"
+          className="flex size-14.5 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-[opacity,transform] duration-150 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] disabled:opacity-45 sm:size-16"
         >
           {loading ? (
-            <IconLoader2 size={20} className="animate-spin" />
+            <IconLoader2 size={22} className="animate-spin" />
           ) : playing ? (
-            <IconPlayerPauseFilled size={20} />
+            <IconPlayerPauseFilled size={22} />
           ) : (
-            <IconPlayerPlayFilled size={20} className="ml-0.5" />
+            <IconPlayerPlayFilled size={22} className="ml-0.5" />
           )}
         </button>
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <span className="truncate font-display text-base font-bold">{line}</span>
-          {playing && !loading ? (
-            /* Not a progress bar. A live stream has no position; a level
-               meter is the only honest shape, and it only moves while audio
-               is actually playing. */
-            <HeroLevelMeter />
-          ) : (
-            <span className="text-body-sm text-text-faint">
-              {offAir ? "The official station is between shows." : "Press play — it’s a real station"}
-            </span>
-          )}
-        </div>
+      </div>
+
+      <div className="flex items-center justify-center border-t border-line sm:justify-between sm:px-1">
+        <span className="hidden font-mono text-caption font-semibold tracking-widest text-text-faint uppercase sm:block">
+          No app · No account
+        </span>
+        {/* A plain anchor rather than next/link: the slug is a constant, so
+            this survives the API being down, and a link most visitors never
+            take should not prefetch a whole route. */}
+        <a
+          href={`/station/${station?.slug ?? OFFICIAL_SLUG}`}
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center gap-1 py-3.5 text-body font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+        >
+          Open player page
+          <IconChevronRight size={16} aria-hidden="true" />
+          <span className="sr-only">(opens in a new tab)</span>
+        </a>
       </div>
 
       {/* One element, both transports — volume, mute and the OS media keys
