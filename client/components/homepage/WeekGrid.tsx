@@ -21,7 +21,7 @@ function pct(minute: number) {
  * "Now" is this browser's clock, read after mount so the server and the
  * client never disagree; until then the lamp says On air and nothing more.
  *
- * Below md the grid, its chips and its legend are replaced by WeekDayList,
+ * Below lg the grid, its chips and its legend are replaced by WeekDayList,
  * the day strip + rows the real Schedule page uses on phones.
  */
 export function WeekGrid() {
@@ -50,7 +50,7 @@ export function WeekGrid() {
             On air{nowName ? ` · ${nowName}` : ""}
           </StatusLamp>
         </div>
-        <div className="hidden flex-wrap gap-2 md:flex" role="group" aria-label="Show one playlist">
+        <div className="hidden flex-wrap gap-2 lg:flex" role="group" aria-label="Show one playlist">
           <Chip selected={filter === null} onClick={() => setFilter(null)}>
             All
           </Chip>
@@ -63,12 +63,13 @@ export function WeekGrid() {
         </div>
       </div>
 
-      {/* Below md the grid gives way to the day list: see WeekDayList. */}
-      <div className="md:hidden">
+      {/* Below lg the grid gives way to the day list (see WeekDayList): at
+          tablet width the blocks are too short for their names. */}
+      <div className="lg:hidden">
         <WeekDayList now={now} />
       </div>
 
-      <div className="hidden flex-col gap-1.5 md:flex">
+      <div className="hidden flex-col gap-1.5 lg:flex">
         <div className="grid grid-cols-[40px_1fr] gap-2.5">
           <span />
           <div className="flex justify-between font-mono text-micro text-text-faint" aria-hidden="true">
@@ -105,7 +106,7 @@ export function WeekGrid() {
                       )}
                       style={{ left: pct(s.from), width: `calc(${((s.to - s.from) / MINUTES_PER_DAY) * 100}% - 2px)` }}
                     >
-                      <span className={cn("hidden", s.to - s.from >= 180 && "md:inline")}>{p.name}</span>
+                      <span className={cn("hidden", s.to - s.from >= 180 && "lg:inline")}>{p.name}</span>
                     </span>
                   )
                 })}
@@ -122,7 +123,7 @@ export function WeekGrid() {
         })}
       </div>
 
-      <div className="hidden flex-wrap items-center gap-x-4.5 gap-y-1.5 text-body-sm text-muted-foreground md:flex">
+      <div className="hidden flex-wrap items-center gap-x-4.5 gap-y-1.5 text-body-sm text-muted-foreground lg:flex">
         <span className="inline-flex items-center gap-2">
           <span aria-hidden className="size-3 rounded-swatch border border-line-strong bg-surface-inset" />
           All Tracks fills the gaps
