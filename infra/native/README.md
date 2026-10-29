@@ -276,6 +276,12 @@ second look, because a wrong value fails silently:
   station pages trips it and gets error pages. Put the same value in
   `api/.env` and in `/etc/gocast/client.env` (`RENDER_API_KEY=…`, mode 0600,
   read by `gocast-client.service`), then restart both.
+- **`INTERNAL_API_URL=http://127.0.0.1:8082/api`** in `/etc/gocast/client.env`.
+  The Next server's own API calls then use the loopback vhost in
+  `nginx/gocast-api.conf` instead of going out through Cloudflare and back,
+  which intermittently times out ("Station fetch failed"). Do not pin the API
+  host to 127.0.0.1 in `/etc/hosts` instead: next/image then refuses every
+  artwork URL as a private address.
 - **`LIQUIDSOAP_INGEST_URL`.** Empty means Laravel hands the studio a raw
   `ws://<container-ip>:8090/{slug}` — plain text, and unreachable from
   anywhere but this host.
