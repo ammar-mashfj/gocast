@@ -64,7 +64,9 @@ class IcecastAdmin
 
     public function killSource(Station $station): bool
     {
-        return $this->get('/admin/killsource', ['mount' => $station->icecast_mount]) !== null;
+        // 404 is the usual answer, not a failure: End show closes the studio's
+        // socket before the stop request, so the source is normally gone already.
+        return $this->get('/admin/killsource', ['mount' => $station->icecast_mount], goneIsDone: true) !== null;
     }
 
     public function updateMetadata(Station $station, ?string $title, ?string $artist): bool
@@ -82,7 +84,7 @@ class IcecastAdmin
     /**
      * @param  array<string, string>  $query
      */
-    private function get(string $path, array $query = []): ?string
+    private function get(string $path, array $query = [], bool $goneIsDone = false): ?string
     {
         $base = rtrim((string) config('services.icecast.url'), '/');
         $password = (string) config('services.icecast.admin_password');
@@ -99,6 +101,10 @@ class IcecastAdmin
             Log::warning('Icecast admin call failed', ['path' => $path, 'error' => $e->getMessage()]);
 
             return null;
+        }
+
+        if ($goneIsDone && $response->notFound()) {
+            return '';
         }
 
         if (! $response->successful()) {

@@ -5,12 +5,14 @@ use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\BroadcastTokenService;
+use App\Services\IcecastAdmin;
 use App\Services\StationAudioPolicy;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Testing\TestResponse;
 
@@ -186,6 +188,15 @@ describe('the power switch', function () {
         app(StationLifecycleService::class)->stop($station, force: true);
 
         expect($station->refresh()->desired_state)->toBe(Station::STATE_STOPPED);
+    });
+
+    it('treats a source that already left as cut, without a warning', function () {
+        // End show closes the studio socket first; Icecast answers 404.
+        $this->icecastStatus = 404;
+        Log::spy();
+
+        expect(app(IcecastAdmin::class)->killSource(relayStation()))->toBeTrue();
+        Log::shouldNotHaveReceived('warning');
     });
 });
 
