@@ -562,7 +562,9 @@ RELAY_PORTS=(8095 8096)
 RELAY_GO_IMAGE="golang:1.27.3"
 build_relay() {
   local bin="$REPO_ROOT/relay/bin"
-  as_app mkdir -p "$bin/.new" "$REPO_ROOT/relay/.cache"
+  # install -d as root, not `as_app mkdir`: this script's `git pull` runs as
+  # root, so relay/ itself is root-owned the first time it arrives.
+  install -d -o "$RUN_USER" -g "$RUN_USER" "$bin" "$bin/.new" "$REPO_ROOT/relay/.cache"
   docker run --rm \
     --user "$(id -u "$RUN_USER"):$(id -g "$RUN_USER")" \
     -v "$REPO_ROOT/relay:/src" -w /src \
@@ -580,7 +582,13 @@ relay_healthy() {
   done
   return 1
 }
-if changed relay/; then
+# Rebuilt when the binary on disk was not built from this tree, not when
+# relay/ changed since the last deploy: a failed build does not fail the
+# deploy, so a diff-based check would never retry it.
+RELAY_TREE="$(git rev-parse HEAD:relay)"
+RELAY_STAMP="$REPO_ROOT/relay/bin/.built-tree"
+if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
+      || "$(cat "$RELAY_STAMP" 2>/dev/null)" != "$RELAY_TREE" ]]; then
   if ! build_relay; then
     MANUAL_STEPS+=("the relay failed to BUILD — the running relay was left alone. Rebuild by hand
       and see the error above: sudo FULL_DEPLOY=1 bash infra/native/deploy-native.sh")
@@ -591,6 +599,7 @@ if changed relay/; then
       # rename(2): a running process keeps the inode it started from.
       as_app mv -f "$bin/.new/$name" "$bin/$name"
     done
+    echo "$RELAY_TREE" | as_app tee "$RELAY_STAMP" >/dev/null
     if [[ ! -f /etc/systemd/system/gocast-relay@.service ]]; then
       MANUAL_STEPS+=("the relay is built but not installed — run setup-native.sh once")
     else
@@ -601,6 +610,7 @@ if changed relay/; then
         else
           echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
           [[ -f "$bin/gocast-relay.prev" ]] && as_app cp -p "$bin/gocast-relay.prev" "$bin/gocast-relay"
+          rm -f "$RELAY_STAMP"
           systemctl restart "gocast-relay@${port}" || true
           MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:
       journalctl -u gocast-relay@${port} -n 50")
