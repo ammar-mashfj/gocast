@@ -188,10 +188,18 @@ done
 echo "  ✓ pool + ini for php${PHP_VERSION} (fpm, cli)"
 
 echo "==> systemd units"
-for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client; do
+# gocast-relay@ is a template: instances gocast-relay@8095 and @8096, enabled
+# in the Relay step below.
+for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client \
+            gocast-relay@ gocast-standby; do
   render "$NATIVE/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
   echo "  ✓ ${unit}.service"
 done
+# Every Free listener now plays Icecast directly, and every relay studio holds
+# a source there: the package default of 1024 open files is far too few.
+mkdir -p /etc/systemd/system/icecast2.service.d
+printf '[Service]\nLimitNOFILE=65536\n' > /etc/systemd/system/icecast2.service.d/gocast-limits.conf
+echo "  ✓ icecast2 LimitNOFILE=65536"
 systemctl daemon-reload
 
 echo "==> Icecast config"
@@ -217,13 +225,23 @@ if [[ -z "${ICECAST_SOURCE_PASSWORD:-}" ]]; then
 else
   # Same envsubst call the container entrypoint uses, restricted to exactly
   # these names so any literal '$' elsewhere in the XML survives.
+  # ICECAST_CALLBACK_*: the Basic credential Icecast sends to Laravel for
+  # relay logins and source events (config/relay.php). Unset, Pro is
+  # unaffected but every relay login is refused — the relay is effectively
+  # off, whatever RELAY_ENABLED says.
+  if [[ -z "${ICECAST_CALLBACK_PASSWORD:-}" ]]; then
+    echo "  ! ICECAST_CALLBACK_PASSWORD is not set in api/.env — Free stations on the"
+    echo "    relay will be refused until it is (Pro is unaffected)."
+  fi
   render "$NATIVE/icecast/icecast.xml.tpl" \
     | ICECAST_SOURCE_PASSWORD="$ICECAST_SOURCE_PASSWORD" \
-      ICECAST_RELAY_PASSWORD="${ICECAST_RELAY_PASSWORD:-$ICECAST_SOURCE_PASSWORD}" \
       ICECAST_ADMIN_USER="${ICECAST_ADMIN_USER:-admin}" \
       ICECAST_ADMIN_PASSWORD="${ICECAST_ADMIN_PASSWORD:?set in api/.env}" \
       ICECAST_MAX_SOURCES="${ICECAST_MAX_SOURCES:-150}" \
-      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_RELAY_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD} ${ICECAST_MAX_SOURCES}' \
+      ICECAST_MAX_CLIENTS="${ICECAST_MAX_CLIENTS:-5000}" \
+      ICECAST_CALLBACK_USER="${ICECAST_CALLBACK_USER:-icecast}" \
+      ICECAST_CALLBACK_PASSWORD="${ICECAST_CALLBACK_PASSWORD:-}" \
+      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD} ${ICECAST_MAX_SOURCES} ${ICECAST_MAX_CLIENTS} ${ICECAST_CALLBACK_USER} ${ICECAST_CALLBACK_PASSWORD}' \
     > /etc/icecast2/icecast.xml
   chown root:icecast /etc/icecast2/icecast.xml
   chmod 0640 /etc/icecast2/icecast.xml
@@ -231,6 +249,13 @@ else
   # start until it is flipped.
   sed -i 's/^ENABLE=.*/ENABLE=true/' /etc/default/icecast2 2>/dev/null || true
   echo "  ✓ /etc/icecast2/icecast.xml"
+
+  # The standby feeder's only secret, kept out of its command line (`ps`).
+  install -d -m 0750 -o root -g "$RUN_USER" /etc/gocast
+  printf 'ICECAST_SOURCE_PASSWORD=%s\n' "$ICECAST_SOURCE_PASSWORD" > /etc/gocast/standby.env
+  chown root:"$RUN_USER" /etc/gocast/standby.env
+  chmod 0640 /etc/gocast/standby.env
+  echo "  ✓ /etc/gocast/standby.env"
 fi
 
 echo "==> Support containers"
@@ -293,6 +318,33 @@ else
   echo "    listening on all interfaces — close them before going live."
 fi
 
+
+echo "==> Relay"
+# Enabled here; built and (re)started by deploy-native.sh, which owns the
+# binary. Started now only if a deploy has already built it.
+systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
+if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
+  systemctl restart gocast-relay@8095; sleep 3; systemctl restart gocast-relay@8096
+  systemctl restart gocast-standby
+  echo "  ✓ gocast-relay@8095, gocast-relay@8096, gocast-standby running"
+else
+  echo "  · enabled; the next deploy builds and starts them"
+fi
+
+# nginx holds two sockets per relay studio and two per Icecast listener. The
+# Ubuntu default (768 connections per worker, 1024 open files) caps the relay
+# lab at about 1,000 studios. worker_rlimit_nofile is a main-context
+# directive; modules-enabled/ is the include Ubuntu's nginx.conf reads there.
+printf 'worker_rlimit_nofile 65536;\n' > /etc/nginx/modules-enabled/90-gocast-limits.conf
+if grep -Eq '^\s*worker_connections\s+[0-9]+;' /etc/nginx/nginx.conf; then
+  current="$(grep -Eo '^\s*worker_connections\s+[0-9]+' /etc/nginx/nginx.conf | grep -Eo '[0-9]+$')"
+  if (( current < 8192 )); then
+    sed -Ei 's/^(\s*worker_connections\s+)[0-9]+;/\18192;/' /etc/nginx/nginx.conf
+    echo "  ✓ nginx worker_connections ${current} → 8192, worker_rlimit_nofile 65536"
+  else
+    echo "  · nginx worker_connections already ${current}; worker_rlimit_nofile 65536"
+  fi
+fi
 
 echo ""
 echo "✓ Host provisioned."

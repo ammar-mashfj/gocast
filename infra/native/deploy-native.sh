@@ -546,6 +546,78 @@ for i in $(seq 1 20); do
   sleep 3
 done
 
+echo "==> Relay"
+# The Free-plan ingest (relay/, docs/RELAY-SERVICE-PLAN.md). Built only when
+# relay/ changed, in a throwaway golang container so the host needs no Go,
+# and as $RUN_USER so nothing in the tree ends up root-owned.
+#
+# Then a ROLLING restart: @8095, wait until it answers /healthz, settle, then
+# @8096. Each restart closes that copy's studios with 1001 and they reconnect
+# to the other copy within milliseconds (relay lab: show back in 45-173 ms,
+# listeners hear at most ~2 s of standby silence). Never both at once.
+#
+# Independent of the API: a relay that fails to come up puts the previous
+# binary back and is reported below, but does not roll back this deploy.
+RELAY_PORTS=(8095 8096)
+RELAY_GO_IMAGE="golang:1.27.3"
+build_relay() {
+  local bin="$REPO_ROOT/relay/bin"
+  as_app mkdir -p "$bin/.new" "$REPO_ROOT/relay/.cache"
+  docker run --rm \
+    --user "$(id -u "$RUN_USER"):$(id -g "$RUN_USER")" \
+    -v "$REPO_ROOT/relay:/src" -w /src \
+    -e CGO_ENABLED=0 -e GOFLAGS=-mod=readonly \
+    -e GOCACHE=/src/.cache/build -e GOMODCACHE=/src/.cache/mod -e HOME=/tmp \
+    "$RELAY_GO_IMAGE" \
+    sh -c 'go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-relay ./cmd/relay &&
+           go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-standby ./cmd/standby'
+}
+relay_healthy() {
+  local port=$1 i
+  for i in $(seq 1 20); do
+    curl -fsS --max-time 1 "http://127.0.0.1:1${port}/healthz" >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  return 1
+}
+if changed relay/; then
+  if ! build_relay; then
+    MANUAL_STEPS+=("the relay failed to BUILD — the running relay was left alone. Rebuild by hand
+      and see the error above: sudo FULL_DEPLOY=1 bash infra/native/deploy-native.sh")
+  else
+    bin="$REPO_ROOT/relay/bin"
+    for name in gocast-relay gocast-standby; do
+      [[ -f "$bin/$name" ]] && as_app cp -p "$bin/$name" "$bin/$name.prev"
+      # rename(2): a running process keeps the inode it started from.
+      as_app mv -f "$bin/.new/$name" "$bin/$name"
+    done
+    if [[ ! -f /etc/systemd/system/gocast-relay@.service ]]; then
+      MANUAL_STEPS+=("the relay is built but not installed — run setup-native.sh once")
+    else
+      for port in "${RELAY_PORTS[@]}"; do
+        systemctl restart "gocast-relay@${port}"
+        if relay_healthy "$port"; then
+          echo "  ✓ gocast-relay@${port} restarted"
+        else
+          echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
+          [[ -f "$bin/gocast-relay.prev" ]] && as_app cp -p "$bin/gocast-relay.prev" "$bin/gocast-relay"
+          systemctl restart "gocast-relay@${port}" || true
+          MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:
+      journalctl -u gocast-relay@${port} -n 50")
+          break
+        fi
+        # Let this copy's studios land on the other before restarting that one.
+        [[ "$port" != "${RELAY_PORTS[-1]}" ]] && sleep 10
+      done
+      # Listeners waiting on /standby at this instant are dropped; it takes a
+      # second, and only matters if some source is down right now.
+      systemctl restart gocast-standby || true
+    fi
+  fi
+else
+  echo "  · unchanged"
+fi
+
 echo "==> Reconciling containers against the station table"
 # Removes containers with no station row, removes containers for stopped or
 # soft-deleted stations, starts containers for stations that should be on air
