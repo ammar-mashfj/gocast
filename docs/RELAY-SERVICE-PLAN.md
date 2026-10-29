@@ -1,6 +1,9 @@
 # Free-plan relay — plan
 
-Status: PLAN, 2026-10-29, branch `relay-service`. Nothing built in this repo.
+Status: BUILT 2026-10-29 on branch `relay-service` (committed, not pushed),
+off by default (`RELAY_ENABLED=false`). Phases 1–5 pass locally; staging
+(Phase 6) is next. What the build itself changed is marked **(build)**; the
+log is §9.
 The design was proved end to end in a throwaway lab outside the repo
 (`~/Desktop/personal/gocast-relay-lab`, results in its `RESULTS.md`): Icecast
 checks, relay unit tests, three browsers, failure drills, load, a 1 h soak.
@@ -35,7 +38,8 @@ What Free gains:
 
 - No container, so there is no boot wait or 400 MB spike, and Docker trouble
   can't take a Free show off air.
-- Listeners hear the DJ about 2–5 s behind instead of 16–20 s.
+- Listeners hear the DJ about 8 s behind instead of 16–20 s, and start
+  playing about 1 s after pressing play **(build, §3.5)**.
 
 ## 1. The flow
 
@@ -168,19 +172,43 @@ Checked against the 2.5.0 source (`auth_url.c`, `cfgfile.c`, `source.c`) on
    and essential: it sends a listener back only to the mount they came from,
    never to whichever station reconnects first (lab 0.6). This also applies
    to Pro's Icecast listeners during a container restart.
-   `/standby` is a **live mount fed by one paced process**, not a file: a
-   `gocast-standby` systemd unit runs
-   `ffmpeg -re -stream_loop -1 -i silence.mp3 -c copy -f mp3 icecast://source:…@127.0.0.1:8000/standby`
-   (no encoding, negligible CPU). A file fallback failed twice in the lab:
+   `/standby` is a **live mount fed by one paced process**, not a file: the
+   `gocast-standby` unit runs `relay/cmd/standby`, which splits
+   `silence.mp3` into MP3 frames and writes each at its real time **(build:
+   replaces the lab's `ffmpeg -re`, so the host needs no ffmpeg; 5.5 MB,
+   same drill results)**. A file fallback failed twice in the lab:
    Icecast only starts a fallback file for mounts declared by name (Free
    mounts are created on the fly), and it serves the file unpaced, so
    browsers buffer minutes of silence and come back late.
    `silence.mp3` is 44.1 kHz stereo 128k, matching the studio.
-5. Raise `<sources>` (Free peak + Pro + headroom, starting at 500) and
-   icecast2's `LimitNOFILE` (65536). Keep `burst-size` 16384 (lab: 64 KB made
-   no difference).
-6. The public `gocast-icecast` vhost passes **GET/HEAD only**. Sources reach
-   Icecast on loopback from the relay and from containers.
+5. Raise `<sources>` (Free peak + Pro + headroom, starting at 500),
+   `<clients>` (`ICECAST_MAX_CLIENTS`, 5000: Free listeners now play Icecast,
+   and the old 500 counted sources too) and icecast2's `LimitNOFILE` (65536).
+   **Burst 128 KB, queue 256 KB (build).** Chrome will not start an MP3
+   stream until it holds ~128 KB: with 16 KB a Chrome listener pressed play
+   and heard 8 s of nothing. Measured on 2.5.0: Chrome 8.0 → 1.0 s, Firefox
+   2.0 → 1.0 s, WebKit ~1 s either way. The cost is that every listener
+   starts ~8 s behind live, where Chrome already was; it does not grow across
+   fallback switches (buffer depth held ~2.4 s over 20 drops).
+5a. **The static `source` role must match GET with `allow-admin="metadata"`
+   (build).** Liquidsoap sets Pro stream titles with a GET to `/admin/metadata`
+   using its source login; a role matching only `source,put` answered 401
+   (Pro would lose ICY titles). Checked: metadata 200, killsource and
+   listclients 401 for that login. The relay role has `deny-admin`.
+6. The public `gocast-icecast` vhost passes **GET/HEAD/OPTIONS only (build:
+   it passed every method until now)**. Sources reach Icecast on loopback
+   from the relay and from containers.
+7. **Decode errors on fallback switches (build).** Icecast splices a listener
+   onto `/standby` and back mid-frame; a few times per hundred abrupt drops
+   Chrome's decoder dies on the half frame (`MEDIA_ERR_DECODE`). The player
+   reconnects a second later on a fresh URL (at most 3 a minute); a same-URL
+   reload took up to a minute to play. Applies to Pro's Icecast listeners
+   too. Also measured: a Pro listener now rides out a container restart
+   (before, it was disconnected).
+8. Icecast's `/standby` listener counter underflows (it shows
+   18446744073709551613): listeners moved there are never added. Station
+   mounts count correctly through standby and back (3 → 3 → 0), so listener
+   counts and caps are unaffected; ignore `/standby` in stats.
 
 ## 4. Laravel
 
@@ -391,7 +419,8 @@ speakers.
 - Soak: 50 streams for 24 h. Pass: relay and Icecast memory flat.
 - Lab numbers (laptop, one core = 100 %): 2,000 studios + 2,000 listeners →
   each relay unit 44 %, 84 MB; Icecast 58 %, 239 MB; 0 drops; go-live p50
-  1.2 s. 1 h soak at 50 + 100: flat. The lab's `loadgen` comes along.
+  1.2 s. 1 h soak at 50 + 100: flat. `loadgen` stayed in the lab: it needs
+  the lab's fake API for tokens.
 
 ### Phase 6 — staging, through Cloudflare
 - Deploy with the real `deploy-native.sh` changes, then re-run Phase 3 and
@@ -409,25 +438,31 @@ speakers.
   redeploy needed. Shows already live on the relay finish where they are.
 
 ## 7. Deploy kit changes
-- `relay/` builds a static binary (`CGO_ENABLED=0`). `deploy-native.sh`
-  copies it and, only when the binary changed, restarts `gocast-relay@1`,
-  waits ~10 s and checks `/healthz`, then restarts `@2`. Never both at once;
-  not part of the generic `WORKER_UNITS` restart.
-- `infra/native/systemd/gocast-relay@.service` (port by instance,
-  `Type=simple`, `Restart=always`, no pid file, `LimitNOFILE=65536`).
-- `infra/native/systemd/gocast-standby.service`: the paced `/standby`
-  feeder (§3.4), `Restart=always`.
-- `setup-native.sh`: an nginx vhost `gocast-relay` for `relay.gocast.fm`
-  with the upstream to both units (`least_conn`, `max_fails=1
-  fail_timeout=2s`, `proxy_read_timeout 6h`), `worker_rlimit_nofile` raised
-  (each studio holds two sockets in nginx; the default 1,024 capped the lab
-  at ~1,000 studios), and the Icecast template changes from §3.
-- `infra/native/icecast/silence.mp3` (44.1 kHz stereo 128k) for the
-  standby feeder.
-- Env: `RELAY_ENABLED`, `RELAY_ROLLOUT`, `RELAY_INGEST_URL`, plus the Icecast
-  callback Basic credential on both sides.
-- DNS: `relay.gocast.fm`, proxied through Cloudflare.
-- A separate host keeps the relay movable to another box later.
+As built:
+
+- `deploy-native.sh`, when `relay/` changed: builds `gocast-relay` and
+  `gocast-standby` in a throwaway `golang:1.27.3` container as the app user
+  (the host needs no Go; the first build pulls the image, ~6 min), swaps the
+  binaries in, restarts `gocast-relay@8095`, waits for its `/healthz`,
+  waits 10 s, restarts `@8096`, then `gocast-standby`. A copy that fails its
+  health check gets the previous binary back and is reported; the API
+  deploy is not rolled back for it.
+- `infra/native/systemd/gocast-relay@.service`, instances named by port
+  (`@8095`, `@8096`, health on `18095`/`18096`); `Type=simple`,
+  `Restart=always`, no pid file, `LimitNOFILE=65536`, `-origins` = the
+  app's hosts.
+- `infra/native/systemd/gocast-standby.service`; its only secret is in
+  `/etc/gocast/standby.env`, written by setup from `api/.env`.
+- **The relay lives at `wss://<STREAM_HOST>/relay` (build)**, a location in
+  the existing `gocast-stream.conf` with the `gocast_relay` upstream: no new
+  hostname, vhost or DNS record.
+- `setup-native.sh`: renders the units and the 2.5 Icecast template (new
+  vars `ICECAST_MAX_CLIENTS`, `ICECAST_CALLBACK_USER/PASSWORD`), icecast2
+  `LimitNOFILE` drop-in, nginx `worker_rlimit_nofile 65536` (via
+  `modules-enabled/`) and `worker_connections` ≥ 8192, enables the relay
+  units.
+- Env (`api/.env.example`): `RELAY_ENABLED`, `RELAY_ROLLOUT`,
+  `RELAY_INGEST_URL`, `ICECAST_CALLBACK_USER/PASSWORD`, `ICECAST_MAX_CLIENTS`.
 
 ## 8. Decisions
 
@@ -441,8 +476,12 @@ Each is my recommendation; change any of them:
   either. It can be added later via `listener_add`.
 - **Cutover:** Free shows live at switch-on finish on their container. The
   path applies from the next start.
-- **Staging:** I need to know how staging is deployed and how I reach it
-  before Phase 6.
+- **Listener start vs delay (build):** burst 128 KB — start in ~1 s, ~8 s
+  behind live — over 16 KB, where Chrome listeners wait 8 s of silence. One
+  line in `icecast.xml.tpl` to revert.
+- **Relay address (build):** `stream.gocast.fm/relay`, not a new hostname.
+- **Path rule (build):** by capability (no AutoDJ and no encoder), not by
+  the `free` slug. Same set of accounts in prod today (checked 2026-10-29).
 
 ## 9. Results log
 
@@ -451,3 +490,22 @@ Each is my recommendation; change any of them:
 - 2026-10-29, lab: Phases 0, 1, 3 (3 browsers), 4, 5 and a 1 h soak all
   passed. Full table in the lab's `RESULTS.md`. Not proven there: Cloudflare
   in front (Phase 6), a real iPhone, production CPU numbers.
+- 2026-10-29, build (commits f8eff74..d618f79 on `relay-service`):
+  - Phase 1: `go test -race ./...` (relay + standby) green.
+  - Phase 2: `tests/Feature/RelayPathTest.php` 43 tests; 273 existing tests
+    in the touched areas green.
+  - Phase 3, real stack (`client/tests/e2e/free-relay.spec.ts`, Icecast 2.5.0
+    from the repo template, real Laravel, GoCast's studio and player): go
+    live → Icecast transport, no HLS request → title in API and Icecast →
+    End show → offline, mount gone, listener's player stopped. Passed 3/3
+    tests twice.
+  - Phase 4 with the real studio: kill -9 the carrying relay copy → back on
+    Icecast in 1.1–1.5 s, listener kept playing (8 of 8 runs; 2 had a ~2 s
+    buffering pause, 1 had the decode error now handled by §3.7).
+  - Pro on the new template, real Liquidsoap container: admitted without a
+    callback, its events ignored, no auth errors, listener survived a
+    container restart.
+- Not done yet: staging behind Cloudflare (Phase 6); the Android studio on
+  the relay (titles fixed, type-checked only; it still uses the 600 ms
+  grace instead of waiting for `ok`, so a slow refusal shows as a drop);
+  an iPhone.
