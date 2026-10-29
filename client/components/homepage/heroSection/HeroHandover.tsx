@@ -343,6 +343,11 @@ function NextLine({ className }: { className?: string }) {
     Phones fit a wider box: their sway swings the front card further out. */
 const STACK_W = 500
 const STACK_W_PHONE = 560
+/** The stack's unscaled height below lg (38rem: the cards spread further
+    there, see the back layer) and the smallest it may get on a phone to fit
+    the screen. */
+const STACK_H_PHONE = 608
+const MIN_PHONE_SCALE = 0.55
 
 /**
  * The studio, pulled apart: the now-playing card, the talk pad and the
@@ -359,15 +364,31 @@ export function HandoverStack({ className }: { className?: string }) {
 
   // Fit the desktop composition to the column. Until this runs, globals.css
   // supplies a phone-sized guess (.hero-scale), so nothing overflows first.
+  // Below lg it also fits the height the section leaves under the button, so
+  // the whole hero sits on one screen where the phone is tall enough; short
+  // phones stop at MIN_PHONE_SCALE and let the cards run off the bottom
+  // rather than shrink past readable.
   useEffect(() => {
     const el = box.current
-    if (!el) return
-    const ro = new ResizeObserver(([entry]) => {
-      const w = entry.contentRect.width
-      setScale(Math.min(1, w / (window.matchMedia("(min-width: 64rem)").matches ? STACK_W : STACK_W_PHONE)))
-    })
+    const grid = el?.closest<HTMLElement>(".grid")
+    const section = el?.closest("section")
+    if (!el || !grid || !section) return
+    const fit = () => {
+      const w = el.getBoundingClientRect().width
+      if (window.matchMedia("(min-width: 64rem)").matches) return setScale(Math.min(1, w / STACK_W))
+      // Measured from the top of the content, not the section, which centres
+      // it: shrinking the stack would move it and change the answer.
+      const above = el.getBoundingClientRect().top - grid.getBoundingClientRect().top
+      const room = Number.parseFloat(getComputedStyle(section).minHeight) - above - Number.parseFloat(getComputedStyle(grid).paddingBottom)
+      setScale(Math.min(1, w / STACK_W_PHONE, Math.max(MIN_PHONE_SCALE, room / STACK_H_PHONE)))
+    }
+    const ro = new ResizeObserver(fit)
     ro.observe(el)
-    return () => ro.disconnect()
+    window.addEventListener("resize", fit)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", fit)
+    }
   }, [])
 
   return (
@@ -376,15 +397,18 @@ export function HandoverStack({ className }: { className?: string }) {
       <NextLine className="mb-2 w-full lg:hidden" />
       <div
         ref={box}
-        className="hero-scale relative h-[calc(35rem*var(--hero-scale))] w-full"
+        className="hero-scale relative h-[calc(38rem*var(--hero-scale))] w-full lg:h-[calc(35rem*var(--hero-scale))]"
         style={scale === null ? undefined : ({ "--hero-scale": scale } as React.CSSProperties)}
       >
         <div className="absolute top-0 left-1/2 flex h-140 w-125 -translate-x-1/2 origin-top scale-(--hero-scale) items-center justify-center perspective-distant">
           <div className="hero-tilt relative h-130 w-110">
-            {/* Now playing — the back layer. */}
+            {/* Now playing — the back layer. Below lg the three layers are
+                spaced evenly, 20px apart with no overlap (the front one moves
+                down to match): at phone size the gaps are what read as depth.
+                lg keeps its own spread. */}
             <div
               data-depth="back"
-              className="absolute -top-12.5 -right-2.5 flex w-75 flex-col gap-3.5 rounded-card bg-surface-raised p-4 shadow-2xl"
+              className="absolute -top-2.5 -right-2.5 flex w-75 flex-col lg:-top-12.5 gap-3.5 rounded-card bg-surface-raised p-4 shadow-2xl"
             >
               <div className="flex items-center justify-between gap-3">
                 {/* Red from the countdown on, like the glow; violet only once AutoDJ has it. */}
@@ -450,7 +474,7 @@ export function HandoverStack({ className }: { className?: string }) {
             {/* Listening now — the front layer. */}
             <div
               data-depth="front"
-              className="absolute -bottom-2.5 -left-7.5 flex w-57.5 flex-col items-start gap-2.5 rounded-panel bg-surface-control p-4 shadow-2xl"
+              className="absolute -bottom-15.5 -left-7.5 flex w-57.5 lg:-bottom-2.5 flex-col items-start gap-2.5 rounded-panel bg-surface-control p-4 shadow-2xl"
             >
               <span className="eyebrow text-muted-foreground">Listening now</span>
               <span className="font-mono text-meter-lg tabular-nums">{f.listeners}</span>
