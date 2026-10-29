@@ -256,6 +256,15 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // attach to the same one, so volume, mute and the media-session controls do
   // not care which is in use.
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  /** When the last few Icecast reconnects after a media error happened; see onError. */
+  const icecastRecoveriesRef = useRef<number[]>([])
+  const allowIcecastRecovery = useCallback(() => {
+    const now = Date.now()
+    const recent = icecastRecoveriesRef.current.filter((at) => now - at < 60_000)
+    if (recent.length >= 3) return false
+    icecastRecoveriesRef.current = [...recent, now]
+    return true
+  }, [])
   /**
    * Is the station's current run on the relay path (Icecast only, no HLS)?
    * Seeded from the rendered payload — a relay run renders with no
@@ -736,6 +745,31 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           setLoading(false)
         }}
         onError={() => {
+          // Icecast splices a listener onto /standby and back at whatever
+          // byte its buffer ends on, usually mid-frame, whenever a source
+          // drops: a relay broadcaster's blip or reconnect, a container
+          // recreate. Now and then that half frame reaches Chrome's decoder,
+          // which treats it as fatal (MEDIA_ERR_DECODE) — about 1 drop in 12
+          // in testing. A fresh connection starts clean, so reconnect, a few
+          // times a minute at most, while the station is still on air.
+          //
+          // A second after the error rather than at once: it lands on the
+          // moment a source has just dropped. A new URL each time: Chrome
+          // took up to a minute to play a reload of the same one. And give it
+          // time — Chrome buffers up to ~8 s of a fresh Icecast stream before
+          // it plays, so no watchdog here; a further error retries.
+          const audio = audioRef.current
+          if (audio && transport === "icecast" && station.is_on_air && allowIcecastRecovery()) {
+            setLoading(true)
+            const url = `${env.icecastUrl}${station.icecast_mount}`
+            window.setTimeout(() => {
+              // Pressed stop, or the station went off, in the meantime.
+              if (audioRef.current !== audio || !audio.getAttribute("src")) return
+              audio.src = `${url}${url.includes("?") ? "&" : "?"}r=${Date.now()}`
+              audio.play().catch(() => setLoading(false))
+            }, 1000)
+            return
+          }
           setPlaying(false)
           setLoading(false)
         }}
