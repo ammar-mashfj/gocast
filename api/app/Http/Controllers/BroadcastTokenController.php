@@ -25,7 +25,8 @@ use Illuminate\Http\Request;
  * so the studio UI can show "this isn't your station" instead of a generic
  * auth error.
  *
- * Also returns the webcast WebSocket URL for this station's harbor input. It
+ * Also returns the webcast WebSocket URL to publish to — this station's
+ * harbor input, or the shared relay for a station on the relay path. It
  * rides along here because the SPA calls this immediately before opening the
  * socket, and in local dev the address is a container IP that changes on every
  * restart — so it has to be resolved per request, not configured.
@@ -63,7 +64,16 @@ class BroadcastTokenController extends Controller
             // Where to publish. Resolved server-side because in local dev it
             // is the container's current bridge IP, which changes on every
             // restart — the client must not cache or guess it.
-            'ingest_url' => $supervisor->ingestUrl($station),
+            'ingest_url' => $station->usesRelay()
+                ? (string) config('relay.ingest_url')
+                : $supervisor->ingestUrl($station),
+            // Which protocol the studio speaks at that address. `relay`
+            // answers the hello with {"type":"ok"} once Icecast has admitted
+            // the source, and carries no metadata — the studio sends the
+            // title to /stations/{slug}/now-playing instead. Decided here,
+            // from the path the station started on, so the client never
+            // guesses it.
+            'ingest' => $station->usesRelay() ? Station::INGEST_RELAY : Station::INGEST_CONTAINER,
         ]);
     }
 }

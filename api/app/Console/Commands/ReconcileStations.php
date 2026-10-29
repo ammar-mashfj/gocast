@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\StreamSession;
+use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use App\Services\StationStatusService;
@@ -99,6 +100,7 @@ class ReconcileStations extends Command
         LiquidsoapSupervisor $supervisor,
         PlaylistFileWriter $playlistWriter,
         StationStatusService $statusService,
+        IcecastAdmin $icecast,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -114,7 +116,18 @@ class ReconcileStations extends Command
         // Intent. Soft-deleted stations are excluded by the global scope —
         // a deleted station must not be broadcasting, whatever its
         // desired_state column says.
-        $wantedSlugs = Station::query()->running()->pluck('slug')->all();
+        //
+        // Relay stations run without a container by design, so they are not
+        // "wanted" here: never MISSING (or this would build them one every
+        // minute), and a container that does exist for one is UNWANTED and
+        // removed.
+        $wantedSlugs = Station::query()
+            ->running()
+            ->where(fn ($query) => $query
+                ->whereNull('ingest_path')
+                ->orWhere('ingest_path', '!=', Station::INGEST_RELAY))
+            ->pluck('slug')
+            ->all();
         $wantedSet = array_flip($wantedSlugs);
 
         $orphans = [];
@@ -163,7 +176,7 @@ class ReconcileStations extends Command
             fn (string $slug) => ! isset($present[$slug]),
         ));
 
-        $liveCleared = $this->reconcileLiveFlags($statusService, $dryRun);
+        $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $dryRun);
 
         $outdated = $this->outdatedStations($supervisor, $healthy);
 
@@ -502,13 +515,33 @@ class ReconcileStations extends Command
      * Requires consecutive disagreeing passes so a momentary reconnect (the
      * publisher dropping and re-joining between polls) doesn't end a session.
      */
-    private function reconcileLiveFlags(StationStatusService $statusService, bool $dryRun): int
+    private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, bool $dryRun): int
     {
         $stations = Station::query()->running()->live()->get();
         $cleared = 0;
 
+        // Relay stations have no container to ask; Icecast is the authority on
+        // whether their source is still there. One request for all of them,
+        // made only if there is one to check. Null (Icecast unreachable) means
+        // unknown, and unknown never closes a session.
+        $icecastMounts = null;
+        $icecastAsked = false;
+
         foreach ($stations as $station) {
-            $status = $statusService->fetch($station);
+            if ($station->usesRelay()) {
+                if (! $icecastAsked) {
+                    $icecastMounts = $icecast->liveMounts();
+                    $icecastAsked = true;
+                }
+
+                if ($icecastMounts === null) {
+                    continue;
+                }
+
+                $status = ['broadcaster' => isset($icecastMounts[$station->icecast_mount])];
+            } else {
+                $status = $statusService->fetch($station);
+            }
 
             // Unreachable tells us nothing — it is equally consistent with a
             // booting container and a live broadcast we cannot see.

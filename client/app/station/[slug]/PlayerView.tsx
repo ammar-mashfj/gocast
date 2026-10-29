@@ -256,6 +256,12 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // attach to the same one, so volume, mute and the media-session controls do
   // not care which is in use.
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  /**
+   * Is the station's current run on the relay path (Icecast only, no HLS)?
+   * Seeded from the rendered payload — a relay run renders with no
+   * `hls_url` — and kept current by the public feed below.
+   */
+  const icecastOnlyRef = useRef(station.is_on_air && station.hls_url === null)
   const hlsRef = useRef<Hls | null>(null)
 
   // Which transport actually carried the audio — not which one we intended.
@@ -368,6 +374,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // at all — which is why it defers to `hasInbandMetadataRef` rather than to
   // "is something playing".
   usePublicStationFeed(station.slug, (stats) => {
+    if (stats.icecast_only !== null) icecastOnlyRef.current = stats.icecast_only
     setListeners(stats.count ?? 0)
     setStation((prev) => ({
       ...prev,
@@ -377,6 +384,14 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
     // Off air while we are waiting for audio: see `onWaiting` below.
     if (stats.is_on_air === false && loading) teardown()
+
+    // Switched off while someone is listening. Icecast does not end the
+    // stream: it moves the listener to the shared silence mount and keeps
+    // them there indefinitely, so without this the button would sit on
+    // "playing" over silence until the tab closed. `offline` and not
+    // `is_on_air`, which is also false while a container restarts — a blip
+    // the listener should ride out, not be stopped by.
+    if (stats.state === "offline" && playing) teardown()
 
     if (!hasInbandMetadataRef.current) applyMetadata(stats.now_playing)
   })
@@ -427,7 +442,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       audio!.play().catch(() => setLoading(false))
     }
 
-    const hlsUrl = station.hls_url
+    // A station on the relay path has no HLS stream for this run. The feed
+    // says so live, because this page may predate the run.
+    const hlsUrl = icecastOnlyRef.current ? null : station.hls_url
 
     if (!hlsUrl) {
       playIcecast()

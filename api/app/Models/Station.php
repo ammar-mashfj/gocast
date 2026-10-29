@@ -35,6 +35,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $featured_at
  * @property int|null $storage_cap_bytes admin-set override; null is the install default, see storageCapBytes()
  * @property string $desired_state
+ * @property string|null $ingest_path INGEST_CONTAINER or INGEST_RELAY for the current run; null when stopped
  * @property Carbon|null $started_at
  * @property Carbon|null $silent_since
  * @property Carbon|null $last_ready_at
@@ -78,6 +79,15 @@ class Station extends Model
      * converges the Docker daemon against.
      */
     public const STATE_RUNNING = 'running';
+
+    /** This run's audio goes through a Liquidsoap container. */
+    public const INGEST_CONTAINER = 'container';
+
+    /**
+     * This run's audio goes browser → relay → Icecast with no container. See
+     * config/relay.php and {@see self::resolveIngestPath()}.
+     */
+    public const INGEST_RELAY = 'relay';
 
     /**
      * Minimum gap between two jingles for a station that has never set one —
@@ -310,6 +320,60 @@ class Station extends Model
     public function isRunning(): bool
     {
         return $this->desired_state === self::STATE_RUNNING;
+    }
+
+    /**
+     * Is this run on the relay path? Reads the path stored at start, never
+     * the plan: an owner who upgrades mid-show keeps the path the show began
+     * on until the station next starts.
+     */
+    public function usesRelay(): bool
+    {
+        return $this->ingest_path === self::INGEST_RELAY;
+    }
+
+    /**
+     * Which path a start of this station would take right now.
+     *
+     * The relay only carries a live show, so it is offered only to plans the
+     * container would give nothing more: no AutoDJ to play between shows and
+     * no external encoder to accept (harbor's job). Today that is exactly the
+     * Free plan; deciding by capability rather than by plan slug keeps an
+     * admin-edited or gifted plan on the path its features need.
+     *
+     * A station whose mount is not the one the relay publishes to (an old
+     * row from before mounts followed the slug) stays on the container, so
+     * its listeners keep finding it.
+     */
+    public function resolveIngestPath(): string
+    {
+        // Enabled without an address to hand the studio is a half-done
+        // config; a container still works, so fall back to it.
+        if (! config('relay.enabled') || (string) config('relay.ingest_url') === '') {
+            return self::INGEST_CONTAINER;
+        }
+
+        if ($this->icecast_mount !== config('relay.mount_prefix').$this->slug) {
+            return self::INGEST_CONTAINER;
+        }
+
+        $user = $this->user;
+
+        if ($user === null || $user->canUseAutoDj() || $user->canUseEncoder()) {
+            return self::INGEST_CONTAINER;
+        }
+
+        $rollout = trim((string) config('relay.rollout'));
+
+        if ($rollout !== 'all') {
+            $slugs = array_filter(array_map('trim', explode(',', $rollout)));
+
+            if (! in_array($this->slug, $slugs, true)) {
+                return self::INGEST_CONTAINER;
+            }
+        }
+
+        return self::INGEST_RELAY;
     }
 
     /**

@@ -21,6 +21,12 @@ export interface StationStatus {
   state: "offline" | "starting" | "on_air" | "live" | "degraded"
   desired_state: "stopped" | "running"
   started_at: string | null
+  /**
+   * This run's audio path: a Liquidsoap container, or the relay (Free plan:
+   * no container, listeners a few seconds behind instead of 15–20). Optional
+   * so an API from before the relay reads as `container`.
+   */
+  ingest?: "container" | "relay"
   /** Did the container answer? False while booting, crashed, or stopped. */
   reachable: boolean
   /** Audio is actually flowing — what the broadcast pre-flight waits on. */

@@ -6,6 +6,7 @@ use App\Models\Station;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Throwable;
 
 /**
@@ -248,6 +249,10 @@ class StationStatusService
      */
     private function pull(Station $station): array
     {
+        if ($station->usesRelay()) {
+            return ['reachable' => true, 'status' => $this->relayStatus($station)];
+        }
+
         $port = (int) config('liquidsoap.harbor_port', 8080);
 
         // Ask Docker BEFORE harbor. containerHost() is pure arithmetic — it
@@ -309,6 +314,43 @@ class StationStatusService
                 'container_up' => $this->probeContainer($station),
             ];
         }
+    }
+
+    /**
+     * The status of a station on the relay path, which has no container to ask.
+     *
+     * Nothing has to boot — the relay and Icecast are shared and always up —
+     * so a running relay station is ready at once, which is what lets the
+     * studio's pre-flight go straight to opening the socket. Whether someone
+     * is broadcasting comes from the StreamSession that Icecast's
+     * source-connect opened; ReconcileStations checks that row against
+     * Icecast's own mount list, as it checks a container's against harbor.
+     *
+     * `icecast` and `rms` are unknown (null), not good or silent: nothing
+     * measures them on this path, and the auto-stop policy has its own relay
+     * rule rather than reading them.
+     *
+     * @return array<string, mixed>
+     */
+    private function relayStatus(Station $station): array
+    {
+        $live = $station->isLive();
+        $metadata = json_decode((string) Redis::get("metadata:{$station->id}"), true);
+        $metadata = is_array($metadata) ? $metadata : [];
+
+        return [
+            'ready' => true,
+            'icecast' => null,
+            'source' => $live ? 'live' : 'silence',
+            'broadcaster' => $live,
+            'rms' => null,
+            'title' => $live ? ($metadata['title'] ?? null) : null,
+            'artist' => $live ? ($metadata['artist'] ?? null) : null,
+            'elapsed' => null,
+            'remaining' => null,
+            'playlist_length' => null,
+            'up_next' => [],
+        ];
     }
 
     /**

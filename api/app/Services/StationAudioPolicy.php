@@ -125,6 +125,10 @@ class StationAudioPolicy
             return StationAudioVerdict::InUse;
         }
 
+        if ($station->usesRelay()) {
+            return $this->relayVerdict($station, $status);
+        }
+
         // No answer is not an answer. Booting, crashed and stopped are
         // indistinguishable from here, and none of them is evidence of silence.
         if ($status === null || ! ($status['ready'] ?? false)) {
@@ -171,6 +175,35 @@ class StationAudioPolicy
             return StationAudioVerdict::Stop;
         }
 
+        return $this->silenceClock($station);
+    }
+
+    /**
+     * A station on the relay path: no container, no AutoDJ, nothing measuring
+     * level. It is in use exactly while a broadcaster is attached — the open
+     * session Icecast's source-connect created — and otherwise follows the
+     * same two rules as a silent container station with nothing to play: off
+     * soon after the studio has gone for good, off after the silence window
+     * if nobody ever came.
+     *
+     * @param  array<string, mixed>|null  $status
+     */
+    private function relayVerdict(Station $station, ?array $status): StationAudioVerdict
+    {
+        if (($status['broadcaster'] ?? false) === true) {
+            return StationAudioVerdict::InUse;
+        }
+
+        if ($this->studioHasGoneForGood($station)) {
+            return StationAudioVerdict::Stop;
+        }
+
+        return $this->silenceClock($station);
+    }
+
+    /** Silent so far: start the clock, or stop once the window has run out. */
+    private function silenceClock(Station $station): StationAudioVerdict
+    {
         if ($station->silent_since === null) {
             return StationAudioVerdict::Silent;
         }

@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureEmailIsVerified;
 use App\Http\Middleware\FlagCallbackDomains;
 use App\Http\Middleware\UseAuthTokenCookie;
+use App\Http\Middleware\VerifyIcecastCallback;
 use App\Http\Middleware\VerifyInternalKey;
 use App\Services\InviteException;
 use App\Services\StationLifecycleException;
@@ -69,6 +70,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'internal' => VerifyInternalKey::class,
+            'icecast.callback' => VerifyIcecastCallback::class,
             // Override Laravel's default so verification 403s carry a stable
             // `code: "email_unverified"` — frontend distinguishes from policy
             // 403s without string-matching the English message.

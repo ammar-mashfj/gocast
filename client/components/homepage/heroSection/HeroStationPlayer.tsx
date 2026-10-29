@@ -77,7 +77,14 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       proves the station is down without needing the API to say so. */
   const [failed, setFailed] = useState(false)
   const [stats, setStats] = useState<PublicStationStats>(
-    initialStats ?? { count: null, is_live: null, is_on_air: null, now_playing: { title: null, artist: null } },
+    initialStats ?? {
+      count: null,
+      is_live: null,
+      is_on_air: null,
+      state: null,
+      icecast_only: null,
+      now_playing: { title: null, artist: null },
+    },
   )
 
   /**

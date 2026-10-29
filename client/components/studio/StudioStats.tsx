@@ -31,7 +31,11 @@ export function StudioStats({
       {/* No "since 7:39 PM": a show can run past midnight, or for days. */}
       {/* The listener delay, here rather than on the talk pad: it qualifies
           what "on air" means, in one short line. */}
-      <Cell label="On air" value={formatClock(stats.elapsed)} sub="heard 15–20 s later" />
+      <Cell
+        label="On air"
+        value={formatClock(stats.elapsed)}
+        sub={transport.stats?.ingest === "relay" ? "heard a few s later" : "heard 15–20 s later"}
+      />
       <Cell label="Listening" value={stats.listeners ?? "—"} sub={stats.listeners ? "right now" : "nobody yet"} />
       <Cell label="Peak" value={stats.peak} sub="most at once" />
       <Cell
