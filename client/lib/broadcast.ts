@@ -1457,15 +1457,17 @@ export class BroadcastManager {
    * frame could not (a network blip, a 429). Marked sent up front so the
    * engine's next tick does not post it again, so a failure would otherwise
    * leave listeners on no title, or the last one, until the next track. A few
-   * spaced retries while it is still the current track, then give up: it is
-   * cosmetic.
+   * spaced retries while it is still the current track and the socket is up,
+   * then give up: it is cosmetic.
    */
   private postRelayMetadata(title: string, artist: string, attempt: number): void {
     const key = `${title}\0${artist}`
     void api.post(`/stations/${this.stationSlug}/now-playing`, { title, artist }).catch(() => {
       if (attempt >= 2) return
       setTimeout(() => {
-        if (this.stopping || this.sentMetadataKey !== key) return
+        // Not across a dropped socket either: the reconnect replays the title
+        // itself, and the server refuses one for a show that has closed.
+        if (this.stopping || this.sentMetadataKey !== key || this.ws?.readyState !== WebSocket.OPEN) return
         this.postRelayMetadata(title, artist, attempt + 1)
       }, 5_000)
     })

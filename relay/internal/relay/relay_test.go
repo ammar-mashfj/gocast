@@ -390,13 +390,50 @@ func TestIdleStudioIsClosed(t *testing.T) {
 	c := dial(t, hs, nil)
 	c.Write(context.Background(), websocket.MessageText, helloJSON("a", "tok"))
 	expectOK(t, c)
-	// send nothing
+	// send nothing, and do not read either: the source must be released
+	// without waiting on the studio's half of the close handshake.
 	select {
 	case <-ice.closed:
 	case <-time.After(3 * time.Second):
 		t.Fatal("icecast not closed after idle timeout")
 	}
+	c.Read(context.Background()) // answer the close, as a browser does
 	eventually(t, "idle counted", func() bool { return s.Metrics.Closes("idle") == 1 })
+}
+
+// The studio's drop report reads the close code; an idle close must arrive as
+// 1008, not as the abnormal 1006 of a dropped connection.
+func TestIdleStudioIsToldWhy(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	_, hs := startRelay(t, testConfig(ice.ln.Addr().String()))
+	c := dial(t, hs, nil)
+	c.Write(context.Background(), websocket.MessageText, helloJSON("a", "tok"))
+	expectOK(t, c)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _, err := c.Read(ctx)
+	if got := websocket.CloseStatus(err); got != CloseIdle {
+		t.Fatalf("studio got close %d (%v), want %d", got, err, CloseIdle)
+	}
+}
+
+// Audio keeps the idle timer from firing, however long the show.
+func TestSteadyAudioIsNotIdle(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	s, hs := startRelay(t, testConfig(ice.ln.Addr().String()))
+	c := dial(t, hs, nil)
+	ctx := context.Background()
+	c.Write(ctx, websocket.MessageText, helloJSON("a", "tok"))
+	expectOK(t, c)
+	for i := 0; i < 15; i++ { // 1.5s of audio against a 500ms idle timeout
+		if err := c.Write(ctx, websocket.MessageBinary, []byte("frame")); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if n := s.Metrics.Closes("idle"); n != 0 {
+		t.Fatalf("idle closes = %d during steady audio", n)
+	}
 }
 
 func TestOversizeMessage(t *testing.T) {

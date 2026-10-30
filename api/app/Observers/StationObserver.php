@@ -4,9 +4,11 @@ namespace App\Observers;
 
 use App\Jobs\DropStationListeners;
 use App\Models\Station;
+use App\Services\BroadcastSessions;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
+use App\Services\StationStatusService;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -50,6 +52,8 @@ class StationObserver
         private LiquidsoapSupervisor $supervisor,
         private PlaylistFileWriter $playlistWriter,
         private IcecastAdmin $icecast,
+        private BroadcastSessions $sessions,
+        private StationStatusService $statusService,
     ) {}
 
     /**
@@ -169,10 +173,17 @@ class StationObserver
 
         // Nothing will close the session after this: the disconnect callback
         // looks the station up by slug and no longer finds a deleted one. A
-        // deleted station is never live, whatever path it was on.
-        $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
+        // deleted station is never live, whatever path it was on. close() also
+        // drops its now-playing title, and the cached status goes with it, or
+        // the deleted station would read as playing until both expired.
+        $wasLive = $this->sessions->close($station);
+        $this->statusService->forget($station);
 
-        DropStationListeners::dispatch($station->icecast_mount);
+        // Only a station that was on can have an audience: a stopped one lost
+        // its listeners when it stopped, and each drop is a few Icecast calls.
+        if ($wasLive || $station->isRunning()) {
+            DropStationListeners::dispatch($station->icecast_mount);
+        }
     }
 
     public function forceDeleted(Station $station): void

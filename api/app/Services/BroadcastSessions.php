@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -30,8 +31,20 @@ class BroadcastSessions
      * Idempotent: harbor can report a connection twice (a broadcaster that
      * reconnects inside the same second, a retried notification), and a second
      * open session would double-count airtime. Reuse whatever is already open.
+     *
+     * The check and the insert run under a per-station lock: two callers can
+     * arrive together (the relay's source-connect and the minute reconcile
+     * that reopens a missed one), and both would otherwise see no open row.
+     *
+     * @return bool Whether a new session was opened.
      */
-    public function open(Station $station, string $via, ?string $client): void
+    public function open(Station $station, string $via, ?string $client): bool
+    {
+        return Cache::lock("stream-session-open:{$station->id}", 10)
+            ->block(5, fn () => $this->openUnlocked($station, $via, $client));
+    }
+
+    private function openUnlocked(Station $station, string $via, ?string $client): bool
     {
         $existing = $station->streamSessions()->whereNull('ended_at')->exists();
 
@@ -47,7 +60,7 @@ class BroadcastSessions
             // right rather than merely a fallback. What reaches here is the
             // desktop client, which does POST its own session, and a harbor
             // reconnect inside the same second.
-            return;
+            return false;
         }
 
         // This is the only path into a session row for an encoder AND for the
@@ -75,19 +88,25 @@ class BroadcastSessions
 
         SendStationLiveNotifications::dispatch($station->id, $session->id)
             ->delay(now()->addMinutes(2));
+
+        return true;
     }
 
     /**
      * Close any open session and drop the now-playing payload, so the
      * listener-facing API stops showing the last broadcaster track instead of
      * waiting out its TTL.
+     *
+     * @return bool Whether a session was open.
      */
-    public function close(Station $station): void
+    public function close(Station $station): bool
     {
-        $station->streamSessions()
+        $closed = $station->streamSessions()
             ->whereNull('ended_at')
             ->update(['ended_at' => now()]);
 
         Redis::del("metadata:{$station->id}");
+
+        return $closed > 0;
     }
 }

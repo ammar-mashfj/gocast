@@ -574,8 +574,16 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            $sessions->open($station, 'browser', null);
+            // The connect callback may have landed since the query above; open()
+            // is locked and reuses its session, and then there is nothing to say.
+            if (! $sessions->open($station, 'browser', null)) {
+                $reopened--;
+
+                continue;
+            }
+
             $statusService->forget($station);
+            StationEvent::record($station, StationEvent::TYPE_LIVE_CONNECTED, StationEvent::SOURCE_SYSTEM, ['via' => 'relay', 'reconciled' => true]);
             event(StationStateChanged::for($station, StationEvent::TYPE_LIVE_CONNECTED));
 
             Log::warning('Reopened a relay session Icecast is carrying (missed source-connect)', [

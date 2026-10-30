@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -281,28 +282,38 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 	// Close the socket from here rather than cancelling the read below:
 	// websocket.Read drops the connection without a close code when its
 	// context is cancelled, and the studio needs 4005 to know why.
+	var idle atomic.Bool
 	iceClosed := make(chan struct{})
 	go func() {
 		io.Copy(io.Discard, ice)
 		close(iceClosed)
-		ws.Close(CloseSourceKilled, "source ended by server")
+		if !idle.Load() {
+			ws.Close(CloseSourceKilled, "source ended by server")
+		}
 	}()
 
-	// 4. Pipe.
+	// 4. Pipe. The idle limit is a timer that closes the socket, not a
+	// deadline on the read, for the same reason as above: a read whose
+	// context expires drops the connection with no close code, and the
+	// studio's drop report would read 1006 instead of 1008. The source is
+	// released at once: the close handshake can wait seconds on a studio
+	// whose network is gone, and its reconnect needs the mount free.
+	idleTimer := time.AfterFunc(s.cfg.IdleTimeout, func() {
+		idle.Store(true)
+		ice.Close()
+		ws.Close(CloseIdle, "no audio")
+	})
+	defer idleTimer.Stop()
 	for {
-		rctx, rcancel := context.WithTimeout(ctx, s.cfg.IdleTimeout)
-		typ, data, err := ws.Read(rctx)
-		idle := errors.Is(rctx.Err(), context.DeadlineExceeded)
-		rcancel()
+		typ, data, err := ws.Read(ctx)
 		if err != nil {
+			if idle.Load() {
+				return "idle"
+			}
 			select {
 			case <-iceClosed:
 				return "icecast_closed"
 			default:
-			}
-			if idle {
-				ws.Close(CloseIdle, "no audio")
-				return "idle"
 			}
 			var ce websocket.CloseError
 			if errors.As(err, &ce) && ce.Code == websocket.StatusMessageTooBig {
@@ -317,6 +328,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		if typ != websocket.MessageBinary {
 			continue
 		}
+		idleTimer.Reset(s.cfg.IdleTimeout)
 		ice.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 		if _, err := ice.Write(data); err != nil {
 			ws.Close(CloseSourceKilled, "stream server stopped accepting audio")

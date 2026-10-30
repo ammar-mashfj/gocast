@@ -62,3 +62,11 @@ it('refuses a name that could not be created', function () {
     $this->getJson('/api/stations/slug-preview?name[]=jazz')->assertUnprocessable();
     $this->getJson('/api/stations/slug-preview?name='.str_repeat('a', 101))->assertUnprocessable();
 });
+
+it('never mints the slug Icecast keeps for its own source login', function () {
+    // The relay logs into Icecast as the slug; "source" would hit the static
+    // Liquidsoap role, fail its password, and never reach the relay's role.
+    $response = $this->postJson('/api/stations', ['name' => 'Source'])->assertCreated();
+
+    expect($response->json('data.slug'))->toBe('source-2');
+});

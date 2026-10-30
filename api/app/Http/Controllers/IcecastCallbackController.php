@@ -130,7 +130,7 @@ class IcecastCallbackController extends Controller
         }
 
         if ($type === StationEvent::TYPE_LIVE_CONNECTED) {
-            $sessions->open($station, 'browser', null);
+            $changed = $sessions->open($station, 'browser', null);
         } elseif ($this->mountTakenAgain($icecast, $mount)) {
             // The studio is already back on a new source. Icecast sends
             // events one at a time, in order, but a backlog (a relay restart
@@ -139,21 +139,31 @@ class IcecastCallbackController extends Controller
             // the live session and wipe that title; the new source's connect
             // event finds the session still open and keeps it.
             Log::info('Ignored a relay disconnect: the mount is live again', ['station' => $station->slug]);
+            $changed = false;
         } else {
-            $sessions->close($station);
+            $changed = $sessions->close($station);
         }
 
-        // The relay status is built from the session row, so drop the cached
-        // one before the dashboard refetches in response to the broadcast.
-        $statusService->forget($station);
+        // Only a session that really opened or closed goes on the timeline and
+        // to the dashboard. An ignored disconnect, and the connect that follows
+        // it into a session that never closed, are one seamless reconnect:
+        // recording them would put a disconnect on the admin timeline and make
+        // every dashboard refetch mid-show.
+        if ($changed) {
+            // The relay status is built from the session row, so drop the
+            // cached one before the dashboard refetches in response to the
+            // broadcast.
+            $statusService->forget($station);
 
-        StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, ['via' => 'relay']);
+            StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, ['via' => 'relay']);
 
-        event(StationStateChanged::for($station, $type));
+            event(StationStateChanged::for($station, $type));
+        }
 
         Log::info('Icecast reported a relay source event', [
             'station' => $station->slug,
             'event' => $type,
+            'changed' => $changed,
         ]);
 
         return response('', Response::HTTP_OK);

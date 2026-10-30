@@ -190,11 +190,14 @@ class Station extends Model
     /**
      * Links a station can never have: static routes under /stations that sit
      * ahead of the {station} binding, so a station holding one could never be
-     * fetched by its slug.
+     * fetched by its slug. Also `source`: the relay logs into Icecast with
+     * the slug as its username, and `source` is Icecast's fixed login for
+     * Liquidsoap and the standby feeder. That role answers first and fails
+     * the password check, so the station could never go live.
      *
      * @var list<string>
      */
-    public const RESERVED_SLUGS = ['slug-preview'];
+    public const RESERVED_SLUGS = ['slug-preview', 'source'];
 
     /**
      * The link a name gets: Str::slug, then -2, -3, ... until free. Names

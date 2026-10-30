@@ -76,7 +76,10 @@ class StationLifecycleService
                 // The relay and Icecast are shared and always running. Also
                 // while someone is broadcasting into it, whatever the plan now
                 // says — an upgrade mid-show must not move a live broadcaster.
-                if ($station->isLive() || $station->resolveIngestPath() === Station::INGEST_RELAY) {
+                // Live is asked of Icecast too: a missed source-connect leaves
+                // a broadcaster with no session row, and a container booted
+                // under them would only find the mount taken.
+                if ($station->resolveIngestPath() === Station::INGEST_RELAY || $this->relayCarriesSource($station)) {
                     return $station;
                 }
 
@@ -402,5 +405,22 @@ class StationLifecycleService
     {
         return Cache::lock("station-lifecycle:{$station->id}", self::LOCK_TTL_SECONDS)
             ->block(self::LOCK_WAIT_SECONDS, $callback);
+    }
+
+    /**
+     * Is a relay broadcaster on this station's mount? The session row first,
+     * then Icecast itself. Icecast unreachable counts as yes: the cost of a
+     * wrong yes is AutoDJ waiting for the next Start, of a wrong no a
+     * container fighting a live show for the mount.
+     */
+    private function relayCarriesSource(Station $station): bool
+    {
+        if ($station->isLive()) {
+            return true;
+        }
+
+        $mounts = $this->icecast->liveMounts();
+
+        return $mounts === null || isset($mounts[$station->icecast_mount]);
     }
 }
