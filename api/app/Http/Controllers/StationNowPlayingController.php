@@ -47,7 +47,7 @@ class StationNowPlayingController extends Controller
         // for six hours on a station nobody is on. Icecast is asked as well
         // as the session row: the studio sends its first title the moment the
         // relay lets it in, which can be before source-connect opens the row.
-        if (! $station->isLive() && ! isset(($icecast->liveMounts() ?? [])[$station->icecast_mount])) {
+        if (! $station->isLive() && $icecast->carries($station->icecast_mount) !== true) {
             return response()->json(['message' => 'Nobody is broadcasting on this station.'], 409);
         }
 

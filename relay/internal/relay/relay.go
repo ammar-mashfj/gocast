@@ -328,6 +328,12 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		if typ != websocket.MessageBinary {
 			continue
 		}
+		// A frame that was already on its way when the idle timer fired: the
+		// source is closed, and writing to it would report the studio's stall
+		// as Icecast refusing audio.
+		if idle.Load() {
+			return "idle"
+		}
 		idleTimer.Reset(s.cfg.IdleTimeout)
 		ice.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 		if _, err := ice.Write(data); err != nil {

@@ -419,8 +419,6 @@ class StationLifecycleService
             return true;
         }
 
-        $mounts = $this->icecast->liveMounts();
-
-        return $mounts === null || isset($mounts[$station->icecast_mount]);
+        return $this->icecast->carries($station->icecast_mount) !== false;
     }
 }

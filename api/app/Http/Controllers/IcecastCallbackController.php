@@ -175,7 +175,7 @@ class IcecastCallbackController extends Controller
      */
     private function mountTakenAgain(IcecastAdmin $icecast, string $mount): bool
     {
-        return isset(($icecast->liveMounts() ?? [])[$mount]);
+        return $icecast->carries($mount) === true;
     }
 
     private function refuse(string $slug, string $mount, string $reason, string $method): Response

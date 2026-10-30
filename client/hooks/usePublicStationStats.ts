@@ -30,6 +30,12 @@ export interface PublicStationStats {
    * a player must use the Icecast mount. Null if unknown.
    */
   icecast_only: boolean | null
+  /**
+   * The owner has turned the station off (or it is gone). Unlike `state`
+   * reading `offline`, never true for a station meant to be on whose
+   * container is between a stop and a start. Null if unknown.
+   */
+  switched_off: boolean | null
   now_playing: { title: string | null; artist: string | null }
 }
 
@@ -77,6 +83,7 @@ function normalise(body: unknown): PublicStationStats {
     is_on_air: typeof data.is_on_air === "boolean" ? data.is_on_air : null,
     state: typeof data.state === "string" ? data.state : null,
     icecast_only: typeof data.icecast_only === "boolean" ? data.icecast_only : null,
+    switched_off: typeof data.switched_off === "boolean" ? data.switched_off : null,
     now_playing: { title: text(np.title), artist: text(np.artist) },
   }
 }
@@ -100,6 +107,7 @@ async function read(slug: string, feed: Feed): Promise<void> {
             is_on_air: false,
             state: "offline",
             icecast_only: null,
+            switched_off: true,
             now_playing: { title: null, artist: null },
           }
         : response.ok

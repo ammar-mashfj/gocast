@@ -621,7 +621,14 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
           echo "  ✓ gocast-relay@${port} restarted"
         else
           echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
-          [[ -f "$bin/gocast-relay.prev" ]] && as_app cp -p "$bin/gocast-relay.prev" "$bin/gocast-relay"
+          # Copied aside, then renamed over: a plain cp onto a binary that
+          # systemd is still running fails "Text file busy", and set -e would
+          # end the deploy here with the broken binary live.
+          if [[ -f "$bin/gocast-relay.prev" ]]; then
+            as_app cp -p "$bin/gocast-relay.prev" "$bin/.new/gocast-relay" \
+              && as_app mv -f "$bin/.new/gocast-relay" "$bin/gocast-relay" \
+              || echo "  ✗ could not put the previous relay binary back"
+          fi
           rm -f "$RELAY_STAMP"
           systemctl restart "gocast-relay@${port}" || true
           MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:

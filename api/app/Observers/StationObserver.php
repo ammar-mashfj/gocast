@@ -176,12 +176,19 @@ class StationObserver
         // deleted station is never live, whatever path it was on. close() also
         // drops its now-playing title, and the cached status goes with it, or
         // the deleted station would read as playing until both expired.
-        $wasLive = $this->sessions->close($station);
+        $this->sessions->close($station);
         $this->statusService->forget($station);
+    }
 
+    public function deleted(Station $station): void
+    {
+        // Here and not in deleting(): the job skips a mount whose station is
+        // still on, and until the row is trashed this one still reads as on.
+        //
         // Only a station that was on can have an audience: a stopped one lost
         // its listeners when it stopped, and each drop is a few Icecast calls.
-        if ($wasLive || $station->isRunning()) {
+        // Deleting leaves desired_state as it was, so it still says which.
+        if ($station->isRunning()) {
             DropStationListeners::dispatch($station->icecast_mount);
         }
     }

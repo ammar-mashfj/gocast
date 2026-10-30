@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Sleep;
 use Illuminate\Testing\TestResponse;
 
 /**
@@ -310,6 +311,21 @@ describe('the power switch', function () {
             ['/standby', 8],
         ]);
     })->with(['relay' => 'free', 'container' => 'pro']);
+
+    it('leaves the audience alone when the station is back on before the drop runs', function () {
+        // Off and straight back on: the queued drop runs after the restart,
+        // when the listeners on /standby are riding back to the new source.
+        Queue::fake();
+        $station = relayStation();
+        $this->icecastClients = ['/standby' => [8 => ['/stream/free-show', '/standby']]];
+
+        app(StationLifecycleService::class)->stop($station, force: true);
+        app(StationLifecycleService::class)->start($station->refresh());
+
+        Queue::pushed(DropStationListeners::class)->each(fn ($job) => app()->call([$job, 'handle']));
+
+        expect(killedListeners())->toBe([]);
+    });
 
     it('still stops when Icecast cannot be reached', function () {
         $this->icecastStatus = 500;
@@ -626,6 +642,27 @@ describe('what the studio and the player are told', function () {
             ->assertJsonPath('data.hls_url', 'https://stream.test/free-show/aac.m3u8');
         $this->getJson("/api/public/stations/{$station->slug}/listeners")->assertJsonPath('data.icecast_only', false);
     });
+
+    it('tells the player a station is switched off only when its owner turned it off', function () {
+        // A container being recreated reads 'offline' for a moment; the
+        // player must not stop a listener for that.
+        $station = relayStation(['ingest_path' => Station::INGEST_CONTAINER]);
+        $this->partialMock(StationStatusService::class, function ($mock) {
+            $mock->shouldReceive('fetch')->andReturn(null);
+            $mock->shouldReceive('state')->andReturnUsing(
+                fn (Station $station) => StationStatusService::STATE_OFFLINE,
+            );
+        });
+
+        $this->getJson("/api/public/stations/{$station->slug}/listeners")
+            ->assertJsonPath('data.state', 'offline')
+            ->assertJsonPath('data.switched_off', false);
+
+        $station->update(['desired_state' => Station::STATE_STOPPED]);
+
+        $this->getJson("/api/public/stations/{$station->slug}/listeners")
+            ->assertJsonPath('data.switched_off', true);
+    });
 });
 
 describe('auto-stop', function () {
@@ -743,6 +780,19 @@ describe('the reconciler', function () {
 
         expect(StationEvent::where('station_id', $station->id)->sole()->type)
             ->toBe(StationEvent::TYPE_LIVE_CONNECTED);
+    });
+
+    it('answers Icecast normally when another open holds the lock too long', function () {
+        $station = relayStation();
+        $held = Cache::lock("stream-session-open:{$station->id}", 30);
+        $held->get();
+        // The wait runs on the clock: fake sleeps that move it, so the
+        // five-second timeout passes at once.
+        Sleep::fake(syncWithCarbon: true);
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        $held->release();
     });
 
     it('says whether it opened a session, so a reconcile that loses the race stays quiet', function () {

@@ -457,10 +457,11 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     // Switched off while someone is listening. Icecast does not end the
     // stream: it moves the listener to the shared silence mount and keeps
     // them there indefinitely, so without this the button would sit on
-    // "playing" over silence until the tab closed. `offline` and not
-    // `is_on_air`, which is also false while a container restarts — a blip
-    // the listener should ride out, not be stopped by.
-    if (stats.state === "offline" && playing) teardown()
+    // "playing" over silence until the tab closed. The owner's switch, not
+    // `state`: that reads `offline` too while a container is recreated (gone
+    // before its replacement starts), and `is_on_air` is false while it
+    // boots — blips the listener should ride out on /standby.
+    if (stats.switched_off === true && playing) teardown()
 
     if (!hasInbandMetadataRef.current) applyMetadata(stats.now_playing)
   })

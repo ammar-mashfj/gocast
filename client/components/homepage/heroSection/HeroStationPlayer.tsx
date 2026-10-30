@@ -83,6 +83,7 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       is_on_air: null,
       state: null,
       icecast_only: null,
+      switched_off: null,
       now_playing: { title: null, artist: null },
     },
   )

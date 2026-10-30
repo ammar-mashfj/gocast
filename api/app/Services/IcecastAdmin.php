@@ -13,6 +13,7 @@ use Throwable;
  *
  *   • liveMounts()     — which mounts have a source right now: the authority
  *                        for "is a relay broadcaster really there?"
+ *   • carries()        — the same question for one mount, yes/no/unknown.
  *   • killSource()     — cut a relay broadcaster off (station turned off).
  *   • updateMetadata() — the title Icecast-native players (VLC, car radios)
  *                        show; the web player reads Laravel's copy instead.
@@ -29,6 +30,20 @@ class IcecastAdmin
     private const TIMEOUT_SECONDS = 3;
 
     public const STANDBY_MOUNT = '/standby';
+
+    /**
+     * Does a source hold this mount right now? Null when Icecast could not be
+     * asked. Each caller decides what unknown means for it — closing a session
+     * does nothing, a title is refused, Start keeps the relay — so this never
+     * guesses. Never cached: a disconnect asks it to tell a source that has
+     * just left from one that is back, and a stale list cannot.
+     */
+    public function carries(string $mount): ?bool
+    {
+        $mounts = $this->liveMounts();
+
+        return $mounts === null ? null : isset($mounts[$mount]);
+    }
 
     /**
      * Mounts that have a source connected, or null when Icecast could not be

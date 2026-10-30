@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -40,8 +42,17 @@ class BroadcastSessions
      */
     public function open(Station $station, string $via, ?string $client): bool
     {
-        return Cache::lock("stream-session-open:{$station->id}", 10)
-            ->block(5, fn () => $this->openUnlocked($station, $via, $client));
+        try {
+            return Cache::lock("stream-session-open:{$station->id}", 10)
+                ->block(5, fn () => $this->openUnlocked($station, $via, $client));
+        } catch (LockTimeoutException) {
+            // Whoever holds the lock is opening this very session. Throwing
+            // would answer Icecast's one-shot callback with a 500, or end a
+            // reconcile pass for every other station.
+            Log::warning('Session open waited out another open of the same station', ['station' => $station->slug]);
+
+            return false;
+        }
     }
 
     private function openUnlocked(Station $station, string $via, ?string $client): bool

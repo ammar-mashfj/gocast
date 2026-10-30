@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Station;
 use App\Services\IcecastAdmin;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -19,6 +20,10 @@ use Illuminate\Foundation\Queue\Queueable;
  *
  * Best-effort, one try: stations:reconcile disconnects whoever this misses
  * within a minute.
+ *
+ * Skipped when the station is on again by the time it runs: an owner who
+ * turns it off and straight back on has listeners riding /standby back to
+ * the new source, and they are its audience again, not leftovers.
  */
 class DropStationListeners implements ShouldQueue
 {
@@ -30,6 +35,10 @@ class DropStationListeners implements ShouldQueue
 
     public function handle(IcecastAdmin $icecast): void
     {
+        if (Station::query()->where('icecast_mount', $this->mount)->running()->exists()) {
+            return;
+        }
+
         $icecast->dropListeners($this->mount);
     }
 }

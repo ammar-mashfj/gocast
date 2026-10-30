@@ -76,6 +76,11 @@ class ListenerCountController extends Controller
             // the right stream says as much; hiding it would mean every Free
             // listener tries HLS first and starts late.
             'icecast_only' => $station->usesRelay(),
+            // The owner's intent, for a player deciding whether to stop. Not
+            // `state`: a running station reads 'offline' for the moment its
+            // container is gone between a recreate's stop and start, and its
+            // listeners are on /standby waiting for it.
+            'switched_off' => ! $station->isRunning(),
         ]]);
     }
 }
