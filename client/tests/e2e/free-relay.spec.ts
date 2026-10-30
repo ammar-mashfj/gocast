@@ -1,4 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process"
+import { connect, createServer, type AddressInfo, type Socket } from "node:net"
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test"
 import { E2E_PASSWORD, createE2EUser, uniqueEmail } from "./support/auth"
 
@@ -299,3 +300,99 @@ test("a listener survives repeated abrupt source drops", async ({ browser }) => 
     await ownerContext.close()
   }
 })
+
+/**
+ * The player's own safety net, for what the element's events miss. Both were
+ * a background tab overnight on staging: audio playing under a spinner that
+ * never cleared, and a listener who had to press play again.
+ *
+ *  1. `waiting` with no `playing` after it: the spinner must clear as soon as
+ *     the playhead is seen moving.
+ *  2. A stream that goes silent with its connection still open — no error,
+ *     no end — must be reconnected by the player, unprompted. The stream runs
+ *     through a proxy here that freezes every connection open at the time.
+ */
+test("the player clears a stale spinner and reconnects a silently stalled stream", async ({ browser }) => {
+  test.setTimeout(180_000)
+  const password = process.env.E2E_RELAY_SOURCE_PASSWORD ?? "lab-liquidsoap"
+  const track = process.env.E2E_RELAY_TRACK ?? "../../gocast-relay-lab/media/tone440.mp3"
+  const { context: ownerContext, studio: owner } = await signInNewFreeUser(browser)
+  const slug = await createStation(owner)
+  expect((await api(owner, "POST", `/stations/${slug}/start`)).status).toBe(202)
+  const feeding = spawn("ffmpeg", [
+    "-loglevel", "error", "-nostdin", "-re", "-stream_loop", "-1", "-i", track, "-c", "copy",
+    "-content_type", "audio/mpeg", "-f", "mp3", `icecast://source:${password}@${ICECAST.host}/stream/${slug}`,
+  ], { stdio: "ignore" })
+  await expect.poll(async () => (await icecastMounts())[`/stream/${slug}`] !== undefined, { timeout: 15_000 }).toBe(true)
+
+  const proxy = await freezableProxy(new URL(LISTEN))
+  const listenerContext = await newContext(browser)
+  // Registered after newContext's routes, so it wins for the stream.
+  await listenerContext.route(/\/stream-proxy\//, (route) => {
+    const url = new URL(route.request().url())
+    route.continue({ url: `http://127.0.0.1:${proxy.port}${url.pathname.replace(/^\/stream-proxy/, "")}${url.search}` })
+  })
+  const listener = await listenerContext.newPage()
+  const spinning = () => listener.locator("button .animate-spin").count().then((n) => n > 0)
+
+  try {
+    await listener.goto(`/station/${slug}`)
+    await listener.getByRole("button", { name: /play/i }).first().click()
+    await expect.poll(() => audioTime(listener), { timeout: 30_000 }).toBeGreaterThan(3)
+
+    // 1. A `waiting` that no `playing` follows.
+    await listener.evaluate(() => document.querySelector("audio")!.dispatchEvent(new Event("waiting")))
+    expect(await spinning()).toBe(true)
+    await expect.poll(spinning, { timeout: 5_000 }).toBe(false)
+    await expect(listener.getByRole("button", { name: "Pause" }).first()).toBeVisible()
+
+    // 2. The open connection goes silent for good. Nothing errors; only the
+    // watchdog can notice. It reconnects (a new request through the proxy)
+    // and the playhead moves again on its own.
+    const connectionsBefore = proxy.connections()
+    proxy.freeze()
+    const frozenAt = await audioTime(listener)
+    await expect.poll(() => proxy.connections(), { timeout: 40_000 }).toBeGreaterThan(connectionsBefore)
+    await expect.poll(() => audioTime(listener), { timeout: 30_000 }).toBeGreaterThan(frozenAt + 3)
+    await expect.poll(spinning, { timeout: 5_000 }).toBe(false)
+    console.log(`stalled at ${frozenAt.toFixed(1)} s; reconnected by the watchdog, connections ${connectionsBefore} → ${proxy.connections()}`)
+  } finally {
+    feeding.kill("SIGKILL")
+    proxy.close()
+    await api(owner, "POST", `/stations/${slug}/stop`)
+    await listenerContext.close()
+    await ownerContext.close()
+  }
+})
+
+/** A TCP proxy to `target` whose freeze() silences every connection open at the time, leaving them open. */
+async function freezableProxy(target: URL) {
+  const open = new Set<{ client: Socket; upstream: Socket }>()
+  let count = 0
+  const server = createServer((client) => {
+    count++
+    const upstream = connect(Number(target.port || 80), target.hostname)
+    const pair = { client, upstream }
+    open.add(pair)
+    client.pipe(upstream)
+    upstream.pipe(client)
+    const drop = () => { open.delete(pair); client.destroy(); upstream.destroy() }
+    client.on("error", drop).on("close", drop)
+    upstream.on("error", drop).on("close", drop)
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  return {
+    port: (server.address() as AddressInfo).port,
+    connections: () => count,
+    freeze: () => {
+      for (const { client, upstream } of open) {
+        upstream.unpipe(client)
+        upstream.pause()
+      }
+    },
+    close: () => {
+      for (const { client, upstream } of open) { client.destroy(); upstream.destroy() }
+      server.close()
+    },
+  }
+}
