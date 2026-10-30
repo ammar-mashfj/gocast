@@ -178,6 +178,12 @@ class ReconcileStations extends Command
 
         $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $dryRun);
 
+        $standbyDropped = $this->dropOrphanedStandbyListeners($icecast, $dryRun);
+
+        if ($standbyDropped > 0) {
+            $this->line("  ✓ disconnected {$standbyDropped} listener(s) left on /standby by a station that is off");
+        }
+
         $outdated = $this->outdatedStations($supervisor, $healthy);
 
         if ($orphans === [] && $unwanted === [] && $missing === [] && $unhealthy === [] && $outdated === []) {
@@ -515,6 +521,47 @@ class ReconcileStations extends Command
      * Requires consecutive disagreeing passes so a momentary reconnect (the
      * publisher dropping and re-joining between polls) doesn't end a session.
      */
+    /**
+     * Disconnect listeners parked on /standby by a station that is off.
+     *
+     * Icecast's fallback parks a dropped source's listeners there so a
+     * reconnect (a relay studio, a restarting container) passes without them
+     * pressing play again. Their station still wants to be running then, so
+     * they stay. Once it does not, nothing will ever bring them back: the stop
+     * path disconnects its own audience, and this catches whoever that missed —
+     * a stop that threw, a listener moved there in the moment after. Icecast
+     * remembers where each one came from.
+     */
+    private function dropOrphanedStandbyListeners(IcecastAdmin $icecast, bool $dryRun): int
+    {
+        $standby = $icecast->standbyListeners();
+
+        if ($standby === null || $standby === []) {
+            return 0;
+        }
+
+        $origins = array_values(array_unique(array_filter($standby)));
+        $running = array_flip(Station::query()
+            ->running()
+            ->whereIn('icecast_mount', $origins)
+            ->pluck('icecast_mount')
+            ->all());
+
+        $dropped = 0;
+
+        foreach ($standby as $id => $origin) {
+            if ($origin !== null && isset($running[$origin])) {
+                continue;
+            }
+
+            if (! $dryRun) {
+                $dropped += (int) $icecast->killListener(IcecastAdmin::STANDBY_MOUNT, $id);
+            }
+        }
+
+        return $dropped;
+    }
+
     private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, bool $dryRun): int
     {
         $stations = Station::query()->running()->live()->get();

@@ -277,6 +277,14 @@ class StationLifecycleService
                 $this->supervisor->down($station);
             }
 
+            // The source has left, so Icecast's fallback has just moved its
+            // listeners to /standby — where they would stay on silence for
+            // good. Off means off: disconnect them, as stopping did before the
+            // fallback existed. After the source, never before, or a listener
+            // arriving in between is moved there behind us. Best-effort;
+            // stations:reconcile clears whoever this misses within a minute.
+            $this->icecast->dropListeners($station);
+
             // Drop the now-playing payload as part of stopping, rather than
             // leaving it to whoever notices first.
             //

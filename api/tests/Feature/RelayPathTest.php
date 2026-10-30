@@ -49,11 +49,45 @@ beforeEach(function () {
     // never be reached behind a catch-all here.
     $this->icecastMounts = '<icestats/>';
     $this->icecastStatus = 200;
-    Http::fake(fn (HttpRequest $request) => Http::response(
-        str_contains($request->url(), '/admin/listmounts') ? $this->icecastMounts : '',
-        $this->icecastStatus,
-    ));
+    // mount => [client id => mount history], as listclients reports them.
+    $this->icecastClients = [];
+    Http::fake(function (HttpRequest $request) {
+        if ($this->icecastStatus !== 200) {
+            return Http::response('', $this->icecastStatus);
+        }
+
+        if (str_contains($request->url(), '/admin/listclients')) {
+            // No source on a mount: Icecast answers 404.
+            return isset($this->icecastClients[$request['mount']])
+                ? Http::response(listClientsXml($request['mount'], $this->icecastClients[$request['mount']]))
+                : Http::response('', 404);
+        }
+
+        return Http::response(str_contains($request->url(), '/admin/listmounts') ? $this->icecastMounts : '');
+    });
 });
+
+/** @param  array<int, list<string>>  $listeners */
+function listClientsXml(string $mount, array $listeners): string
+{
+    $xml = '';
+
+    foreach ($listeners as $id => $history) {
+        $mounts = implode('', array_map(fn (string $m) => "<mount>{$m}</mount>", $history));
+        $xml .= "<listener id=\"{$id}\"><id>{$id}</id><history>{$mounts}</history></listener>";
+    }
+
+    return "<?xml version=\"1.0\"?><icestats><source mount=\"{$mount}\">{$xml}</source></icestats>";
+}
+
+/** The [mount, id] pairs Icecast was told to disconnect. */
+function killedListeners(): array
+{
+    return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killclient'))
+        ->map(fn (array $pair) => [$pair[0]['mount'], (int) $pair[0]['id']])
+        ->values()
+        ->all();
+}
 
 /** A Free station already started on the relay path. */
 function relayStation(array $attributes = []): Station
@@ -181,6 +215,24 @@ describe('the power switch', function () {
             && $request['mount'] === '/stream/free-show');
     });
 
+    it('disconnects the audience of a station it stops, on its mount and on /standby', function (string $plan) {
+        $station = relayStation($plan === 'pro' ? ['ingest_path' => Station::INGEST_CONTAINER] : []);
+        $this->icecastClients = [
+            '/stream/free-show' => [7 => ['/stream/free-show']],
+            '/standby' => [
+                8 => ['/stream/free-show', '/standby'],
+                9 => ['/stream/someone-else', '/standby'],
+            ],
+        ];
+
+        app(StationLifecycleService::class)->stop($station, force: true);
+
+        expect(killedListeners())->toEqualCanonicalizing([
+            ['/stream/free-show', 7],
+            ['/standby', 8],
+        ]);
+    })->with(['relay' => 'free', 'container' => 'pro']);
+
     it('still stops when Icecast cannot be reached', function () {
         $this->icecastStatus = 500;
         $station = relayStation();
@@ -282,6 +334,32 @@ describe('Icecast events', function () {
             ->and(Redis::exists("metadata:{$station->id}"))->toBe(0);
     });
 
+    it('ignores a disconnect that arrives after the studio is already back', function () {
+        $station = relayStation();
+        $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+        Redis::setex("metadata:{$station->id}", 60, json_encode(['title' => 'Re-sent', 'artist' => null]));
+
+        // The reconnected source already holds the mount.
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->is($session))->toBeTrue()
+            ->and($session->refresh()->ended_at)->toBeNull()
+            ->and(Redis::exists("metadata:{$station->id}"))->toBe(1);
+    });
+
+    it('closes the session when Icecast cannot say whether the mount is back', function () {
+        $station = relayStation();
+        $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+        $this->icecastMounts = 'not xml';
+
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($session->refresh()->ended_at)->not->toBeNull();
+    });
+
     it('opens one session however often the connect is reported', function () {
         $station = relayStation();
 
@@ -322,6 +400,17 @@ describe('the studio\'s now playing', function () {
         Http::assertSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/metadata')
             && $request['song'] === 'Café - أغنية'
             && $request['mount'] === '/stream/free-show');
+    });
+
+    it('sends Icecast the same trimmed text it stores', function () {
+        $station = relayStation();
+
+        $this->actingAs($station->user)
+            ->postJson("/api/stations/{$station->slug}/now-playing", ['title' => '  Song  ', 'artist' => '   '])
+            ->assertJson(['playing' => true]);
+
+        Http::assertSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/metadata')
+            && $request['song'] === 'Song');
     });
 
     it('clears it on an empty title', function () {
@@ -463,6 +552,34 @@ describe('the reconciler', function () {
 
         $this->artisan('stations:reconcile')->run();
         expect($station->isLive())->toBeFalse();
+    });
+
+    it('disconnects /standby listeners whose station is off, and keeps a running one\'s', function () {
+        relayStation();
+        Station::factory()->create(['slug' => 'stopped-show', 'desired_state' => Station::STATE_STOPPED]);
+
+        $this->icecastClients = ['/standby' => [
+            1 => ['/stream/free-show', '/standby'],    // waiting for its studio to reconnect
+            2 => ['/stream/stopped-show', '/standby'], // its station is off
+            3 => ['/stream/deleted-long-ago', '/standby'],
+            4 => ['/standby'],                         // asked for the silence feed directly
+        ]];
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        expect(killedListeners())->toEqualCanonicalizing([
+            ['/standby', 2],
+            ['/standby', 3],
+            ['/standby', 4],
+        ]);
+    });
+
+    it('disconnects nobody on a dry run', function () {
+        $this->icecastClients = ['/standby' => [1 => ['/stream/gone', '/standby']]];
+
+        $this->artisan('stations:reconcile --dry-run')->assertSuccessful();
+
+        expect(killedListeners())->toBe([]);
     });
 
     it('keeps a relay session Icecast still carries', function () {

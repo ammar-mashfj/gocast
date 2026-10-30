@@ -69,6 +69,12 @@ class ListenerCountController extends Controller
             // Icecast mount. Here as well as in StationResource::hls_url
             // because a player page outlives the run it was rendered for —
             // the station can go live on the relay after the page loaded.
+            //
+            // A known leak, accepted: the relay path is Free-only today, so
+            // this (like the empty hls_url) tells anyone which plan a station
+            // is on while it broadcasts. Any signal that sends the player to
+            // the right stream says as much; hiding it would mean every Free
+            // listener tries HLS first and starts late.
             'icecast_only' => $station->usesRelay(),
         ]]);
     }

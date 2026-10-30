@@ -7,6 +7,7 @@ use App\Models\Station;
 use App\Models\StationEvent;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
+use App\Services\IcecastAdmin;
 use App\Services\IngestMetrics;
 use App\Services\StationStatusService;
 use Illuminate\Http\Request;
@@ -96,8 +97,12 @@ class IcecastCallbackController extends Controller
         return response('', Response::HTTP_OK, ['icecast-auth-user' => '1']);
     }
 
-    public function event(Request $request, BroadcastSessions $sessions, StationStatusService $statusService): Response
-    {
+    public function event(
+        Request $request,
+        BroadcastSessions $sessions,
+        StationStatusService $statusService,
+        IcecastAdmin $icecast,
+    ): Response {
         $action = (string) $request->input('action', '');
         $mount = (string) $request->input('mount', '');
 
@@ -126,6 +131,14 @@ class IcecastCallbackController extends Controller
 
         if ($type === StationEvent::TYPE_LIVE_CONNECTED) {
             $sessions->open($station, 'browser', null);
+        } elseif ($this->mountTakenAgain($icecast, $mount)) {
+            // The studio is already back on a new source. Icecast sends
+            // events one at a time, in order, but a backlog (a relay restart
+            // reconnects every studio at once) can deliver this after the
+            // reconnected studio has re-sent its title. Closing now would end
+            // the live session and wipe that title; the new source's connect
+            // event finds the session still open and keeps it.
+            Log::info('Ignored a relay disconnect: the mount is live again', ['station' => $station->slug]);
         } else {
             $sessions->close($station);
         }
@@ -144,6 +157,15 @@ class IcecastCallbackController extends Controller
         ]);
 
         return response('', Response::HTTP_OK);
+    }
+
+    /**
+     * Does a source hold this mount right now? Unknown (Icecast could not be
+     * asked) counts as no, which keeps the plain disconnect behaviour.
+     */
+    private function mountTakenAgain(IcecastAdmin $icecast, string $mount): bool
+    {
+        return isset(($icecast->liveMounts() ?? [])[$mount]);
     }
 
     private function refuse(string $slug, string $mount, string $reason, string $method): Response
