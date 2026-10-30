@@ -79,9 +79,10 @@ class MetricsController extends Controller
 
         $totalContainers = $daemonReachable ? count($states) : -1;
 
-        // Intent: stations whose owner has asked for them to be on air. This is
-        // what the running container count should equal.
-        $expectedContainers = Station::query()->running()->count();
+        // Intent: stations whose owner has asked for them to be on air, on a
+        // path that has a container. This is what the running container count
+        // should equal — relay stations run without one.
+        $expectedContainers = Station::query()->running()->onContainer()->count();
 
         $lines[] = '# HELP gocast_supervisor_containers_expected Stations whose desired_state is running.';
         $lines[] = '# TYPE gocast_supervisor_containers_expected gauge';

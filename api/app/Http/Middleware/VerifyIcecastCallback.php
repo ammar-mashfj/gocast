@@ -4,6 +4,8 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -24,8 +26,16 @@ class VerifyIcecastCallback
     {
         $expected = (string) config('relay.callback_password');
 
+        // Misconfigured, not under attack: refuse without throwing. The events
+        // are bound on Icecast's default mount, so every Pro container start
+        // and standby restart lands here too; an exception each time buried
+        // the logs. One warning per ten minutes says what is wrong.
         if ($expected === '') {
-            throw new \RuntimeException('ICECAST_CALLBACK_PASSWORD is not configured');
+            if (Cache::add('icecast-callback-unconfigured-warned', true, 600)) {
+                Log::warning('ICECAST_CALLBACK_PASSWORD is not configured: refusing every Icecast callback, so no Free station can go live');
+            }
+
+            return response()->json(['message' => 'Unauthorized.'], 401);
         }
 
         $userMatches = hash_equals((string) config('relay.callback_user'), (string) $request->getUser());

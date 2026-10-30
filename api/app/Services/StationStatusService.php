@@ -65,8 +65,17 @@ class StationStatusService
      */
     public const STATE_DEGRADED = 'degraded';
 
+    /**
+     * Icecast's live mounts, asked at most once per pass: a sweep over many
+     * relay stations must not ask Icecast once each.
+     *
+     * @var array{at: float, mounts: array<string, true>|null}|null
+     */
+    private ?array $icecastMounts = null;
+
     public function __construct(
         private readonly LiquidsoapSupervisor $supervisor,
+        private readonly IcecastAdmin $icecast,
     ) {}
 
     /**
@@ -157,6 +166,14 @@ class StationStatusService
     {
         if (! $station->isRunning()) {
             return null;
+        }
+
+        // The relay's "who is on air" is the session Icecast's source-connect
+        // opened, and Icecast sends that callback once, without retrying. A
+        // lost one must not get a live show turned off, so this — the reading
+        // the auto-stop acts on — also asks Icecast itself.
+        if ($station->usesRelay()) {
+            return $this->relayStatus($station, askIcecast: true);
         }
 
         $payload = $this->pull($station);
@@ -332,9 +349,9 @@ class StationStatusService
      *
      * @return array<string, mixed>
      */
-    private function relayStatus(Station $station): array
+    private function relayStatus(Station $station, bool $askIcecast = false): array
     {
-        $live = $station->isLive();
+        $live = $station->isLive() || ($askIcecast && $this->icecastCarries($station));
         $metadata = json_decode((string) Redis::get("metadata:{$station->id}"), true);
         $metadata = is_array($metadata) ? $metadata : [];
 
@@ -351,6 +368,20 @@ class StationStatusService
             'playlist_length' => null,
             'up_next' => [],
         ];
+    }
+
+    /**
+     * Does Icecast hold this station's source right now? Unknown (Icecast
+     * could not be asked) answers no, which leaves the session to decide, as
+     * before.
+     */
+    private function icecastCarries(Station $station): bool
+    {
+        if ($this->icecastMounts === null || microtime(true) - $this->icecastMounts['at'] > 5) {
+            $this->icecastMounts = ['at' => microtime(true), 'mounts' => $this->icecast->liveMounts()];
+        }
+
+        return isset(($this->icecastMounts['mounts'] ?? [])[$station->icecast_mount]);
     }
 
     /**

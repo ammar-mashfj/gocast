@@ -594,6 +594,10 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
       and see the error above: sudo FULL_DEPLOY=1 bash infra/native/deploy-native.sh")
   else
     bin="$REPO_ROOT/relay/bin"
+    # The build is reproducible (-trimpath), so an unchanged standby feeder
+    # comes out byte-identical and is not restarted at all.
+    STANDBY_CHANGED=0
+    cmp -s "$bin/.new/gocast-standby" "$bin/gocast-standby" 2>/dev/null || STANDBY_CHANGED=1
     for name in gocast-relay gocast-standby; do
       [[ -f "$bin/$name" ]] && as_app cp -p "$bin/$name" "$bin/$name.prev"
       # rename(2): a running process keeps the inode it started from.
@@ -603,6 +607,14 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
     if [[ ! -f /etc/systemd/system/gocast-relay@.service ]]; then
       MANUAL_STEPS+=("the relay is built but not installed — run setup-native.sh once")
     else
+      # BEFORE the relay copies, not after: a restart drops whoever is on
+      # /standby at that instant, and right after a relay copy restarts that is
+      # every listener of its studios, still reconnecting. Now it is only the
+      # listeners of a source that happens to be down.
+      if [[ $STANDBY_CHANGED -eq 1 ]]; then
+        systemctl restart gocast-standby || true
+        echo "  ✓ gocast-standby restarted (new build)"
+      fi
       for port in "${RELAY_PORTS[@]}"; do
         systemctl restart "gocast-relay@${port}"
         if relay_healthy "$port"; then
@@ -619,9 +631,6 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
         # Let this copy's studios land on the other before restarting that one.
         [[ "$port" != "${RELAY_PORTS[-1]}" ]] && sleep 10
       done
-      # Listeners waiting on /standby at this instant are dropped; it takes a
-      # second, and only matters if some source is down right now.
-      systemctl restart gocast-standby || true
     fi
   fi
 else

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\StationStateChanged;
+use App\Jobs\DropStationListeners;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
@@ -70,10 +71,20 @@ class StationLifecycleService
         return $this->withLock($station, function () use ($station, $reason) {
             $station->refresh();
 
-            // Already on air on the relay: there is nothing to bring up. The
-            // relay and Icecast are shared and always running.
             if ($station->isRunning() && $station->usesRelay()) {
-                return $station;
+                // Already on air on the relay: there is nothing to bring up.
+                // The relay and Icecast are shared and always running. Also
+                // while someone is broadcasting into it, whatever the plan now
+                // says — an upgrade mid-show must not move a live broadcaster.
+                if ($station->isLive() || $station->resolveIngestPath() === Station::INGEST_RELAY) {
+                    return $station;
+                }
+
+                // Upgraded while on with nobody live: the plan now has AutoDJ
+                // or an encoder, which only a container can give. Move this run
+                // onto one, or "Start AutoDJ" would leave it on the relay,
+                // silent, until the sweep turned it off.
+                $station->forceFill(['ingest_path' => Station::INGEST_CONTAINER])->save();
             }
 
             // Already on air with a healthy container: do nothing. up() would
@@ -281,9 +292,10 @@ class StationLifecycleService
             // listeners to /standby — where they would stay on silence for
             // good. Off means off: disconnect them, as stopping did before the
             // fallback existed. After the source, never before, or a listener
-            // arriving in between is moved there behind us. Best-effort;
-            // stations:reconcile clears whoever this misses within a minute.
-            $this->icecast->dropListeners($station);
+            // arriving in between is moved there behind us. Queued, so the
+            // power button never waits on Icecast; stations:reconcile clears
+            // whoever this misses within a minute.
+            DropStationListeners::dispatch($station->icecast_mount);
 
             // Drop the now-playing payload as part of stopping, rather than
             // leaving it to whoever notices first.

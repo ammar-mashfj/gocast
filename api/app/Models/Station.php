@@ -312,6 +312,21 @@ class Station extends Model
     }
 
     /**
+     * Stations whose run has (or would have) a container: everything but the
+     * relay path, which has none by design. Combine with running() for "a
+     * container should exist" — the reconciler, the metrics, anything that
+     * talks to Liquidsoap.
+     *
+     * @param  Builder<Station>  $query
+     */
+    public function scopeOnContainer($query): void
+    {
+        $query->where(fn ($query) => $query
+            ->whereNull('ingest_path')
+            ->orWhere('ingest_path', '!=', self::INGEST_RELAY));
+    }
+
+    /**
      * Has the owner asked for this station to be on air? This is intent, not
      * observation — use LiquidsoapSupervisor::isRunning() to ask the daemon
      * what is actually up, and StationStatusService to ask the container

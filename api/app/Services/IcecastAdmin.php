@@ -86,9 +86,9 @@ class IcecastAdmin
      * it. Returns how many were disconnected, or null when Icecast could not
      * be asked.
      */
-    public function dropListeners(Station $station): ?int
+    public function dropListeners(string $mount): ?int
     {
-        $onMount = $this->listeners($station->icecast_mount);
+        $onMount = $this->listeners($mount);
         $onStandby = $this->standbyListeners();
 
         if ($onMount === null && $onStandby === null) {
@@ -98,11 +98,11 @@ class IcecastAdmin
         $dropped = 0;
 
         foreach (array_keys($onMount ?? []) as $id) {
-            $dropped += (int) $this->killListener($station->icecast_mount, $id);
+            $dropped += (int) $this->killListener($mount, $id);
         }
 
         foreach ($onStandby ?? [] as $id => $origin) {
-            if ($origin === $station->icecast_mount) {
+            if ($origin === $mount) {
                 $dropped += (int) $this->killListener(self::STANDBY_MOUNT, $id);
             }
         }

@@ -46,6 +46,11 @@ it('counts only stations that want to be on air as expected containers', functio
     $user = User::factory()->create();
     Station::factory()->for($user, 'user')->count(2)->create(['desired_state' => Station::STATE_RUNNING]);
     Station::factory()->for($user, 'user')->count(3)->create(['desired_state' => Station::STATE_STOPPED]);
+    // On the relay path: running, but with no container by design.
+    Station::factory()->for($user, 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+        'ingest_path' => Station::INGEST_RELAY,
+    ]);
 
     $body = test()->getJson('/api/internal/metrics', [
         'X-Internal-Key' => config('services.internal_api_key'),

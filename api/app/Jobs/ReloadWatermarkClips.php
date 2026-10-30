@@ -44,7 +44,7 @@ class ReloadWatermarkClips implements ShouldQueue
             return;
         }
 
-        Station::query()->running()->cursor()->each(function (Station $station) use ($supervisor): void {
+        Station::query()->running()->onContainer()->cursor()->each(function (Station $station) use ($supervisor): void {
             try {
                 $supervisor->telnet($station, self::LIQ_SOURCE.'.reload');
             } catch (Throwable $e) {

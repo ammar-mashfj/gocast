@@ -191,13 +191,38 @@ describe('the power switch', function () {
         expect($station->refresh()->ingest_path)->toBe(Station::INGEST_CONTAINER);
     });
 
-    it('keeps the path a run started on, whatever the plan does mid-show', function () {
+    it('keeps the path a run started on while someone is broadcasting, whatever the plan does', function () {
         $station = relayStation();
+        $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
         $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
 
         app(StationLifecycleService::class)->start($station->refresh());
 
         expect($station->refresh()->ingest_path)->toBe(Station::INGEST_RELAY);
+    });
+
+    it('moves an idle relay run onto a container when an upgrade asks for one', function () {
+        $station = relayStation();
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+
+        app(StationLifecycleService::class)->start($station->refresh());
+
+        expect($station->refresh())
+            ->ingest_path->toBe(Station::INGEST_CONTAINER)
+            ->desired_state->toBe(Station::STATE_RUNNING);
+    });
+
+    it('takes a relay station off air when it is deleted mid-show', function () {
+        $station = relayStation();
+        $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+        $this->icecastClients = ['/stream/free-show' => [5 => ['/stream/free-show']]];
+
+        $station->delete();
+
+        expect($session->refresh()->ended_at)->not->toBeNull()
+            ->and(killedListeners())->toBe([['/stream/free-show', 5]]);
+        Http::assertSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource')
+            && $request['mount'] === '/stream/free-show');
     });
 
     it('stops a relay station by cutting its Icecast source', function () {
@@ -378,6 +403,17 @@ describe('Icecast events', function () {
         expect($container->streamSessions()->count())->toBe(0);
     });
 
+    it('refuses quietly when the callback password is not configured', function () {
+        config(['relay.callback_password' => '']);
+        relayStation();
+        Log::spy();
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertUnauthorized();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertUnauthorized();
+
+        Log::shouldHaveReceived('warning')->once();
+    });
+
     it('needs the Icecast credential', function () {
         relayStation();
 
@@ -515,6 +551,22 @@ describe('auto-stop', function () {
         expect($verdict)->toBe(StationAudioVerdict::Stop);
     });
 
+    it('keeps a relay show Icecast is carrying even when its connect callback was lost', function () {
+        // On air for 20 minutes, reconnected after a drop, but the new
+        // source-connect never reached Laravel: no open session.
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $verdict = app(StationAudioPolicy::class)->verdict($station, app(StationStatusService::class)->pullFresh($station));
+
+        expect($verdict)->toBe(StationAudioVerdict::InUse);
+    });
+
     it('runs the silence clock for a relay station nobody broadcasts into', function () {
         $station = relayStation();
         $policy = app(StationAudioPolicy::class);
@@ -572,6 +624,23 @@ describe('the reconciler', function () {
             ['/standby', 3],
             ['/standby', 4],
         ]);
+    });
+
+    it('reopens the session of a relay show whose connect callback was lost', function () {
+        $station = relayStation();
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        expect($station->isLive())->toBeTrue();
+    });
+
+    it('opens nothing for a relay station Icecast is not carrying', function () {
+        $station = relayStation();
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        expect($station->isLive())->toBeFalse();
     });
 
     it('disconnects nobody on a dry run', function () {

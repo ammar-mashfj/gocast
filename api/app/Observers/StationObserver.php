@@ -2,7 +2,9 @@
 
 namespace App\Observers;
 
+use App\Jobs\DropStationListeners;
 use App\Models\Station;
+use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use Illuminate\Support\Facades\File;
@@ -31,8 +33,10 @@ use Throwable;
  *                since up() always re-renders.
  *                Jingle settings are not in the script at all: Laravel
  *                reads them at every track boundary (JingleClock).
- *  • deleting  → stop and remove the container (also fires for soft deletes;
- *                listeners stop hearing the station as soon as it's "deleted")
+ *  • deleting  → take it off air (also fires for soft deletes; listeners
+ *                stop hearing the station as soon as it's "deleted"): remove
+ *                the container, or on the relay path cut the Icecast source,
+ *                then close any open broadcast and release the listeners
  *  • restored  → bring a soft-deleted station back, if it was running
  *
  * Failures are logged but NOT re-thrown: a Docker daemon hiccup must not
@@ -45,6 +49,7 @@ class StationObserver
     public function __construct(
         private LiquidsoapSupervisor $supervisor,
         private PlaylistFileWriter $playlistWriter,
+        private IcecastAdmin $icecast,
     ) {}
 
     /**
@@ -155,6 +160,19 @@ class StationObserver
     public function deleting(Station $station): void
     {
         $this->safely('down', $station, fn () => $this->supervisor->down($station));
+
+        // A relay run has no container for down() to remove: what keeps it on
+        // air is its Icecast source.
+        if ($station->usesRelay()) {
+            $this->safely('kill-source', $station, fn () => $this->icecast->killSource($station));
+        }
+
+        // Nothing will close the session after this: the disconnect callback
+        // looks the station up by slug and no longer finds a deleted one. A
+        // deleted station is never live, whatever path it was on.
+        $station->streamSessions()->whereNull('ended_at')->update(['ended_at' => now()]);
+
+        DropStationListeners::dispatch($station->icecast_mount);
     }
 
     public function forceDeleted(Station $station): void

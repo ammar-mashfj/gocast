@@ -1445,13 +1445,30 @@ export class BroadcastManager {
     if (this.ws?.readyState !== WebSocket.OPEN) return
     if (this.ingest === 'relay') {
       this.sentMetadataKey = `${title}\0${artist}`
-      // Fire and forget, like the frame: a missed title is cosmetic, and the
-      // next track (or the replay after a reconnect) sends it again.
-      void api.post(`/stations/${this.stationSlug}/now-playing`, { title, artist }).catch(() => {})
+      this.postRelayMetadata(title, artist, 0)
       return
     }
     this.ws.send(JSON.stringify({ type: 'metadata', data: { title, artist } }))
     this.sentMetadataKey = `${title}\0${artist}`
+  }
+
+  /**
+   * The relay path's title goes over HTTP, which can fail where the socket
+   * frame could not (a network blip, a 429). Marked sent up front so the
+   * engine's next tick does not post it again, so a failure would otherwise
+   * leave listeners on no title, or the last one, until the next track. A few
+   * spaced retries while it is still the current track, then give up: it is
+   * cosmetic.
+   */
+  private postRelayMetadata(title: string, artist: string, attempt: number): void {
+    const key = `${title}\0${artist}`
+    void api.post(`/stations/${this.stationSlug}/now-playing`, { title, artist }).catch(() => {
+      if (attempt >= 2) return
+      setTimeout(() => {
+        if (this.stopping || this.sentMetadataKey !== key) return
+        this.postRelayMetadata(title, artist, attempt + 1)
+      }, 5_000)
+    })
   }
 
   /**

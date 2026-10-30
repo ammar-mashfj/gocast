@@ -4,7 +4,9 @@ namespace App\Console\Commands;
 
 use App\Events\StationStateChanged;
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\StreamSession;
+use App\Services\BroadcastSessions;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
@@ -101,6 +103,7 @@ class ReconcileStations extends Command
         PlaylistFileWriter $playlistWriter,
         StationStatusService $statusService,
         IcecastAdmin $icecast,
+        BroadcastSessions $sessions,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -123,9 +126,7 @@ class ReconcileStations extends Command
         // removed.
         $wantedSlugs = Station::query()
             ->running()
-            ->where(fn ($query) => $query
-                ->whereNull('ingest_path')
-                ->orWhere('ingest_path', '!=', Station::INGEST_RELAY))
+            ->onContainer()
             ->pluck('slug')
             ->all();
         $wantedSet = array_flip($wantedSlugs);
@@ -177,6 +178,12 @@ class ReconcileStations extends Command
         ));
 
         $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $dryRun);
+
+        $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $statusService, $dryRun);
+
+        if ($relayReopened > 0) {
+            $this->line("  ✓ reopened the session of {$relayReopened} relay show(s) Icecast is carrying");
+        }
 
         $standbyDropped = $this->dropOrphanedStandbyListeners($icecast, $dryRun);
 
@@ -521,6 +528,64 @@ class ReconcileStations extends Command
      * Requires consecutive disagreeing passes so a momentary reconnect (the
      * publisher dropping and re-joining between polls) doesn't end a session.
      */
+    /**
+     * Open the session of a relay show whose source-connect never arrived.
+     *
+     * On the relay path that callback is the only thing that marks a station
+     * live, and Icecast sends it once, without retrying: a deploy reload or one
+     * failed request and the show is on air with no session — the dashboard
+     * says offline and the sweep reads "the studio left". Icecast's own mount
+     * list is the truth; this is reconcileLiveFlags() the other way round, and
+     * needs no strikes, because a source on that mount had to pass the auth
+     * callback with a broadcast token for this station to get there.
+     */
+    private function reopenMissedRelaySessions(
+        IcecastAdmin $icecast,
+        BroadcastSessions $sessions,
+        StationStatusService $statusService,
+        bool $dryRun,
+    ): int {
+        $quiet = Station::query()
+            ->running()
+            ->where('ingest_path', Station::INGEST_RELAY)
+            ->whereDoesntHave('streamSessions', fn ($session) => $session->whereNull('ended_at'))
+            ->get();
+
+        if ($quiet->isEmpty()) {
+            return 0;
+        }
+
+        $mounts = $icecast->liveMounts();
+
+        if ($mounts === null) {
+            return 0;
+        }
+
+        $reopened = 0;
+
+        foreach ($quiet as $station) {
+            if (! isset($mounts[$station->icecast_mount])) {
+                continue;
+            }
+
+            $reopened++;
+
+            if ($dryRun) {
+                continue;
+            }
+
+            $sessions->open($station, 'browser', null);
+            $statusService->forget($station);
+            event(StationStateChanged::for($station, StationEvent::TYPE_LIVE_CONNECTED));
+
+            Log::warning('Reopened a relay session Icecast is carrying (missed source-connect)', [
+                'station' => $station->slug,
+            ]);
+        }
+
+        return $reopened;
+    }
+
     /**
      * Disconnect listeners parked on /standby by a station that is off.
      *

@@ -648,6 +648,12 @@ class LiquidsoapSupervisor
      */
     public function applyWatermarkSettings(Station $station): bool
     {
+        // No Liquidsoap to tell on the relay path; the next start on a
+        // container renders the settings in.
+        if ($station->usesRelay()) {
+            return true;
+        }
+
         $commands = [
             self::VAR_WATERMARK_ENABLED.' = '.($this->watermarkEnabledFor($station) ? 'true' : 'false'),
             self::VAR_WATERMARK_INTERVAL.' = '.number_format($this->watermarkInterval(), 1, '.', ''),
