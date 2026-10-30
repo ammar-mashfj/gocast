@@ -47,6 +47,11 @@ const (
 	CloseDraining                          = websocket.StatusGoingAway
 )
 
+// How long a refusal's reason may trail its headers before the relay closes
+// without it. Icecast writes both at once, so anything longer is a peer that
+// will not send one.
+const refusalBodyWait = 300 * time.Millisecond
+
 type Config struct {
 	IcecastAddr    string        // host:port, loopback
 	IcecastHost    string        // Host header for the PUT
@@ -174,11 +179,20 @@ func (s *Server) Drain(ctx context.Context) {
 		return
 	case <-ctx.Done():
 	}
+	// Everyone at once, outside the lock. Close waits up to 5 s for the
+	// studio's reply; one by one, two silent peers (a phone in a tunnel) used
+	// up systemd's 10 s stop budget and the studios behind them were killed
+	// without ever hearing "reconnect now". In parallel the slowest peer
+	// bounds the whole drain.
 	s.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(s.conns))
 	for c := range s.conns {
-		c.Close(CloseDraining, "relay restarting")
+		conns = append(conns, c)
 	}
 	s.mu.Unlock()
+	for _, c := range conns {
+		go c.Close(CloseDraining, "relay restarting")
+	}
 	<-done
 }
 
@@ -345,6 +359,11 @@ func (s *Server) openSource(ctx context.Context, slug, token string) (net.Conn, 
 		ice.SetDeadline(time.Time{})
 		return ice, 0, ""
 	}
+	// The reason, if any, comes in the same write as the headers. Icecast 2.5
+	// always sends one and hangs up, but a refusal must not sit out the whole
+	// IcecastTimeout waiting for a body that is never coming: the studio gives
+	// up at 12 s and would report a timeout instead of the refusal.
+	ice.SetReadDeadline(time.Now().Add(refusalBodyWait))
 	body := make([]byte, 512)
 	n, _ := io.ReadAtLeast(br, body, 1)
 	ice.Close()

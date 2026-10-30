@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -518,6 +519,74 @@ func TestDrainWaitsThenCloses(t *testing.T) {
 		t.Fatalf("close code %d, want %d", got, CloseDraining)
 	}
 	<-drained
+}
+
+func TestDrainIsNotHeldUpBySilentStudios(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 30 * time.Second
+	s, hs := startRelay(t, cfg)
+	ctx := context.Background()
+
+	// Studios that stop reading never answer the close frame, so the relay
+	// waits its full 5 s on each.
+	for i := range 3 {
+		c := dial(t, hs, nil)
+		c.Write(ctx, websocket.MessageText, helloJSON(fmt.Sprintf("silent-%d", i), "tok"))
+		expectOK(t, c)
+		t.Cleanup(func() { c.CloseNow() })
+	}
+	healthy := dial(t, hs, nil)
+	healthy.Write(ctx, websocket.MessageText, helloJSON("healthy", "tok"))
+	expectOK(t, healthy)
+
+	expired, cancel := context.WithTimeout(ctx, 0)
+	defer cancel()
+	start := time.Now()
+	drained := make(chan struct{})
+	go func() { s.Drain(expired); close(drained) }()
+
+	if got := readUntilClose(t, healthy); got != CloseDraining {
+		t.Fatalf("close code %d, want %d", got, CloseDraining)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("healthy studio told to reconnect after %s, behind the silent ones", d)
+	}
+	select {
+	case <-drained:
+	case <-time.After(8 * time.Second): // one 5 s wait, not three in a row
+		t.Fatal("drain took longer than the slowest single studio")
+	}
+}
+
+func TestRefusalWithoutBodyIsReportedPromptly(t *testing.T) {
+	// Answers with headers only and keeps the socket open.
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				bufio.NewReader(c).ReadString('\n')
+				io.WriteString(c, "HTTP/1.0 401 Authentication Required\r\n\r\n")
+			}()
+		}
+	}()
+	cfg := testConfig(ln.Addr().String())
+	cfg.IcecastTimeout = 5 * time.Second
+	_, hs := startRelay(t, cfg)
+	c := dial(t, hs, nil)
+	c.Write(context.Background(), websocket.MessageText, helloJSON("a", "tok"))
+	start := time.Now()
+	if got := readUntilClose(t, c); got != CloseRejected {
+		t.Fatalf("close code %d, want %d", got, CloseRejected)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("refusal took %s to reach the studio", d)
+	}
 }
 
 func TestMetrics(t *testing.T) {
