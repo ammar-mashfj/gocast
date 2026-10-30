@@ -53,6 +53,10 @@ class StationStatusController extends Controller
                 'state' => $statusService->state($station, $status),
                 'desired_state' => $station->desired_state,
                 'started_at' => $station->started_at,
+                // Which audio path this run is on. Owner-only, like the rest
+                // of this endpoint: the relay path is Free-only, and the
+                // public API never says which plan a station is on.
+                'ingest' => $station->usesRelay() ? Station::INGEST_RELAY : Station::INGEST_CONTAINER,
                 // Distinguishes "the container answered" from "we're
                 // guessing" — the client shows a warning after a station
                 // has been unreachable for a while.

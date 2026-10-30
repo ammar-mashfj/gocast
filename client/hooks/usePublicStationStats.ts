@@ -23,6 +23,13 @@ export interface PublicStationStats {
   count: number | null
   is_live: boolean | null
   is_on_air: boolean | null
+  /** `offline`, `starting`, `on_air`, `live` or `degraded`; null if unknown. */
+  state: string | null
+  /**
+   * The station is on the relay path for this run: no HLS stream exists, so
+   * a player must use the Icecast mount. Null if unknown.
+   */
+  icecast_only: boolean | null
   now_playing: { title: string | null; artist: string | null }
 }
 
@@ -68,6 +75,8 @@ function normalise(body: unknown): PublicStationStats {
     count: typeof data.count === "number" ? data.count : null,
     is_live: typeof data.is_live === "boolean" ? data.is_live : null,
     is_on_air: typeof data.is_on_air === "boolean" ? data.is_on_air : null,
+    state: typeof data.state === "string" ? data.state : null,
+    icecast_only: typeof data.icecast_only === "boolean" ? data.icecast_only : null,
     now_playing: { title: text(np.title), artist: text(np.artist) },
   }
 }
@@ -85,7 +94,14 @@ async function read(slug: string, feed: Feed): Promise<void> {
     // was rendered with and plays whatever segments are left on disk.
     const stats: PublicStationStats | null =
       response.status === 404
-        ? { count: null, is_live: false, is_on_air: false, now_playing: { title: null, artist: null } }
+        ? {
+            count: null,
+            is_live: false,
+            is_on_air: false,
+            state: "offline",
+            icecast_only: null,
+            now_playing: { title: null, artist: null },
+          }
         : response.ok
           ? normalise(await response.json())
           : null

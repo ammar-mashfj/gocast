@@ -170,7 +170,7 @@ class StreamSessionController extends Controller
         //
         // `latest('started_at')` matches the two other places that ask this
         // same question — StationStatusController::liveSource() and
-        // StationLifecycleService::stop(). openSession() should mean there is
+        // StationLifecycleService::stop(). BroadcastSessions::open() should mean there is
         // never more than one open row, so the ordering decides nothing today;
         // it is here so that if that invariant ever slips, all three answer
         // about the SAME broadcast rather than each picking arbitrarily. Three

@@ -37,6 +37,9 @@ const METADATA_PLACEHOLDERS = new Set(["", "unknown", "n/a", "-", "none", "null"
 /** Max prior tracks kept in memory and shown under "Just played". */
 const MAX_RECENT_TRACKS = 5
 
+/** How long an Icecast playhead may sit still before the player reconnects. */
+const ICECAST_STALL_MS = 15_000
+
 function cleanMetadata(value: string | null | undefined): string | null {
   if (!value) return null
   const trimmed = value.trim()
@@ -256,6 +259,25 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // attach to the same one, so volume, mute and the media-session controls do
   // not care which is in use.
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  /** When the last few Icecast reconnects after a media error happened; see onError. */
+  const icecastRecoveriesRef = useRef<number[]>([])
+  const allowIcecastRecovery = useCallback(() => {
+    const now = Date.now()
+    const recent = icecastRecoveriesRef.current.filter((at) => now - at < 60_000)
+    if (recent.length >= 3) return false
+    icecastRecoveriesRef.current = [...recent, now]
+    return true
+  }, [])
+  /** From pressing play until teardown: the listener wants audio, whatever the element is doing. */
+  const wantsAudioRef = useRef(false)
+  /** The playhead as last seen moving, and when; reset with every new src. See the stall watchdog. */
+  const progressRef = useRef({ time: 0, movedAt: 0 })
+  /**
+   * Is the station's current run on the relay path (Icecast only, no HLS)?
+   * Seeded from the rendered payload — a relay run renders with no
+   * `hls_url` — and kept current by the public feed below.
+   */
+  const icecastOnlyRef = useRef(station.is_on_air && station.hls_url === null)
   const hlsRef = useRef<Hls | null>(null)
 
   // Which transport actually carried the audio — not which one we intended.
@@ -323,6 +345,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   }, [applyMetadata])
 
   const teardown = useCallback(() => {
+    wantsAudioRef.current = false
     hlsRef.current?.destroy()
     hlsRef.current = null
 
@@ -348,6 +371,58 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     setNowPlaying({ title: null, artist: null })
   }, [])
 
+  /**
+   * Opens the Icecast mount again on a fresh URL, a second from now, within
+   * the budget of a few a minute. Returns false when the budget is spent; the
+   * stall watchdog below asks again once it has room.
+   *
+   * A second later because it is called at the moment a source has just
+   * dropped. A new URL each time because Chrome took up to a minute to play a
+   * reload of the same one.
+   */
+  const reconnectIcecast = useCallback(() => {
+    const audio = audioRef.current
+    if (!audio || !allowIcecastRecovery()) return false
+    setLoading(true)
+    const url = `${env.icecastUrl}${station.icecast_mount}`
+    window.setTimeout(() => {
+      // Pressed stop, or the station went off, in the meantime.
+      if (audioRef.current !== audio || !wantsAudioRef.current || !audio.getAttribute("src")) return
+      audio.src = `${url}${url.includes("?") ? "&" : "?"}r=${Date.now()}`
+      audio.play().catch(() => setLoading(false))
+    }, 1000)
+    return true
+  }, [allowIcecastRecovery, station.icecast_mount])
+
+  // Stall watchdog for Icecast listeners. The element's own events are not
+  // enough on their own: in a background tab a listener was left on a spinner
+  // that never cleared, and a stream can die without the error that would
+  // reconnect it. So look at the playhead itself. Stuck for ICECAST_STALL_MS
+  // while the element says it is playing, or dead with an error, means
+  // reconnect. Paused without an error is left alone: that is the OS (a phone
+  // call) or a stop, not a fault.
+  //
+  // Generous on purpose: Chrome buffers up to ~8 s of a fresh Icecast stream
+  // before it plays, and a shorter watchdog once killed connections that were
+  // about to work.
+  useEffect(() => {
+    if (transport !== "icecast") return
+    const timer = window.setInterval(() => {
+      const audio = audioRef.current
+      if (!audio || !wantsAudioRef.current || !station.is_on_air) return
+      if (audio.paused && !audio.error) return
+      const now = Date.now()
+      if (audio.currentTime > progressRef.current.time + 0.2) {
+        progressRef.current = { time: audio.currentTime, movedAt: now }
+        return
+      }
+      if (now - progressRef.current.movedAt < ICECAST_STALL_MS) return
+      progressRef.current = { time: audio.currentTime, movedAt: now }
+      reconnectIcecast()
+    }, 2_000)
+    return () => window.clearInterval(timer)
+  }, [transport, station.is_on_air, reconnectIcecast])
+
   // Listener count + live status + now-playing, from the SHARED feed: one
   // timer and one request per station however many components ask, and paused
   // while the tab is hidden.
@@ -368,6 +443,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // at all — which is why it defers to `hasInbandMetadataRef` rather than to
   // "is something playing".
   usePublicStationFeed(station.slug, (stats) => {
+    if (stats.icecast_only !== null) icecastOnlyRef.current = stats.icecast_only
     setListeners(stats.count ?? 0)
     setStation((prev) => ({
       ...prev,
@@ -377,6 +453,14 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
     // Off air while we are waiting for audio: see `onWaiting` below.
     if (stats.is_on_air === false && loading) teardown()
+
+    // Switched off while someone is listening. Icecast does not end the
+    // stream: it moves the listener to the shared silence mount and keeps
+    // them there indefinitely, so without this the button would sit on
+    // "playing" over silence until the tab closed. `offline` and not
+    // `is_on_air`, which is also false while a container restarts — a blip
+    // the listener should ride out, not be stopped by.
+    if (stats.state === "offline" && playing) teardown()
 
     if (!hasInbandMetadataRef.current) applyMetadata(stats.now_playing)
   })
@@ -402,6 +486,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     }
 
     setLoading(true)
+    wantsAudioRef.current = true
     // Record this listen as soon as the user opts in to playing — anchors the
     // station in their personal history for the homepage "pick up where you left off" row.
     recordListen({
@@ -427,7 +512,9 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       audio!.play().catch(() => setLoading(false))
     }
 
-    const hlsUrl = station.hls_url
+    // A station on the relay path has no HLS stream for this run. The feed
+    // says so live, because this page may predate the run.
+    const hlsUrl = icecastOnlyRef.current ? null : station.hls_url
 
     if (!hlsUrl) {
       playIcecast()
@@ -713,12 +800,40 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           if (!station.is_on_air) teardown()
           else setLoading(true)
         }}
+        // A moving playhead is playing, whatever came before it. Chrome does
+        // not always follow `waiting` with `playing` (seen in a background
+        // tab: audio on, spinner forever), so this clears it too.
+        onTimeUpdate={(event) => {
+          const audio = event.currentTarget
+          if (audio.paused || audio.currentTime <= progressRef.current.time + 0.2) return
+          progressRef.current = { time: audio.currentTime, movedAt: Date.now() }
+          setPlaying(true)
+          setLoading(false)
+        }}
+        onLoadStart={() => {
+          progressRef.current = { time: 0, movedAt: Date.now() }
+        }}
         onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false)
           setLoading(false)
         }}
         onError={() => {
+          // Icecast splices a listener onto /standby and back at whatever
+          // byte its buffer ends on, usually mid-frame, whenever a source
+          // drops: a relay broadcaster's blip or reconnect, a container
+          // recreate. Now and then that half frame reaches Chrome's decoder,
+          // which treats it as fatal (MEDIA_ERR_DECODE) — 1 drop in 12 in the
+          // lab, 1 in 2 through Cloudflare on staging. A fresh connection
+          // starts clean, so reconnect while the station is still on air.
+          //
+          // Out of reconnects for this minute: keep the spinner rather than
+          // hand the listener a Play button mid-show. The stall watchdog sees
+          // the dead element and tries again once the budget allows.
+          if (transport === "icecast" && station.is_on_air && wantsAudioRef.current) {
+            if (!reconnectIcecast()) setLoading(true)
+            return
+          }
           setPlaying(false)
           setLoading(false)
         }}

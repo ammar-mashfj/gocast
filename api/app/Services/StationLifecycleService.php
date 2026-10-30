@@ -51,6 +51,7 @@ class StationLifecycleService
     public function __construct(
         private readonly LiquidsoapSupervisor $supervisor,
         private readonly PlaylistFileWriter $playlistWriter,
+        private readonly IcecastAdmin $icecast,
     ) {}
 
     /**
@@ -69,6 +70,12 @@ class StationLifecycleService
         return $this->withLock($station, function () use ($station, $reason) {
             $station->refresh();
 
+            // Already on air on the relay: there is nothing to bring up. The
+            // relay and Icecast are shared and always running.
+            if ($station->isRunning() && $station->usesRelay()) {
+                return $station;
+            }
+
             // Already on air with a healthy container: do nothing. up() would
             // restart it, and a restart drops every connected listener — a
             // double-clicked power button must not cost an audience.
@@ -79,10 +86,32 @@ class StationLifecycleService
             if (! $station->isRunning()) {
                 $this->assertCanRunAnother($station);
 
+                // The path is chosen here, once per run, and kept until stop:
+                // an upgrade mid-show must not move a live broadcaster. A
+                // station already running (a container being re-asserted)
+                // keeps the path it has.
                 $station->forceFill([
                     'desired_state' => Station::STATE_RUNNING,
                     'started_at' => now(),
+                    'ingest_path' => $station->resolveIngestPath(),
                 ])->save();
+            }
+
+            if ($station->usesRelay()) {
+                Log::info('Station started', [
+                    'station' => $station->slug,
+                    'reason' => $reason,
+                    'ingest' => Station::INGEST_RELAY,
+                ]);
+
+                StationEvent::record($station, StationEvent::TYPE_STARTED, properties: [
+                    'reason' => $reason,
+                    'ingest' => Station::INGEST_RELAY,
+                ]);
+
+                event(StationStateChanged::for($station, StationEvent::TYPE_STARTED));
+
+                return $station;
             }
 
             // The audio directory is bind-mounted into the container, so it
@@ -181,9 +210,12 @@ class StationLifecycleService
                 $reason = 'owner_cutoff';
             }
 
+            $relay = $station->usesRelay();
+
             $station->forceFill([
                 'desired_state' => Station::STATE_STOPPED,
                 'started_at' => null,
+                'ingest_path' => null,
             ])->save();
 
             // CLOSE ANY OPEN BROADCAST, for the same reason as the Redis
@@ -233,14 +265,24 @@ class StationLifecycleService
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
 
-            $this->supervisor->down($station);
+            // A relay run has no container to remove. What keeps it on air is
+            // the source on Icecast, so cut that instead — otherwise "Turn
+            // station off" would leave the broadcaster audible until their
+            // studio gave up. Best-effort: with Icecast unreachable the
+            // auth callback still refuses the reconnect, because the station
+            // now reads as stopped.
+            if ($relay) {
+                $this->icecast->killSource($station);
+            } else {
+                $this->supervisor->down($station);
+            }
 
             // Drop the now-playing payload as part of stopping, rather than
             // leaving it to whoever notices first.
             //
             // Every OTHER path that clears this key needs the container to
             // report in: Liquidsoap pushing an empty payload when a track
-            // ends, or StationEventController::closeSessions reacting to a
+            // ends, or BroadcastSessions::close reacting to a
             // `shutdown` event. A container being torn down has no reliable
             // chance to do either — SIGTERM racing the HTTP post at best, and
             // nothing at all if it was killed outright or had already crashed.

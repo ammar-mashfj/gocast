@@ -221,6 +221,14 @@ class LiquidsoapSupervisor
      */
     public function up(Station $station): void
     {
+        // A relay run has no container by design. Every caller that brings a
+        // station up — start, the reconciler, relaunch, the observer re-render
+        // after an edit — comes through here, so this is the one guard that
+        // keeps all of them from building one under a live relay show.
+        if ($station->usesRelay()) {
+            return;
+        }
+
         // A database write, not Docker, so it runs in tests too. Before the
         // container: its first ask can come within a second of `docker run`.
         app(JingleClock::class)->containerStarted($station);

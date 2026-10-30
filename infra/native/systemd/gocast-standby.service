@@ -1,0 +1,40 @@
+[Unit]
+# Feeds Icecast's /standby mount with paced silence, forever. Every station
+# mount falls back to it (icecast.xml.tpl), so a listener whose source drops —
+# a relay broadcaster's blip, a relay restart, a Pro container recreate — waits
+# there and comes back, instead of being disconnected. relay/cmd/standby.
+#
+# If this is down, listeners are disconnected when a source drops, exactly as
+# before the relay existed. Nothing else depends on it.
+Description=GoCast standby silence feeder (/standby)
+After=network-online.target icecast2.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+
+# ICECAST_SOURCE_PASSWORD only, written from api/.env by setup-native.sh.
+EnvironmentFile=/etc/gocast/standby.env
+ExecStart=__APP_ROOT__/relay/bin/gocast-standby \
+    -file __APP_ROOT__/infra/native/icecast/silence.mp3 \
+    -icecast 127.0.0.1:__ICECAST_PORT__
+
+Restart=always
+RestartSec=2
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-standby
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

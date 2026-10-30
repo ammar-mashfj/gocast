@@ -65,6 +65,11 @@ class ListenerCountController extends Controller
                 'title' => $metadata['title'] ?? null,
                 'artist' => $metadata['artist'] ?? null,
             ],
+            // This run is on the relay path: there is no HLS stream, only the
+            // Icecast mount. Here as well as in StationResource::hls_url
+            // because a player page outlives the run it was rendered for —
+            // the station can go live on the relay after the page loaded.
+            'icecast_only' => $station->usesRelay(),
         ]]);
     }
 }
