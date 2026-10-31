@@ -177,7 +177,7 @@ class ReconcileStations extends Command
             fn (string $slug) => ! isset($present[$slug]),
         ));
 
-        $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $dryRun);
+        $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $sessions, $dryRun);
 
         $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $statusService, $dryRun);
 
@@ -635,7 +635,7 @@ class ReconcileStations extends Command
         return $dropped;
     }
 
-    private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, bool $dryRun): int
+    private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, BroadcastSessions $sessions, bool $dryRun): int
     {
         $stations = Station::query()->running()->live()->get();
         $cleared = 0;
@@ -714,11 +714,19 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            StreamSession::where('station_id', $station->id)
-                ->whereNull('ended_at')
-                ->update(['ended_at' => now()]);
             Cache::forget($key);
+
+            // Closed the way a disconnect closes it: the title and the cached
+            // status go too, and the dashboard and timeline hear about it.
+            // Otherwise both keep saying live until their caches expire.
+            if (! $sessions->close($station)) {
+                continue;
+            }
+
             $cleared++;
+            $statusService->forget($station);
+            StationEvent::record($station, StationEvent::TYPE_LIVE_DISCONNECTED, StationEvent::SOURCE_SYSTEM, ['reconciled' => true]);
+            event(StationStateChanged::for($station, StationEvent::TYPE_LIVE_DISCONNECTED));
 
             Log::warning('Closed a stranded broadcast session', [
                 'station' => $station->slug,

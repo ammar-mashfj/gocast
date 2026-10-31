@@ -259,6 +259,8 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // attach to the same one, so volume, mute and the media-session controls do
   // not care which is in use.
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // One address for first play and every reconnect, so the two cannot drift.
+  const icecastUrl = `${env.icecastUrl}${station.icecast_mount}`
   /** When the last few Icecast reconnects after a media error happened; see onError. */
   const icecastRecoveriesRef = useRef<number[]>([])
   const allowIcecastRecovery = useCallback(() => {
@@ -384,15 +386,14 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     const audio = audioRef.current
     if (!audio || !allowIcecastRecovery()) return false
     setLoading(true)
-    const url = `${env.icecastUrl}${station.icecast_mount}`
     window.setTimeout(() => {
       // Pressed stop, or the station went off, in the meantime.
       if (audioRef.current !== audio || !wantsAudioRef.current || !audio.getAttribute("src")) return
-      audio.src = `${url}${url.includes("?") ? "&" : "?"}r=${Date.now()}`
+      audio.src = `${icecastUrl}${icecastUrl.includes("?") ? "&" : "?"}r=${Date.now()}`
       audio.play().catch(() => setLoading(false))
     }, 1000)
     return true
-  }, [allowIcecastRecovery, station.icecast_mount])
+  }, [allowIcecastRecovery, icecastUrl])
 
   // Stall watchdog for Icecast listeners. The element's own events are not
   // enough on their own: in a background tab a listener was left on a spinner
@@ -497,8 +498,6 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       genre: station.genre,
     })
 
-    const icecastUrl = `${env.icecastUrl}${station.icecast_mount}`
-
     /**
      * Last resort, and a real one: a browser with neither Media Source nor
      * native HLS still has to hear the station. The transport is reported
@@ -578,7 +577,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     playIcecast()
   }, [
     station.hls_url,
-    station.icecast_mount,
+    icecastUrl,
     station.slug,
     station.name,
     station.artwork_url,

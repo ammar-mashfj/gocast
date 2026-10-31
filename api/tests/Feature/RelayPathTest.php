@@ -174,6 +174,15 @@ describe('choosing the path', function () {
         expect($station->resolveIngestPath())->toBe(Station::INGEST_CONTAINER);
     });
 
+    it('keeps an existing station slugged source on the container', function () {
+        // `source` is Icecast's static login: the relay, which logs in as the
+        // slug, would be refused on every attempt.
+        $station = Station::factory()->for(User::factory()->onPlan('free'), 'user')
+            ->create(['slug' => 'source', 'icecast_mount' => '/stream/source']);
+
+        expect($station->resolveIngestPath())->toBe(Station::INGEST_CONTAINER);
+    });
+
     it('rolls out to listed slugs only', function () {
         config(['relay.rollout' => 'first-one, second-one']);
         $user = User::factory()->onPlan('free');
@@ -268,6 +277,17 @@ describe('the power switch', function () {
 
         expect(Redis::exists("metadata:{$station->id}"))->toBe(0)
             ->and(Cache::has('station-status:'.$station->id))->toBeFalse();
+    });
+
+    it('deletes a station even when closing its session fails', function () {
+        $station = onAir(relayStation());
+        $sessions = Mockery::mock(BroadcastSessions::class);
+        $sessions->shouldReceive('close')->andThrow(new RuntimeException('Redis went away'));
+        $this->app->instance(BroadcastSessions::class, $sessions);
+
+        $station->delete();
+
+        expect($station->refresh()->trashed())->toBeTrue();
     });
 
     it('disconnects nobody for a station that was off when deleted', function () {
@@ -741,6 +761,23 @@ describe('the reconciler', function () {
 
         $this->artisan('stations:reconcile')->run();
         expect($station->isLive())->toBeFalse();
+    });
+
+    it('closes a stranded session the way a disconnect does', function () {
+        Event::fake([StationStateChanged::class]);
+        $station = onAir(relayStation());
+        Redis::setex("metadata:{$station->id}", 60, json_encode(['title' => 'Song', 'artist' => null]));
+        $this->icecastMounts = '<icestats><source mount="/standby"/></icestats>';
+
+        foreach (range(1, (int) config('liquidsoap.stranded_session_strikes')) as $pass) {
+            $this->artisan('stations:reconcile')->run();
+        }
+
+        expect($station->isLive())->toBeFalse()
+            ->and(Redis::exists("metadata:{$station->id}"))->toBe(0)
+            ->and(StationEvent::where('station_id', $station->id)->sole()->type)
+            ->toBe(StationEvent::TYPE_LIVE_DISCONNECTED);
+        Event::assertDispatched(StationStateChanged::class);
     });
 
     it('disconnects /standby listeners whose station is off, and keeps a running one\'s', function () {

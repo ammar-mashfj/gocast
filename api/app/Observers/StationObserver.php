@@ -176,8 +176,8 @@ class StationObserver
         // deleted station is never live, whatever path it was on. close() also
         // drops its now-playing title, and the cached status goes with it, or
         // the deleted station would read as playing until both expired.
-        $this->sessions->close($station);
-        $this->statusService->forget($station);
+        $this->safely('close-session', $station, fn () => $this->sessions->close($station));
+        $this->safely('forget-status', $station, fn () => $this->statusService->forget($station));
     }
 
     public function deleted(Station $station): void

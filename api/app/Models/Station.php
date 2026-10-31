@@ -375,6 +375,13 @@ class Station extends Model
             return self::INGEST_CONTAINER;
         }
 
+        // The relay logs in to Icecast as the slug, and `source` is Icecast's
+        // static login: every attempt would be refused. RESERVED_SLUGS keeps
+        // new stations off it; this keeps one that already had it on air.
+        if ($this->slug === 'source') {
+            return self::INGEST_CONTAINER;
+        }
+
         $user = $this->user;
 
         if ($user === null || $user->canUseAutoDj() || $user->canUseEncoder()) {

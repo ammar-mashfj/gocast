@@ -86,7 +86,9 @@ const HELLO_GRACE_MS = 600
 const RELAY_OK_TIMEOUT_MS = 12000
 // The relay's close codes before {"type":"ok"}. See relay/relay.go.
 const RELAY_REFUSALS: Record<number, string> = {
-  4001: 'The stream server refused this broadcast — the station may be off',
+  // Icecast answers a real refusal and an API it could not reach with the same
+  // bare 401, so the relay cannot tell them apart; say both.
+  4001: 'The stream server refused this broadcast — the station may be off. If it is on, try again in a moment',
   4002: 'The stream server did not understand this studio — reload the page and try again',
   4009: 'This station is already live from another tab or device',
   1011: 'The stream server is unavailable — try again in a moment',
