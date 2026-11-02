@@ -243,7 +243,7 @@ echo "==> Support containers"
 # with `set -a` above, so the interpolation in docker-compose.native.yml picks
 # it up without an --env-file.
 docker compose -f "$NATIVE/docker-compose.native.yml" up -d --build
-echo "  ✓ gocast-network, gocast-docker-proxy, gocast-station-router"
+echo "  ✓ gocast-network, gocast-docker-proxy (alone on gocast-docker-proxy-net), gocast-station-router"
 echo "    encoder ingest published on 0.0.0.0:${INGEST_PORT}"
 
 echo "==> Firewall"
