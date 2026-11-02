@@ -84,7 +84,7 @@ function LoginForm() {
       if ("error" in result) {
         toast.error(result.error === "popup_blocked"
           ? "Popup blocked. Enable popups and try again."
-          : "Google sign-in failed. Please try again.")
+          : result.message ?? "Google sign-in failed. Please try again.")
         return
       }
 

@@ -17,6 +17,16 @@ function CallbackFallback() {
   )
 }
 
+/**
+ * The refusals the API names (GoogleSignInRefused). The popup gets the
+ * message itself; this full-page fallback only gets `?error=`, so the same
+ * words live here too.
+ */
+const REFUSALS: Record<string, string> = {
+  disposable_email: "Please use a permanent email address. Temporary inboxes can’t be used to sign up.",
+  google_email_unverified: "Google hasn’t confirmed this email address, so it can’t be linked to your GoCast account. Sign in with your password instead.",
+}
+
 function CallbackHandler() {
   const router = useRouter()
   const params = useSearchParams()
@@ -26,7 +36,7 @@ function CallbackHandler() {
     const error = params.get("error")
 
     if (error) {
-      toast.error("Google sign-in failed. Please try again.")
+      toast.error(REFUSALS[error] ?? "Google sign-in failed. Please try again.")
       router.replace("/auth/login")
       return
     }

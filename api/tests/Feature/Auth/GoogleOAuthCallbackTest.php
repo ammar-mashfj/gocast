@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Notifications\InviteRedeemed;
 use App\Notifications\WelcomeNotification;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Testing\TestResponse;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -14,15 +15,30 @@ beforeEach(function () {
     config()->set('services.frontend_url', 'https://gocast.test');
 });
 
-function fakeGoogleUser(string $id = 'g-123', string $email = 'g@test.test', string $name = 'Google User', string $avatar = 'https://example.com/avatar.png'): SocialiteUser
+function fakeGoogleUser(string $id = 'g-123', string $email = 'g@test.test', string $name = 'Google User', string $avatar = 'https://example.com/avatar.png', bool $emailVerified = true): SocialiteUser
 {
     $u = new SocialiteUser;
     $u->id = $id;
     $u->email = $email;
     $u->name = $name;
     $u->avatar = $avatar;
+    // What Google's userinfo endpoint returns and Socialite keeps as ->user.
+    $u->setRaw(['sub' => $id, 'email' => $email, 'email_verified' => $emailVerified]);
 
     return $u;
+}
+
+function googleCallbackAs(SocialiteUser $google): TestResponse
+{
+    [$state, $cookie] = oauthStateCookie();
+
+    $provider = Mockery::mock(Provider::class);
+    $provider->shouldReceive('stateless')->andReturnSelf();
+    $provider->shouldReceive('user')->andReturn($google);
+    Socialite::shouldReceive('driver')->with('google')->andReturn($provider);
+
+    return test()->withUnencryptedCookie('gocast_oauth_state', $cookie)
+        ->get('/api/auth/google/callback?state='.$state);
 }
 
 function oauthStateCookie(string $state = 'test-oauth-state'): array
@@ -89,6 +105,39 @@ it('marks the linked user as verified on first Google sign-in', function () {
     expect($fresh->google_id)->toBe('g-777');
     expect($fresh->hasVerifiedEmail())->toBeTrue();
     Notification::assertSentTo($fresh, WelcomeNotification::class);
+});
+
+it('does not link an existing account when Google has not verified the email', function () {
+    Notification::fake();
+    $existing = User::factory()->create(['email' => 'owner@test.test']);
+
+    googleCallbackAs(fakeGoogleUser(id: 'g-intruder', email: 'owner@test.test', emailVerified: false))
+        ->assertSuccessful()
+        ->assertViewHas('payload', fn ($p) => $p['error'] === 'google_email_unverified' && str_contains($p['message'], 'password'))
+        ->assertCookieMissing('token');
+
+    expect($existing->fresh()->google_id)->toBeNull()
+        ->and(User::where('google_id', 'g-intruder')->exists())->toBeFalse();
+});
+
+it('still signs in an already linked account however Google reports the email', function () {
+    $linked = User::factory()->create(['email' => 'linked@test.test', 'google_id' => 'g-linked']);
+
+    googleCallbackAs(fakeGoogleUser(id: 'g-linked', email: 'linked@test.test', emailVerified: false))
+        ->assertSuccessful()
+        ->assertViewHas('payload', fn ($p) => ($p['authenticated'] ?? false) === true)
+        ->assertCookie('token');
+
+    expect($linked->fresh()->google_id)->toBe('g-linked');
+});
+
+it('refuses a new Google account at a throwaway address', function () {
+    googleCallbackAs(fakeGoogleUser(id: 'g-tm', email: 'qa20tnptt5j@fldubai.com'))
+        ->assertSuccessful()
+        ->assertViewHas('payload', fn ($p) => $p['error'] === 'disposable_email' && str_contains($p['message'], 'permanent email'))
+        ->assertCookieMissing('token');
+
+    expect(User::where('email', 'qa20tnptt5j@fldubai.com')->exists())->toBeFalse();
 });
 
 it('rejects callbacks with a missing or mismatched oauth state', function () {

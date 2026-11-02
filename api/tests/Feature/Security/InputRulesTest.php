@@ -3,8 +3,8 @@
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\User;
-use App\Rules\NotDisposableEmail;
 use App\Rules\OwnStorageUrl;
+use App\Services\DisposableEmail;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\postJson;
@@ -68,7 +68,7 @@ it('lets a station clear its artwork', function () {
 });
 
 it('spots throwaway domains and their subdomains', function (string $email, bool $disposable) {
-    expect(NotDisposableEmail::isDisposable($email))->toBe($disposable);
+    expect(app(DisposableEmail::class)->isDisposable($email))->toBe($disposable);
 })->with([
     ['qa1vwn6447ga@maxxspace.com', true],
     ['someone@MAILINATOR.com', true],
