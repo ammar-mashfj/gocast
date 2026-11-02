@@ -96,6 +96,7 @@ From `baseRunCommand()`, `sandboxFlags()`, `healthFlags()`, `resourceFlags()`, `
 | `--cpus` | `LIQUIDSOAP_CONTAINER_CPUS`, default `0.5`; omitted if empty | config `container_cpus` |
 | `--memory` and `--memory-swap` | both `LIQUIDSOAP_CONTAINER_MEMORY`, default `512m`; omitted if empty. Swap is pinned to the same value so the cap is real. | config `container_memory` |
 | `-v` | `{liq_dir}/{slug}.liq:/station.liq:ro` | mount |
+| `-v` | `{liq_dir}/{slug}.json:/station-meta.json:ro` | mount: owner text sidecar (`renderStationMeta()`), never rendered into the script |
 | `-v` | `{playlists_dir}/{slug}:/data/playlists:ro` | mount |
 | `-v` | `{hls_dir}/{slug}:/data/hls` (read-write) | mount |
 | `-v` | `{system_dir}:/data/system:ro`, shared by all stations, mounted even when the watermark is off | mount |

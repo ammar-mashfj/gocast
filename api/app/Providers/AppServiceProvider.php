@@ -19,11 +19,13 @@ use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\FakeGateway;
 use App\Services\Billing\Gateway\OxaPayGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\LiquidsoapString;
 use App\Services\SecuritySignals;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -64,6 +66,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A Liquidsoap string literal for the station template. Never
+        // json_encode directly there — see LiquidsoapString for why.
+        Blade::directive('liq', fn (string $expression) => '<?php echo '.LiquidsoapString::class."::literal({$expression}); ?>");
+
         // Tight limit on auth routes to slow down brute-force and credential-stuffing attacks.
         RateLimiter::for('auth', function (Request $request) {
             return Limit::perMinute(10)->by($request->ip());

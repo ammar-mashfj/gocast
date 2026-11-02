@@ -60,6 +60,7 @@ function renderStationScript(Station $station, array $overrides = []): string
         'metadataCharset' => 'UTF-8',
         'gcSpaceOverhead' => 80,
         'applyAmplify' => true,
+        'stationMetaPath' => LiquidsoapSupervisor::CONTAINER_META_PATH,
     ], $overrides))->render();
 }
 
@@ -141,19 +142,20 @@ it('persists HLS state so restarts do not break mid-stream listeners', function 
     expect($script)->toContain('persist_at = "/data/hls/state.json"');
 });
 
-it('escapes secrets and station text as liquidsoap string literals', function () {
-    // A station name with quotes or backslashes must not be able to break
-    // out of the string and change the script.
+it('escapes secrets as liquidsoap string literals and keeps station text out', function () {
+    // A secret with quotes or backslashes must not be able to break out of
+    // the string and change the script. Station text is not in the script at
+    // all: it is read from the JSON sidecar (LiquidsoapInjectionTest).
     $station = Station::factory()->for(User::factory(), 'user')->make([
         'slug' => 'quotes',
         'name' => 'He said "hi" \\ bye',
         'icecast_mount' => '/stream/quotes',
     ]);
 
-    $script = renderStationScript($station, ['icecastPassword' => 'p"a$s\\word']);
+    $script = renderStationScript($station, ['icecastPassword' => 'p"a$s\\word#{x}']);
 
-    expect($script)->toContain('"He said \"hi\" \\\\ bye"')
-        ->and($script)->toContain('"p\"a$s\\\\word"')
+    expect($script)->not->toContain('He said')
+        ->and($script)->toContain('"p\"a$s\\\\word\x23{x}"')
         // Blade's default escaping would turn the quotes into &quot;
         ->and($script)->not->toContain('&quot;');
 });
