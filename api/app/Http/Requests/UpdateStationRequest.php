@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\NormalizesTimezone;
 use App\Models\Station;
+use App\Rules\NoLiquidsoapInterpolation;
 use App\Rules\OwnStorageUrl;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
@@ -36,9 +37,9 @@ class UpdateStationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['sometimes', 'string', 'max:100'],
-            'description' => ['nullable', 'string'],
-            'genre' => ['nullable', 'string', 'max:255'],
+            'name' => ['sometimes', 'string', 'max:100', new NoLiquidsoapInterpolation],
+            'description' => ['nullable', 'string', new NoLiquidsoapInterpolation],
+            'genre' => ['nullable', 'string', 'max:255', new NoLiquidsoapInterpolation],
             // IANA identifier, validated against the system tz database
             // so "GMT+2" and other offset spellings are rejected: an
             // offset is only right until the next DST change.
