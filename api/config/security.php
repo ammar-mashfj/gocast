@@ -79,4 +79,15 @@ return [
     */
     'cloudflare_realip_conf' => env('SECURITY_CLOUDFLARE_REALIP_CONF', '/etc/nginx/conf.d/cloudflare-realip.conf'),
 
+    /*
+    | email:refresh-disposable writes the maintained throwaway-domain list
+    | here, weekly. Under storage/ rather than resources/ because the server is
+    | a git checkout: rewriting a tracked file would stop the next deploy's
+    | `git pull --ff-only`. Until the first refresh, DisposableEmail falls back
+    | to the copy bundled in resources/data/.
+    */
+    'disposable_domains_list' => storage_path('app/disposable-email-domains.txt'),
+
+    'disposable_domains_source' => 'https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/main/disposable_email_blocklist.conf',
+
 ];

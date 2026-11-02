@@ -1,0 +1,8 @@
+# Throwaway domains we block ourselves, one per line, on top of the maintained
+# list (disposable-email-domains.txt). email:refresh-disposable merges these into
+# every refresh and never edits this file, so anything here survives upstream
+# dropping it. Add a domain here the day it turns up; the MX check in
+# disposable-mx-hosts.txt usually catches new mail.tm domains already.
+
+# mail.tm; five sign-ups from one prober on 2026-11-02
+fldubai.com

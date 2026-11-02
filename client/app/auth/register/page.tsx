@@ -204,7 +204,7 @@ function RegisterForm() {
       if ("error" in result) {
         toast.error(result.error === "popup_blocked"
           ? "Popup blocked. Enable popups and try again."
-          : "Google sign-up failed. Please try again.")
+          : result.message ?? "Google sign-up failed. Please try again.")
         return
       }
 

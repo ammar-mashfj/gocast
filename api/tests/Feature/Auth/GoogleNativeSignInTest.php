@@ -267,6 +267,16 @@ describe('POST /auth/google/native', function () {
             ->and(User::where('email', 'native@test.test')->count())->toBe(1);
     });
 
+    it('refuses a new account at a throwaway address, without creating anyone', function () {
+        fakeVerifier(['email' => 'qabplf6md2ix@fldubai.com']);
+
+        $this->postJson('/api/auth/google/native', ['id_token' => 'x', 'device_name' => 'app'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['id_token' => 'permanent email']);
+
+        expect(User::where('email', 'qabplf6md2ix@fldubai.com')->exists())->toBeFalse();
+    });
+
     it('refuses a token the verifier rejects, without creating anyone', function () {
         $verifier = Mockery::mock(GoogleIdTokenVerifier::class);
         $verifier->shouldReceive('verify')->andThrow(new InvalidGoogleIdToken('bad aud'));
