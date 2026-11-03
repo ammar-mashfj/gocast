@@ -54,7 +54,10 @@ class UpdateStationRequest extends FormRequest
             // Freeform station links. The cap is a layout bound, not a plan
             // one: past about eight the row on the player stops reading as a
             // set of icons and starts reading as a footer.
-            'social_links' => ['nullable', 'array', 'max:'.Station::MAX_SOCIAL_LINKS],
+            // `list`, not just `array`: Laravel's array rule also takes a keyed
+            // object ({"x": {...}} or {"1": {...}}), which the JSON column
+            // stores as an object and the player's .map() then crashes on.
+            'social_links' => ['nullable', 'array', 'list', 'max:'.Station::MAX_SOCIAL_LINKS],
             // array:label,url rejects extra keys outright. Without it any
             // shape at all survives into the JSON column and has to be
             // defended against at every read site forever.

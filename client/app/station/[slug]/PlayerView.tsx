@@ -671,7 +671,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   }, [audible, togglePlay, station.name, station.slug])
 
   const genres = splitGenres(station.genre)
-  const links = (station.social_links ?? []).map(resolveSocialLink).filter((link) => link !== null)
+  const links = (Array.isArray(station.social_links) ? station.social_links : []).map(resolveSocialLink).filter((link) => link !== null)
   const listeningLine = `${listeners.toLocaleString()} listening`
   // The sheet holds everything the page has no room for, so it is offered
   // whenever there is any of that to show.

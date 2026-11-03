@@ -87,7 +87,7 @@ function summary(rows: Row[]): string {
 
 export function LinksCard({ station }: { station: Station }) {
   const router = useRouter()
-  const [rows, setRows] = useState<Row[]>(() => (station.social_links ?? []).map(toRow))
+  const [rows, setRows] = useState<Row[]>(() => (Array.isArray(station.social_links) ? station.social_links : []).map(toRow))
   const [saved, setSaved] = useState(() => snapshot(rows))
   const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
