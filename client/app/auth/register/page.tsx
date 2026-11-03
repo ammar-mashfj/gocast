@@ -1,10 +1,11 @@
 "use client"
 
-import { Suspense, useEffect, useState, type FormEvent } from "react"
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react"
 import { Button } from "@/components/ds/Button"
 import { PasswordField, TextField } from "@/components/ds/Field"
 import { Notice } from "@/components/ds/Notice"
 import { AuthCard, AuthFooter, AuthLink, CheckboxRow, OrRule } from "@/components/auth/AuthCard"
+import { Turnstile, type TurnstileHandle } from "@/components/auth/Turnstile"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -160,6 +161,7 @@ function RegisterForm() {
   // Consent is explicit: the submit refuses until the box is ticked, and
   // says so under the box rather than in a toast.
   const [agreed, setAgreed] = useState(false)
+  const turnstile = useRef<TurnstileHandle>(null)
 
   // If the visitor already has a session cookie, don't let them register on
   // top of it. Verified → send them to the dashboard; unverified → surface
@@ -248,6 +250,8 @@ function RegisterForm() {
 
     setLoading(true)
     try {
+      // Normally already here; waits only if submit beat the bot check.
+      const turnstileToken = await turnstile.current?.token()
       const response = await axios.post("/auth/register", {
         name,
         email,
@@ -256,6 +260,7 @@ function RegisterForm() {
         // typed. The API's `confirmed` rule still wants the pair.
         password_confirmation: password,
         ...(inviteUsable && inviteCode ? { invite_code: inviteCode } : {}),
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
       })
       if (response.status === 200 || response.status === 201) {
         saveAuth(null, response.data.data)
@@ -296,6 +301,7 @@ function RegisterForm() {
         toast.error("Something went wrong. Please try again.")
       }
     } finally {
+      turnstile.current?.reset()
       setLoading(false)
     }
   }
@@ -373,6 +379,7 @@ function RegisterForm() {
           <AuthLink href="/terms">Terms</AuthLink> and{" "}
           <AuthLink href="/privacy">Privacy Policy</AuthLink>.
         </CheckboxRow>
+        <Turnstile ref={turnstile} action="register" />
         <Button
           type="submit"
           size="lg"

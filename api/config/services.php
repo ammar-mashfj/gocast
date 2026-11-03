@@ -82,6 +82,12 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    // Cloudflare Turnstile on sign-up, sign-in and forgot password. Blank secret = the
+    // check is off and `turnstile_token` is not asked for (dev, tests).
+    'turnstile' => [
+        'secret' => env('TURNSTILE_SECRET_KEY'),
+    ],
+
     'icecast' => [
         'source_password' => env('ICECAST_SOURCE_PASSWORD'),
         'admin_user' => env('ICECAST_ADMIN_USER', 'admin'),
