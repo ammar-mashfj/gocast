@@ -27,14 +27,14 @@ class Turnstile
     /**
      * Validation rules for `turnstile_token` on a form the widget guards
      * (sign-up, sign-in, forgot password): required while a secret is set,
-     * ignored without one.
+     * ignored without one. `$action` is the widget's `action` on that form.
      *
      * @return list<mixed>
      */
-    public static function rules(): array
+    public static function rules(string $action): array
     {
         return app(self::class)->enabled()
-            ? ['required', 'string', 'max:2048', new PassesTurnstile]
+            ? ['required', 'string', 'max:2048', new PassesTurnstile($action)]
             : ['nullable'];
     }
 
@@ -53,8 +53,10 @@ class Turnstile
      * True when Cloudflare accepts the token, false when it refuses it, null
      * when Cloudflare could not be asked (timeout, outage), which callers
      * treat as a pass: an outage there must not lock people out here.
+     *
+     * With `$action`, a token minted by another form's widget is refused.
      */
-    public function verify(string $token, ?string $ip = null): ?bool
+    public function verify(string $token, ?string $ip = null, ?string $action = null): ?bool
     {
         try {
             $body = Http::asForm()
@@ -89,7 +91,22 @@ class Turnstile
                 return null;
             }
 
+            // Cloudflare's own failure ("retry"): treated like an outage.
+            if (in_array('internal-error', $codes, true)) {
+                Log::warning('Turnstile siteverify had an internal error; accepting the request', ['codes' => $codes]);
+
+                return null;
+            }
+
             Log::info('Turnstile refused a request', ['codes' => $codes]);
+
+            return false;
+        }
+
+        // Cloudflare echoes the widget's `action`. A token from the login
+        // widget must not pass the forgot-password form, and so on.
+        if ($action !== null && isset($body['action']) && $body['action'] !== $action) {
+            Log::info('Turnstile token came from another form', ['expected' => $action, 'got' => $body['action']]);
 
             return false;
         }

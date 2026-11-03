@@ -38,7 +38,7 @@ class RegisterRequest extends FormRequest
             'invite_code' => ['nullable', 'string', 'max:40'],
             // The bot check, when TURNSTILE_SECRET_KEY is set. Google sign-up
             // doesn't go through here and doesn't need it.
-            'turnstile_token' => Turnstile::rules(),
+            'turnstile_token' => Turnstile::rules('register'),
         ];
     }
 

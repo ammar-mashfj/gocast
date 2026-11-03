@@ -89,6 +89,33 @@ describe('sign-up with a secret key', function () {
 
         registerWithToken('any-token')->assertCreated();
     });
+
+    it('lets the sign-up through when Cloudflare has an internal error', function () {
+        fakeSiteverify(['success' => false, 'error-codes' => ['internal-error']]);
+
+        registerWithToken('any-token')->assertCreated();
+    });
+
+    it('lets the sign-up through when Cloudflare answers without a verdict', function () {
+        fakeSiteverify(['unexpected' => 'shape']);
+
+        registerWithToken('any-token')->assertCreated();
+    });
+
+    it('signs up with a token from the sign-up widget', function () {
+        fakeSiteverify(['success' => true, 'action' => 'register']);
+
+        registerWithToken('good-token')->assertCreated();
+    });
+
+    it('refuses a token minted by another form\'s widget', function () {
+        fakeSiteverify(['success' => true, 'action' => 'login']);
+
+        registerWithToken('login-token')
+            ->assertJsonValidationErrors(['turnstile_token' => PassesTurnstile::MESSAGE]);
+
+        expect(User::where('email', 'dj@example.com')->exists())->toBeFalse();
+    });
 });
 
 describe('sign-in and forgot password with a secret key', function () {

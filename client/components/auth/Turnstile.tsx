@@ -114,6 +114,8 @@ export function Turnstile({ ref, action }: { ref: Ref<TurnstileHandle>; action: 
             for (const resolve of pending) resolve(token)
           },
           "before-interactive-callback": () => setInteractive(true),
+          // Solved: back out of the layout so the ticked box doesn't linger.
+          "after-interactive-callback": () => setInteractive(false),
           "expired-callback": () => {
             current.current = null
           },

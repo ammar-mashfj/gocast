@@ -30,7 +30,7 @@ class LoginRequest extends FormRequest
             'device_name' => ['nullable', 'string', 'max:255'],
             // Checked before the controller, so a refused token never counts
             // toward the account's lockout.
-            'turnstile_token' => Turnstile::rules(),
+            'turnstile_token' => Turnstile::rules('login'),
         ];
     }
 

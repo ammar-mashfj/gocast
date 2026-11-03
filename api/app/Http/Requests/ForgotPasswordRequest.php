@@ -28,7 +28,7 @@ class ForgotPasswordRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:255'],
             // Every accepted request can send an email; this keeps a script
             // from mailing an inbox from many IPs at once.
-            'turnstile_token' => Turnstile::rules(),
+            'turnstile_token' => Turnstile::rules('forgot'),
         ];
     }
 
