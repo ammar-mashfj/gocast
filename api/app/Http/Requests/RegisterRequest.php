@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Rules\NotDisposableEmail;
+use App\Services\Turnstile;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -35,6 +36,17 @@ class RegisterRequest extends FormRequest
             // transaction as the insert so the answer cannot change between
             // here and there.
             'invite_code' => ['nullable', 'string', 'max:40'],
+            // The bot check, when TURNSTILE_SECRET_KEY is set. Google sign-up
+            // doesn't go through here and doesn't need it.
+            'turnstile_token' => Turnstile::rules(),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return Turnstile::messages();
     }
 }

@@ -1,12 +1,13 @@
 "use client"
 
-import { Suspense, useEffect, useState, type FormEvent } from "react"
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
 import { Button } from "@/components/ds/Button"
 import { PasswordField, TextField } from "@/components/ds/Field"
 import { AuthCard, AuthFooter, AuthLink, OrRule } from "@/components/auth/AuthCard"
+import { Turnstile, type TurnstileHandle } from "@/components/auth/Turnstile"
 import { IconBrandGoogleFilled } from "@tabler/icons-react"
 import axios from "@/lib/axios"
 import { saveAuth, getUser, clearAuth } from "@/actions/auth"
@@ -34,6 +35,7 @@ function LoginForm() {
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [verifyEmail, setVerifyEmail] = useState("")
   const [googleLoading, setGoogleLoading] = useState(false)
+  const turnstile = useRef<TurnstileHandle>(null)
 
   // If the visitor arrives with a dangling session (token cookie from an
   // unverified signup days ago), surface the verify modal immediately instead
@@ -110,7 +112,12 @@ function LoginForm() {
 
     setLoading(true)
     try {
-      const response = await axios.post("/auth/login", { email, password })
+      const turnstileToken = await turnstile.current?.token()
+      const response = await axios.post("/auth/login", {
+        email,
+        password,
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
+      })
       if (response.status === 200) {
         saveAuth(null, response.data.data)
         const verified = Boolean(response.data.data?.email_verified_at)
@@ -131,6 +138,8 @@ function LoginForm() {
         toast.error("Something went wrong. Please try again.")
       }
     } finally {
+      // Spent either way; the unverified path stays here and may sign in again.
+      turnstile.current?.reset()
       setLoading(false)
     }
   }
@@ -158,6 +167,7 @@ function LoginForm() {
         <AuthLink href="/auth/forgot" className="self-end text-body-sm">
           Forgot password?
         </AuthLink>
+        <Turnstile ref={turnstile} action="login" />
         <Button type="submit" size="lg" full disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>

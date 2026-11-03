@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Turnstile;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,6 +28,17 @@ class LoginRequest extends FormRequest
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:255'],
+            // Checked before the controller, so a refused token never counts
+            // toward the account's lockout.
+            'turnstile_token' => Turnstile::rules(),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return Turnstile::messages();
     }
 }
