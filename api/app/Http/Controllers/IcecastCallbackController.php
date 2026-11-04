@@ -2,14 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
 use App\Services\IngestMetrics;
-use App\Services\StationStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -100,7 +98,6 @@ class IcecastCallbackController extends Controller
     public function event(
         Request $request,
         BroadcastSessions $sessions,
-        StationStatusService $statusService,
         IcecastAdmin $icecast,
     ): Response {
         $action = (string) $request->input('action', '');
@@ -150,14 +147,7 @@ class IcecastCallbackController extends Controller
         // recording them would put a disconnect on the admin timeline and make
         // every dashboard refetch mid-show.
         if ($changed) {
-            // The relay status is built from the session row, so drop the
-            // cached one before the dashboard refetches in response to the
-            // broadcast.
-            $statusService->forget($station);
-
-            StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, ['via' => 'relay']);
-
-            event(StationStateChanged::for($station, $type));
+            $sessions->announce($station, $type, ['via' => 'relay']);
         }
 
         Log::info('Icecast reported a relay source event', [

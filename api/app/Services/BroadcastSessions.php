@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Events\StationStateChanged;
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
+use App\Models\StationEvent;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -25,7 +27,10 @@ use Illuminate\Support\Facades\Redis;
  */
 class BroadcastSessions
 {
-    public function __construct(private readonly BroadcastOrigin $origin) {}
+    public function __construct(
+        private readonly BroadcastOrigin $origin,
+        private readonly StationStatusService $statusService,
+    ) {}
 
     /**
      * Open the StreamSession that makes this station read as live.
@@ -101,6 +106,21 @@ class BroadcastSessions
             ->delay(now()->addMinutes(2));
 
         return true;
+    }
+
+    /**
+     * Tell everyone who shows live-ness that a session really opened or
+     * closed: the cached status goes (the relay status is built from the
+     * session row), the admin timeline gets the event, and the dashboard is
+     * told to refetch. Only after open() or close() said something changed.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public function announce(Station $station, string $type, array $context): void
+    {
+        $this->statusService->forget($station);
+        StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, $context);
+        event(StationStateChanged::for($station, $type));
     }
 
     /**

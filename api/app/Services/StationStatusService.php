@@ -173,6 +173,13 @@ class StationStatusService
         // lost one must not get a live show turned off, so this — the reading
         // the auto-stop acts on — also asks Icecast itself.
         if ($station->usesRelay()) {
+            // No session and no answer from Icecast is not "nobody is on":
+            // it is exactly the lost callback this asks Icecast to cover.
+            // Unknown, like a container that does not answer.
+            if (! $station->isLive() && $this->icecastCarries($station) === null) {
+                return null;
+            }
+
             return $this->relayStatus($station, askIcecast: true);
         }
 
@@ -351,7 +358,7 @@ class StationStatusService
      */
     private function relayStatus(Station $station, bool $askIcecast = false): array
     {
-        $live = $station->isLive() || ($askIcecast && $this->icecastCarries($station));
+        $live = $station->isLive() || ($askIcecast && $this->icecastCarries($station) === true);
         $metadata = json_decode((string) Redis::get("metadata:{$station->id}"), true);
         $metadata = is_array($metadata) ? $metadata : [];
 
@@ -371,17 +378,18 @@ class StationStatusService
     }
 
     /**
-     * Does Icecast hold this station's source right now? Unknown (Icecast
-     * could not be asked) answers no, which leaves the session to decide, as
-     * before.
+     * Does Icecast hold this station's source right now? Null when Icecast
+     * could not be asked.
      */
-    private function icecastCarries(Station $station): bool
+    private function icecastCarries(Station $station): ?bool
     {
         if ($this->icecastMounts === null || microtime(true) - $this->icecastMounts['at'] > 5) {
             $this->icecastMounts = ['at' => microtime(true), 'mounts' => $this->icecast->liveMounts()];
         }
 
-        return isset(($this->icecastMounts['mounts'] ?? [])[$station->icecast_mount]);
+        $mounts = $this->icecastMounts['mounts'];
+
+        return $mounts === null ? null : isset($mounts[$station->icecast_mount]);
     }
 
     /**

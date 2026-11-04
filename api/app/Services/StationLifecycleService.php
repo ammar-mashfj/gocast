@@ -286,7 +286,10 @@ class StationLifecycleService
             // auth callback still refuses the reconnect, because the station
             // now reads as stopped.
             if ($relay) {
-                $this->icecast->killSource($station);
+                // stations:reconcile cuts it within a minute if this fails.
+                if (! $this->icecast->killSource($station)) {
+                    Log::warning('Could not cut a relay broadcaster on stop', ['station' => $station->slug]);
+                }
             } else {
                 $this->supervisor->down($station);
             }

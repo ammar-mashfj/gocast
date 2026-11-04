@@ -179,12 +179,19 @@ class ReconcileStations extends Command
 
         $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $sessions, $dryRun);
 
-        $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $statusService, $dryRun);
+        $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $dryRun);
 
         if ($relayReopened > 0) {
             $this->line("  ✓ reopened the session of {$relayReopened} relay show(s) Icecast is carrying");
         }
 
+        $sourcesCut = $this->cutSourcesOfStoppedStations($icecast, $present, $dryRun);
+
+        if ($sourcesCut > 0) {
+            $this->line("  ✓ cut {$sourcesCut} broadcaster(s) still on air on a station that is off");
+        }
+
+        // After the sources: cutting one moves its listeners to /standby.
         $standbyDropped = $this->dropOrphanedStandbyListeners($icecast, $dryRun);
 
         if ($standbyDropped > 0) {
@@ -542,7 +549,6 @@ class ReconcileStations extends Command
     private function reopenMissedRelaySessions(
         IcecastAdmin $icecast,
         BroadcastSessions $sessions,
-        StationStatusService $statusService,
         bool $dryRun,
     ): int {
         $quiet = Station::query()
@@ -582,9 +588,7 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            $statusService->forget($station);
-            StationEvent::record($station, StationEvent::TYPE_LIVE_CONNECTED, StationEvent::SOURCE_SYSTEM, ['via' => 'relay', 'reconciled' => true]);
-            event(StationStateChanged::for($station, StationEvent::TYPE_LIVE_CONNECTED));
+            $sessions->announce($station, StationEvent::TYPE_LIVE_CONNECTED, ['via' => 'relay', 'reconciled' => true]);
 
             Log::warning('Reopened a relay session Icecast is carrying (missed source-connect)', [
                 'station' => $station->slug,
@@ -592,6 +596,53 @@ class ReconcileStations extends Command
         }
 
         return $reopened;
+    }
+
+    /**
+     * Cut a relay broadcaster still on air on a station that is off.
+     *
+     * Turning a relay station off cuts its source once, and an Icecast that
+     * did not answer then left the studio broadcasting on a station that
+     * reads as off. The auth callback refuses it a reconnect; this is the
+     * retry for the connection it already had. A station with a container is
+     * left to the container removal above, which takes Liquidsoap's source
+     * with it.
+     *
+     * @param  array<string, string>  $containers  slug => container name
+     */
+    private function cutSourcesOfStoppedStations(IcecastAdmin $icecast, array $containers, bool $dryRun): int
+    {
+        $prefix = (string) config('relay.mount_prefix');
+        $mounts = array_filter(
+            array_keys($icecast->liveMounts() ?? []),
+            fn (string $mount) => str_starts_with($mount, $prefix),
+        );
+
+        if ($mounts === []) {
+            return 0;
+        }
+
+        $stations = Station::withTrashed()
+            ->whereIn('icecast_mount', $mounts)
+            ->get()
+            ->filter(fn (Station $station) => ($station->trashed() || ! $station->isRunning())
+                && ! isset($containers[$station->slug]));
+
+        foreach ($stations as $station) {
+            if ($dryRun) {
+                $this->line("  • {$station->slug} is off but Icecast still carries its source");
+
+                continue;
+            }
+
+            $icecast->killSource($station);
+
+            Log::warning('Cut a broadcaster still on air on a station that is off', [
+                'station' => $station->slug,
+            ]);
+        }
+
+        return $stations->count();
     }
 
     /**
@@ -724,9 +775,7 @@ class ReconcileStations extends Command
             }
 
             $cleared++;
-            $statusService->forget($station);
-            StationEvent::record($station, StationEvent::TYPE_LIVE_DISCONNECTED, StationEvent::SOURCE_SYSTEM, ['reconciled' => true]);
-            event(StationStateChanged::for($station, StationEvent::TYPE_LIVE_DISCONNECTED));
+            $sessions->announce($station, StationEvent::TYPE_LIVE_DISCONNECTED, ['reconciled' => true]);
 
             Log::warning('Closed a stranded broadcast session', [
                 'station' => $station->slug,

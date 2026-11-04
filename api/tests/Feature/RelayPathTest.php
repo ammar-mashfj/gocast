@@ -724,6 +724,22 @@ describe('auto-stop', function () {
         expect($verdict)->toBe(StationAudioVerdict::InUse);
     });
 
+    it('does not stop a relay station with no session while Icecast cannot be asked', function () {
+        // The connect callback was lost and Icecast's admin is down: nothing
+        // can say whether a show is on air, so nothing is stopped.
+        $station = relayStation(['started_at' => now()->subMinutes(30), 'silent_since' => now()->subHour()]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $this->icecastStatus = 500;
+
+        $verdict = app(StationAudioPolicy::class)->verdict($station, app(StationStatusService::class)->pullFresh($station));
+
+        expect($verdict)->toBe(StationAudioVerdict::Unreachable);
+    });
+
     it('runs the silence clock for a relay station nobody broadcasts into', function () {
         $station = relayStation();
         $policy = app(StationAudioPolicy::class);
@@ -778,6 +794,22 @@ describe('the reconciler', function () {
             ->and(StationEvent::where('station_id', $station->id)->sole()->type)
             ->toBe(StationEvent::TYPE_LIVE_DISCONNECTED);
         Event::assertDispatched(StationStateChanged::class);
+    });
+
+    it('cuts a broadcaster the stop could not, and leaves a station that is on alone', function () {
+        // Turned off while Icecast's admin did not answer: the studio's
+        // existing connection is still on air.
+        relayStation(['desired_state' => Station::STATE_STOPPED, 'ingest_path' => null]);
+        relayStation(['slug' => 'still-on', 'icecast_mount' => '/stream/still-on']);
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/><source mount="/stream/still-on"/><source mount="/standby"/></icestats>';
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        $cut = Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'))
+            ->map(fn (array $pair) => $pair[0]['mount'])
+            ->values()
+            ->all();
+        expect($cut)->toBe(['/stream/free-show']);
     });
 
     it('disconnects /standby listeners whose station is off, and keeps a running one\'s', function () {

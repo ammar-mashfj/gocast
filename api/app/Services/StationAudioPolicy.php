@@ -190,6 +190,11 @@ class StationAudioPolicy
      */
     private function relayVerdict(Station $station, ?array $status): StationAudioVerdict
     {
+        // Icecast could not say whether a show missing its session is on air.
+        if ($status === null) {
+            return StationAudioVerdict::Unreachable;
+        }
+
         if (($status['broadcaster'] ?? false) === true) {
             return StationAudioVerdict::InUse;
         }

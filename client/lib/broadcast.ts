@@ -1123,6 +1123,10 @@ export class BroadcastManager {
         }))
 
         if (relay) {
+          // The socket is open, so the connect budget is spent; from here the
+          // wait below is the only clock. Left running, the 10s connect timer
+          // fired first and a slow Icecast admit never got its 12s.
+          clearTimeout(connectTimer)
           // The relay answers once Icecast has admitted the source, so wait
           // for the word rather than for a quiet interval.
           ws.onmessage = (message) => {
