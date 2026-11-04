@@ -62,6 +62,13 @@ bind mounts and `Privileged` live. Treat PHP RCE on this host as root. The
 fix, if you want one, is an argv-validating sudo wrapper in place of the
 proxy, not a different proxy setting.
 
+For the same reason the proxy sits alone on its own bridge,
+`gocast-docker-proxy-net`, and **must never join `gocast-network`**. Station
+containers live there, and code running in one (as it did on 2026-11-02, via
+the `.liq` injection) could otherwise call `gocast-docker-proxy:2375` and
+create a privileged container. Laravel reaches it only through the loopback
+port `127.0.0.1:2375`, which works from any bridge.
+
 ### The station-router container
 
 Broadcaster ingest has to reach `gocast-liquidsoap-{slug}:8090`, and **host

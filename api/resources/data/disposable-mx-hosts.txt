@@ -1,0 +1,69 @@
+# Mail servers that only serve throwaway inboxes, one per line. A domain whose MX
+# record is one of these hosts, or a subdomain of one, is refused at sign-up by
+# App\Rules\NotDisposableEmail, even when the domain itself is on no list yet.
+# Services like mail.tm add new domains every few days, all on the same server.
+#
+# Built 2026-11-02 from the MX records of ~2,500 domains in
+# disposable-email-domains.txt plus the well-known providers. Only hosts that
+# serve nothing but throwaway inboxes belong here: never a shared host such as
+# Google, Cloudflare Email Routing, Mailgun, Zoho, OVH, Hostinger or a
+# registrar's mail forwarding, or every customer of that host is locked out.
+#
+# This file is ours alone; email:refresh-disposable never touches it.
+
+# mail.tm (in.mail.tm): fldubai.com, maxxspace.com and many more
+mail.tm
+
+# Mailinator (mail.mailinator.com, mail2.mailinator.com)
+mailinator.com
+
+# Guerrilla Mail, sharklasers.com and friends (mail.guerrillamail.com)
+guerrillamail.com
+
+# YOPmail (smtp.yopmail.com)
+yopmail.com
+
+# The generator.email / emailfake.com network
+generator.email
+emailfake.com
+email-fake.com
+email.chatgpt.org.uk
+email.gravityengine.cc
+mail.wallywatts.com
+mail.wabblywabble.com
+mail.casadorock.com
+
+# Catch-all networks that each serve dozens of listed domains
+erinn.biz
+smtp.oneb.net
+vietxf.com
+beavis99.net
+beavis99.com
+rejecthost.com
+mainnetmail.com
+bumpemail.com
+brushemail.com
+aerospaceemail.com
+catchservers.net
+catchservers.com
+patternemail.com
+hubblehost.com
+unstablemail.com
+
+# Single services
+tinyhost.shop
+tempmail.tw
+tempm.com
+discard.email
+papierkorb.me
+mail.duckmail.sbs
+mail.nukemail.app
+mx.mail-temporaire.fr
+mail.cleantempmail.com
+mx.moakt.com
+mx.dropmail.me
+mail.getnada.com
+mx.maildrop.cc
+smtp.trashmail.com
+mailnesia.com
+mx.1secmail.com

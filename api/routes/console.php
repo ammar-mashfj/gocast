@@ -173,3 +173,10 @@ Schedule::command('security:scan-access-logs')
 Schedule::command('security:check-cloudflare-ranges')
     ->weeklyOn(1, '09:00')
     ->withoutOverlapping();
+
+// Throwaway mail services register new domains constantly; the maintained
+// list follows them within days. A bad download keeps the current list and
+// alerts — see RefreshDisposableDomains.
+Schedule::command('email:refresh-disposable')
+    ->weeklyOn(1, '04:30')
+    ->withoutOverlapping();

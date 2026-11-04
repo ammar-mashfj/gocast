@@ -104,6 +104,26 @@ it('rejects rows carrying keys it does not know', function () {
         ->assertJsonValidationErrors('social_links.0');
 });
 
+/**
+ * JAVASCRIPT-NEXTJS-2X (2026-11-03): a keyed object passes a bare `array`
+ * rule, lands in the column as a JSON object, and the public player's .map()
+ * throws on every render of the station page.
+ */
+it('rejects a keyed object in place of a list', function (array $links) {
+    $owner = User::factory()->create();
+    $station = Station::factory()->for($owner, 'user')->create();
+
+    actingAs($owner, 'sanctum')
+        ->putJson("/api/stations/{$station->slug}", ['social_links' => $links])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('social_links');
+
+    expect($station->fresh()->social_links)->toBeNull();
+})->with([
+    'string keys' => [['x' => ['label' => null, 'url' => 'https://example.com']]],
+    'gapped numeric keys' => [[1 => ['label' => null, 'url' => 'https://example.com']]],
+]);
+
 it('caps the list at the layout bound', function () {
     $owner = User::factory()->create();
     $station = Station::factory()->for($owner, 'user')->create();

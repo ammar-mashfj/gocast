@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Turnstile;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -25,6 +26,17 @@ class ForgotPasswordRequest extends FormRequest
     {
         return [
             'email' => ['required', 'string', 'email', 'max:255'],
+            // Every accepted request can send an email; this keeps a script
+            // from mailing an inbox from many IPs at once.
+            'turnstile_token' => Turnstile::rules('forgot'),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return Turnstile::messages();
     }
 }

@@ -8,6 +8,7 @@ import { IconArrowLeft } from "@tabler/icons-react"
 import { Button } from "@/components/ds/Button"
 import { Input, PasswordField, TextField } from "@/components/ds/Field"
 import { AuthCard, AuthLink } from "@/components/auth/AuthCard"
+import { Turnstile, type TurnstileHandle } from "@/components/auth/Turnstile"
 import api from "@/lib/axios"
 
 type Step = "request" | "reset"
@@ -28,6 +29,21 @@ export default function ForgotPasswordPage() {
   const [password, setPassword] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  // One widget for both steps: Resend code asks for a token too.
+  const turnstile = useRef<TurnstileHandle>(null)
+
+  // The forgot endpoint with the bot-check token; the token is spent either way.
+  async function sendCode() {
+    try {
+      const turnstileToken = await turnstile.current?.token()
+      await api.post("/auth/password/forgot", {
+        email,
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
+      })
+    } finally {
+      turnstile.current?.reset()
+    }
+  }
   const codeInputRef = useRef<HTMLInputElement>(null)
 
   async function requestCode(e: FormEvent) {
@@ -39,7 +55,7 @@ export default function ForgotPasswordPage() {
     setErrors({})
     setSubmitting(true)
     try {
-      await api.post("/auth/password/forgot", { email })
+      await sendCode()
       toast.success("If that email is registered, we've sent a code.")
       setStep("reset")
       // Focus the code input once the step switches so the user doesn't
@@ -99,11 +115,13 @@ export default function ForgotPasswordPage() {
   async function resendCode() {
     setSubmitting(true)
     try {
-      await api.post("/auth/password/forgot", { email })
+      await sendCode()
       toast.success("New code sent. Check your inbox.")
       setCode("")
-    } catch {
-      toast.error("Couldn't send a new code. Try again in a minute.")
+    } catch (err) {
+      // A 422 is the bot check refusing; anything else keeps the generic line.
+      const message = err instanceof AxiosError && err.response?.status === 422 ? err.response.data?.message : null
+      toast.error(message || "Couldn't send a new code. Try again in a minute.")
     } finally {
       setSubmitting(false)
     }
@@ -187,6 +205,8 @@ export default function ForgotPasswordPage() {
           </Button>
         </form>
       )}
+
+      <Turnstile ref={turnstile} action="forgot" />
 
       <AuthLink href="/auth/login" className="inline-flex items-center gap-1.5 self-center text-body-sm text-muted-foreground">
         <IconArrowLeft size={14} />

@@ -45,6 +45,16 @@ services:
   # Point Laravel at it with DOCKER_HOST=tcp://127.0.0.1:2375. Published on
   # loopback only — an unauthenticated Docker API on a public interface is
   # the fastest way to lose a box.
+  #
+  # NEVER PUT IT ON A NETWORK A STATION CONTAINER CAN JOIN. Station containers
+  # run on gocast-network, and on 2026-11-02 an attacker had shell commands
+  # running inside one (the .liq injection fixed in de5f987). While the proxy
+  # sat on gocast-network too, that shell could reach
+  # http://gocast-docker-proxy:2375, create a privileged container with /
+  # bind-mounted, and own the host. So it gets a bridge of its own, with no
+  # other member. Its only client is Laravel on the host, through the loopback
+  # port below, which works from any bridge. Not `internal: true`: Docker does
+  # not publish ports from an internal network, and that port is the point.
   docker-proxy:
     image: tecnativa/docker-socket-proxy:v0.5.0
     container_name: gocast-docker-proxy
@@ -69,6 +79,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "127.0.0.1:2375:2375"
+    # Only this network, never `default` (gocast-network). See above.
+    networks:
+      - docker-proxy-net
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
@@ -128,6 +141,11 @@ services:
           memory: 128M
 
 networks:
+  # The proxy's alone. No subnet pinned: nothing addresses it by IP, and
+  # nothing but the proxy is ever attached to it.
+  docker-proxy-net:
+    name: gocast-docker-proxy-net
+
   # Must be the SAME network the per-station containers join —
   # LiquidsoapSupervisor hardcodes `gocast-network` as a class constant.
   #
