@@ -591,19 +591,19 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            $reopened++;
-
             if ($dryRun) {
+                $reopened++;
+
                 continue;
             }
 
             // The connect callback may have landed since the query above; open()
             // is locked and reuses its session, and then there is nothing to say.
             if (! $sessions->open($station, 'browser', null, whileRelayRuns: true)) {
-                $reopened--;
-
                 continue;
             }
+
+            $reopened++;
 
             $sessions->announce($station, StationEvent::TYPE_LIVE_CONNECTED, ['via' => 'relay', 'reconciled' => true]);
 

@@ -85,7 +85,10 @@ class StopStation implements ShouldQueue
         // gives (AutoDJ, an encoder), and the show that kept it on the relay
         // is over. Hand over to a container, as the Start button would,
         // instead of switching off a station its owner just paid to keep on.
-        if ($station->usesRelay() && $station->resolveIngestPath() === Station::INGEST_CONTAINER) {
+        // The plan, not the resolved path: a relay rolled back resolves to a
+        // container too, and booting one for every idle Free station is the
+        // load the relay exists to remove. Those simply stop.
+        if ($station->usesRelay() && $station->planNeedsContainer()) {
             $this->moveToContainer($station, $lifecycle);
 
             return;

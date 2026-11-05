@@ -1144,7 +1144,13 @@ export class BroadcastManager {
             try { reply = JSON.parse(message.data) } catch { /* not ours */ }
             if (reply?.type !== 'ok') return
             ws.onmessage = null
-            if (this.ws === ws) this.awaitingRelayOk = false
+            if (this.ws === ws) {
+              this.awaitingRelayOk = false
+              // Icecast has the mount only now, and the title was held back
+              // until it did: the API refuses one for a mount it cannot see.
+              // This is the relay's only replay, first go-live and reconnect.
+              if (this.lastMetadata) this.sendMetadata(this.lastMetadata.title, this.lastMetadata.artist)
+            }
             finish(() => resolve(ws))
           }
           helloTimer = setTimeout(() => finish(() => {
@@ -1340,7 +1346,8 @@ export class BroadcastManager {
         report('reconnected')
         // Harbor lost our metadata with the connection; without this the
         // listener's player keeps showing whatever was playing before the drop.
-        if (this.lastMetadata) {
+        // The relay replayed it already, the moment Icecast took the source.
+        if (this.lastMetadata && this.ingest !== 'relay') {
           this.sendMetadata(this.lastMetadata.title, this.lastMetadata.artist)
         }
         this.callbacks.onError('')
@@ -1494,6 +1501,9 @@ export class BroadcastManager {
     this.lastMetadata = { title, artist }
     if (this.ws?.readyState !== WebSocket.OPEN) return
     if (this.ingest === 'relay') {
+      // Not before the relay's ok: Icecast has no mount to title yet, and
+      // the API's 409s would use up the retries. The ok sends it.
+      if (this.awaitingRelayOk) return
       this.sentMetadataKey = `${title}\0${artist}`
       this.postRelayMetadata(title, artist, 0)
       return

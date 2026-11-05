@@ -48,6 +48,7 @@ function relayManager() {
   return manager as unknown as {
     openSocket: (url: string, token: string) => Promise<unknown>
     handleChunk: (chunk: ArrayBuffer) => void
+    sendMetadata: (title: string, artist: string) => void
   }
 }
 
@@ -112,6 +113,21 @@ describe("openSocket on the relay", () => {
     await opened
     manager.handleChunk(new ArrayBuffer(8))
     expect(socket.sent.filter((data) => data instanceof ArrayBuffer)).toHaveLength(1)
+  })
+  it("holds a title until the relay says ok, then sends it once", async () => {
+    api.posts = []
+    const manager = relayManager()
+    const opened = manager.openSocket("wss://relay.test/relay", "token")
+    const socket = FakeSocket.last!
+    socket.readyState = 1
+    socket.onopen!()
+
+    manager.sendMetadata("First", "Artist")
+    expect(api.posts).toHaveLength(0)
+
+    socket.onmessage!({ data: JSON.stringify({ type: "ok" }) })
+    await opened
+    expect(api.posts).toEqual(["/stations/night-show/now-playing"])
   })
 })
 

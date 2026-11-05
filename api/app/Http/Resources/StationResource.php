@@ -170,7 +170,9 @@ class StationResource extends JsonResource
             // display question; it was never evidence of availability. The
             // only guard that mattered — don't claim a stopped station is
             // audible — is $isRunning, which is still here.
-            'is_on_air' => $isRunning,
+            // Except a relay run, which has no mount until a broadcaster
+            // connects: a listener would get a 404, so it waits for one.
+            'is_on_air' => $isRunning && ($isLive || ! $this->usesRelay()),
             // Owner intent, and the coarse state derived from it. This is the
             // cheap answer: it costs no network call, so list endpoints stay
             // at one Redis round-trip. It cannot tell "booting" from "on air"

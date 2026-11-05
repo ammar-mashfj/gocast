@@ -382,9 +382,7 @@ class Station extends Model
             return self::INGEST_CONTAINER;
         }
 
-        $user = $this->user;
-
-        if ($user === null || $user->canUseAutoDj() || $user->canUseEncoder()) {
+        if ($this->user === null || $this->planNeedsContainer()) {
             return self::INGEST_CONTAINER;
         }
 
@@ -399,6 +397,18 @@ class Station extends Model
         }
 
         return self::INGEST_RELAY;
+    }
+
+    /**
+     * Whether the owner's plan has something only a container gives: AutoDJ
+     * or an encoder. The plan alone, unlike resolveIngestPath(), which also
+     * says container for a relay switched off or rolled back.
+     */
+    public function planNeedsContainer(): bool
+    {
+        $user = $this->user;
+
+        return $user !== null && ($user->canUseAutoDj() || $user->canUseEncoder());
     }
 
     /**

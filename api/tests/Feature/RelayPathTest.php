@@ -749,6 +749,25 @@ describe('what the studio and the player are told', function () {
         $this->getJson("/api/public/stations/{$station->slug}/listeners")->assertJsonPath('data.icecast_only', false);
     });
 
+    it('tells listeners a relay station is on air only while someone broadcasts into it', function () {
+        $station = relayStation();
+
+        $this->getJson("/api/public/stations/{$station->slug}/listeners")->assertJsonPath('data.is_on_air', false);
+        $this->getJson("/api/public/stations/{$station->slug}")->assertJsonPath('data.is_on_air', false);
+
+        $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
+        app(StationStatusService::class)->forget($station);
+
+        $this->getJson("/api/public/stations/{$station->slug}/listeners")->assertJsonPath('data.is_on_air', true);
+        $this->getJson("/api/public/stations/{$station->slug}")->assertJsonPath('data.is_on_air', true);
+    });
+
+    it('still calls a running container station on air with nobody live', function () {
+        $station = relayStation(['ingest_path' => Station::INGEST_CONTAINER]);
+
+        $this->getJson("/api/public/stations/{$station->slug}")->assertJsonPath('data.is_on_air', true);
+    });
+
     it('tells the player a station is switched off only when its owner turned it off', function () {
         // A container being recreated reads 'offline' for a moment; the
         // player must not stop a listener for that.
@@ -859,6 +878,26 @@ describe('auto-stop', function () {
         );
 
         expect($station->refresh()->isRunning())->toBeFalse();
+    });
+
+    it('stops a silent Free relay station after a rollback rather than booting it a container', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        config(['relay.enabled' => false]);
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            app(StationLifecycleService::class),
+        );
+
+        expect($station->refresh())
+            ->isRunning()->toBeFalse()
+            ->ingest_path->not->toBe(Station::INGEST_CONTAINER);
     });
 
     it('keeps a relay show Icecast is carrying even when its connect callback was lost', function () {

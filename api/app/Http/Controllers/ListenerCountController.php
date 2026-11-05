@@ -56,11 +56,13 @@ class ListenerCountController extends Controller
             // including a station rotating untagged files or sitting on
             // silence. 'degraded' is excluded: the graph is fine but Icecast
             // is not carrying it, so there is nothing to connect to.
-            'is_on_air' => in_array(
-                $state,
-                [StationStatusService::STATE_ON_AIR, StationStatusService::STATE_LIVE],
-                true,
-            ),
+            //
+            // A relay run is the exception to "sitting on silence": with no
+            // broadcaster there is no mount at all, only a 404, so it is on
+            // air only while someone is live.
+            'is_on_air' => $station->usesRelay()
+                ? $state === StationStatusService::STATE_LIVE
+                : in_array($state, [StationStatusService::STATE_ON_AIR, StationStatusService::STATE_LIVE], true),
             'now_playing' => [
                 'title' => $metadata['title'] ?? null,
                 'artist' => $metadata['artist'] ?? null,
