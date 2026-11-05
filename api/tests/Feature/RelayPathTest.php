@@ -534,6 +534,29 @@ describe('Icecast events', function () {
         expect($station->streamSessions()->count())->toBe(2);
     });
 
+    it('starts a new show when a second DJ follows within seconds on a container station', function () {
+        $station = Station::factory()->for(User::factory()->onPlan('pro'), 'user')->create([
+            'desired_state' => Station::STATE_RUNNING,
+            'started_at' => now()->subMinutes(30),
+            'ingest_path' => Station::INGEST_CONTAINER,
+        ]);
+        $sessions = app(BroadcastSessions::class);
+
+        $sessions->open($station, 'browser', null);
+        $sessions->close($station);
+        $this->travel(5)->seconds();
+        $sessions->open($station, 'browser', null);
+
+        expect($station->streamSessions()->count())->toBe(2);
+    });
+
+    it('opens nothing for a reconcile reading on a station turned off since', function () {
+        $station = relayStation(['desired_state' => Station::STATE_STOPPED, 'ingest_path' => null]);
+
+        expect(app(BroadcastSessions::class)->open($station, 'browser', null, whileRelayRuns: true))->toBeFalse()
+            ->and($station->streamSessions()->count())->toBe(0);
+    });
+
     it('closes the session when Icecast cannot say whether the mount is back', function () {
         $station = relayStation();
         $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
@@ -774,6 +797,36 @@ describe('auto-stop', function () {
             ->desired_state->toBe(Station::STATE_RUNNING);
     });
 
+    it('keeps the silence clock when an upgraded station could not move yet', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30), 'silent_since' => now()->subMinutes(5)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+        // The mount list says nobody is on; the start's own check cannot tell.
+        $this->partialMock(IcecastAdmin::class, fn ($mock) => $mock->shouldReceive('carries')->andReturn(null));
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            app(StationLifecycleService::class),
+        );
+
+        expect($station->refresh())
+            ->ingest_path->toBe(Station::INGEST_RELAY)
+            ->silent_since->not->toBeNull();
+    });
+
+    it('leaves the fresh relay reading for the dashboard', function () {
+        $station = onAir(relayStation());
+
+        app(StationStatusService::class)->pullFresh($station);
+
+        expect(Cache::get('station-status:'.$station->id))->toMatchArray(['reachable' => true]);
+    });
+
     it('still stops a Free relay station once the studio has gone for good', function () {
         $station = relayStation(['started_at' => now()->subMinutes(30)]);
         $station->streamSessions()->create([
@@ -900,6 +953,13 @@ describe('the reconciler', function () {
 
         expect(app(StationLifecycleService::class)->cutLeftoverSource($station))->toBeFalse();
         Http::assertNotSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'));
+    });
+
+    it('does not count a cut Icecast did not take', function () {
+        $station = relayStation(['desired_state' => Station::STATE_STOPPED, 'ingest_path' => null]);
+        $this->icecastStatus = 500;
+
+        expect(app(StationLifecycleService::class)->cutLeftoverSource($station))->toBeFalse();
     });
 
     it('asks Icecast for its mounts once per pass', function () {

@@ -6,6 +6,7 @@ use App\Events\StationStateChanged;
 use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use App\Models\StationEvent;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -28,10 +29,11 @@ use Illuminate\Support\Facades\Redis;
 class BroadcastSessions
 {
     /**
-     * A broadcaster back within this long of leaving rejoins the session it
-     * left. A relay restart, or a studio or encoder riding out a network
-     * blip, is one show, not two: two rows would split its airtime and
-     * analytics and send "now live" again.
+     * A relay broadcaster back within this long of leaving rejoins the
+     * session it left. A relay restart reconnects every studio, and that is
+     * one show, not two: two rows would split its airtime and analytics and
+     * send "now live" again. Relay only: on a container station a second DJ
+     * can take over within seconds, and that is a new show.
      */
     public const REJOIN_SECONDS = 30;
 
@@ -51,13 +53,27 @@ class BroadcastSessions
      * arrive together (the relay's source-connect and the minute reconcile
      * that reopens a missed one), and both would otherwise see no open row.
      *
+     * $whileRelayRuns is for a caller acting on an older reading (the
+     * reconcile's mount list): the station is re-read inside the lock, and
+     * nothing opens on one turned off or moved off the relay since. A stop
+     * closes its sessions under the same lock, so it cannot slip in between.
+     *
      * @return bool Whether a new session was opened.
      */
-    public function open(Station $station, string $via, ?string $client): bool
+    public function open(Station $station, string $via, ?string $client, bool $whileRelayRuns = false): bool
     {
         try {
-            return Cache::lock("stream-session-open:{$station->id}", 10)
-                ->block(5, fn () => $this->openUnlocked($station, $via, $client));
+            return self::lock($station)->block(5, function () use ($station, $via, $client, $whileRelayRuns) {
+                if ($whileRelayRuns) {
+                    $fresh = Station::find($station->id);
+
+                    if ($fresh === null || ! $fresh->isRunning() || ! $fresh->usesRelay()) {
+                        return false;
+                    }
+                }
+
+                return $this->openUnlocked($station, $via, $client);
+            });
         } catch (LockTimeoutException) {
             // Whoever holds the lock is opening this very session. Throwing
             // would answer Icecast's one-shot callback with a 500, or end a
@@ -66,6 +82,15 @@ class BroadcastSessions
 
             return false;
         }
+    }
+
+    /**
+     * The one per-station lock every open and close of a session row takes,
+     * the stop included.
+     */
+    public static function lock(Station $station): Lock
+    {
+        return Cache::lock("stream-session-open:{$station->id}", 10);
     }
 
     private function openUnlocked(Station $station, string $via, ?string $client): bool
@@ -129,7 +154,8 @@ class BroadcastSessions
     {
         $last = $station->streamSessions()->latest('started_at')->first();
 
-        if ($last === null
+        if (! $station->usesRelay()
+            || $last === null
             || $last->ended_at === null
             || $last->source_type !== $via
             || $last->ended_at->lt(now()->subSeconds(self::REJOIN_SECONDS))
@@ -163,10 +189,31 @@ class BroadcastSessions
      * listener-facing API stops showing the last broadcaster track instead of
      * waiting out its TTL.
      *
+     * Under the open lock, together with $unless: a disconnect asks "is the
+     * mount live again?" and closes as one step, so a reconnect's open can
+     * land before it or after it, never between the question and the close.
+     *
+     * @param  (\Closure(): bool)|null  $unless  Keep the session when this says so.
      * @return bool Whether a session was open.
      */
-    public function close(Station $station): bool
+    public function close(Station $station, ?\Closure $unless = null): bool
     {
+        try {
+            return self::lock($station)->block(5, fn () => $this->closeUnlocked($station, $unless));
+        } catch (LockTimeoutException) {
+            // A close must not be lost: a session left open reads as live.
+            Log::warning('Session close waited out another open of the same station', ['station' => $station->slug]);
+
+            return $this->closeUnlocked($station, $unless);
+        }
+    }
+
+    private function closeUnlocked(Station $station, ?\Closure $unless): bool
+    {
+        if ($unless !== null && $unless()) {
+            return false;
+        }
+
         $closed = $station->streamSessions()
             ->whereNull('ended_at')
             ->update(['ended_at' => now()]);

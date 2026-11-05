@@ -121,7 +121,14 @@ class StopStation implements ShouldQueue
     private function moveToContainer(Station $station, StationLifecycleService $lifecycle): void
     {
         try {
-            $lifecycle->start($station, reason: 'upgrade');
+            $station = $lifecycle->start($station, reason: 'upgrade');
+
+            // start() keeps the relay while Icecast may still carry a show.
+            // Then nothing moved, and the silence clock must keep running.
+            if ($station->usesRelay()) {
+                return;
+            }
+
             $station->forceFill(['silent_since' => null])->save();
 
             Log::info('Station moved off the relay after its show: the plan now needs a container', [

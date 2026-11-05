@@ -276,9 +276,19 @@ class StationLifecycleService
             // nothing knows. Airtime is an over-estimate for a source that
             // died silently — the same over-estimate every lost
             // `live_disconnected` already produces.
-            $station->streamSessions()
+            //
+            // Under the session lock, so a reconcile reopening a missed relay
+            // session cannot add a row behind this close. Unlocked if that
+            // wait runs out: this close must happen either way.
+            $closeOpen = fn () => $station->streamSessions()
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
+
+            try {
+                BroadcastSessions::lock($station)->block(5, $closeOpen);
+            } catch (LockTimeoutException) {
+                $closeOpen();
+            }
 
             // A relay run has no container to remove. What keeps it on air is
             // the source on Icecast, so cut that instead — otherwise "Turn
@@ -400,17 +410,12 @@ class StationLifecycleService
     }
 
     /**
-     * @template T
-     *
-     * @param  \Closure(): T  $callback
-     * @return T
-     */
-    /**
      * Cut a relay source still on the mount of a station that is off, unless
      * it has been switched on since the caller looked. Under the lifecycle
      * lock, so a Start cannot land between the check and the cut.
      *
-     * @return bool Whether the source was cut.
+     * @return bool Whether the source was cut (false too when Icecast could
+     *              not be asked: the next pass tries again).
      *
      * @throws LockTimeoutException When a start or stop holds the lock.
      */
@@ -423,12 +428,16 @@ class StationLifecycleService
                 return false;
             }
 
-            $this->icecast->killSource($station);
-
-            return true;
+            return $this->icecast->killSource($station);
         });
     }
 
+    /**
+     * @template T
+     *
+     * @param  \Closure(): T  $callback
+     * @return T
+     */
     private function withLock(Station $station, \Closure $callback): mixed
     {
         return Cache::lock("station-lifecycle:{$station->id}", self::LOCK_TTL_SECONDS)

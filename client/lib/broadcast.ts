@@ -376,6 +376,14 @@ export class BroadcastManager {
    * and carries no metadata frames — see openSocket() and sendMetadata().
    */
   private ingest: 'container' | 'relay' = 'container'
+  /**
+   * The relay socket is open but Icecast has not admitted the source yet.
+   * The relay reads nothing until then, so audio sent now would sit in the
+   * network buffers and reach Icecast as one burst after the "ok" — and the
+   * listeners already on the stream would stay that far behind for the rest
+   * of the show. Frames are dropped instead, like a reconnect's.
+   */
+  private awaitingRelayOk = false
   /** What {@link start} was called with, for goLive's resumePlayback. */
   private startOptions: BroadcastStartOptions | undefined
   /** When the station was last confirmed on air, for {@link STATION_FRESH_MS}. */
@@ -655,7 +663,7 @@ export class BroadcastManager {
     this.sampleBacklog()
     // A full backlog drops the frame like a closed socket does: queueing
     // it would only push the show further behind live.
-    if (this.ws?.readyState === WebSocket.OPEN && this.backlogMs() < BACKLOG_CAP_MS) {
+    if (this.ws?.readyState === WebSocket.OPEN && !this.awaitingRelayOk && this.backlogMs() < BACKLOG_CAP_MS) {
       this.ws.send(chunk)
       this.socketBytes += chunk.byteLength
       const buffered = this.ws.bufferedAmount
@@ -1093,6 +1101,7 @@ export class BroadcastManager {
       let settled = false
       let helloTimer: ReturnType<typeof setTimeout> | null = null
       const relay = this.ingest === 'relay'
+      this.awaitingRelayOk = relay
 
       const finish = (fn: () => void) => {
         if (settled) return
@@ -1135,6 +1144,7 @@ export class BroadcastManager {
             try { reply = JSON.parse(message.data) } catch { /* not ours */ }
             if (reply?.type !== 'ok') return
             ws.onmessage = null
+            if (this.ws === ws) this.awaitingRelayOk = false
             finish(() => resolve(ws))
           }
           helloTimer = setTimeout(() => finish(() => {

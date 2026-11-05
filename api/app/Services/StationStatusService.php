@@ -180,7 +180,17 @@ class StationStatusService
                 return null;
             }
 
-            return $this->relayStatus($station, askIcecast: true);
+            $status = $this->relayStatus($station, askIcecast: true);
+
+            // Written back like a container's, so the dashboard shows what the
+            // auto-stop just decided on.
+            Cache::put(
+                self::CACHE_PREFIX.$station->id,
+                ['reachable' => true, 'status' => $status],
+                (int) config('liquidsoap.status_ttl_seconds', 2),
+            );
+
+            return $status;
         }
 
         $payload = $this->pull($station);

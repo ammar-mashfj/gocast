@@ -128,17 +128,23 @@ class IcecastCallbackController extends Controller
 
         if ($type === StationEvent::TYPE_LIVE_CONNECTED) {
             $changed = $sessions->open($station, 'browser', null);
-        } elseif ($icecast->carries($mount) === true) {
-            // The studio is already back on a new source. Icecast sends
+        } else {
+            // Unless the studio is already back on a new source. Icecast sends
             // events one at a time, in order, but a backlog (a relay restart
             // reconnects every studio at once) can deliver this after the
-            // reconnected studio has re-sent its title. Closing now would end
+            // reconnected studio has re-sent its title. Closing then would end
             // the live session and wipe that title; the new source's connect
-            // event finds the session still open and keeps it.
-            Log::info('Ignored a relay disconnect: the mount is live again', ['station' => $station->slug]);
-            $changed = false;
-        } else {
-            $changed = $sessions->close($station);
+            // event finds the session still open and keeps it. Asked inside
+            // the close's lock, so that connect cannot land in between.
+            $changed = $sessions->close($station, unless: function () use ($icecast, $mount, $station): bool {
+                if ($icecast->carries($mount) !== true) {
+                    return false;
+                }
+
+                Log::info('Ignored a relay disconnect: the mount is live again', ['station' => $station->slug]);
+
+                return true;
+            });
         }
 
         // Only a session that really opened or closed goes on the timeline and

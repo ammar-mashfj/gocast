@@ -599,7 +599,7 @@ class ReconcileStations extends Command
 
             // The connect callback may have landed since the query above; open()
             // is locked and reuses its session, and then there is nothing to say.
-            if (! $sessions->open($station, 'browser', null)) {
+            if (! $sessions->open($station, 'browser', null, whileRelayRuns: true)) {
                 $reopened--;
 
                 continue;
