@@ -155,7 +155,14 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       audio.play().catch(() => { setLoading(false); setFailed(true) })
     }
 
-    const hlsUrl = station?.hls_url ?? OFFICIAL_HLS
+    // A station the API answered for and gave no HLS stream is on the relay
+    // path: Icecast only. The constant is for when the API did not answer.
+    const hlsUrl = station ? station.hls_url : OFFICIAL_HLS
+
+    if (!hlsUrl) {
+      playIcecast()
+      return
+    }
 
     if (Hls.isSupported()) {
       // A live audio stream is never seeked backwards, so holding decoded

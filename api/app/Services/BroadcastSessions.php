@@ -27,6 +27,14 @@ use Illuminate\Support\Facades\Redis;
  */
 class BroadcastSessions
 {
+    /**
+     * A broadcaster back within this long of leaving rejoins the session it
+     * left. A relay restart, or a studio or encoder riding out a network
+     * blip, is one show, not two: two rows would split its airtime and
+     * analytics and send "now live" again.
+     */
+    public const REJOIN_SECONDS = 30;
+
     public function __construct(
         private readonly BroadcastOrigin $origin,
         private readonly StationStatusService $statusService,
@@ -79,6 +87,10 @@ class BroadcastSessions
             return false;
         }
 
+        if ($this->rejoinRecentSession($station, $via)) {
+            return true;
+        }
+
         // This is the only path into a session row for an encoder AND for the
         // web studio — neither makes an API call that opens one. So `via` is
         // not a refinement on top of something else that knows: it is the
@@ -104,6 +116,29 @@ class BroadcastSessions
 
         SendStationLiveNotifications::dispatch($station->id, $session->id)
             ->delay(now()->addMinutes(2));
+
+        return true;
+    }
+
+    /**
+     * Reopen this run's session if the same kind of broadcaster closed it
+     * moments ago. True still counts as opened: the disconnect was announced,
+     * so the dashboard must hear the station is live again.
+     */
+    private function rejoinRecentSession(Station $station, string $via): bool
+    {
+        $last = $station->streamSessions()->latest('started_at')->first();
+
+        if ($last === null
+            || $last->ended_at === null
+            || $last->source_type !== $via
+            || $last->ended_at->lt(now()->subSeconds(self::REJOIN_SECONDS))
+            // A session from before this power-on belongs to another run.
+            || ($station->started_at !== null && $last->started_at->lt($station->started_at))) {
+            return false;
+        }
+
+        $last->update(['ended_at' => null]);
 
         return true;
     }

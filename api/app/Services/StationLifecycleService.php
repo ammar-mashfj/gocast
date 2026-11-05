@@ -7,6 +7,7 @@ use App\Jobs\DropStationListeners;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -404,6 +405,30 @@ class StationLifecycleService
      * @param  \Closure(): T  $callback
      * @return T
      */
+    /**
+     * Cut a relay source still on the mount of a station that is off, unless
+     * it has been switched on since the caller looked. Under the lifecycle
+     * lock, so a Start cannot land between the check and the cut.
+     *
+     * @return bool Whether the source was cut.
+     *
+     * @throws LockTimeoutException When a start or stop holds the lock.
+     */
+    public function cutLeftoverSource(Station $station): bool
+    {
+        return $this->withLock($station, function () use ($station) {
+            $station->refresh();
+
+            if (! $station->trashed() && $station->isRunning()) {
+                return false;
+            }
+
+            $this->icecast->killSource($station);
+
+            return true;
+        });
+    }
+
     private function withLock(Station $station, \Closure $callback): mixed
     {
         return Cache::lock("station-lifecycle:{$station->id}", self::LOCK_TTL_SECONDS)

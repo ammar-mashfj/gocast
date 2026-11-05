@@ -615,10 +615,12 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
         systemctl restart gocast-standby || true
         echo "  ✓ gocast-standby restarted (new build)"
       fi
+      RELAY_RESTARTED=()
       for port in "${RELAY_PORTS[@]}"; do
         systemctl restart "gocast-relay@${port}"
         if relay_healthy "$port"; then
           echo "  ✓ gocast-relay@${port} restarted"
+          RELAY_RESTARTED+=("$port")
         else
           echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
           # Copied aside, then renamed over: a plain cp onto a binary that
@@ -631,6 +633,15 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
           fi
           rm -f "$RELAY_STAMP"
           systemctl restart "gocast-relay@${port}" || true
+          # The copies before this one already run the new build. Back onto
+          # the old one too, one at a time as on the way out, once the failed
+          # copy is up again to take their studios. The standby feeder is a
+          # separate program and nothing here says it is broken: it stays.
+          for done_port in "${RELAY_RESTARTED[@]}"; do
+            relay_healthy "$port" || true
+            systemctl restart "gocast-relay@${done_port}" || true
+            relay_healthy "$done_port" && echo "  ✓ gocast-relay@${done_port} back on the previous binary"
+          done
           MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:
       journalctl -u gocast-relay@${port} -n 50")
           break

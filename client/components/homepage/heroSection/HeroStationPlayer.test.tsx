@@ -4,8 +4,17 @@ import type { PublicStationStats } from "@/hooks/usePublicStationStats"
 import type { Station } from "@/interfaces/Station"
 import { HeroStationPlayer } from "./HeroStationPlayer"
 
-// The Icecast path: no Media Source, no native HLS.
-vi.mock("hls.js", () => ({ default: { isSupported: () => false } }))
+// The Icecast path by default: no Media Source, no native HLS.
+const hls = vi.hoisted(() => ({ supported: false, created: 0 }))
+vi.mock("hls.js", () => {
+  class FakeHls {
+    static isSupported = () => hls.supported
+    constructor() {
+      hls.created++
+    }
+  }
+  return { default: FakeHls }
+})
 vi.mock("@/lib/env", () => ({ env: { icecastUrl: "https://icecast.test" } }))
 vi.mock("@/hooks/useListenerSession", () => ({ useListenerSession: () => {} }))
 
@@ -40,6 +49,8 @@ function stats(overrides: Partial<PublicStationStats>): PublicStationStats {
 describe("HeroStationPlayer", () => {
   beforeEach(() => {
     feed = null
+    hls.supported = false
+    hls.created = 0
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {})
     vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {})
@@ -73,5 +84,15 @@ describe("HeroStationPlayer", () => {
 
     expect(audio.getAttribute("src")).toBe("https://icecast.test/stream/night-show")
     expect(screen.getByRole("button", { name: "Pause Night Show" })).toBeInTheDocument()
+  })
+
+  // A relay run has no HLS stream, and the API says so with a null hls_url.
+  // The official stream constant is only for when the API did not answer.
+  it("plays a station with no HLS stream from Icecast, even where hls.js works", () => {
+    hls.supported = true
+
+    startPlaying()
+
+    expect(hls.created).toBe(0)
   })
 })

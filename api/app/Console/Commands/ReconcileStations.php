@@ -10,8 +10,10 @@ use App\Services\BroadcastSessions;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
+use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -104,6 +106,7 @@ class ReconcileStations extends Command
         StationStatusService $statusService,
         IcecastAdmin $icecast,
         BroadcastSessions $sessions,
+        StationLifecycleService $lifecycle,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -177,15 +180,29 @@ class ReconcileStations extends Command
             fn (string $slug) => ! isset($present[$slug]),
         ));
 
-        $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $sessions, $dryRun);
+        // One mount list per pass, asked for only by a step that needs it: the
+        // three relay steps then act on the same snapshot, and a slow Icecast
+        // costs one timeout rather than three.
+        $listed = false;
+        $snapshot = null;
+        $liveMounts = function () use ($icecast, &$listed, &$snapshot): ?array {
+            if (! $listed) {
+                $snapshot = $icecast->liveMounts();
+                $listed = true;
+            }
 
-        $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $dryRun);
+            return $snapshot;
+        };
+
+        $liveCleared = $this->reconcileLiveFlags($statusService, $liveMounts, $sessions, $dryRun);
+
+        $relayReopened = $this->reopenMissedRelaySessions($liveMounts, $sessions, $dryRun);
 
         if ($relayReopened > 0) {
             $this->line("  ✓ reopened the session of {$relayReopened} relay show(s) Icecast is carrying");
         }
 
-        $sourcesCut = $this->cutSourcesOfStoppedStations($icecast, $present, $dryRun);
+        $sourcesCut = $this->cutSourcesOfStoppedStations($liveMounts, $lifecycle, $present, $dryRun);
 
         if ($sourcesCut > 0) {
             $this->line("  ✓ cut {$sourcesCut} broadcaster(s) still on air on a station that is off");
@@ -547,7 +564,7 @@ class ReconcileStations extends Command
      * callback with a broadcast token for this station to get there.
      */
     private function reopenMissedRelaySessions(
-        IcecastAdmin $icecast,
+        \Closure $liveMounts,
         BroadcastSessions $sessions,
         bool $dryRun,
     ): int {
@@ -561,7 +578,7 @@ class ReconcileStations extends Command
             return 0;
         }
 
-        $mounts = $icecast->liveMounts();
+        $mounts = $liveMounts();
 
         if ($mounts === null) {
             return 0;
@@ -608,13 +625,17 @@ class ReconcileStations extends Command
      * left to the container removal above, which takes Liquidsoap's source
      * with it.
      *
+     * The cut itself re-reads the station under the lifecycle lock: an owner
+     * who pressed Start since the mount list was read keeps their show.
+     *
+     * @param  \Closure(): (array<string, mixed>|null)  $liveMounts
      * @param  array<string, string>  $containers  slug => container name
      */
-    private function cutSourcesOfStoppedStations(IcecastAdmin $icecast, array $containers, bool $dryRun): int
+    private function cutSourcesOfStoppedStations(\Closure $liveMounts, StationLifecycleService $lifecycle, array $containers, bool $dryRun): int
     {
         $prefix = (string) config('relay.mount_prefix');
         $mounts = array_filter(
-            array_keys($icecast->liveMounts() ?? []),
+            array_keys($liveMounts() ?? []),
             fn (string $mount) => str_starts_with($mount, $prefix),
         );
 
@@ -628,21 +649,33 @@ class ReconcileStations extends Command
             ->filter(fn (Station $station) => ($station->trashed() || ! $station->isRunning())
                 && ! isset($containers[$station->slug]));
 
+        $cut = 0;
+
         foreach ($stations as $station) {
             if ($dryRun) {
                 $this->line("  • {$station->slug} is off but Icecast still carries its source");
+                $cut++;
 
                 continue;
             }
 
-            $icecast->killSource($station);
+            try {
+                if (! $lifecycle->cutLeftoverSource($station)) {
+                    continue;
+                }
+            } catch (LockTimeoutException) {
+                // Someone is starting or stopping it right now; next pass.
+                continue;
+            }
+
+            $cut++;
 
             Log::warning('Cut a broadcaster still on air on a station that is off', [
                 'station' => $station->slug,
             ]);
         }
 
-        return $stations->count();
+        return $cut;
     }
 
     /**
@@ -686,7 +719,10 @@ class ReconcileStations extends Command
         return $dropped;
     }
 
-    private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, BroadcastSessions $sessions, bool $dryRun): int
+    /**
+     * @param  \Closure(): (array<string, mixed>|null)  $liveMounts
+     */
+    private function reconcileLiveFlags(StationStatusService $statusService, \Closure $liveMounts, BroadcastSessions $sessions, bool $dryRun): int
     {
         $stations = Station::query()->running()->live()->get();
         $cleared = 0;
@@ -695,15 +731,9 @@ class ReconcileStations extends Command
         // whether their source is still there. One request for all of them,
         // made only if there is one to check. Null (Icecast unreachable) means
         // unknown, and unknown never closes a session.
-        $icecastMounts = null;
-        $icecastAsked = false;
-
         foreach ($stations as $station) {
             if ($station->usesRelay()) {
-                if (! $icecastAsked) {
-                    $icecastMounts = $icecast->liveMounts();
-                    $icecastAsked = true;
-                }
+                $icecastMounts = $liveMounts();
 
                 if ($icecastMounts === null) {
                     continue;

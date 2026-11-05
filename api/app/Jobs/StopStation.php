@@ -81,6 +81,16 @@ class StopStation implements ShouldQueue
             return;
         }
 
+        // Upgraded during a relay show: the plan now has what only a container
+        // gives (AutoDJ, an encoder), and the show that kept it on the relay
+        // is over. Hand over to a container, as the Start button would,
+        // instead of switching off a station its owner just paid to keep on.
+        if ($station->usesRelay() && $station->resolveIngestPath() === Station::INGEST_CONTAINER) {
+            $this->moveToContainer($station, $lifecycle);
+
+            return;
+        }
+
         try {
             // force: false on purpose. The policy just concluded nobody is
             // broadcasting, but a broadcaster can connect between that check
@@ -102,6 +112,23 @@ class StopStation implements ShouldQueue
             // A refusal is a legitimate answer — most often "someone went live
             // in the last second". Not an error, and not worth a retry.
             Log::info('Silent-station stop declined', [
+                'station' => $station->slug,
+                'reason' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function moveToContainer(Station $station, StationLifecycleService $lifecycle): void
+    {
+        try {
+            $lifecycle->start($station, reason: 'upgrade');
+            $station->forceFill(['silent_since' => null])->save();
+
+            Log::info('Station moved off the relay after its show: the plan now needs a container', [
+                'station' => $station->slug,
+            ]);
+        } catch (StationLifecycleException $e) {
+            Log::info('Moving an upgraded relay station to a container was declined', [
                 'station' => $station->slug,
                 'reason' => $e->getMessage(),
             ]);

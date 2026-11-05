@@ -128,7 +128,7 @@ class IcecastCallbackController extends Controller
 
         if ($type === StationEvent::TYPE_LIVE_CONNECTED) {
             $changed = $sessions->open($station, 'browser', null);
-        } elseif ($this->mountTakenAgain($icecast, $mount)) {
+        } elseif ($icecast->carries($mount) === true) {
             // The studio is already back on a new source. Icecast sends
             // events one at a time, in order, but a backlog (a relay restart
             // reconnects every studio at once) can deliver this after the
@@ -157,15 +157,6 @@ class IcecastCallbackController extends Controller
         ]);
 
         return response('', Response::HTTP_OK);
-    }
-
-    /**
-     * Does a source hold this mount right now? Unknown (Icecast could not be
-     * asked) counts as no, which keeps the plain disconnect behaviour.
-     */
-    private function mountTakenAgain(IcecastAdmin $icecast, string $mount): bool
-    {
-        return $icecast->carries($mount) === true;
     }
 
     private function refuse(string $slug, string $mount, string $reason, string $method): Response

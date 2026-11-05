@@ -550,7 +550,12 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         // reading it, so retrying usually works. Retries are spaced out and
         // capped, then we fall back to Icecast. See createNetworkRecovery.
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          retryNetwork()
+          // Unless the feed has since said this run is on the relay: then
+          // there is no playlist to wait for (a page rendered while the
+          // station was off still carries an HLS URL), and Icecast is the
+          // stream.
+          if (icecastOnlyRef.current) playIcecast()
+          else retryNetwork()
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           hls.recoverMediaError()
         } else {

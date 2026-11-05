@@ -3,6 +3,8 @@
 use App\Enums\StationAudioVerdict;
 use App\Events\StationStateChanged;
 use App\Jobs\DropStationListeners;
+use App\Jobs\SendStationLiveNotifications;
+use App\Jobs\StopStation;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\StationEvent;
@@ -488,6 +490,50 @@ describe('Icecast events', function () {
         Event::assertDispatchedTimes(StationStateChanged::class, 2);
     });
 
+    // A relay restart: Icecast reports the disconnect before the studio is
+    // back, so the session closes; the reconnect is the same show.
+    it('rejoins the session a reconnect split, as one show', function () {
+        $station = relayStation();
+        Queue::fake();
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        $this->travel(5)->seconds();
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+        $this->travel(3)->seconds();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->ended_at)->toBeNull()
+            ->and(StationEvent::where('station_id', $station->id)->pluck('type')->all())
+            ->toBe([StationEvent::TYPE_LIVE_CONNECTED, StationEvent::TYPE_LIVE_DISCONNECTED, StationEvent::TYPE_LIVE_CONNECTED]);
+        Queue::assertPushed(SendStationLiveNotifications::class, 1);
+    });
+
+    it('opens a new session for a broadcaster back after the rejoin window', function () {
+        $station = relayStation();
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+        $this->travel(BroadcastSessions::REJOIN_SECONDS + 1)->seconds();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->count())->toBe(2)
+            ->and($station->streamSessions()->whereNull('ended_at')->count())->toBe(1);
+    });
+
+    it('never rejoins a session from before the station was switched on again', function () {
+        $station = relayStation();
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(10),
+            'ended_at' => now()->subSeconds(5),
+            'source_type' => 'browser',
+        ]);
+        $station->update(['started_at' => now()->subSeconds(2)]);
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->count())->toBe(2);
+    });
+
     it('closes the session when Icecast cannot say whether the mount is back', function () {
         $station = relayStation();
         $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
@@ -708,6 +754,43 @@ describe('auto-stop', function () {
         expect($verdict)->toBe(StationAudioVerdict::Stop);
     });
 
+    it('hands a station upgraded mid-show to a container once the show is over', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            app(StationLifecycleService::class),
+        );
+
+        expect($station->refresh())
+            ->ingest_path->toBe(Station::INGEST_CONTAINER)
+            ->desired_state->toBe(Station::STATE_RUNNING);
+    });
+
+    it('still stops a Free relay station once the studio has gone for good', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            app(StationLifecycleService::class),
+        );
+
+        expect($station->refresh()->isRunning())->toBeFalse();
+    });
+
     it('keeps a relay show Icecast is carrying even when its connect callback was lost', function () {
         // On air for 20 minutes, reconnected after a drop, but the new
         // source-connect never reached Laravel: no open session.
@@ -810,6 +893,24 @@ describe('the reconciler', function () {
             ->values()
             ->all();
         expect($cut)->toBe(['/stream/free-show']);
+    });
+
+    it('leaves a station switched on again before the cut alone', function () {
+        $station = relayStation();
+
+        expect(app(StationLifecycleService::class)->cutLeftoverSource($station))->toBeFalse();
+        Http::assertNotSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'));
+    });
+
+    it('asks Icecast for its mounts once per pass', function () {
+        onAir(relayStation());
+        relayStation(['slug' => 'quiet', 'icecast_mount' => '/stream/quiet']);
+        relayStation(['slug' => 'off', 'icecast_mount' => '/stream/off', 'desired_state' => Station::STATE_STOPPED, 'ingest_path' => null]);
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/><source mount="/stream/off"/></icestats>';
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        expect(Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/listmounts')))->toHaveCount(1);
     });
 
     it('disconnects /standby listeners whose station is off, and keeps a running one\'s', function () {
