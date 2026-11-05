@@ -136,7 +136,7 @@ class IcecastCallbackController extends Controller
             // the live session and wipe that title; the new source's connect
             // event finds the session still open and keeps it. Asked inside
             // the close's lock, so that connect cannot land in between.
-            $changed = $sessions->close($station, unless: function () use ($icecast, $mount, $station): bool {
+            $changed = $sessions->close($station, rejoinable: true, unless: function () use ($icecast, $mount, $station): bool {
                 if ($icecast->carries($mount) !== true) {
                     return false;
                 }

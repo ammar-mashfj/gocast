@@ -337,6 +337,11 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		idleTimer.Reset(s.cfg.IdleTimeout)
 		ice.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 		if _, err := ice.Write(data); err != nil {
+			// The idle timer closes the source before it closes the socket;
+			// a write failing in between is the idle close, not Icecast's.
+			if idle.Load() {
+				return "idle"
+			}
 			ws.Close(CloseSourceKilled, "stream server stopped accepting audio")
 			return "icecast_write"
 		}

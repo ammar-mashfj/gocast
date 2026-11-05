@@ -38,7 +38,14 @@ func main() {
 	flag.StringVar(&cfg.MountPrefix, "mount-prefix", cfg.MountPrefix, "Icecast mount prefix")
 	flag.DurationVar(&cfg.IdleTimeout, "idle-timeout", cfg.IdleTimeout, "close a studio that sends nothing for this long")
 	flag.Parse()
-	cfg.IcecastHost = strings.Split(cfg.IcecastAddr, ":")[0]
+	host, _, err := net.SplitHostPort(cfg.IcecastAddr)
+	if err != nil {
+		log.Fatalf("-icecast %q: %v", cfg.IcecastAddr, err)
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]" // an IPv6 literal, as a Host header writes it
+	}
+	cfg.IcecastHost = host
 	if *origins != "" {
 		cfg.OriginPatterns = strings.Split(*origins, ",")
 	}

@@ -54,6 +54,7 @@ class StationLifecycleService
         private readonly LiquidsoapSupervisor $supervisor,
         private readonly PlaylistFileWriter $playlistWriter,
         private readonly IcecastAdmin $icecast,
+        private readonly BroadcastSessions $sessions,
     ) {}
 
     /**
@@ -277,18 +278,10 @@ class StationLifecycleService
             // died silently — the same over-estimate every lost
             // `live_disconnected` already produces.
             //
-            // Under the session lock, so a reconcile reopening a missed relay
-            // session cannot add a row behind this close. Unlocked if that
-            // wait runs out: this close must happen either way.
-            $closeOpen = fn () => $station->streamSessions()
-                ->whereNull('ended_at')
-                ->update(['ended_at' => now()]);
-
-            try {
-                BroadcastSessions::lock($station)->block(5, $closeOpen);
-            } catch (LockTimeoutException) {
-                $closeOpen();
-            }
+            // Through BroadcastSessions, so it takes the session lock: a
+            // reconcile reopening a missed relay session cannot add a row
+            // behind this close, and nothing can rejoin it.
+            $this->sessions->close($station);
 
             // A relay run has no container to remove. What keeps it on air is
             // the source on Icecast, so cut that instead — otherwise "Turn

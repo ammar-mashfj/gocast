@@ -1,6 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BroadcastManager } from "./broadcast"
 
+const api = vi.hoisted(() => ({
+  desiredState: "running" as "running" | "stopped",
+  posts: [] as string[],
+}))
+vi.mock("./axios", () => ({
+  default: {
+    get: async () => ({ data: { data: { desired_state: api.desiredState, ready: true } } }),
+    post: async (url: string) => {
+      api.posts.push(url)
+      return { data: {} }
+    },
+  },
+}))
+vi.mock("./studioDropLog", () => ({ captureDrop: () => "drop", flushDrops: () => {}, resolveDrop: () => {} }))
+
 /** Enough of a WebSocket for openSocket: the test drives every event. */
 class FakeSocket {
   static last: FakeSocket | null = null
@@ -97,5 +112,64 @@ describe("openSocket on the relay", () => {
     await opened
     manager.handleChunk(new ArrayBuffer(8))
     expect(socket.sent.filter((data) => data instanceof ArrayBuffer)).toHaveLength(1)
+  })
+})
+
+describe("a relay source cut on the server (4005)", () => {
+  beforeEach(() => {
+    api.posts = []
+    vi.stubGlobal("WebSocket", FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function liveOnRelay() {
+    const errors: string[] = []
+    const manager = new BroadcastManager("night-show", {
+      onStepChange: () => {},
+      onStateChange: () => {},
+      onError: (message: string) => errors.push(message),
+    })
+    const internals = manager as unknown as {
+      ingest: string
+      established: boolean
+      socketBytes: number
+      ws: unknown
+      watchForDrop: (ws: unknown) => void
+    }
+    internals.ingest = "relay"
+    internals.established = true
+    internals.socketBytes = 1
+    const socket = new FakeSocket()
+    internals.ws = socket
+    internals.watchForDrop(socket)
+    return { socket, errors }
+  }
+
+  // Turning the station off cuts the source. A reconnect would POST /start
+  // and switch it back on.
+  it("ends the show when the station was turned off", async () => {
+    api.desiredState = "stopped"
+    const { socket, errors } = liveOnRelay()
+
+    socket.onclose!({ code: 4005 })
+    await vi.waitFor(() => expect(errors).toContain("The station was turned off, so the broadcast ended."))
+
+    expect(api.posts).toEqual([])
+  })
+
+  // Icecast restarting cuts the source too; that one is ridden out.
+  it("reconnects when the station is still on", async () => {
+    vi.useFakeTimers()
+    api.desiredState = "running"
+    const { socket } = liveOnRelay()
+
+    socket.onclose!({ code: 4005 })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(api.posts).toContain("/stations/night-show/start")
+    vi.useRealTimers()
   })
 })

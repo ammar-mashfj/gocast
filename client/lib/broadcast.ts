@@ -1231,10 +1231,44 @@ export class BroadcastManager {
         return
       }
 
+      // 4005: the relay's source was cut on the server. Icecast restarting
+      // looks the same, so the station decides: if its owner switched it off,
+      // the show is over, and a reconnect's POST /start would undo that.
+      if (this.ingest === 'relay' && event.code === 4005) {
+        void this.reconnectUnlessSwitchedOff(dropId)
+        return
+      }
+
       void this.reconnect(dropId)
     }
     // Errors are always followed by a close, which is where the work happens.
     ws.onerror = () => { /* handled by onclose */ }
+  }
+
+  /**
+   * After the relay's source was cut: end the show if the station was turned
+   * off, otherwise reconnect as for any drop. A failed read reconnects, which
+   * is what happened before this check existed.
+   */
+  private async reconnectUnlessSwitchedOff(dropId: string | null): Promise<void> {
+    const droppedAt = Date.now()
+    this.callbacks.onStateChange('reconnecting')
+    let switchedOff = false
+    try {
+      const { data } = await api.get<{ data: { desired_state?: 'stopped' | 'running' } }>(
+        `/stations/${this.stationSlug}/status`,
+      )
+      switchedOff = data.data.desired_state === 'stopped'
+    } catch {
+      switchedOff = false
+    }
+    if (this.stopping) return
+    if (switchedOff) {
+      resolveDrop(dropId, 'gave_up', { downMs: Date.now() - droppedAt, attempts: 0, lastError: 'station_switched_off' })
+      await this.fail(new Error('The station was turned off, so the broadcast ended.'))
+      return
+    }
+    await this.reconnect(dropId, droppedAt)
   }
 
   /**

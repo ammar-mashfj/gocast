@@ -40,6 +40,7 @@ class BroadcastSessions
     public function __construct(
         private readonly BroadcastOrigin $origin,
         private readonly StationStatusService $statusService,
+        private readonly IcecastAdmin $icecast,
     ) {}
 
     /**
@@ -54,9 +55,10 @@ class BroadcastSessions
      * that reopens a missed one), and both would otherwise see no open row.
      *
      * $whileRelayRuns is for a caller acting on an older reading (the
-     * reconcile's mount list): the station is re-read inside the lock, and
-     * nothing opens on one turned off or moved off the relay since. A stop
-     * closes its sessions under the same lock, so it cannot slip in between.
+     * reconcile's mount list): inside the lock the station is re-read and
+     * Icecast asked again, and nothing opens on a station turned off or moved
+     * off the relay since, or on a show that has ended since. Stops and
+     * disconnects close under the same lock, so neither can slip in between.
      *
      * @return bool Whether a new session was opened.
      */
@@ -67,7 +69,8 @@ class BroadcastSessions
                 if ($whileRelayRuns) {
                     $fresh = Station::find($station->id);
 
-                    if ($fresh === null || ! $fresh->isRunning() || ! $fresh->usesRelay()) {
+                    if ($fresh === null || ! $fresh->isRunning() || ! $fresh->usesRelay()
+                        || $this->icecast->carries($fresh->icecast_mount) !== true) {
                         return false;
                     }
                 }
@@ -157,6 +160,10 @@ class BroadcastSessions
         if (! $station->usesRelay()
             || $last === null
             || $last->ended_at === null
+            // Only a session a disconnect closed. One reconcile closed as
+            // stranded has been dead for minutes, and rejoining it would
+            // count that gap as airtime.
+            || Cache::get(self::rejoinKey($station)) !== $last->id
             || $last->source_type !== $via
             || $last->ended_at->lt(now()->subSeconds(self::REJOIN_SECONDS))
             // A session from before this power-on belongs to another run.
@@ -165,6 +172,7 @@ class BroadcastSessions
         }
 
         $last->update(['ended_at' => null]);
+        Cache::forget(self::rejoinKey($station));
 
         return true;
     }
@@ -193,26 +201,32 @@ class BroadcastSessions
      * mount live again?" and closes as one step, so a reconnect's open can
      * land before it or after it, never between the question and the close.
      *
+     * $rejoinable is for a broadcaster's own disconnect: the session it
+     * closes may be rejoined by a reconnect within REJOIN_SECONDS. Every
+     * other close (a stop, a stranded session) is final.
+     *
      * @param  (\Closure(): bool)|null  $unless  Keep the session when this says so.
      * @return bool Whether a session was open.
      */
-    public function close(Station $station, ?\Closure $unless = null): bool
+    public function close(Station $station, ?\Closure $unless = null, bool $rejoinable = false): bool
     {
         try {
-            return self::lock($station)->block(5, fn () => $this->closeUnlocked($station, $unless));
+            return self::lock($station)->block(5, fn () => $this->closeUnlocked($station, $unless, $rejoinable));
         } catch (LockTimeoutException) {
             // A close must not be lost: a session left open reads as live.
             Log::warning('Session close waited out another open of the same station', ['station' => $station->slug]);
 
-            return $this->closeUnlocked($station, $unless);
+            return $this->closeUnlocked($station, $unless, $rejoinable);
         }
     }
 
-    private function closeUnlocked(Station $station, ?\Closure $unless): bool
+    private function closeUnlocked(Station $station, ?\Closure $unless, bool $rejoinable): bool
     {
         if ($unless !== null && $unless()) {
             return false;
         }
+
+        $open = $station->streamSessions()->whereNull('ended_at')->latest('started_at')->value('id');
 
         $closed = $station->streamSessions()
             ->whereNull('ended_at')
@@ -220,6 +234,17 @@ class BroadcastSessions
 
         Redis::del("metadata:{$station->id}");
 
+        if ($rejoinable && $open !== null) {
+            Cache::put(self::rejoinKey($station), $open, self::REJOIN_SECONDS);
+        } else {
+            Cache::forget(self::rejoinKey($station));
+        }
+
         return $closed > 0;
+    }
+
+    private static function rejoinKey(Station $station): string
+    {
+        return "stream-session-rejoin:{$station->id}";
     }
 }

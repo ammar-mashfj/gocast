@@ -557,6 +557,23 @@ describe('Icecast events', function () {
             ->and($station->streamSessions()->count())->toBe(0);
     });
 
+    it('reopens nothing for a show that ended since the reconcile read the mounts', function () {
+        $station = relayStation();
+
+        expect(app(BroadcastSessions::class)->open($station, 'browser', null, whileRelayRuns: true))->toBeFalse()
+            ->and($station->streamSessions()->count())->toBe(0);
+    });
+
+    it('never rejoins a session reconcile closed as stranded', function () {
+        $station = onAir(relayStation());
+        app(BroadcastSessions::class)->close($station);
+        $this->travel(5)->seconds();
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->count())->toBe(2);
+    });
+
     it('closes the session when Icecast cannot say whether the mount is back', function () {
         $station = relayStation();
         $session = $station->streamSessions()->create(['started_at' => now(), 'source_type' => 'browser']);
