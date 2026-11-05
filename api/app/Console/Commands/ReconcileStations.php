@@ -4,7 +4,10 @@ namespace App\Console\Commands;
 
 use App\Events\StationStateChanged;
 use App\Models\Station;
+use App\Models\StationEvent;
 use App\Models\StreamSession;
+use App\Services\BroadcastSessions;
+use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
 use App\Services\StationStatusService;
@@ -99,6 +102,8 @@ class ReconcileStations extends Command
         LiquidsoapSupervisor $supervisor,
         PlaylistFileWriter $playlistWriter,
         StationStatusService $statusService,
+        IcecastAdmin $icecast,
+        BroadcastSessions $sessions,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -114,7 +119,16 @@ class ReconcileStations extends Command
         // Intent. Soft-deleted stations are excluded by the global scope —
         // a deleted station must not be broadcasting, whatever its
         // desired_state column says.
-        $wantedSlugs = Station::query()->running()->pluck('slug')->all();
+        //
+        // Relay stations run without a container by design, so they are not
+        // "wanted" here: never MISSING (or this would build them one every
+        // minute), and a container that does exist for one is UNWANTED and
+        // removed.
+        $wantedSlugs = Station::query()
+            ->running()
+            ->onContainer()
+            ->pluck('slug')
+            ->all();
         $wantedSet = array_flip($wantedSlugs);
 
         $orphans = [];
@@ -163,7 +177,26 @@ class ReconcileStations extends Command
             fn (string $slug) => ! isset($present[$slug]),
         ));
 
-        $liveCleared = $this->reconcileLiveFlags($statusService, $dryRun);
+        $liveCleared = $this->reconcileLiveFlags($statusService, $icecast, $sessions, $dryRun);
+
+        $relayReopened = $this->reopenMissedRelaySessions($icecast, $sessions, $dryRun);
+
+        if ($relayReopened > 0) {
+            $this->line("  ✓ reopened the session of {$relayReopened} relay show(s) Icecast is carrying");
+        }
+
+        $sourcesCut = $this->cutSourcesOfStoppedStations($icecast, $present, $dryRun);
+
+        if ($sourcesCut > 0) {
+            $this->line("  ✓ cut {$sourcesCut} broadcaster(s) still on air on a station that is off");
+        }
+
+        // After the sources: cutting one moves its listeners to /standby.
+        $standbyDropped = $this->dropOrphanedStandbyListeners($icecast, $dryRun);
+
+        if ($standbyDropped > 0) {
+            $this->line("  ✓ disconnected {$standbyDropped} listener(s) left on /standby by a station that is off");
+        }
 
         $outdated = $this->outdatedStations($supervisor, $healthy);
 
@@ -502,13 +535,184 @@ class ReconcileStations extends Command
      * Requires consecutive disagreeing passes so a momentary reconnect (the
      * publisher dropping and re-joining between polls) doesn't end a session.
      */
-    private function reconcileLiveFlags(StationStatusService $statusService, bool $dryRun): int
+    /**
+     * Open the session of a relay show whose source-connect never arrived.
+     *
+     * On the relay path that callback is the only thing that marks a station
+     * live, and Icecast sends it once, without retrying: a deploy reload or one
+     * failed request and the show is on air with no session — the dashboard
+     * says offline and the sweep reads "the studio left". Icecast's own mount
+     * list is the truth; this is reconcileLiveFlags() the other way round, and
+     * needs no strikes, because a source on that mount had to pass the auth
+     * callback with a broadcast token for this station to get there.
+     */
+    private function reopenMissedRelaySessions(
+        IcecastAdmin $icecast,
+        BroadcastSessions $sessions,
+        bool $dryRun,
+    ): int {
+        $quiet = Station::query()
+            ->running()
+            ->where('ingest_path', Station::INGEST_RELAY)
+            ->whereDoesntHave('streamSessions', fn ($session) => $session->whereNull('ended_at'))
+            ->get();
+
+        if ($quiet->isEmpty()) {
+            return 0;
+        }
+
+        $mounts = $icecast->liveMounts();
+
+        if ($mounts === null) {
+            return 0;
+        }
+
+        $reopened = 0;
+
+        foreach ($quiet as $station) {
+            if (! isset($mounts[$station->icecast_mount])) {
+                continue;
+            }
+
+            $reopened++;
+
+            if ($dryRun) {
+                continue;
+            }
+
+            // The connect callback may have landed since the query above; open()
+            // is locked and reuses its session, and then there is nothing to say.
+            if (! $sessions->open($station, 'browser', null)) {
+                $reopened--;
+
+                continue;
+            }
+
+            $sessions->announce($station, StationEvent::TYPE_LIVE_CONNECTED, ['via' => 'relay', 'reconciled' => true]);
+
+            Log::warning('Reopened a relay session Icecast is carrying (missed source-connect)', [
+                'station' => $station->slug,
+            ]);
+        }
+
+        return $reopened;
+    }
+
+    /**
+     * Cut a relay broadcaster still on air on a station that is off.
+     *
+     * Turning a relay station off cuts its source once, and an Icecast that
+     * did not answer then left the studio broadcasting on a station that
+     * reads as off. The auth callback refuses it a reconnect; this is the
+     * retry for the connection it already had. A station with a container is
+     * left to the container removal above, which takes Liquidsoap's source
+     * with it.
+     *
+     * @param  array<string, string>  $containers  slug => container name
+     */
+    private function cutSourcesOfStoppedStations(IcecastAdmin $icecast, array $containers, bool $dryRun): int
+    {
+        $prefix = (string) config('relay.mount_prefix');
+        $mounts = array_filter(
+            array_keys($icecast->liveMounts() ?? []),
+            fn (string $mount) => str_starts_with($mount, $prefix),
+        );
+
+        if ($mounts === []) {
+            return 0;
+        }
+
+        $stations = Station::withTrashed()
+            ->whereIn('icecast_mount', $mounts)
+            ->get()
+            ->filter(fn (Station $station) => ($station->trashed() || ! $station->isRunning())
+                && ! isset($containers[$station->slug]));
+
+        foreach ($stations as $station) {
+            if ($dryRun) {
+                $this->line("  • {$station->slug} is off but Icecast still carries its source");
+
+                continue;
+            }
+
+            $icecast->killSource($station);
+
+            Log::warning('Cut a broadcaster still on air on a station that is off', [
+                'station' => $station->slug,
+            ]);
+        }
+
+        return $stations->count();
+    }
+
+    /**
+     * Disconnect listeners parked on /standby by a station that is off.
+     *
+     * Icecast's fallback parks a dropped source's listeners there so a
+     * reconnect (a relay studio, a restarting container) passes without them
+     * pressing play again. Their station still wants to be running then, so
+     * they stay. Once it does not, nothing will ever bring them back: the stop
+     * path disconnects its own audience, and this catches whoever that missed —
+     * a stop that threw, a listener moved there in the moment after. Icecast
+     * remembers where each one came from.
+     */
+    private function dropOrphanedStandbyListeners(IcecastAdmin $icecast, bool $dryRun): int
+    {
+        $standby = $icecast->standbyListeners();
+
+        if ($standby === null || $standby === []) {
+            return 0;
+        }
+
+        $origins = array_values(array_unique(array_filter($standby)));
+        $running = array_flip(Station::query()
+            ->running()
+            ->whereIn('icecast_mount', $origins)
+            ->pluck('icecast_mount')
+            ->all());
+
+        $dropped = 0;
+
+        foreach ($standby as $id => $origin) {
+            if ($origin !== null && isset($running[$origin])) {
+                continue;
+            }
+
+            if (! $dryRun) {
+                $dropped += (int) $icecast->killListener(IcecastAdmin::STANDBY_MOUNT, $id);
+            }
+        }
+
+        return $dropped;
+    }
+
+    private function reconcileLiveFlags(StationStatusService $statusService, IcecastAdmin $icecast, BroadcastSessions $sessions, bool $dryRun): int
     {
         $stations = Station::query()->running()->live()->get();
         $cleared = 0;
 
+        // Relay stations have no container to ask; Icecast is the authority on
+        // whether their source is still there. One request for all of them,
+        // made only if there is one to check. Null (Icecast unreachable) means
+        // unknown, and unknown never closes a session.
+        $icecastMounts = null;
+        $icecastAsked = false;
+
         foreach ($stations as $station) {
-            $status = $statusService->fetch($station);
+            if ($station->usesRelay()) {
+                if (! $icecastAsked) {
+                    $icecastMounts = $icecast->liveMounts();
+                    $icecastAsked = true;
+                }
+
+                if ($icecastMounts === null) {
+                    continue;
+                }
+
+                $status = ['broadcaster' => isset($icecastMounts[$station->icecast_mount])];
+            } else {
+                $status = $statusService->fetch($station);
+            }
 
             // Unreachable tells us nothing — it is equally consistent with a
             // booting container and a live broadcast we cannot see.
@@ -561,11 +765,17 @@ class ReconcileStations extends Command
                 continue;
             }
 
-            StreamSession::where('station_id', $station->id)
-                ->whereNull('ended_at')
-                ->update(['ended_at' => now()]);
             Cache::forget($key);
+
+            // Closed the way a disconnect closes it: the title and the cached
+            // status go too, and the dashboard and timeline hear about it.
+            // Otherwise both keep saying live until their caches expire.
+            if (! $sessions->close($station)) {
+                continue;
+            }
+
             $cleared++;
+            $sessions->announce($station, StationEvent::TYPE_LIVE_DISCONNECTED, ['reconciled' => true]);
 
             Log::warning('Closed a stranded broadcast session', [
                 'station' => $station->slug,

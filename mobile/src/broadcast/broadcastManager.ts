@@ -109,6 +109,8 @@ export class BroadcastManager {
 
   private lastMetadata: { title: string; artist: string } | null = null;
   private sentMetadataKey: string | null = null;
+  /** Which ingest the last token request sent us to; see connectWebcast(). */
+  private ingest: 'container' | 'relay' = 'container';
 
   constructor(
     private stationSlug: string,
@@ -325,11 +327,14 @@ export class BroadcastManager {
     let token: string;
     let ingestUrl: string;
     try {
-      const resp = await api<{ token: string; ingest_url: string }>('/auth/broadcast-token', {
+      const resp = await api<{ token: string; ingest_url: string; ingest?: string }>('/auth/broadcast-token', {
         method: 'POST',
         body: { station_slug: this.stationSlug },
       });
       token = resp.token;
+      // `relay` (Free plan, no container): same hello, but the relay carries
+      // audio only, so titles go over HTTP instead — see sendMetadata().
+      this.ingest = resp.ingest === 'relay' ? 'relay' : 'container';
       ingestUrl = INGEST_URL_OVERRIDE ? INGEST_URL_OVERRIDE.replace('{slug}', this.stationSlug) : resp.ingest_url;
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) throw new Error('You do not own this station');
@@ -502,6 +507,13 @@ export class BroadcastManager {
   private sendMetadata(title: string, artist: string): void {
     this.lastMetadata = { title, artist };
     if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.ingest === 'relay') {
+      this.sentMetadataKey = `${title}\0${artist}`;
+      // Fire and forget, like the frame: the next track, or the replay after
+      // a reconnect, sends it again.
+      void api(`/stations/${this.stationSlug}/now-playing`, { method: 'POST', body: { title, artist } }).catch(() => {});
+      return;
+    }
     this.ws.send(JSON.stringify({ type: 'metadata', data: { title, artist } }));
     this.sentMetadataKey = `${title}\0${artist}`;
   }

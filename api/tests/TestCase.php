@@ -32,6 +32,14 @@ abstract class TestCase extends BaseTestCase
         $_ENV['SENTRY_LARAVEL_DSN'] = '';
         $_SERVER['SENTRY_LARAVEL_DSN'] = '';
 
+        // Without an admin password IcecastAdmin makes no calls. Stopping a
+        // station and every reconcile pass ask Icecast to disconnect
+        // listeners, and the developer's .env points at a real one; tests
+        // that exercise those calls set their own fake URL and password.
+        putenv('ICECAST_ADMIN_PASSWORD=');
+        $_ENV['ICECAST_ADMIN_PASSWORD'] = '';
+        $_SERVER['ICECAST_ADMIN_PASSWORD'] = '';
+
         return parent::createApplication();
     }
 }

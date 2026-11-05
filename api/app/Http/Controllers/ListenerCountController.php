@@ -65,6 +65,22 @@ class ListenerCountController extends Controller
                 'title' => $metadata['title'] ?? null,
                 'artist' => $metadata['artist'] ?? null,
             ],
+            // This run is on the relay path: there is no HLS stream, only the
+            // Icecast mount. Here as well as in StationResource::hls_url
+            // because a player page outlives the run it was rendered for —
+            // the station can go live on the relay after the page loaded.
+            //
+            // A known leak, accepted: the relay path is Free-only today, so
+            // this (like the empty hls_url) tells anyone which plan a station
+            // is on while it broadcasts. Any signal that sends the player to
+            // the right stream says as much; hiding it would mean every Free
+            // listener tries HLS first and starts late.
+            'icecast_only' => $station->usesRelay(),
+            // The owner's intent, for a player deciding whether to stop. Not
+            // `state`: a running station reads 'offline' for the moment its
+            // container is gone between a recreate's stop and start, and its
+            // listeners are on /standby waiting for it.
+            'switched_off' => ! $station->isRunning(),
         ]]);
     }
 }

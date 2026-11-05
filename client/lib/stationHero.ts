@@ -181,7 +181,9 @@ export function stationHero(input: HeroInput): Hero {
       text = liveTakingOver
         ? "Going on air in a few seconds."
         : liveFromThisBrowser
-          ? "Listeners hear you about 15–20 seconds late. Closing this tab ends the broadcast."
+          ? status?.ingest === "relay"
+            ? "Listeners hear you a few seconds late. Closing this tab ends the broadcast."
+            : "Listeners hear you about 15–20 seconds late. Closing this tab ends the broadcast."
           : liveFromEncoder
             ? `Stop broadcasting in ${encoderClient || "your encoder"} to end the show.`
             : liveElsewhere

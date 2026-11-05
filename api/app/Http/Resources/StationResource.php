@@ -371,7 +371,11 @@ class StationResource extends JsonResource
     {
         $base = (string) config('liquidsoap.hls_base_url');
 
-        if ($base === '') {
+        // A relay run has no container, so nothing writes HLS: the player
+        // must go straight to the Icecast mount. Read from this run's stored
+        // path, not the owner's plan — no per-row plan query, and nothing
+        // here says which plan a station is on while it is off air.
+        if ($base === '' || $this->resource->usesRelay()) {
             return null;
         }
 
