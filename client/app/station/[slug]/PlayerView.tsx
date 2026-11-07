@@ -280,6 +280,22 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
    * `hls_url` — and kept current by the public feed below.
    */
   const icecastOnlyRef = useRef(station.is_on_air && station.hls_url === null)
+  /** Audio has played since this listen began; reset by teardown. */
+  const heardRef = useRef(false)
+  /** The owner's switch as the feed last reported it. */
+  const switchedOffRef = useRef(false)
+  /**
+   * A relay show dropped under someone already listening: keep recovering
+   * until the owner turns the station off. A relay run with no broadcaster
+   * reads `is_on_air: false` (it has no mount for a newcomer), but a
+   * listener who was playing sits on /standby through a DJ's blip or
+   * reconnect, which is what /standby is for. So for them that flag is not
+   * the off-air signal; `switched_off` is.
+   */
+  const ridingRelayDrop = useCallback(
+    () => icecastOnlyRef.current && heardRef.current && !switchedOffRef.current,
+    [],
+  )
   const hlsRef = useRef<Hls | null>(null)
 
   // Which transport actually carried the audio — not which one we intended.
@@ -348,6 +364,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
   const teardown = useCallback(() => {
     wantsAudioRef.current = false
+    heardRef.current = false
     hlsRef.current?.destroy()
     hlsRef.current = null
 
@@ -410,7 +427,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     if (transport !== "icecast") return
     const timer = window.setInterval(() => {
       const audio = audioRef.current
-      if (!audio || !wantsAudioRef.current || !station.is_on_air) return
+      if (!audio || !wantsAudioRef.current || !(station.is_on_air || ridingRelayDrop())) return
       if (audio.paused && !audio.error) return
       const now = Date.now()
       if (audio.currentTime > progressRef.current.time + 0.2) {
@@ -422,7 +439,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
       reconnectIcecast()
     }, 2_000)
     return () => window.clearInterval(timer)
-  }, [transport, station.is_on_air, reconnectIcecast])
+  }, [transport, station.is_on_air, reconnectIcecast, ridingRelayDrop])
 
   // Listener count + live status + now-playing, from the SHARED feed: one
   // timer and one request per station however many components ask, and paused
@@ -445,6 +462,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   // "is something playing".
   usePublicStationFeed(station.slug, (stats) => {
     if (stats.icecast_only !== null) icecastOnlyRef.current = stats.icecast_only
+    if (stats.switched_off !== null) switchedOffRef.current = stats.switched_off
     setListeners(stats.count ?? 0)
     setStation((prev) => ({
       ...prev,
@@ -453,7 +471,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
     }))
 
     // Off air while we are waiting for audio: see `onWaiting` below.
-    if (stats.is_on_air === false && loading) teardown()
+    if (stats.is_on_air === false && loading && !ridingRelayDrop()) teardown()
 
     // Switched off while someone is listening. Icecast does not end the
     // stream: it moves the listener to the shared silence mount and keeps
@@ -792,6 +810,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
         ref={audioRef}
         preload="none"
         onPlaying={() => {
+          heardRef.current = true
           setPlaying(true)
           setLoading(false)
         }}
@@ -802,7 +821,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           // left to clear it — a spinner that never ends. The feed knows,
           // so stop instead. Checked here and on each feed tick, whichever
           // learns second, so the buffered tail still plays out first.
-          if (!station.is_on_air) teardown()
+          if (!station.is_on_air && !ridingRelayDrop()) teardown()
           else setLoading(true)
         }}
         // A moving playhead is playing, whatever came before it. Chrome does
@@ -835,7 +854,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
           // Out of reconnects for this minute: keep the spinner rather than
           // hand the listener a Play button mid-show. The stall watchdog sees
           // the dead element and tries again once the budget allows.
-          if (transport === "icecast" && station.is_on_air && wantsAudioRef.current) {
+          if (transport === "icecast" && (station.is_on_air || ridingRelayDrop()) && wantsAudioRef.current) {
             if (!reconnectIcecast()) setLoading(true)
             return
           }

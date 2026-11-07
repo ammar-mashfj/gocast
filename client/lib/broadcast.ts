@@ -92,6 +92,11 @@ const RELAY_REFUSALS: Record<number, string> = {
   4002: 'The stream server did not understand this studio — reload the page and try again',
   4009: 'This station is already live from another tab or device',
   1011: 'The stream server is unavailable — try again in a moment',
+  // A relay copy draining for a deploy; the other copy takes the retry.
+  1001: 'The stream server is restarting — try again in a moment',
+  // No hello or no audio in time, or no webcast subprotocol. Not harbor's
+  // "previous connection may still be closing": the relay holds no mount.
+  1008: 'The stream server got nothing from this studio in time — try again in a moment',
 }
 // A cold container needs roughly 3–5s to build its audio graph and connect to
 // Icecast. Wait up to 20s before publishing anyway — see ensureStationOnAir.

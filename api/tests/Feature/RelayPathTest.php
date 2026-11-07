@@ -13,6 +13,7 @@ use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
 use App\Services\StationAudioPolicy;
+use App\Services\StationLifecycleException;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
 use Illuminate\Http\Client\Request as HttpRequest;
@@ -833,7 +834,7 @@ describe('auto-stop', function () {
             ->desired_state->toBe(Station::STATE_RUNNING);
     });
 
-    it('keeps the silence clock when an upgraded station could not move yet', function () {
+    it('stops an upgraded station whose move start() kept on the relay, rather than leaving it on', function () {
         $station = relayStation(['started_at' => now()->subMinutes(30), 'silent_since' => now()->subMinutes(5)]);
         $station->streamSessions()->create([
             'started_at' => now()->subMinutes(20),
@@ -851,8 +852,29 @@ describe('auto-stop', function () {
         );
 
         expect($station->refresh())
-            ->ingest_path->toBe(Station::INGEST_RELAY)
-            ->silent_since->not->toBeNull();
+            ->isRunning()->toBeFalse()
+            ->ingest_path->not->toBe(Station::INGEST_CONTAINER);
+    });
+
+    it('stops an upgraded station whose move was refused, rather than leaving it on', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+        // A proxy of the real service: stop() must still work for real.
+        $lifecycle = Mockery::mock(app(StationLifecycleService::class));
+        $lifecycle->shouldReceive('start')->andThrow(StationLifecycleException::concurrencyLimit(1));
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            $lifecycle,
+        );
+
+        expect($station->refresh()->isRunning())->toBeFalse();
     });
 
     it('leaves the fresh relay reading for the dashboard', function () {

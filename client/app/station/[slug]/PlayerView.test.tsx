@@ -78,6 +78,8 @@ describe("PlayerView on a relay run it was not rendered for", () => {
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {})
     vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {})
+    // jsdom has no ResizeObserver; the volume slider shown while playing needs one.
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
     // jsdom has no text tracks; the in-band metadata watcher needs the list.
     Object.defineProperty(HTMLMediaElement.prototype, "textTracks", {
       configurable: true,
@@ -94,5 +96,21 @@ describe("PlayerView on a relay run it was not rendered for", () => {
     act(() => hls.last!.handlers.get("error")!("error", { fatal: true, type: "net", response: { code: 404 } }))
 
     expect(document.querySelector("audio")!.getAttribute("src")).toBe("https://icecast.test/stream/night-show")
+  })
+
+  it("rides out a relay DJ's drop on /standby, and stops only when the station is switched off", () => {
+    render(<PlayerView station={{ ...station, hls_url: null } as Station} />)
+    fireEvent.click(screen.getAllByRole("button", { name: /play/i })[0])
+    const audio = document.querySelector("audio")!
+    expect(audio.getAttribute("src")).toBe("https://icecast.test/stream/night-show")
+    fireEvent.playing(audio)
+
+    // The DJ dropped: no broadcaster, so the feed says off air.
+    act(() => feed!(stats({ is_live: false, is_on_air: false })))
+    fireEvent.waiting(audio)
+    expect(audio.getAttribute("src")).not.toBeNull()
+
+    act(() => feed!(stats({ is_live: false, is_on_air: false, switched_off: true })))
+    expect(audio.getAttribute("src")).toBeNull()
   })
 })

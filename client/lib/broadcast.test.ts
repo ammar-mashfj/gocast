@@ -114,6 +114,15 @@ describe("openSocket on the relay", () => {
     manager.handleChunk(new ArrayBuffer(8))
     expect(socket.sent.filter((data) => data instanceof ArrayBuffer)).toHaveLength(1)
   })
+  it("explains a relay draining for a deploy in the relay's words, not harbor's", async () => {
+    const opened = relayManager().openSocket("wss://relay.test/relay", "token")
+    const socket = FakeSocket.last!
+    socket.readyState = 1
+    socket.onopen!()
+    socket.onclose!({ code: 1001 })
+    await expect(opened).rejects.toThrow("The stream server is restarting")
+  })
+
   it("holds a title until the relay says ok, then sends it once", async () => {
     api.posts = []
     const manager = relayManager()

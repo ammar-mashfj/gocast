@@ -88,9 +88,12 @@ class StopStation implements ShouldQueue
         // The plan, not the resolved path: a relay rolled back resolves to a
         // container too, and booting one for every idle Free station is the
         // load the relay exists to remove. Those simply stop.
-        if ($station->usesRelay() && $station->planNeedsContainer()) {
-            $this->moveToContainer($station, $lifecycle);
-
+        //
+        // A move that does not happen (the plan's cap refused the start, or
+        // Icecast could not say the show is over) falls through to the
+        // stop: every later sweep would make the same attempt, and the
+        // station would hold a running slot, silent, for good.
+        if ($station->usesRelay() && $station->planNeedsContainer() && $this->moveToContainer($station, $lifecycle)) {
             return;
         }
 
@@ -121,27 +124,33 @@ class StopStation implements ShouldQueue
         }
     }
 
-    private function moveToContainer(Station $station, StationLifecycleService $lifecycle): void
+    /**
+     * @return bool Whether the station is now on a container.
+     */
+    private function moveToContainer(Station $station, StationLifecycleService $lifecycle): bool
     {
         try {
-            $station = $lifecycle->start($station, reason: 'upgrade');
-
-            // start() keeps the relay while Icecast may still carry a show.
-            // Then nothing moved, and the silence clock must keep running.
-            if ($station->usesRelay()) {
-                return;
-            }
-
-            $station->forceFill(['silent_since' => null])->save();
-
-            Log::info('Station moved off the relay after its show: the plan now needs a container', [
-                'station' => $station->slug,
-            ]);
+            $moved = $lifecycle->start($station, reason: 'upgrade');
         } catch (StationLifecycleException $e) {
-            Log::info('Moving an upgraded relay station to a container was declined', [
+            Log::info('Moving an upgraded relay station to a container was declined; stopping it instead', [
                 'station' => $station->slug,
                 'reason' => $e->getMessage(),
             ]);
+
+            return false;
         }
+
+        // start() keeps the relay while Icecast may still carry a show.
+        if ($moved->usesRelay()) {
+            return false;
+        }
+
+        $moved->forceFill(['silent_since' => null])->save();
+
+        Log::info('Station moved off the relay after its show: the plan now needs a container', [
+            'station' => $station->slug,
+        ]);
+
+        return true;
     }
 }
