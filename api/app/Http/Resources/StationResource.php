@@ -170,8 +170,9 @@ class StationResource extends JsonResource
             // display question; it was never evidence of availability. The
             // only guard that mattered — don't claim a stopped station is
             // audible — is $isRunning, which is still here.
-            // Except a relay run, which has no mount until a broadcaster
-            // connects: a listener would get a 404, so it waits for one.
+            // Except a relay run, which has no source until a broadcaster
+            // connects: a listener would get only the shared silence, and
+            // with no AutoDJ nothing else can come, so it waits for one.
             'is_on_air' => $isRunning && ($isLive || ! $this->usesRelay()),
             // Owner intent, and the coarse state derived from it. This is the
             // cheap answer: it costs no network call, so list endpoints stay

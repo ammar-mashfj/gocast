@@ -243,6 +243,15 @@ class BroadcastSessions
         return $closed > 0;
     }
 
+    /**
+     * A broadcaster's own disconnect closed this station's session moments
+     * ago, so a reconnect may still rejoin it: the show is mid-blip, not over.
+     */
+    public function mayRejoin(Station $station): bool
+    {
+        return Cache::has(self::rejoinKey($station));
+    }
+
     private static function rejoinKey(Station $station): string
     {
         return "stream-session-rejoin:{$station->id}";

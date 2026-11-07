@@ -439,13 +439,18 @@ class StationLifecycleService
 
     /**
      * Is a relay broadcaster on this station's mount? The session row first,
-     * then Icecast itself. Icecast unreachable counts as yes: the cost of a
-     * wrong yes is AutoDJ waiting for the next Start, of a wrong no a
-     * container fighting a live show for the mount.
+     * then a show mid-blip, then Icecast itself. Icecast unreachable counts
+     * as yes: the cost of a wrong yes is AutoDJ waiting for the next Start,
+     * of a wrong no a container fighting a live show for the mount.
+     *
+     * Mid-blip: the DJ's disconnect closed the session and Icecast dropped
+     * the mount, and the studio's reconnect is what calls start(). Read as
+     * nobody live, an upgrade or a rollback would boot a container under the
+     * DJ and split the show, where a show on the relay finishes there.
      */
     private function relayCarriesSource(Station $station): bool
     {
-        if ($station->isLive()) {
+        if ($station->isLive() || $this->sessions->mayRejoin($station)) {
             return true;
         }
 

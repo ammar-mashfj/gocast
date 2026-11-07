@@ -287,7 +287,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   /**
    * A relay show dropped under someone already listening: keep recovering
    * until the owner turns the station off. A relay run with no broadcaster
-   * reads `is_on_air: false` (it has no mount for a newcomer), but a
+   * reads `is_on_air: false` (only shared silence for a newcomer), but a
    * listener who was playing sits on /standby through a DJ's blip or
    * reconnect, which is what /standby is for. So for them that flag is not
    * the off-air signal; `switched_off` is.

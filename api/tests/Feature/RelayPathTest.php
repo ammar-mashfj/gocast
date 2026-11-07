@@ -238,6 +238,22 @@ describe('the power switch', function () {
             ->desired_state->toBe(Station::STATE_RUNNING);
     });
 
+    it('keeps a show mid-blip on the relay when its reconnect starts an upgraded station', function () {
+        $station = relayStation();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+
+        app(StationLifecycleService::class)->start($station->refresh());
+
+        expect($station->refresh()->ingest_path)->toBe(Station::INGEST_RELAY);
+
+        $this->travel(BroadcastSessions::REJOIN_SECONDS + 1)->seconds();
+        app(StationLifecycleService::class)->start($station->refresh());
+
+        expect($station->refresh()->ingest_path)->toBe(Station::INGEST_CONTAINER);
+    });
+
     it('keeps the path when Icecast carries a show whose connect callback was lost', function () {
         $station = relayStation();
         $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
@@ -735,6 +751,17 @@ describe('what the studio and the player are told', function () {
             ->getJson("/api/stations/{$station->slug}/status")
             ->assertJsonPath('data.ingest', 'relay')
             ->assertJsonPath('data.state', 'live');
+    });
+
+    it('puts a featured relay station on the rail only while someone broadcasts into it', function () {
+        $station = relayStation(['featured' => true, 'featured_at' => now()]);
+
+        $this->getJson('/api/public/featured')->assertJsonCount(0, 'data');
+
+        onAir($station);
+
+        $this->getJson('/api/public/featured')->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.slug', 'free-show');
     });
 
     it('gives the player no HLS for a relay run, and says so in the live feed', function () {

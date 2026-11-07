@@ -57,9 +57,10 @@ class ListenerCountController extends Controller
             // silence. 'degraded' is excluded: the graph is fine but Icecast
             // is not carrying it, so there is nothing to connect to.
             //
-            // A relay run is the exception to "sitting on silence": with no
-            // broadcaster there is no mount at all, only a 404, so it is on
-            // air only while someone is live.
+            // A relay run is the exception: with no broadcaster it has no
+            // source, and Icecast's fallback serves a newcomer the shared
+            // silence. A Free station has no AutoDJ, so that is all there
+            // could be until someone goes live; say off air instead.
             'is_on_air' => $station->usesRelay()
                 ? $state === StationStatusService::STATE_LIVE
                 : in_array($state, [StationStatusService::STATE_ON_AIR, StationStatusService::STATE_LIVE], true),

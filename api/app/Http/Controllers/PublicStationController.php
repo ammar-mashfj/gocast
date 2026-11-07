@@ -41,6 +41,13 @@ class PublicStationController extends Controller
             Station::query()
                 ->featured()
                 ->running()
+                // A relay run nobody broadcasts into reads off air (see
+                // StationResource::is_on_air), so it has no place on a rail
+                // of stations on air.
+                ->where(fn ($station) => $station
+                    ->where('ingest_path', '!=', Station::INGEST_RELAY)
+                    ->orWhereNull('ingest_path')
+                    ->orWhereHas('streamSessions', fn ($session) => $session->whereNull('ended_at')))
                 ->withExists([
                     'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),
                 ])
