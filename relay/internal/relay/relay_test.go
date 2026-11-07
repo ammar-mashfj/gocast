@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -433,6 +434,66 @@ func TestSteadyAudioIsNotIdle(t *testing.T) {
 	}
 	if n := s.Metrics.Closes("idle"); n != 0 {
 		t.Fatalf("idle closes = %d during steady audio", n)
+	}
+}
+
+// Cloudflare closes a socket after 100 min with nothing travelling from the
+// origin to the browser, and audio only goes the other way. The relay's pings
+// are that traffic, so they must keep coming for the whole show.
+func TestStudioIsPingedThroughoutTheShow(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.PingInterval = 100 * time.Millisecond
+	s, hs := startRelay(t, cfg)
+	var pings atomic.Int32
+	c := dial(t, hs, &websocket.DialOptions{
+		Subprotocols:   []string{"webcast"},
+		OnPingReceived: func(context.Context, []byte) bool { pings.Add(1); return true },
+	})
+	ctx := context.Background()
+	c.Write(ctx, websocket.MessageText, helloJSON("a", "tok"))
+	expectOK(t, c)
+	// A real studio reads its socket all show long; that read is what answers
+	// the pings.
+	go func() {
+		for {
+			if _, _, err := c.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+	for i := 0; i < 10; i++ { // 1s of audio
+		c.Write(ctx, websocket.MessageBinary, []byte("frame"))
+		time.Sleep(100 * time.Millisecond)
+	}
+	if n := pings.Load(); n < 5 {
+		t.Fatalf("studio got %d pings in 1s at a 100ms interval", n)
+	}
+	if n := s.Metrics.Closes("idle") + s.Metrics.Closes("client_closed"); n != 0 {
+		t.Fatalf("show ended during pings (%d)", n)
+	}
+}
+
+// A studio that never answers a ping keeps broadcasting: only missing audio
+// ends a show.
+func TestUnansweredPingsDoNotEndTheShow(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.PingInterval = 50 * time.Millisecond
+	s, hs := startRelay(t, cfg)
+	c := dial(t, hs, nil) // never reads after ok, so never pongs
+	ctx := context.Background()
+	c.Write(ctx, websocket.MessageText, helloJSON("a", "tok"))
+	expectOK(t, c)
+	for i := 0; i < 10; i++ {
+		if err := c.Write(ctx, websocket.MessageBinary, []byte("frame")); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	eventually(t, "audio at icecast", func() bool { return len(ice.received()) == 50 })
+	if n := s.Metrics.active.Load(); n != 1 {
+		t.Fatalf("active = %d, want the show still open", n)
 	}
 }
 

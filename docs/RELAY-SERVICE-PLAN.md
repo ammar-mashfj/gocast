@@ -127,6 +127,10 @@ It does this and nothing more:
    - A 15 s read-idle timeout closes both sides. The studio sends frames even
      when quiet, so silence means a dead client.
    - Max message size is 64 KB.
+   - Pings the studio every 30 s. Cloudflare closes a WebSocket after 6010 s
+     (100 min) with no data from the origin to the browser; uploads and pongs
+     don't count (Cloudflare support, 2026-11). A missing pong closes nothing;
+     only missing audio does.
 5. When either side closes, both close. Icecast ending the source (e.g.
    `killsource`) closes the studio with `4005`.
 6. On localhost only: `/healthz` and `/metrics` (Prometheus text: active

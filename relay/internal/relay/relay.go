@@ -15,6 +15,11 @@
 //     closes with a code the studio can act on (see Close* below).
 //  4. Binary frames are written to Icecast untouched. Text frames after the
 //     hello are ignored. When either side ends, both are closed.
+//  5. Every PingInterval the relay pings the studio. Audio only flows one
+//     way, and Cloudflare closes a WebSocket after 6010 s (100 min) with no
+//     data from the origin towards the browser; the studio's uploads and its
+//     pongs do not count. The ping is the only thing the relay sends after
+//     ok, so it is what keeps a long show's socket open.
 package relay
 
 import (
@@ -63,6 +68,7 @@ type Config struct {
 	IdleTimeout    time.Duration // no frame from the studio for this long = dead
 	WriteTimeout   time.Duration // one write to Icecast may block this long
 	MaxMessage     int64         // largest single WebSocket message accepted
+	PingInterval   time.Duration // ping the studio this often; 0 = never
 }
 
 func DefaultConfig() Config {
@@ -75,6 +81,7 @@ func DefaultConfig() Config {
 		IdleTimeout:    15 * time.Second,
 		WriteTimeout:   5 * time.Second,
 		MaxMessage:     64 << 10,
+		PingInterval:   30 * time.Second,
 	}
 }
 
@@ -304,6 +311,9 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		ws.Close(CloseIdle, "no audio")
 	})
 	defer idleTimer.Stop()
+	if s.cfg.PingInterval > 0 {
+		go s.keepAlive(ctx, ws)
+	}
 	for {
 		typ, data, err := ws.Read(ctx)
 		if err != nil {
@@ -346,6 +356,25 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			return "icecast_write"
 		}
 		s.Metrics.bytesIn(len(data))
+	}
+}
+
+// keepAlive pings the studio until ctx ends (serve returned). It only sends:
+// a missing pong never closes anything, because a studio that is really gone
+// stops sending audio and the idle timer ends it with a proper 1008. The pong
+// itself is read by serve's read loop, which coder/websocket needs running.
+func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
+	t := time.NewTicker(s.cfg.PingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, cancel := context.WithTimeout(ctx, s.cfg.PingInterval)
+			ws.Ping(pctx)
+			cancel()
+		}
 	}
 }
 
