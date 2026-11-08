@@ -163,13 +163,15 @@ class StationObserver
 
     public function deleting(Station $station): void
     {
-        $this->safely('down', $station, fn () => $this->supervisor->down($station));
-
-        // A relay run has no container for down() to remove: what keeps it on
-        // air is its Icecast source.
+        // A relay run is kept on air by its Icecast source, not a container.
+        // Cut first: down() waits on Docker, and a stuck daemon must not keep
+        // a deleted station broadcasting. down() still runs, for a container
+        // left from an earlier run on the other path.
         if ($station->usesRelay()) {
             $this->safely('kill-source', $station, fn () => $this->icecast->killSource($station));
         }
+
+        $this->safely('down', $station, fn () => $this->supervisor->down($station));
 
         // Nothing will close the session after this: the disconnect callback
         // looks the station up by slug and no longer finds a deleted one. A

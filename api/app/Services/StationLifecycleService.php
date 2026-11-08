@@ -89,7 +89,15 @@ class StationLifecycleService
                 // or an encoder, which only a container can give. Move this run
                 // onto one, or "Start AutoDJ" would leave it on the relay,
                 // silent, until the sweep turned it off.
-                $station->forceFill(['ingest_path' => Station::INGEST_CONTAINER])->save();
+                //
+                // A new run as far as the clock goes: the relay show is over,
+                // and checks that ask "this run" (the studio-gone stop, the
+                // rejoin) would otherwise count it, and stop the station on
+                // the next sweep before the owner could connect an encoder.
+                $station->forceFill([
+                    'ingest_path' => Station::INGEST_CONTAINER,
+                    'started_at' => now(),
+                ])->save();
             }
 
             // Already on air with a healthy container: do nothing. up() would

@@ -8,6 +8,7 @@ use App\Services\StationAudioPolicy;
 use App\Services\StationLifecycleException;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
@@ -93,11 +94,11 @@ class StopStation implements ShouldQueue
         // Icecast could not say the show is over) falls through to the
         // stop: every later sweep would make the same attempt, and the
         // station would hold a running slot, silent, for good.
-        if ($station->usesRelay() && $station->planNeedsContainer() && $this->moveToContainer($station, $lifecycle)) {
-            return;
-        }
-
         try {
+            if ($station->usesRelay() && $station->planNeedsContainer() && $this->moveToContainer($station, $lifecycle)) {
+                return;
+            }
+
             // force: false on purpose. The policy just concluded nobody is
             // broadcasting, but a broadcaster can connect between that check
             // and this call, and stop() refuses a live station for exactly
@@ -120,6 +121,12 @@ class StopStation implements ShouldQueue
             Log::info('Silent-station stop declined', [
                 'station' => $station->slug,
                 'reason' => $e->getMessage(),
+            ]);
+        } catch (LockTimeoutException) {
+            // The owner's power button or studio holds the station right now.
+            // Not a failure: the sweep queues this again within a minute.
+            Log::info('Silent-station stop skipped: the station is busy; the next sweep retries', [
+                'station' => $station->slug,
             ]);
         }
     }

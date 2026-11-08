@@ -12,10 +12,12 @@ use App\Models\User;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
+use App\Services\LiquidsoapSupervisor;
 use App\Services\StationAudioPolicy;
 use App\Services\StationLifecycleException;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -285,6 +287,20 @@ describe('the power switch', function () {
             ->and(killedListeners())->toBe([['/stream/free-show', 5]]);
         Http::assertSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource')
             && $request['mount'] === '/stream/free-show');
+    });
+
+    it('cuts a deleted relay station\'s source before it waits on Docker', function () {
+        $station = onAir(relayStation());
+        $sourceCutFirst = null;
+        $supervisor = Mockery::mock(app(LiquidsoapSupervisor::class));
+        $supervisor->shouldReceive('down')->andReturnUsing(function () use (&$sourceCutFirst) {
+            $sourceCutFirst = Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'))->isNotEmpty();
+        });
+        $this->app->instance(LiquidsoapSupervisor::class, $supervisor);
+
+        $station->delete();
+
+        expect($sourceCutFirst)->toBeTrue();
     });
 
     it('takes the title and the cached status with a station deleted mid-show', function () {
@@ -881,6 +897,71 @@ describe('auto-stop', function () {
         expect($station->refresh())
             ->isRunning()->toBeFalse()
             ->ingest_path->not->toBe(Station::INGEST_CONTAINER);
+    });
+
+    it('starts the clock again when a relay run moves onto a container', function () {
+        $this->travelTo(now()->startOfSecond());
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            app(StationLifecycleService::class),
+        );
+
+        // The relay show's closed studio session is not this run's: it must
+        // not make the next sweep read the studio as gone for good.
+        expect($station->refresh())
+            ->ingest_path->toBe(Station::INGEST_CONTAINER)
+            ->started_at->toEqual(now());
+    });
+
+    it('leaves a busy upgraded station for the next sweep instead of failing the job', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+        $lifecycle = Mockery::mock(app(StationLifecycleService::class));
+        $lifecycle->shouldReceive('start')->andThrow(new LockTimeoutException);
+        $lifecycle->shouldNotReceive('stop');
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            $lifecycle,
+        );
+
+        expect($station->refresh())
+            ->isRunning()->toBeTrue()
+            ->ingest_path->toBe(Station::INGEST_RELAY);
+    });
+
+    it('leaves a busy Free station for the next sweep instead of failing the job', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $lifecycle = Mockery::mock(app(StationLifecycleService::class));
+        $lifecycle->shouldReceive('stop')->andThrow(new LockTimeoutException);
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            $lifecycle,
+        );
+
+        expect($station->refresh()->isRunning())->toBeTrue();
     });
 
     it('stops an upgraded station whose move was refused, rather than leaving it on', function () {
