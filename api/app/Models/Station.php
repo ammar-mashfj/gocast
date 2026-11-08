@@ -149,7 +149,7 @@ class Station extends Model
             if (empty($station->slug)) {
                 $station->slug = static::slugFor($station->name);
             }
-            $station->icecast_mount ??= '/stream/'.$station->slug;
+            $station->icecast_mount ??= config('relay.mount_prefix').$station->slug;
             $station->icecast_password ??= Str::random(32);
             // The encoder's password, minted here rather than on first use so
             // the settings card always has something to show. A station with a

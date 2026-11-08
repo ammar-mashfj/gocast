@@ -748,6 +748,14 @@ describe('the studio\'s now playing', function () {
 });
 
 describe('what the studio and the player are told', function () {
+    it('builds a new station\'s mount from the relay\'s prefix', function () {
+        config(['relay.mount_prefix' => '/live/']);
+
+        $station = Station::factory()->create(['slug' => 'prefix-show']);
+
+        expect($station->icecast_mount)->toBe('/live/prefix-show');
+    });
+
     it('sends a relay studio to the relay', function () {
         $station = relayStation();
 
@@ -977,6 +985,27 @@ describe('auto-stop', function () {
         );
 
         expect($station->refresh()->isRunning())->toBeTrue();
+    });
+
+    it('stops an upgraded station whose container failed to start, rather than leaving it on', function () {
+        $station = relayStation(['started_at' => now()->subMinutes(30)]);
+        $station->streamSessions()->create([
+            'started_at' => now()->subMinutes(20),
+            'ended_at' => now()->subSeconds(151),
+            'source_type' => 'browser',
+        ]);
+        $station->user->update(['plan_id' => Plan::where('slug', 'pro')->value('id')]);
+        // What `docker run` failing looks like from start(): not a refusal.
+        $lifecycle = Mockery::mock(app(StationLifecycleService::class));
+        $lifecycle->shouldReceive('start')->andThrow(new RuntimeException('docker run failed'));
+
+        (new StopStation($station->id))->handle(
+            app(StationAudioPolicy::class),
+            app(StationStatusService::class),
+            $lifecycle,
+        );
+
+        expect($station->refresh()->isRunning())->toBeFalse();
     });
 
     it('stops an upgraded station whose move was refused, rather than leaving it on', function () {

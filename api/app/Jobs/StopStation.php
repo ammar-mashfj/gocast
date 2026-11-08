@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Take one station off air, because it has nothing to broadcast.
@@ -142,6 +143,19 @@ class StopStation implements ShouldQueue
             Log::info('Moving an upgraded relay station to a container was declined; stopping it instead', [
                 'station' => $station->slug,
                 'reason' => $e->getMessage(),
+            ]);
+
+            return false;
+        } catch (LockTimeoutException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            // Docker itself failed (a ProcessFailedException from `docker
+            // run`). start() has already put the run on the container path,
+            // but this station was being stopped for silence: stop it, rather
+            // than leave it "on" with no container and reconcile retrying.
+            Log::warning('Moving an upgraded relay station to a container failed; stopping it instead', [
+                'station' => $station->slug,
+                'error' => $e->getMessage(),
             ]);
 
             return false;
