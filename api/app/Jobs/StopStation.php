@@ -90,7 +90,7 @@ class StopStation implements ShouldQueue
         // container too, and booting one for every idle Free station is the
         // load the relay exists to remove. Those simply stop.
         //
-        // A move that does not happen (the plan's cap refused the start, or
+        // A move that does not happen (the container failed to start, or
         // Icecast could not say the show is over) falls through to the
         // stop: every later sweep would make the same attempt, and the
         // station would hold a running slot, silent, for good.

@@ -45,8 +45,7 @@ class PublicStationController extends Controller
                 // StationResource::is_on_air), so it has no place on a rail
                 // of stations on air.
                 ->where(fn ($station) => $station
-                    ->where('ingest_path', '!=', Station::INGEST_RELAY)
-                    ->orWhereNull('ingest_path')
+                    ->onContainer()
                     ->orWhereHas('streamSessions', fn ($session) => $session->whereNull('ended_at')))
                 ->withExists([
                     'streamSessions as has_open_session' => fn ($session) => $session->whereNull('ended_at'),

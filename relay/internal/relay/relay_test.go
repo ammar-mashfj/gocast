@@ -759,3 +759,13 @@ func FuzzParseHello(f *testing.F) {
 		}
 	})
 }
+
+// Icecast's <source-timeout> (infra/native/icecast/icecast.xml.tpl) is 10 s.
+// The relay must give up on a silent studio first, so the studio hears 1008
+// "no audio" from the relay rather than 4005 from Icecast cutting the source.
+func TestIdleTimeoutIsUnderIcecastSourceTimeout(t *testing.T) {
+	const icecastSourceTimeout = 10 * time.Second
+	if got := DefaultConfig().IdleTimeout; got >= icecastSourceTimeout-time.Second {
+		t.Fatalf("idle timeout %s is not safely under Icecast's %s", got, icecastSourceTimeout)
+	}
+}

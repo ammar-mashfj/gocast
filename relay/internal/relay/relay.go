@@ -78,10 +78,13 @@ func DefaultConfig() Config {
 		MountPrefix:    "/stream/",
 		HelloTimeout:   10 * time.Second,
 		IcecastTimeout: 10 * time.Second,
-		IdleTimeout:    15 * time.Second,
-		WriteTimeout:   5 * time.Second,
-		MaxMessage:     64 << 10,
-		PingInterval:   30 * time.Second,
+		// Under Icecast's <source-timeout> (10 s): Icecast drops a silent
+		// source itself, and the studio would get 4005 "source ended" instead
+		// of 1008 "no audio" if it got there first.
+		IdleTimeout:  8 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		MaxMessage:   64 << 10,
+		PingInterval: 30 * time.Second,
 	}
 }
 

@@ -124,7 +124,9 @@ It does this and nothing more:
    - Text frames after the hello are ignored.
    - Each Icecast write has a 5 s deadline. If it's missed, both sides close
      (no unbounded buffering).
-   - A 15 s read-idle timeout closes both sides. The studio sends frames even
+   - An 8 s read-idle timeout closes both sides. It must stay under Icecast's
+     10 s `source-timeout`, or Icecast cuts the source first and the studio
+     gets 4005 instead of 1008. The studio sends frames even
      when quiet, so silence means a dead client.
    - Max message size is 64 KB.
    - Pings the studio every 30 s. Cloudflare closes a WebSocket after 6010 s

@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BroadcastManager } from "./broadcast"
 
 const api = vi.hoisted(() => ({
-  desiredState: "running" as "running" | "stopped",
+  desiredState: "running" as "running" | "stopped" | "deleted",
   posts: [] as string[],
 }))
 vi.mock("./axios", () => ({
   default: {
-    get: async () => ({ data: { data: { desired_state: api.desiredState, ready: true } } }),
+    get: async () => {
+      if (api.desiredState === "deleted") throw Object.assign(new Error("Not Found"), { response: { status: 404 } })
+      return { data: { data: { desired_state: api.desiredState, ready: true } } }
+    },
     post: async (url: string) => {
       api.posts.push(url)
       return { data: {} }
@@ -183,6 +186,19 @@ describe("a relay source cut on the server (4005)", () => {
     await vi.waitFor(() => expect(errors).toContain("The station was turned off, so the broadcast ended."))
 
     expect(api.posts).toEqual([])
+  })
+
+  // Deleting a station cuts its source, and its status is a 404 from then on.
+  // Reconnecting would only fail on start and token until the budget ran out.
+  it("ends the show when the station was deleted", async () => {
+    api.desiredState = "deleted"
+    const { socket, errors } = liveOnRelay()
+
+    socket.onclose!({ code: 4005 })
+    await vi.waitFor(() => expect(errors).toContain("This station was deleted, so the broadcast ended."))
+
+    expect(api.posts).toEqual([])
+    api.desiredState = "running"
   })
 
   // Icecast restarting cuts the source too; that one is ridden out.

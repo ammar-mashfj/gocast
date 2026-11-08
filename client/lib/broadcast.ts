@@ -1258,25 +1258,34 @@ export class BroadcastManager {
 
   /**
    * After the relay's source was cut: end the show if the station was turned
-   * off, otherwise reconnect as for any drop. A failed read reconnects, which
+   * off or deleted, otherwise reconnect as for any drop. A failed read reconnects, which
    * is what happened before this check existed.
    */
   private async reconnectUnlessSwitchedOff(dropId: string | null): Promise<void> {
     const droppedAt = Date.now()
     this.callbacks.onStateChange('reconnecting')
     let switchedOff = false
+    let deleted = false
     try {
       const { data } = await api.get<{ data: { desired_state?: 'stopped' | 'running' } }>(
         `/stations/${this.stationSlug}/status`,
       )
       switchedOff = data.data.desired_state === 'stopped'
-    } catch {
-      switchedOff = false
+    } catch (err) {
+      // A 404 is the station deleted under the show, which cut the source.
+      // Anything else is a blip, and reconnecting is the safe answer.
+      deleted = (err as { response?: { status?: number } })?.response?.status === 404
     }
     if (this.stopping) return
-    if (switchedOff) {
-      resolveDrop(dropId, 'gave_up', { downMs: Date.now() - droppedAt, attempts: 0, lastError: 'station_switched_off' })
-      await this.fail(new Error('The station was turned off, so the broadcast ended.'))
+    if (switchedOff || deleted) {
+      resolveDrop(dropId, 'gave_up', {
+        downMs: Date.now() - droppedAt,
+        attempts: 0,
+        lastError: deleted ? 'station_deleted' : 'station_switched_off',
+      })
+      await this.fail(new Error(deleted
+        ? 'This station was deleted, so the broadcast ended.'
+        : 'The station was turned off, so the broadcast ended.'))
       return
     }
     await this.reconnect(dropId, droppedAt)

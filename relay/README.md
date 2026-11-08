@@ -55,4 +55,4 @@ only that copy's studios, which reconnect to the other within milliseconds.
 | 4009 | mount already has a source | final on first go-live, retried on reconnect |
 | 1001 | relay restarting | reconnect (lands on the other copy) |
 | 1011 | Icecast unreachable | reconnect |
-| 1008 | studio sent nothing for 15 s | reconnect |
+| 1008 | studio sent nothing for 8 s (under Icecast's 10 s `source-timeout`) | reconnect |
