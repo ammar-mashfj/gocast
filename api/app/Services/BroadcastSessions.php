@@ -73,6 +73,10 @@ class BroadcastSessions
                         || $this->icecast->carries($fresh->icecast_mount) !== true) {
                         return false;
                     }
+
+                    // The rejoin reads this run's start and path: the copy
+                    // read inside the lock, not the caller's older one.
+                    $station = $fresh;
                 }
 
                 return $this->openUnlocked($station, $via, $client);
