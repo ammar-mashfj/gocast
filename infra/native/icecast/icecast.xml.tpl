@@ -40,10 +40,11 @@
              the audience, not the stations: ICECAST_MAX_CLIENTS in
              api/.env, default 5000. -->
         <clients>${ICECAST_MAX_CLIENTS}</clients>
-        <!-- Raised from the stock 2: one SOURCE is held per running
-             station container, not per live broadcaster. ICECAST_MAX_SOURCES
-             in api/.env (default 150); stations:sync-listeners warns at 80%.
-             It was 50 until 2026-10-10, when the 51st station was refused. -->
+        <!-- Raised from the stock 2. Shared by every running station
+             container (Pro), every Free relay show while someone is live, and
+             the /standby feed. ICECAST_MAX_SOURCES in api/.env (default 500);
+             stations:sync-listeners warns at 80%. It was 50 until 2026-10-10,
+             when the 51st station was refused. -->
         <sources>${ICECAST_MAX_SOURCES}</sources>
         <queue-size>524288</queue-size>
         <client-timeout>30</client-timeout>

@@ -148,7 +148,7 @@ type Server struct {
 	Metrics *Metrics
 
 	mu       sync.Mutex
-	conns    map[*websocket.Conn]struct{}
+	conns    map[*websocket.Conn]func() // each studio's Icecast release, once it has one
 	draining bool
 	wg       sync.WaitGroup
 
@@ -158,7 +158,7 @@ type Server struct {
 }
 
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, Metrics: NewMetrics(), conns: map[*websocket.Conn]struct{}{}}
+	return &Server{cfg: cfg, Metrics: NewMetrics(), conns: map[*websocket.Conn]func(){}}
 }
 
 func (s *Server) track(c *websocket.Conn) bool {
@@ -167,9 +167,19 @@ func (s *Server) track(c *websocket.Conn) bool {
 	if s.draining {
 		return false
 	}
-	s.conns[c] = struct{}{}
+	s.conns[c] = nil
 	s.wg.Add(1)
 	return true
+}
+
+// holdsSource records how to give up this studio's Icecast source, so a drain
+// can free the mount before it closes the socket.
+func (s *Server) holdsSource(c *websocket.Conn, release func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.conns[c]; ok {
+		s.conns[c] = release
+	}
 }
 
 func (s *Server) untrack(c *websocket.Conn) {
@@ -199,13 +209,24 @@ func (s *Server) Drain(ctx context.Context) {
 	// up systemd's 10 s stop budget and the studios behind them were killed
 	// without ever hearing "reconnect now". In parallel the slowest peer
 	// bounds the whole drain.
+	//
+	// Each studio's Icecast source is released first, as the idle path does:
+	// the close handshake can take seconds, and a studio reconnecting through
+	// the other copy in the meantime would find its mount still held (4009).
 	s.mu.Lock()
 	conns := make([]*websocket.Conn, 0, len(s.conns))
-	for c := range s.conns {
+	releases := make([]func(), 0, len(s.conns))
+	for c, release := range s.conns {
 		conns = append(conns, c)
+		if release != nil {
+			releases = append(releases, release)
+		}
 	}
 	s.mu.Unlock()
 	s.kicked.Store(true)
+	for _, release := range releases {
+		release()
+	}
 	for _, c := range conns {
 		go c.Close(CloseDraining, "relay restarting")
 	}
@@ -286,6 +307,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		return labelFor(code)
 	}
 	defer ice.Close()
+	s.holdsSource(ws, func() { ice.Close() })
 
 	if err := ws.Write(ctx, websocket.MessageText, []byte(`{"type":"ok"}`)); err != nil {
 		ws.CloseNow()
@@ -302,7 +324,9 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 	go func() {
 		io.Copy(io.Discard, ice)
 		close(iceClosed)
-		if !idle.Load() {
+		// Not when the relay itself let go: the idle timer and a drain each
+		// close the socket with their own code.
+		if !idle.Load() && !s.kicked.Load() {
 			ws.Close(CloseSourceKilled, "source ended by server")
 		}
 	}()
@@ -328,6 +352,9 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			if idle.Load() {
 				return "idle"
 			}
+			if s.kicked.Load() {
+				return "draining"
+			}
 			select {
 			case <-iceClosed:
 				return "icecast_closed"
@@ -336,9 +363,6 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			var ce websocket.CloseError
 			if errors.As(err, &ce) && ce.Code == websocket.StatusMessageTooBig {
 				return "too_big"
-			}
-			if s.kicked.Load() {
-				return "draining"
 			}
 			if websocket.CloseStatus(err) == -1 && errors.Is(err, context.Canceled) {
 				// cancelled from elsewhere (drain closes the socket itself)
@@ -362,6 +386,9 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			// a write failing in between is the idle close, not Icecast's.
 			if idle.Load() {
 				return "idle"
+			}
+			if s.kicked.Load() {
+				return "draining"
 			}
 			ws.Close(CloseSourceKilled, "stream server stopped accepting audio")
 			return "icecast_write"

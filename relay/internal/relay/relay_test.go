@@ -773,3 +773,39 @@ func TestIdleTimeoutIsUnderIcecastSourceTimeout(t *testing.T) {
 		t.Fatalf("idle timeout %s is not safely under Icecast's %s", got, icecastSourceTimeout)
 	}
 }
+
+// A drain frees each studio's mount before the close handshake, which can take
+// seconds: the studio reconnecting through the other copy must not find its
+// own old source still holding the mount (4009).
+func TestDrainReleasesTheSourceBeforeTheCloseHandshake(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 30 * time.Second
+	s, hs := startRelay(t, cfg)
+	ctx := context.Background()
+
+	// Stops reading after ok, so it never answers the close frame and the
+	// relay's Close waits its full 5 s.
+	c := dial(t, hs, nil)
+	c.Write(ctx, websocket.MessageText, helloJSON("a", "tok"))
+	expectOK(t, c)
+	t.Cleanup(func() { c.CloseNow() })
+
+	expired, cancel := context.WithTimeout(ctx, 0)
+	defer cancel()
+	drained := make(chan struct{})
+	go func() { s.Drain(expired); close(drained) }()
+
+	select {
+	case <-ice.closed:
+	case <-time.After(time.Second):
+		t.Fatal("the Icecast source was still held a second into the drain")
+	}
+	<-drained // after the 5 s the silent studio's close handshake waits
+	if n := s.Metrics.Closes("draining"); n != 1 {
+		t.Fatalf("draining = %d, want the drop counted as the restart's", n)
+	}
+	if n := s.Metrics.Closes("icecast_closed"); n != 0 {
+		t.Fatalf("icecast_closed = %d: the relay's own release was blamed on Icecast", n)
+	}
+}

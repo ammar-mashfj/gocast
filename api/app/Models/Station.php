@@ -322,7 +322,7 @@ class Station extends Model
      *
      * @param  Builder<Station>  $query
      */
-    public function scopeOnContainer($query): void
+    public function scopeOnContainer(Builder $query): void
     {
         $query->where(fn ($query) => $query
             ->whereNull('ingest_path')

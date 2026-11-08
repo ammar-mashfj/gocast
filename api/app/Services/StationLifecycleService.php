@@ -97,6 +97,7 @@ class StationLifecycleService
                 $station->forceFill([
                     'ingest_path' => Station::INGEST_CONTAINER,
                     'started_at' => now(),
+                    'silent_since' => null,
                 ])->save();
             }
 
@@ -114,9 +115,13 @@ class StationLifecycleService
                 // an upgrade mid-show must not move a live broadcaster. A
                 // station already running (a container being re-asserted)
                 // keeps the path it has.
+                // silent_since too: a station switched off by hand while silent
+                // keeps the old clock, and the sweep would stop this run on its
+                // first pass. A relay station reads ready at once, so it would.
                 $station->forceFill([
                     'desired_state' => Station::STATE_RUNNING,
                     'started_at' => now(),
+                    'silent_since' => null,
                     'ingest_path' => $station->resolveIngestPath(),
                 ])->save();
             }

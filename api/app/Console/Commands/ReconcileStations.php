@@ -534,25 +534,6 @@ class ReconcileStations extends Command
     }
 
     /**
-     * Close broadcast sessions left open on stations whose container says
-     * nobody is publishing.
-     *
-     * A StreamSession is opened by harbor's `live_connected` event and closed
-     * by `live_disconnected`. Lose the second one once — a failed POST, an api
-     * restart mid-request — and the session stays open forever. Because an
-     * open session is what makes a station read as live, that refuses every
-     * stop with 409 and exempts the station from the idle reaper, exactly as
-     * the old `is_live` column did; unlike the column, it also corrupts the
-     * airtime totals. This is the only path that ever closes it.
-     *
-     * The container is the authority here, not Redis: the broadcast-state key
-     * has a 90-second TTL and nothing refreshes it during a broadcast, so its
-     * absence means "the event is old", not "nobody is live".
-     *
-     * Requires consecutive disagreeing passes so a momentary reconnect (the
-     * publisher dropping and re-joining between polls) doesn't end a session.
-     */
-    /**
      * Open the session of a relay show whose source-connect never arrived.
      *
      * On the relay path that callback is the only thing that marks a station
@@ -720,6 +701,24 @@ class ReconcileStations extends Command
     }
 
     /**
+     * Close broadcast sessions left open on stations whose container says
+     * nobody is publishing.
+     *
+     * A StreamSession is opened by harbor's `live_connected` event and closed
+     * by `live_disconnected`. Lose the second one once — a failed POST, an api
+     * restart mid-request — and the session stays open forever. Because an
+     * open session is what makes a station read as live, that refuses every
+     * stop with 409 and exempts the station from the idle reaper, exactly as
+     * the old `is_live` column did; unlike the column, it also corrupts the
+     * airtime totals. This is the only path that ever closes it.
+     *
+     * The container is the authority here, not Redis: the broadcast-state key
+     * has a 90-second TTL and nothing refreshes it during a broadcast, so its
+     * absence means "the event is old", not "nobody is live".
+     *
+     * Requires consecutive disagreeing passes so a momentary reconnect (the
+     * publisher dropping and re-joining between polls) doesn't end a session.
+     *
      * @param  \Closure(): (array<string, mixed>|null)  $liveMounts
      */
     private function reconcileLiveFlags(StationStatusService $statusService, \Closure $liveMounts, BroadcastSessions $sessions, bool $dryRun): int

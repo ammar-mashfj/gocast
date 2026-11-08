@@ -1088,9 +1088,31 @@ describe('auto-stop', function () {
 
         expect($policy->verdict($station->refresh(), $status->pullFresh($station)))->toBe(StationAudioVerdict::Stop);
     });
+
+    it('gives a station switched back on a fresh silence window', function () {
+        // Silent, then switched off by hand: the sweep's clock was left behind.
+        $station = relayStation(['silent_since' => now()->subHour()]);
+        $lifecycle = app(StationLifecycleService::class);
+        $lifecycle->stop($station, force: true);
+
+        $lifecycle->start($station->refresh());
+
+        $verdict = app(StationAudioPolicy::class)->verdict($station->refresh(), app(StationStatusService::class)->pullFresh($station));
+        expect($station->silent_since)->toBeNull()
+            ->and($verdict)->toBe(StationAudioVerdict::Silent);
+    });
 });
 
 describe('the reconciler', function () {
+    it('relaunches containers only, not relay runs', function () {
+        relayStation();
+
+        $this->artisan('stations:relaunch')
+            ->expectsOutput('No stations to relaunch.')
+            ->doesntExpectOutputToContain('free-show')
+            ->assertSuccessful();
+    });
+
     it('never builds a container for a running relay station', function () {
         relayStation();
 
