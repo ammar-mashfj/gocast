@@ -705,6 +705,21 @@ describe('the studio\'s now playing', function () {
         Http::assertNotSent(fn (HttpRequest $request) => str_contains($request->url(), '/admin/metadata'));
     });
 
+    it('takes a clear even when it cannot tell whether anyone is broadcasting', function () {
+        // A clear cannot bring a stale title back, so Icecast being slow to
+        // answer is no reason to leave the old one up.
+        $station = relayStation();
+        Redis::setex("metadata:{$station->id}", 60, json_encode(['title' => 'Old', 'artist' => null]));
+        $this->icecastStatus = 503;
+
+        $this->actingAs($station->user)
+            ->postJson("/api/stations/{$station->slug}/now-playing", ['title' => null, 'artist' => null])
+            ->assertOk()
+            ->assertJson(['playing' => false]);
+
+        expect(Redis::exists("metadata:{$station->id}"))->toBe(0);
+    });
+
     it('takes the first title of a show Icecast carries before its session opens', function () {
         $station = relayStation();
         $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';

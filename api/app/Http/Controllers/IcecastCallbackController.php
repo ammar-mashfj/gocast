@@ -140,10 +140,12 @@ class IcecastCallbackController extends Controller
             // Icecast unreachable closes, unlike reconcile, which does nothing
             // on null: this event is evidence the source left, and the
             // question is only whether it is back already. A wrong close is
-            // reopened by reconcile within a minute, into the same session
-            // through the rejoin; a wrong keep would read live with nobody on
-            // air, and hold off the silence stop, for as long as Icecast is
-            // unreachable.
+            // undone by the new source's own connect event, queued behind this
+            // one, which rejoins the same session inside REJOIN_SECONDS. Only
+            // if that event is lost too does reconcile reopen the show, within
+            // a minute and usually as a new session. A wrong keep would read
+            // live with nobody on air, and hold off the silence stop, for as
+            // long as Icecast is unreachable.
             $changed = $sessions->close($station, rejoinable: true, unless: function () use ($icecast, $mount, $station): bool {
                 if ($icecast->carries($mount) !== true) {
                     return false;

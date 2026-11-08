@@ -617,6 +617,10 @@ func TestDrainWaitsThenCloses(t *testing.T) {
 		t.Fatalf("close code %d, want %d", got, CloseDraining)
 	}
 	<-drained
+	// Counted as the restart's drop, not the studio leaving.
+	if d, c := s.Metrics.Closes("draining"), s.Metrics.Closes("client_closed"); d != 1 || c != 0 {
+		t.Fatalf("closes: draining=%d client_closed=%d, want 1 and 0", d, c)
+	}
 }
 
 func TestDrainIsNotHeldUpBySilentStudios(t *testing.T) {

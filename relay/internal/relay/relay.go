@@ -151,6 +151,10 @@ type Server struct {
 	conns    map[*websocket.Conn]struct{}
 	draining bool
 	wg       sync.WaitGroup
+
+	// Set once Drain gives up waiting and closes the remaining studios, so
+	// those closes are counted as the restart's, not as studios leaving.
+	kicked atomic.Bool
 }
 
 func New(cfg Config) *Server {
@@ -201,6 +205,7 @@ func (s *Server) Drain(ctx context.Context) {
 		conns = append(conns, c)
 	}
 	s.mu.Unlock()
+	s.kicked.Store(true)
 	for _, c := range conns {
 		go c.Close(CloseDraining, "relay restarting")
 	}
@@ -331,6 +336,9 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			var ce websocket.CloseError
 			if errors.As(err, &ce) && ce.Code == websocket.StatusMessageTooBig {
 				return "too_big"
+			}
+			if s.kicked.Load() {
+				return "draining"
 			}
 			if websocket.CloseStatus(err) == -1 && errors.Is(err, context.Canceled) {
 				// cancelled from elsewhere (drain closes the socket itself)
