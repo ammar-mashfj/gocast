@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Station;
 use App\Services\BroadcastOrigin;
 use App\Services\BroadcastTokenService;
+use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Issues a short-lived, station-scoped broadcaster token. The SPA calls this
@@ -38,6 +40,7 @@ class BroadcastTokenController extends Controller
         BroadcastTokenService $tokens,
         LiquidsoapSupervisor $supervisor,
         BroadcastOrigin $origin,
+        IcecastAdmin $icecast,
     ): JsonResponse {
         $data = $request->validate([
             'station_slug' => ['required', 'string', 'max:255'],
@@ -58,6 +61,10 @@ class BroadcastTokenController extends Controller
         // harbor connects, so it is the only place the real address exists.
         $origin->remember($station, $request);
 
+        if ($station->usesRelay()) {
+            $this->releaseStaleRelaySource($station, $icecast);
+        }
+
         return response()->json([
             'token' => $tokens->issue($user, $station),
             'expires_in' => BroadcastTokenService::TTL_SECONDS,
@@ -74,6 +81,40 @@ class BroadcastTokenController extends Controller
             // from the path the station started on, so the client never
             // guesses it.
             'ingest' => $station->usesRelay() ? Station::INGEST_RELAY : Station::INGEST_CONTAINER,
+        ]);
+    }
+
+    /**
+     * Free the station's Icecast mount for the connection this token is for.
+     *
+     * The studio asks for a token right before every connect and reconnect.
+     * A source Icecast still carries at that moment is almost always the same
+     * studio's previous connection, which died without a close (a phone
+     * switching networks, a backgrounded tab): the relay only lets go of it
+     * after its idle timeout, and until then Icecast answers the reconnect
+     * "Mountpoint in use" — ten to fifteen seconds of silence on air, measured
+     * locally, against about one with this.
+     *
+     * Newest wins: a second device pressing Go Live takes the station over
+     * from the first. Only the owner can get here, and the listeners are not
+     * disconnected — Icecast moves them to /standby and back, exactly as when
+     * the idle timeout fires. The session close and rejoin that follow are the
+     * same callbacks a relay blip already produces.
+     *
+     * Only on the relay path. A container's source is Liquidsoap, which plays
+     * AutoDJ between shows and must never be cut from here.
+     */
+    private function releaseStaleRelaySource(Station $station, IcecastAdmin $icecast): void
+    {
+        if ($icecast->carries($station->icecast_mount) !== true) {
+            return;
+        }
+
+        $released = $icecast->killSource($station);
+
+        Log::info('Released a relay source for a reconnecting studio', [
+            'station' => $station->slug,
+            'released' => $released,
         ]);
     }
 }

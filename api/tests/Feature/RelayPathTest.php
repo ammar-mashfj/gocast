@@ -1417,3 +1417,92 @@ describe('the broadcaster\'s device on a relay show', function () {
         Queue::assertPushed(SendAdminTelegramAlert::class, fn (SendAdminTelegramAlert $job) => str_contains($job->text, 'via browser ('.htmlspecialchars($android, ENT_QUOTES | ENT_HTML5).')'));
     });
 });
+
+describe('a reconnecting studio takes its mount back at once', function () {
+    function killedSources(): array
+    {
+        return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'))
+            ->map(fn (array $pair) => $pair[0]['mount'])
+            ->values()
+            ->all();
+    }
+
+    it('cuts the dead source still on the mount when the studio asks for a token', function () {
+        $station = onAir(relayStation());
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->actingAs($station->user)
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk()
+            ->assertJsonStructure(['token']);
+
+        expect(killedSources())->toBe(['/stream/free-show'])
+            // The listeners stay: Icecast moves them to /standby and back.
+            ->and(killedListeners())->toBe([]);
+    });
+
+    it('cuts nothing when the mount is free', function () {
+        $station = relayStation();
+
+        $this->actingAs($station->user)
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk();
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('never cuts a container station\'s source, which is Liquidsoap', function () {
+        config(['liquidsoap.ingest_url' => 'ws://harbor.test/{slug}']);
+        $station = relayStation(['ingest_path' => Station::INGEST_CONTAINER]);
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->actingAs($station->user)
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk();
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing for someone who does not own the station', function () {
+        $station = onAir(relayStation());
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->actingAs(User::factory()->create())
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertForbidden();
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('still issues the token when Icecast cannot be asked', function () {
+        $station = relayStation();
+        $this->icecastStatus = 500;
+
+        $this->actingAs($station->user)
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk()
+            ->assertJsonStructure(['token']);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('keeps the show as one session through the cut and the reconnect', function () {
+        $station = relayStation();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        $session = $station->streamSessions()->sole();
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->actingAs($station->user)
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk();
+
+        // What Icecast reports next: the cut source leaves, the studio's new
+        // connection arrives.
+        $this->icecastMounts = '<icestats/>';
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show'])->assertOk();
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->is($session))->toBeTrue()
+            ->and($session->refresh()->ended_at)->toBeNull();
+    });
+});

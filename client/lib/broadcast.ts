@@ -1174,10 +1174,10 @@ export class BroadcastManager {
       }
 
       ws.onclose = (event) => {
-        // The relay says why. 4009 is "already live": on a first go-live that
-        // is another tab or device; inside the reconnect loop it is usually
-        // our own dropped connection, still holding the mount until the relay
-        // notices it died — the loop retries every failure, so it outlasts it.
+        // The relay says why. 4009 is "already live". Our own dropped
+        // connection rarely causes it any more: the token request for this
+        // connect made Laravel cut the source Icecast still carried, and the
+        // relay waits out Icecast letting go. The loop retries it regardless.
         if (relay && RELAY_REFUSALS[event.code]) {
           finish(() => reject(new Error(RELAY_REFUSALS[event.code])))
           return

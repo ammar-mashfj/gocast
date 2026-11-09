@@ -66,6 +66,8 @@ type Config struct {
 	HelloTimeout   time.Duration // studio must send its hello within this
 	IcecastTimeout time.Duration // dial + Icecast's answer (it waits on the API)
 	IdleTimeout    time.Duration // no frame from the studio for this long = dead
+	BusyRetryFor   time.Duration // keep asking Icecast this long while it says "in use"
+	BusyRetryEvery time.Duration // between those asks
 	WriteTimeout   time.Duration // one write to Icecast may block this long
 	MaxMessage     int64         // largest single WebSocket message accepted
 	PingInterval   time.Duration // ping the studio this often; 0 = never
@@ -78,13 +80,24 @@ func DefaultConfig() Config {
 		MountPrefix:    "/stream/",
 		HelloTimeout:   10 * time.Second,
 		IcecastTimeout: 10 * time.Second,
-		// Under Icecast's <source-timeout> (10 s): Icecast drops a silent
-		// source itself, and the studio would get 4005 "source ended" instead
-		// of 1008 "no audio" if it got there first.
-		IdleTimeout:  8 * time.Second,
+		// How long a dead studio keeps its station: a phone that loses its
+		// network sends no close, so this is when the relay gives the mount
+		// up. The studio sends a frame about every 90 ms, so 4 s is some 40
+		// missed frames, not a weak signal. Under Icecast's <source-timeout>
+		// (10 s), which would otherwise drop the source first and tell the
+		// studio 4005 "source ended" instead of 1008 "no audio". A studio that
+		// reconnects sooner does not wait for it: its token request makes
+		// Laravel cut the dead source (BroadcastTokenController).
+		IdleTimeout:  4 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		MaxMessage:   64 << 10,
 		PingInterval: 30 * time.Second,
+		// Icecast frees a cut source a moment after the cut, and the studio's
+		// reconnect can arrive inside that moment. Asking again for a couple
+		// of seconds rides it out; a station really in use still gets 4009,
+		// just two seconds later.
+		BusyRetryFor:   2 * time.Second,
+		BusyRetryEvery: 250 * time.Millisecond,
 	}
 }
 
@@ -301,7 +314,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 	}
 
 	// 2. Icecast.
-	ice, code, why := s.openSource(ctx, slug, token)
+	ice, code, why := s.openSourceWhenFree(ctx, slug, token)
 	if ice == nil {
 		ws.Close(code, why)
 		return labelFor(code)
@@ -413,6 +426,26 @@ func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
 			ws.Ping(pctx)
 			cancel()
 		}
+	}
+}
+
+// openSourceWhenFree is openSource, asked again while Icecast says the mount
+// is in use, for up to BusyRetryFor. The usual holder is the studio's own
+// previous connection, which Laravel has just cut and Icecast has not quite
+// let go of yet.
+func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (net.Conn, websocket.StatusCode, string) {
+	deadline := time.Now().Add(s.cfg.BusyRetryFor)
+	for {
+		ice, code, why := s.openSource(ctx, slug, token)
+		if code != CloseBusy || !time.Now().Add(s.cfg.BusyRetryEvery).Before(deadline) {
+			return ice, code, why
+		}
+		select {
+		case <-ctx.Done():
+			return ice, code, why
+		case <-time.After(s.cfg.BusyRetryEvery):
+		}
+		s.Metrics.busyRetry()
 	}
 }
 

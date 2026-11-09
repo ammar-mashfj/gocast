@@ -129,6 +129,8 @@ func testConfig(addr string) Config {
 	c.IcecastTimeout = 1 * time.Second
 	c.IdleTimeout = 500 * time.Millisecond
 	c.WriteTimeout = 300 * time.Millisecond
+	c.BusyRetryFor = 300 * time.Millisecond
+	c.BusyRetryEvery = 50 * time.Millisecond
 	return c
 }
 
@@ -807,5 +809,303 @@ func TestDrainReleasesTheSourceBeforeTheCloseHandshake(t *testing.T) {
 	}
 	if n := s.Metrics.Closes("icecast_closed"); n != 0 {
 		t.Fatalf("icecast_closed = %d: the relay's own release was blamed on Icecast", n)
+	}
+}
+
+// mountIcecast behaves like Icecast about one thing the other fakes ignore:
+// a mount holds one source. A second login while it is held is refused
+// "Mountpoint in use", and a source that goes away frees the mount only after
+// `releaseDelay`, as Icecast's source thread takes a moment to wind down.
+type mountIcecast struct {
+	ln           net.Listener
+	releaseDelay time.Duration
+
+	mu     sync.Mutex
+	holder map[string]net.Conn // mount -> the source holding it
+	logins int
+	busy   int
+	got    map[net.Conn]*bytes.Buffer
+}
+
+func newMountIcecast(t *testing.T, releaseDelay time.Duration) *mountIcecast {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &mountIcecast{ln: ln, releaseDelay: releaseDelay, holder: map[string]net.Conn{}, got: map[net.Conn]*bytes.Buffer{}}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go m.handle(c)
+		}
+	}()
+	return m
+}
+
+func (m *mountIcecast) handle(c net.Conn) {
+	defer c.Close()
+	br := bufio.NewReader(c)
+	first, err := br.ReadString('\n')
+	if err != nil {
+		return
+	}
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	mount := strings.Fields(first)[1]
+	m.mu.Lock()
+	m.logins++
+	if m.holder[mount] != nil {
+		m.busy++
+		m.mu.Unlock()
+		io.WriteString(c, "HTTP/1.0 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nMountpoint in use\r\n")
+		return
+	}
+	m.holder[mount] = c
+	buf := &bytes.Buffer{}
+	m.got[c] = buf
+	m.mu.Unlock()
+	io.WriteString(c, ok200)
+	chunk := make([]byte, 32<<10)
+	for {
+		n, err := br.Read(chunk)
+		m.mu.Lock()
+		buf.Write(chunk[:n])
+		m.mu.Unlock()
+		if err != nil {
+			break
+		}
+	}
+	time.Sleep(m.releaseDelay)
+	m.mu.Lock()
+	if m.holder[mount] == c {
+		delete(m.holder, mount)
+	}
+	m.mu.Unlock()
+}
+
+// kill is Icecast's /admin/killsource: the source connection is closed from
+// Icecast's side, and the mount frees after releaseDelay.
+func (m *mountIcecast) kill(mount string) {
+	m.mu.Lock()
+	c := m.holder[mount]
+	m.mu.Unlock()
+	if c != nil {
+		c.Close()
+	}
+}
+
+func (m *mountIcecast) held(mount string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.holder[mount] != nil
+}
+
+func (m *mountIcecast) holderBytes(mount string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c := m.holder[mount]; c != nil {
+		return m.got[c].Len()
+	}
+	return 0
+}
+
+func (m *mountIcecast) counts() (logins, busy int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.logins, m.busy
+}
+
+// connectStudio dials, says hello and waits for the relay's answer: nil error
+// on {"type":"ok"}, else the close code.
+func connectStudio(t *testing.T, hs *httptest.Server, slug string) (*websocket.Conn, websocket.StatusCode) {
+	t.Helper()
+	c := dial(t, hs, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c.Write(ctx, websocket.MessageText, helloJSON(slug, "tok"))
+	typ, msg, err := c.Read(ctx)
+	if err != nil {
+		return nil, websocket.CloseStatus(err)
+	}
+	if typ != websocket.MessageText || string(msg) != `{"type":"ok"}` {
+		t.Fatalf("unexpected first message %q", msg)
+	}
+	return c, 0
+}
+
+// The bug this fixes: a phone whose network dies sends no close, so its
+// source keeps the mount until the idle timeout. Laravel cuts that source
+// when the phone asks for a token to reconnect; the reconnect can still land
+// before Icecast has let go, and must get in rather than be told 4009.
+func TestReconnectGetsInWhileIcecastReleasesACutSource(t *testing.T) {
+	ice := newMountIcecast(t, 150*time.Millisecond)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 30 * time.Second // the dead phone is not noticed by the timer
+	cfg.BusyRetryFor = 2 * time.Second
+	cfg.BusyRetryEvery = 50 * time.Millisecond
+	s, hs := startRelay(t, cfg)
+
+	dead, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("first connect refused %d", code)
+	}
+	t.Cleanup(func() { dead.CloseNow() })
+	dead.Write(context.Background(), websocket.MessageBinary, []byte("old phone"))
+	// The phone's network dies: no close, no more frames. Laravel cuts the
+	// source as the reconnect asks for its token.
+	ice.kill("/stream/a")
+
+	start := time.Now()
+	back, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("reconnect refused with %d; want it admitted once Icecast lets go", code)
+	}
+	defer back.CloseNow()
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("reconnect took %s", d)
+	}
+	if s.Metrics.BusyRetries() == 0 {
+		t.Fatal("expected the reconnect to have waited out the release")
+	}
+	back.Write(context.Background(), websocket.MessageBinary, []byte("new phone"))
+	eventually(t, "the new phone's audio on the mount", func() bool { return ice.holderBytes("/stream/a") > 0 })
+	if n := s.Metrics.Closes("busy"); n != 0 {
+		t.Fatalf("busy closes = %d, want none", n)
+	}
+}
+
+// A station whose source is alive and stays alive (nobody cut it) is still
+// refused after the retry window, and the show already on air is not touched
+// by the relay.
+func TestLiveStationStillRefusesAnotherSourceAfterRetrying(t *testing.T) {
+	ice := newMountIcecast(t, 0)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 30 * time.Second
+	cfg.BusyRetryFor = 400 * time.Millisecond
+	cfg.BusyRetryEvery = 100 * time.Millisecond
+	s, hs := startRelay(t, cfg)
+
+	live, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("first connect refused %d", code)
+	}
+	defer live.CloseNow()
+	live.Write(context.Background(), websocket.MessageBinary, []byte("on air"))
+	eventually(t, "the show's audio", func() bool { return ice.holderBytes("/stream/a") > 0 })
+
+	start := time.Now()
+	_, code = connectStudio(t, hs, "a")
+	if code != CloseBusy {
+		t.Fatalf("second source got %d, want %d", code, CloseBusy)
+	}
+	d := time.Since(start)
+	if d < 300*time.Millisecond || d > 2*time.Second {
+		t.Fatalf("refusal after %s; want it after the ~400ms retry window", d)
+	}
+	if _, busy := ice.counts(); busy < 3 {
+		t.Fatalf("Icecast was asked %d times while busy; want the relay to have retried", busy)
+	}
+	eventually(t, "the refusal counted as busy", func() bool { return s.Metrics.Closes("busy") == 1 })
+
+	// The show on air kept the mount and still goes through.
+	before := ice.holderBytes("/stream/a")
+	live.Write(context.Background(), websocket.MessageBinary, []byte(" still on air"))
+	eventually(t, "the show still forwarding", func() bool { return ice.holderBytes("/stream/a") > before })
+}
+
+// Without a cut, a dead phone's mount comes free at the idle timeout and the
+// reconnect gets in on its next try.
+func TestDeadStudioFreesTheMountAtTheIdleTimeout(t *testing.T) {
+	ice := newMountIcecast(t, 0)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 400 * time.Millisecond
+	cfg.BusyRetryFor = 0
+	_, hs := startRelay(t, cfg)
+
+	dead, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("first connect refused %d", code)
+	}
+	t.Cleanup(func() { dead.CloseNow() })
+
+	if _, code := connectStudio(t, hs, "a"); code != CloseBusy {
+		t.Fatalf("reconnect inside the idle window got %d, want %d", code, CloseBusy)
+	}
+	eventually(t, "the idle timeout freeing the mount", func() bool { return !ice.held("/stream/a") })
+	back, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("reconnect after the idle timeout got %d", code)
+	}
+	back.CloseNow()
+}
+
+// Only "in use" is worth asking again: a refused token is refused at once.
+func TestOnlyBusyIsRetried(t *testing.T) {
+	ice := newFakeIcecast(t, "HTTP/1.0 401 Authentication Required\r\n\r\nYou need to authenticate\r\n")
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.BusyRetryFor = 2 * time.Second
+	s, hs := startRelay(t, cfg)
+
+	start := time.Now()
+	if _, code := connectStudio(t, hs, "a"); code != CloseRejected {
+		t.Fatalf("got %d, want %d", code, CloseRejected)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("a refused token took %s to reach the studio", d)
+	}
+	if n := ice.requestCount(); n != 1 {
+		t.Fatalf("Icecast asked %d times, want 1", n)
+	}
+	if s.Metrics.BusyRetries() != 0 {
+		t.Fatal("a 401 was retried")
+	}
+}
+
+// Other stations are not held up by one station's retries.
+func TestBusyRetryIsPerStation(t *testing.T) {
+	ice := newMountIcecast(t, 0)
+	cfg := testConfig(ice.ln.Addr().String())
+	cfg.IdleTimeout = 30 * time.Second
+	cfg.BusyRetryFor = 2 * time.Second
+	cfg.BusyRetryEvery = 100 * time.Millisecond
+	_, hs := startRelay(t, cfg)
+
+	a, _ := connectStudio(t, hs, "a")
+	defer a.CloseNow()
+	// A second source for station a: the relay keeps asking Icecast for 2 s.
+	waiting := dial(t, hs, nil)
+	defer waiting.CloseNow()
+	waiting.Write(context.Background(), websocket.MessageText, helloJSON("a", "tok"))
+	time.Sleep(150 * time.Millisecond)
+
+	start := time.Now()
+	b, code := connectStudio(t, hs, "b")
+	if code != 0 {
+		t.Fatalf("station b refused %d", code)
+	}
+	defer b.CloseNow()
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Fatalf("station b waited %s behind station a's retries", d)
+	}
+}
+
+func TestDefaultsGiveUpADeadStudioInFourSeconds(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.IdleTimeout != 4*time.Second {
+		t.Fatalf("idle timeout %s, want 4s", cfg.IdleTimeout)
+	}
+	if cfg.BusyRetryFor <= 0 || cfg.BusyRetryEvery <= 0 || cfg.BusyRetryEvery >= cfg.BusyRetryFor {
+		t.Fatalf("busy retry %s every %s is not a retry", cfg.BusyRetryFor, cfg.BusyRetryEvery)
 	}
 }
