@@ -77,24 +77,16 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       proves the station is down without needing the API to say so. */
   const [failed, setFailed] = useState(false)
   const [stats, setStats] = useState<PublicStationStats>(
-    initialStats ?? { count: null, is_live: null, is_on_air: null, now_playing: { title: null, artist: null } },
+    initialStats ?? {
+      count: null,
+      is_live: null,
+      is_on_air: null,
+      state: null,
+      icecast_only: null,
+      switched_off: null,
+      now_playing: { title: null, artist: null },
+    },
   )
-
-  /**
-   * Gated on `playing`, which matters more here than anywhere else this hook
-   * is used. Every other consumer is a listener or an owner who chose to be
-   * on the page; this one is the marketing homepage, so an ungated poll would
-   * be one request every ten seconds for every bounce visitor on the site.
-   * The server-side fetch already gave us a state to paint, and it is shared
-   * across visitors by Next's 30s revalidate rather than paid per head.
-   */
-  // A failure is only evidence until the API says the mount is up again.
-  const onStats = useCallback((next: PublicStationStats) => {
-    setStats(next)
-    if (next.is_on_air === true) setFailed(false)
-  }, [])
-  usePublicStationFeed(station?.slug ?? null, onStats, { enabled: playing && !!station })
-  useListenerSession(station?.slug ?? "", playing, transport)
 
   const teardown = useCallback(() => {
     hlsRef.current?.destroy()
@@ -110,6 +102,32 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
   }, [])
 
   useEffect(() => teardown, [teardown])
+
+  // A failure is only evidence until the API says the mount is up again.
+  //
+  // Switched off mid-listen: Icecast does not end the stream but moves the
+  // listener to the shared silence mount, so no error ever comes. The
+  // owner's switch, not `state`, as on the station page: a container being
+  // recreated reads offline too, and that is a blip to ride out.
+  const onStats = useCallback((next: PublicStationStats) => {
+    setStats(next)
+    if (next.is_on_air === true) setFailed(false)
+    if (next.switched_off === true) {
+      teardown()
+      setPlaying(false)
+    }
+  }, [teardown])
+
+  /**
+   * Gated on `playing`, which matters more here than anywhere else this hook
+   * is used. Every other consumer is a listener or an owner who chose to be
+   * on the page; this one is the marketing homepage, so an ungated poll would
+   * be one request every ten seconds for every bounce visitor on the site.
+   * The server-side fetch already gave us a state to paint, and it is shared
+   * across visitors by Next's 30s revalidate rather than paid per head.
+   */
+  usePublicStationFeed(station?.slug ?? null, onStats, { enabled: playing && !!station })
+  useListenerSession(station?.slug ?? "", playing, transport)
 
   const start = useCallback(() => {
     const audio = audioRef.current
@@ -137,7 +155,14 @@ export function HeroStationPlayer({ station, initialStats }: HeroStationPlayerPr
       audio.play().catch(() => { setLoading(false); setFailed(true) })
     }
 
-    const hlsUrl = station?.hls_url ?? OFFICIAL_HLS
+    // A station the API answered for and gave no HLS stream is on the relay
+    // path: Icecast only. The constant is for when the API did not answer.
+    const hlsUrl = station ? station.hls_url : OFFICIAL_HLS
+
+    if (!hlsUrl) {
+      playIcecast()
+      return
+    }
 
     if (Hls.isSupported()) {
       // A live audio stream is never seeked backwards, so holding decoded

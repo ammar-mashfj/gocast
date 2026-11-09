@@ -8,10 +8,12 @@ use App\Services\StationAudioPolicy;
 use App\Services\StationLifecycleException;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Take one station off air, because it has nothing to broadcast.
@@ -81,7 +83,23 @@ class StopStation implements ShouldQueue
             return;
         }
 
+        // Upgraded during a relay show: the plan now has what only a container
+        // gives (AutoDJ, an encoder), and the show that kept it on the relay
+        // is over. Hand over to a container, as the Start button would,
+        // instead of switching off a station its owner just paid to keep on.
+        // The plan, not the resolved path: a relay rolled back resolves to a
+        // container too, and booting one for every idle Free station is the
+        // load the relay exists to remove. Those simply stop.
+        //
+        // A move that does not happen (the container failed to start, or
+        // Icecast could not say the show is over) falls through to the
+        // stop: every later sweep would make the same attempt, and the
+        // station would hold a running slot, silent, for good.
         try {
+            if ($station->usesRelay() && $station->planNeedsContainer() && $this->moveToContainer($station, $lifecycle)) {
+                return;
+            }
+
             // force: false on purpose. The policy just concluded nobody is
             // broadcasting, but a broadcaster can connect between that check
             // and this call, and stop() refuses a live station for exactly
@@ -105,6 +123,55 @@ class StopStation implements ShouldQueue
                 'station' => $station->slug,
                 'reason' => $e->getMessage(),
             ]);
+        } catch (LockTimeoutException) {
+            // The owner's power button or studio holds the station right now.
+            // Not a failure: the sweep queues this again within a minute.
+            Log::info('Silent-station stop skipped: the station is busy; the next sweep retries', [
+                'station' => $station->slug,
+            ]);
         }
+    }
+
+    /**
+     * @return bool Whether the station is now on a container.
+     */
+    private function moveToContainer(Station $station, StationLifecycleService $lifecycle): bool
+    {
+        try {
+            $moved = $lifecycle->start($station, reason: 'upgrade');
+        } catch (StationLifecycleException $e) {
+            Log::info('Moving an upgraded relay station to a container was declined; stopping it instead', [
+                'station' => $station->slug,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return false;
+        } catch (LockTimeoutException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            // Docker itself failed (a ProcessFailedException from `docker
+            // run`). start() has already put the run on the container path,
+            // but this station was being stopped for silence: stop it, rather
+            // than leave it "on" with no container and reconcile retrying.
+            Log::warning('Moving an upgraded relay station to a container failed; stopping it instead', [
+                'station' => $station->slug,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        // start() keeps the relay while Icecast may still carry a show.
+        if ($moved->usesRelay()) {
+            return false;
+        }
+
+        $moved->forceFill(['silent_since' => null])->save();
+
+        Log::info('Station moved off the relay after its show: the plan now needs a container', [
+            'station' => $station->slug,
+        ]);
+
+        return true;
     }
 }

@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Events\StationStateChanged;
+use App\Jobs\DropStationListeners;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -51,6 +53,8 @@ class StationLifecycleService
     public function __construct(
         private readonly LiquidsoapSupervisor $supervisor,
         private readonly PlaylistFileWriter $playlistWriter,
+        private readonly IcecastAdmin $icecast,
+        private readonly BroadcastSessions $sessions,
     ) {}
 
     /**
@@ -69,6 +73,34 @@ class StationLifecycleService
         return $this->withLock($station, function () use ($station, $reason) {
             $station->refresh();
 
+            if ($station->isRunning() && $station->usesRelay()) {
+                // Already on air on the relay: there is nothing to bring up.
+                // The relay and Icecast are shared and always running. Also
+                // while someone is broadcasting into it, whatever the plan now
+                // says — an upgrade mid-show must not move a live broadcaster.
+                // Live is asked of Icecast too: a missed source-connect leaves
+                // a broadcaster with no session row, and a container booted
+                // under them would only find the mount taken.
+                if ($station->resolveIngestPath() === Station::INGEST_RELAY || $this->relayCarriesSource($station)) {
+                    return $station;
+                }
+
+                // Upgraded while on with nobody live: the plan now has AutoDJ
+                // or an encoder, which only a container can give. Move this run
+                // onto one, or "Start AutoDJ" would leave it on the relay,
+                // silent, until the sweep turned it off.
+                //
+                // A new run as far as the clock goes: the relay show is over,
+                // and checks that ask "this run" (the studio-gone stop, the
+                // rejoin) would otherwise count it, and stop the station on
+                // the next sweep before the owner could connect an encoder.
+                $station->forceFill([
+                    'ingest_path' => Station::INGEST_CONTAINER,
+                    'started_at' => now(),
+                    'silent_since' => null,
+                ])->save();
+            }
+
             // Already on air with a healthy container: do nothing. up() would
             // restart it, and a restart drops every connected listener — a
             // double-clicked power button must not cost an audience.
@@ -79,10 +111,36 @@ class StationLifecycleService
             if (! $station->isRunning()) {
                 $this->assertCanRunAnother($station);
 
+                // The path is chosen here, once per run, and kept until stop:
+                // an upgrade mid-show must not move a live broadcaster. A
+                // station already running (a container being re-asserted)
+                // keeps the path it has.
+                // silent_since too: a station switched off by hand while silent
+                // keeps the old clock, and the sweep would stop this run on its
+                // first pass. A relay station reads ready at once, so it would.
                 $station->forceFill([
                     'desired_state' => Station::STATE_RUNNING,
                     'started_at' => now(),
+                    'silent_since' => null,
+                    'ingest_path' => $station->resolveIngestPath(),
                 ])->save();
+            }
+
+            if ($station->usesRelay()) {
+                Log::info('Station started', [
+                    'station' => $station->slug,
+                    'reason' => $reason,
+                    'ingest' => Station::INGEST_RELAY,
+                ]);
+
+                StationEvent::record($station, StationEvent::TYPE_STARTED, properties: [
+                    'reason' => $reason,
+                    'ingest' => Station::INGEST_RELAY,
+                ]);
+
+                event(StationStateChanged::for($station, StationEvent::TYPE_STARTED));
+
+                return $station;
             }
 
             // The audio directory is bind-mounted into the container, so it
@@ -181,9 +239,12 @@ class StationLifecycleService
                 $reason = 'owner_cutoff';
             }
 
+            $relay = $station->usesRelay();
+
             $station->forceFill([
                 'desired_state' => Station::STATE_STOPPED,
                 'started_at' => null,
+                'ingest_path' => null,
             ])->save();
 
             // CLOSE ANY OPEN BROADCAST, for the same reason as the Redis
@@ -229,18 +290,42 @@ class StationLifecycleService
             // nothing knows. Airtime is an over-estimate for a source that
             // died silently — the same over-estimate every lost
             // `live_disconnected` already produces.
-            $station->streamSessions()
-                ->whereNull('ended_at')
-                ->update(['ended_at' => now()]);
+            //
+            // Through BroadcastSessions, so it takes the session lock: a
+            // reconcile reopening a missed relay session cannot add a row
+            // behind this close, and nothing can rejoin it.
+            $this->sessions->close($station);
 
-            $this->supervisor->down($station);
+            // A relay run has no container to remove. What keeps it on air is
+            // the source on Icecast, so cut that instead — otherwise "Turn
+            // station off" would leave the broadcaster audible until their
+            // studio gave up. Best-effort: with Icecast unreachable the
+            // auth callback still refuses the reconnect, because the station
+            // now reads as stopped.
+            if ($relay) {
+                // stations:reconcile cuts it within a minute if this fails.
+                if (! $this->icecast->killSource($station)) {
+                    Log::warning('Could not cut a relay broadcaster on stop', ['station' => $station->slug]);
+                }
+            } else {
+                $this->supervisor->down($station);
+            }
+
+            // The source has left, so Icecast's fallback has just moved its
+            // listeners to /standby — where they would stay on silence for
+            // good. Off means off: disconnect them, as stopping did before the
+            // fallback existed. After the source, never before, or a listener
+            // arriving in between is moved there behind us. Queued, so the
+            // power button never waits on Icecast; stations:reconcile clears
+            // whoever this misses within a minute.
+            DropStationListeners::dispatch($station->icecast_mount);
 
             // Drop the now-playing payload as part of stopping, rather than
             // leaving it to whoever notices first.
             //
             // Every OTHER path that clears this key needs the container to
             // report in: Liquidsoap pushing an empty payload when a track
-            // ends, or StationEventController::closeSessions reacting to a
+            // ends, or BroadcastSessions::close reacting to a
             // `shutdown` event. A container being torn down has no reliable
             // chance to do either — SIGTERM racing the HTTP post at best, and
             // nothing at all if it was killed outright or had already crashed.
@@ -331,6 +416,29 @@ class StationLifecycleService
     }
 
     /**
+     * Cut a relay source still on the mount of a station that is off, unless
+     * it has been switched on since the caller looked. Under the lifecycle
+     * lock, so a Start cannot land between the check and the cut.
+     *
+     * @return bool Whether the source was cut (false too when Icecast could
+     *              not be asked: the next pass tries again).
+     *
+     * @throws LockTimeoutException When a start or stop holds the lock.
+     */
+    public function cutLeftoverSource(Station $station): bool
+    {
+        return $this->withLock($station, function () use ($station) {
+            $station->refresh();
+
+            if (! $station->trashed() && $station->isRunning()) {
+                return false;
+            }
+
+            return $this->icecast->killSource($station);
+        });
+    }
+
+    /**
      * @template T
      *
      * @param  \Closure(): T  $callback
@@ -340,5 +448,25 @@ class StationLifecycleService
     {
         return Cache::lock("station-lifecycle:{$station->id}", self::LOCK_TTL_SECONDS)
             ->block(self::LOCK_WAIT_SECONDS, $callback);
+    }
+
+    /**
+     * Is a relay broadcaster on this station's mount? The session row first,
+     * then a show mid-blip, then Icecast itself. Icecast unreachable counts
+     * as yes: the cost of a wrong yes is AutoDJ waiting for the next Start,
+     * of a wrong no a container fighting a live show for the mount.
+     *
+     * Mid-blip: the DJ's disconnect closed the session and Icecast dropped
+     * the mount, and the studio's reconnect is what calls start(). Read as
+     * nobody live, an upgrade or a rollback would boot a container under the
+     * DJ and split the show, where a show on the relay finishes there.
+     */
+    private function relayCarriesSource(Station $station): bool
+    {
+        if ($station->isLive() || $this->sessions->mayRejoin($station)) {
+            return true;
+        }
+
+        return $this->icecast->carries($station->icecast_mount) !== false;
     }
 }

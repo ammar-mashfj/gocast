@@ -35,6 +35,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $featured_at
  * @property int|null $storage_cap_bytes admin-set override; null is the install default, see storageCapBytes()
  * @property string $desired_state
+ * @property string|null $ingest_path INGEST_CONTAINER or INGEST_RELAY for the current run; null when stopped
  * @property Carbon|null $started_at
  * @property Carbon|null $silent_since
  * @property Carbon|null $last_ready_at
@@ -78,6 +79,15 @@ class Station extends Model
      * converges the Docker daemon against.
      */
     public const STATE_RUNNING = 'running';
+
+    /** This run's audio goes through a Liquidsoap container. */
+    public const INGEST_CONTAINER = 'container';
+
+    /**
+     * This run's audio goes browser → relay → Icecast with no container. See
+     * config/relay.php and {@see self::resolveIngestPath()}.
+     */
+    public const INGEST_RELAY = 'relay';
 
     /**
      * Minimum gap between two jingles for a station that has never set one —
@@ -139,7 +149,7 @@ class Station extends Model
             if (empty($station->slug)) {
                 $station->slug = static::slugFor($station->name);
             }
-            $station->icecast_mount ??= '/stream/'.$station->slug;
+            $station->icecast_mount ??= config('relay.mount_prefix').$station->slug;
             $station->icecast_password ??= Str::random(32);
             // The encoder's password, minted here rather than on first use so
             // the settings card always has something to show. A station with a
@@ -180,11 +190,14 @@ class Station extends Model
     /**
      * Links a station can never have: static routes under /stations that sit
      * ahead of the {station} binding, so a station holding one could never be
-     * fetched by its slug.
+     * fetched by its slug. Also `source`: the relay logs into Icecast with
+     * the slug as its username, and `source` is Icecast's fixed login for
+     * Liquidsoap and the standby feeder. That role answers first and fails
+     * the password check, so the station could never go live.
      *
      * @var list<string>
      */
-    public const RESERVED_SLUGS = ['slug-preview'];
+    public const RESERVED_SLUGS = ['slug-preview', 'source'];
 
     /**
      * The link a name gets: Str::slug, then -2, -3, ... until free. Names
@@ -302,6 +315,21 @@ class Station extends Model
     }
 
     /**
+     * Stations whose run has (or would have) a container: everything but the
+     * relay path, which has none by design. Combine with running() for "a
+     * container should exist" — the reconciler, the metrics, anything that
+     * talks to Liquidsoap.
+     *
+     * @param  Builder<Station>  $query
+     */
+    public function scopeOnContainer(Builder $query): void
+    {
+        $query->where(fn ($query) => $query
+            ->whereNull('ingest_path')
+            ->orWhere('ingest_path', '!=', self::INGEST_RELAY));
+    }
+
+    /**
      * Has the owner asked for this station to be on air? This is intent, not
      * observation — use LiquidsoapSupervisor::isRunning() to ask the daemon
      * what is actually up, and StationStatusService to ask the container
@@ -310,6 +338,77 @@ class Station extends Model
     public function isRunning(): bool
     {
         return $this->desired_state === self::STATE_RUNNING;
+    }
+
+    /**
+     * Is this run on the relay path? Reads the path stored at start, never
+     * the plan: an owner who upgrades mid-show keeps the path the show began
+     * on until the station next starts.
+     */
+    public function usesRelay(): bool
+    {
+        return $this->ingest_path === self::INGEST_RELAY;
+    }
+
+    /**
+     * Which path a start of this station would take right now.
+     *
+     * The relay only carries a live show, so it is offered only to plans the
+     * container would give nothing more: no AutoDJ to play between shows and
+     * no external encoder to accept (harbor's job). Today that is exactly the
+     * Free plan; deciding by capability rather than by plan slug keeps an
+     * admin-edited or gifted plan on the path its features need.
+     *
+     * A station whose mount is not the one the relay publishes to (an old
+     * row from before mounts followed the slug) stays on the container, so
+     * its listeners keep finding it.
+     */
+    public function resolveIngestPath(): string
+    {
+        // Enabled without an address to hand the studio is a half-done
+        // config; a container still works, so fall back to it.
+        if (! config('relay.enabled') || (string) config('relay.ingest_url') === '') {
+            return self::INGEST_CONTAINER;
+        }
+
+        if ($this->icecast_mount !== config('relay.mount_prefix').$this->slug) {
+            return self::INGEST_CONTAINER;
+        }
+
+        // The relay logs in to Icecast as the slug, and `source` is Icecast's
+        // static login: every attempt would be refused. RESERVED_SLUGS keeps
+        // new stations off it; this keeps one that already had it on air.
+        if ($this->slug === 'source') {
+            return self::INGEST_CONTAINER;
+        }
+
+        if ($this->user === null || $this->planNeedsContainer()) {
+            return self::INGEST_CONTAINER;
+        }
+
+        $rollout = trim((string) config('relay.rollout'));
+
+        if ($rollout !== 'all') {
+            $slugs = array_filter(array_map('trim', explode(',', $rollout)));
+
+            if (! in_array($this->slug, $slugs, true)) {
+                return self::INGEST_CONTAINER;
+            }
+        }
+
+        return self::INGEST_RELAY;
+    }
+
+    /**
+     * Whether the owner's plan has something only a container gives: AutoDJ
+     * or an encoder. The plan alone, unlike resolveIngestPath(), which also
+     * says container for a relay switched off or rolled back.
+     */
+    public function planNeedsContainer(): bool
+    {
+        $user = $this->user;
+
+        return $user !== null && ($user->canUseAutoDj() || $user->canUseEncoder());
     }
 
     /**

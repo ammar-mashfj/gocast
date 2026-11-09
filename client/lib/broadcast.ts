@@ -38,6 +38,8 @@ export interface BroadcastStepInfo {
 
 /** Snapshot of the send path — see {@link BroadcastManager.getTransportStats}. */
 export interface TransportStats {
+  /** The ingest this broadcast is publishing to; see BroadcastManager.ingest. */
+  ingest: 'container' | 'relay'
   bytesSent: number
   chunksSent: number
   chunksDropped: number
@@ -78,6 +80,24 @@ const SOCKET_CONNECT_TIMEOUT_MS = 10000
 // the broadcast live, so a rejected credential surfaces as an error instead of
 // a "live" indicator over a socket the server already closed.
 const HELLO_GRACE_MS = 600
+// The relay (Free plan, no container) does acknowledge the hello: it answers
+// {"type":"ok"} once Icecast has admitted the source, which includes Icecast
+// asking the API. The relay gives Icecast 10s, so wait a little longer.
+const RELAY_OK_TIMEOUT_MS = 12000
+// The relay's close codes before {"type":"ok"}. See relay/relay.go.
+const RELAY_REFUSALS: Record<number, string> = {
+  // Icecast answers a real refusal and an API it could not reach with the same
+  // bare 401, so the relay cannot tell them apart; say both.
+  4001: 'The stream server refused this broadcast — the station may be off. If it is on, try again in a moment',
+  4002: 'The stream server did not understand this studio — reload the page and try again',
+  4009: 'This station is already live from another tab or device',
+  1011: 'The stream server is unavailable — try again in a moment',
+  // A relay copy draining for a deploy; the other copy takes the retry.
+  1001: 'The stream server is restarting — try again in a moment',
+  // No hello or no audio in time, or no webcast subprotocol. Not harbor's
+  // "previous connection may still be closing": the relay holds no mount.
+  1008: 'The stream server got nothing from this studio in time — try again in a moment',
+}
 // A cold container needs roughly 3–5s to build its audio graph and connect to
 // Icecast. Wait up to 20s before publishing anyway — see ensureStationOnAir.
 const STATION_READY_TIMEOUT_MS = 20000
@@ -354,6 +374,21 @@ export class BroadcastManager {
    * metadata into the stream.
    */
   private sentMetadataKey: string | null = null
+  /**
+   * Which ingest the API sent us to on the last token request: a station's
+   * own Liquidsoap harbor (`container`), or the shared relay (`relay`, Free
+   * plan). They speak the same webcast hello, but the relay acknowledges it
+   * and carries no metadata frames — see openSocket() and sendMetadata().
+   */
+  private ingest: 'container' | 'relay' = 'container'
+  /**
+   * The relay socket is open but Icecast has not admitted the source yet.
+   * The relay reads nothing until then, so audio sent now would sit in the
+   * network buffers and reach Icecast as one burst after the "ok" — and the
+   * listeners already on the stream would stay that far behind for the rest
+   * of the show. Frames are dropped instead, like a reconnect's.
+   */
+  private awaitingRelayOk = false
   /** What {@link start} was called with, for goLive's resumePlayback. */
   private startOptions: BroadcastStartOptions | undefined
   /** When the station was last confirmed on air, for {@link STATION_FRESH_MS}. */
@@ -633,7 +668,7 @@ export class BroadcastManager {
     this.sampleBacklog()
     // A full backlog drops the frame like a closed socket does: queueing
     // it would only push the show further behind live.
-    if (this.ws?.readyState === WebSocket.OPEN && this.backlogMs() < BACKLOG_CAP_MS) {
+    if (this.ws?.readyState === WebSocket.OPEN && !this.awaitingRelayOk && this.backlogMs() < BACKLOG_CAP_MS) {
       this.ws.send(chunk)
       this.socketBytes += chunk.byteLength
       const buffered = this.ws.bufferedAmount
@@ -983,12 +1018,13 @@ export class BroadcastManager {
       // Token is scoped to this station with a short TTL. The endpoint 403s if
       // the caller doesn't own the station; surfaced distinctly so the studio
       // can show the right message.
-      const resp = await api.post<{ token: string; ingest_url: string }>(
+      const resp = await api.post<{ token: string; ingest_url: string; ingest?: string }>(
         '/auth/broadcast-token',
         { station_slug: this.stationSlug },
       )
       token = resp.data.token
       ingestUrl = resp.data.ingest_url
+      this.ingest = resp.data.ingest === 'relay' ? 'relay' : 'container'
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 403) {
@@ -1069,6 +1105,8 @@ export class BroadcastManager {
 
       let settled = false
       let helloTimer: ReturnType<typeof setTimeout> | null = null
+      const relay = this.ingest === 'relay'
+      this.awaitingRelayOk = relay
 
       const finish = (fn: () => void) => {
         if (settled) return
@@ -1098,6 +1136,35 @@ export class BroadcastManager {
           },
         }))
 
+        if (relay) {
+          // The socket is open, so the connect budget is spent; from here the
+          // wait below is the only clock. Left running, the 10s connect timer
+          // fired first and a slow Icecast admit never got its 12s.
+          clearTimeout(connectTimer)
+          // The relay answers once Icecast has admitted the source, so wait
+          // for the word rather than for a quiet interval.
+          ws.onmessage = (message) => {
+            if (typeof message.data !== 'string') return
+            let reply: { type?: unknown } | null = null
+            try { reply = JSON.parse(message.data) } catch { /* not ours */ }
+            if (reply?.type !== 'ok') return
+            ws.onmessage = null
+            if (this.ws === ws) {
+              this.awaitingRelayOk = false
+              // Icecast has the mount only now, and the title was held back
+              // until it did: the API refuses one for a mount it cannot see.
+              // This is the relay's only replay, first go-live and reconnect.
+              if (this.lastMetadata) this.sendMetadata(this.lastMetadata.title, this.lastMetadata.artist)
+            }
+            finish(() => resolve(ws))
+          }
+          helloTimer = setTimeout(() => finish(() => {
+            try { ws.close() } catch { /* already closing */ }
+            reject(new Error('The stream server did not answer — try again in a moment'))
+          }), RELAY_OK_TIMEOUT_MS)
+          return
+        }
+
         // Survive the grace window and we are genuinely publishing.
         helloTimer = setTimeout(() => finish(() => resolve(ws)), HELLO_GRACE_MS)
       }
@@ -1107,6 +1174,14 @@ export class BroadcastManager {
       }
 
       ws.onclose = (event) => {
+        // The relay says why. 4009 is "already live": on a first go-live that
+        // is another tab or device; inside the reconnect loop it is usually
+        // our own dropped connection, still holding the mount until the relay
+        // notices it died — the loop retries every failure, so it outlasts it.
+        if (relay && RELAY_REFUSALS[event.code]) {
+          finish(() => reject(new Error(RELAY_REFUSALS[event.code])))
+          return
+        }
         // Closed inside the grace window: harbor refused us. Beyond a rejected
         // token, the most common cause during a reconnect is that harbor still
         // holds the mount from the connection we just lost and will not release
@@ -1167,10 +1242,53 @@ export class BroadcastManager {
         return
       }
 
+      // 4005: the relay's source was cut on the server. Icecast restarting
+      // looks the same, so the station decides: if its owner switched it off,
+      // the show is over, and a reconnect's POST /start would undo that.
+      if (this.ingest === 'relay' && event.code === 4005) {
+        void this.reconnectUnlessSwitchedOff(dropId)
+        return
+      }
+
       void this.reconnect(dropId)
     }
     // Errors are always followed by a close, which is where the work happens.
     ws.onerror = () => { /* handled by onclose */ }
+  }
+
+  /**
+   * After the relay's source was cut: end the show if the station was turned
+   * off or deleted, otherwise reconnect as for any drop. A failed read reconnects, which
+   * is what happened before this check existed.
+   */
+  private async reconnectUnlessSwitchedOff(dropId: string | null): Promise<void> {
+    const droppedAt = Date.now()
+    this.callbacks.onStateChange('reconnecting')
+    let switchedOff = false
+    let deleted = false
+    try {
+      const { data } = await api.get<{ data: { desired_state?: 'stopped' | 'running' } }>(
+        `/stations/${this.stationSlug}/status`,
+      )
+      switchedOff = data.data.desired_state === 'stopped'
+    } catch (err) {
+      // A 404 is the station deleted under the show, which cut the source.
+      // Anything else is a blip, and reconnecting is the safe answer.
+      deleted = (err as { response?: { status?: number } })?.response?.status === 404
+    }
+    if (this.stopping) return
+    if (switchedOff || deleted) {
+      resolveDrop(dropId, 'gave_up', {
+        downMs: Date.now() - droppedAt,
+        attempts: 0,
+        lastError: deleted ? 'station_deleted' : 'station_switched_off',
+      })
+      await this.fail(new Error(deleted
+        ? 'This station was deleted, so the broadcast ended.'
+        : 'The station was turned off, so the broadcast ended.'))
+      return
+    }
+    await this.reconnect(dropId, droppedAt)
   }
 
   /**
@@ -1242,7 +1360,8 @@ export class BroadcastManager {
         report('reconnected')
         // Harbor lost our metadata with the connection; without this the
         // listener's player keeps showing whatever was playing before the drop.
-        if (this.lastMetadata) {
+        // The relay replayed it already, the moment Icecast took the source.
+        if (this.lastMetadata && this.ingest !== 'relay') {
           this.sendMetadata(this.lastMetadata.title, this.lastMetadata.artist)
         }
         this.callbacks.onError('')
@@ -1387,13 +1506,45 @@ export class BroadcastManager {
     this.congestedSamples = 0
   }
 
-  /** Push the current track's title/artist to harbor as a metadata frame. */
+  /**
+   * Push the current track's title/artist: to harbor as a metadata frame, or
+   * on the relay path — which copies audio and nothing else — to the API.
+   */
   private sendMetadata(title: string, artist: string): void {
     // Remembered even when it can't be sent, so the reconnect can replay it.
     this.lastMetadata = { title, artist }
     if (this.ws?.readyState !== WebSocket.OPEN) return
+    if (this.ingest === 'relay') {
+      // Not before the relay's ok: Icecast has no mount to title yet, and
+      // the API's 409s would use up the retries. The ok sends it.
+      if (this.awaitingRelayOk) return
+      this.sentMetadataKey = `${title}\0${artist}`
+      this.postRelayMetadata(title, artist, 0)
+      return
+    }
     this.ws.send(JSON.stringify({ type: 'metadata', data: { title, artist } }))
     this.sentMetadataKey = `${title}\0${artist}`
+  }
+
+  /**
+   * The relay path's title goes over HTTP, which can fail where the socket
+   * frame could not (a network blip, a 429). Marked sent up front so the
+   * engine's next tick does not post it again, so a failure would otherwise
+   * leave listeners on no title, or the last one, until the next track. A few
+   * spaced retries while it is still the current track and the socket is up,
+   * then give up: it is cosmetic.
+   */
+  private postRelayMetadata(title: string, artist: string, attempt: number): void {
+    const key = `${title}\0${artist}`
+    void api.post(`/stations/${this.stationSlug}/now-playing`, { title, artist }).catch(() => {
+      if (attempt >= 2) return
+      setTimeout(() => {
+        // Not across a dropped socket either: the reconnect replays the title
+        // itself, and the server refuses one for a show that has closed.
+        if (this.stopping || this.sentMetadataKey !== key || this.ws?.readyState !== WebSocket.OPEN) return
+        this.postRelayMetadata(title, artist, attempt + 1)
+      }, 5_000)
+    })
   }
 
   /**
@@ -1406,6 +1557,7 @@ export class BroadcastManager {
     const openRun = this.dropRunStart === 0 ? 0 : Date.now() - this.dropRunStart
     const backlogMs = this.ws?.readyState === WebSocket.OPEN ? this.backlogMs() : 0
     return {
+      ingest: this.ingest,
       bytesSent: this.bytesSent,
       chunksSent: this.chunksSent,
       chunksDropped: this.chunksDropped,
