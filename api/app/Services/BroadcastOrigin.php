@@ -9,14 +9,20 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Carries the broadcaster's IP and country from the token request to the
- * stream session that harbor opens a moment later.
+ * Carries the broadcaster's IP, country and device (User-Agent) from the
+ * token request to the stream session that harbor or Icecast opens a moment
+ * later.
  *
  * The two happen in different requests. The token request comes from the
  * broadcaster's own browser or phone, so it has the real IP. The session is
  * opened by the container's `live_connected` webhook, which only knows what
  * harbor saw, and harbor sees a proxy. So the origin is kept per station in
  * the cache between the two.
+ *
+ * The device matters most on the relay path: there the session is opened by
+ * Icecast's source-connect callback, and Icecast only ever sees the relay, so
+ * without this a relay show's device would always read as unknown. A container
+ * reports harbor's User-Agent itself, which wins over this one.
  *
  * Admin monitoring only, like station_events: never throws, never blocks a
  * broadcast, and a missing origin just leaves the columns null.
@@ -31,6 +37,9 @@ class BroadcastOrigin
      */
     private const TTL_SECONDS = 6 * 3600;
 
+    /** The stream_sessions.client column, and what StationEventController accepts. */
+    private const CLIENT_MAX_LENGTH = 255;
+
     public function __construct(private readonly GeoResolver $geo) {}
 
     public function remember(Station $station, Request $request): void
@@ -39,6 +48,7 @@ class BroadcastOrigin
             Cache::put(self::PREFIX.$station->id, [
                 'ip_address' => $request->ip(),
                 'country' => $this->geo->country($request),
+                'client' => mb_substr(trim((string) $request->userAgent()), 0, self::CLIENT_MAX_LENGTH) ?: null,
             ], self::TTL_SECONDS);
         } catch (Throwable $e) {
             Log::warning('Could not remember broadcast origin', [
@@ -49,7 +59,7 @@ class BroadcastOrigin
     }
 
     /**
-     * @return array{ip_address?: ?string, country?: ?string}
+     * @return array{ip_address?: ?string, country?: ?string, client?: ?string}
      */
     public function for(Station $station): array
     {

@@ -3,12 +3,14 @@
 use App\Enums\StationAudioVerdict;
 use App\Events\StationStateChanged;
 use App\Jobs\DropStationListeners;
+use App\Jobs\SendAdminTelegramAlert;
 use App\Jobs\SendStationLiveNotifications;
 use App\Jobs\StopStation;
 use App\Models\Plan;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\User;
+use App\Services\AdminTelegram;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
@@ -1327,5 +1329,91 @@ describe('the reconciler', function () {
         }
 
         expect($station->isLive())->toBeTrue();
+    });
+});
+
+describe('the broadcaster\'s device on a relay show', function () {
+    // Icecast only ever sees the relay, so the device comes from the studio's
+    // own broadcast-token request, made right before every connect.
+    function requestRelayToken(Station $station, ?string $userAgent): void
+    {
+        test()->actingAs($station->user)
+            ->withHeaders($userAgent === null ? [] : ['User-Agent' => $userAgent])
+            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
+            ->assertOk();
+    }
+
+    $android = 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+
+    it('records the studio\'s device on the session and the timeline', function () use ($android) {
+        $station = relayStation();
+        requestRelayToken($station, $android);
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->client)->toBe($android)
+            ->and(StationEvent::where('station_id', $station->id)->sole()->properties)
+            ->toBe(['via' => 'relay', 'client' => $android]);
+    });
+
+    it('records no device when no token request was seen, without failing', function () {
+        $station = relayStation();
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->client)->toBeNull()
+            ->and(StationEvent::where('station_id', $station->id)->sole()->properties)->toBe(['via' => 'relay']);
+    });
+
+    it('records no device for a token request that sent no User-Agent', function () {
+        $station = relayStation();
+        requestRelayToken($station, '');
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->client)->toBeNull();
+    });
+
+    it('cuts a long User-Agent to the column', function () {
+        $station = relayStation();
+        requestRelayToken($station, str_repeat('x', 400));
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect(mb_strlen($station->streamSessions()->sole()->client))->toBe(255);
+    });
+
+    it('records the device of the latest token request', function () use ($android) {
+        $station = relayStation();
+        requestRelayToken($station, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36');
+        requestRelayToken($station, $android);
+
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+
+        expect($station->streamSessions()->sole()->client)->toBe($android);
+    });
+
+    it('records the device on a show reconcile reopens', function () use ($android) {
+        $station = relayStation();
+        requestRelayToken($station, $android);
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        expect($station->streamSessions()->sole()->client)->toBe($android)
+            ->and(StationEvent::where('station_id', $station->id)->sole()->properties)
+            ->toMatchArray(['via' => 'relay', 'reconciled' => true, 'client' => $android]);
+    });
+
+    it('names the device in the admin Telegram alert', function () use ($android) {
+        config(['services.telegram.bot_token' => 'test-bot', 'services.telegram.admin_chat_id' => '1']);
+        $station = relayStation();
+        requestRelayToken($station, $android);
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        Queue::fake();
+
+        app(AdminTelegram::class)->broadcastStarted($station->streamSessions()->sole());
+
+        Queue::assertPushed(SendAdminTelegramAlert::class, fn (SendAdminTelegramAlert $job) => str_contains($job->text, 'via browser ('.htmlspecialchars($android, ENT_QUOTES | ENT_HTML5).')'));
     });
 });

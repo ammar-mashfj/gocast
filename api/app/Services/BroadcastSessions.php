@@ -141,7 +141,11 @@ class BroadcastSessions
         $session = $station->streamSessions()->create([
             'started_at' => now(),
             'source_type' => $via,
-            'client' => $client,
+            // Harbor reports the device itself; Icecast (the relay path) and
+            // a container from before harbor reported it cannot, so the token
+            // request's User-Agent stands in. Never for an encoder, whose
+            // connection did not come from the device that asked for a token.
+            'client' => $client ?? ($via === 'browser' ? ($origin['client'] ?? null) : null),
             'ip_address' => $origin['ip_address'] ?? null,
             'country' => $origin['country'] ?? null,
         ]);
@@ -191,6 +195,16 @@ class BroadcastSessions
      */
     public function announce(Station $station, string $type, array $context): void
     {
+        // The device on the timeline, as a container's live_connected records
+        // it: the open session holds what open() resolved.
+        if ($type === StationEvent::TYPE_LIVE_CONNECTED && ! array_key_exists('client', $context)) {
+            $client = $station->streamSessions()->whereNull('ended_at')->latest('started_at')->value('client');
+
+            if ($client !== null) {
+                $context['client'] = $client;
+            }
+        }
+
         $this->statusService->forget($station);
         StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, $context);
         event(StationStateChanged::for($station, $type));
