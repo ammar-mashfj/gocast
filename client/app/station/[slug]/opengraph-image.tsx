@@ -1,4 +1,7 @@
+import type { CSSProperties } from "react"
 import { ImageResponse } from "next/og"
+import { arabicFonts, type ArabicCardFonts } from "@/lib/ogFonts"
+import { hasArabicScript, isRtl, ltrPieces, rtlPieces } from "@/lib/rtlText"
 import { getStation } from "./getStation"
 
 /**
@@ -51,6 +54,59 @@ function nameSize(name: string): number {
   return 46
 }
 
+/**
+ * One line of the card's text, wrapping as needed.
+ *
+ * Text with Arabic in it is cut into pieces (lib/rtlText.ts): laid out from
+ * the right when it reads right to left, because Satori would put the words
+ * of an Arabic name in reverse order, and from the left otherwise. Each
+ * Arabic piece is given its real, joined width (lib/ogFonts.ts): Satori's own
+ * measure would space the words unevenly. Arabic letters must not be spaced
+ * apart, which tears the joined script, so letter spacing is dropped; Cairo's
+ * tall marks need more line height than Latin to keep wrapped lines apart.
+ */
+function CardText({
+  text,
+  style,
+  measure,
+}: {
+  text: string
+  style: CSSProperties & { fontSize: number }
+  measure?: ArabicCardFonts["measure"]
+}) {
+  if (!hasArabicScript(text)) {
+    return <div style={{ ...style, display: "flex" }}>{text}</div>
+  }
+  const rtl = isRtl(text)
+  return (
+    <div
+      style={{
+        ...style,
+        display: "flex",
+        flexDirection: rtl ? "row-reverse" : "row",
+        flexWrap: "wrap",
+        columnGap: "0.25em",
+        letterSpacing: 0,
+        lineHeight: 1.3,
+      }}
+    >
+      {(rtl ? rtlPieces(text) : ltrPieces(text)).map((piece, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            ...(measure && hasArabicScript(piece)
+              ? { width: Math.ceil(measure(piece, style.fontSize, style.fontWeight === 700 ? 700 : 400)) }
+              : {}),
+          }}
+        >
+          {piece}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default async function StationOpengraphImage({
   params,
 }: {
@@ -60,6 +116,10 @@ export default async function StationOpengraphImage({
   const station = await getStation(slug)
   const name = station?.name ?? "GoCast"
   const artwork = await loadArtwork(station?.artwork_url ?? null)
+  const genre = station?.genre ?? null
+  // Cairo only where it is needed: every other card keeps next/og's own font.
+  const arabic = hasArabicScript(name) || (genre !== null && hasArabicScript(genre))
+  const cairo = arabic ? await arabicFonts() : null
 
   return new ImageResponse(
     (
@@ -74,6 +134,7 @@ export default async function StationOpengraphImage({
           background:
             "radial-gradient(circle at 18% 20%, rgba(139,92,246,0.32), transparent 45%), radial-gradient(circle at 85% 90%, rgba(236,72,153,0.14), transparent 40%), #0b0a10",
           color: "white",
+          ...(arabic ? { fontFamily: "Cairo" } : {}),
         }}
       >
         {artwork ? (
@@ -113,31 +174,39 @@ export default async function StationOpengraphImage({
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 22, minWidth: 0 }}>
-          {station?.genre && (
-            <div
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            gap: 22,
+            minWidth: 0,
+            // A right-to-left name sits against the right edge, as it reads.
+            alignItems: isRtl(name) ? "flex-end" : "flex-start",
+          }}
+        >
+          {genre && (
+            <CardText
+              text={genre}
+              measure={cairo?.measure}
               style={{
-                display: "flex",
                 fontSize: 24,
                 letterSpacing: 4,
                 textTransform: "uppercase",
                 color: "#a78bfa",
               }}
-            >
-              {station.genre}
-            </div>
+            />
           )}
-          <div
+          <CardText
+            text={name}
+            measure={cairo?.measure}
             style={{
-              display: "flex",
               fontSize: nameSize(name),
               fontWeight: 700,
               lineHeight: 1.02,
               letterSpacing: -2,
             }}
-          >
-            {name}
-          </div>
+          />
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12, fontSize: 28, color: "rgba(255,255,255,0.72)" }}>
             <div
               style={{
@@ -160,6 +229,6 @@ export default async function StationOpengraphImage({
         </div>
       </div>
     ),
-    { ...size },
+    { ...size, ...(cairo ? { fonts: cairo.fonts } : {}) },
   )
 }
