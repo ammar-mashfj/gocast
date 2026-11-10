@@ -18,7 +18,11 @@ use Throwable;
  *
  * The point is BroadcastTokenController's cut: a studio reconnecting after
  * its network died asks for a token while Icecast still carries its dead
- * source, and only a request from the same studio may cut it. A second device
+ * source, and only a request from the same studio may cut it. The connect
+ * event also names the source itself (`source-instance`, new for every
+ * source), so the cut can check with Icecast that the source on the mount
+ * is still that one: this record can be behind, and the mount may already
+ * belong to another device whose own connect has not been processed yet. A second device
  * (or a stale tab) has a different id, cuts nothing, and is refused "already
  * live" as before. Cutting for anyone made two live devices knock each other
  * off air in a loop: each cut studio reconnects, and its token request cut
@@ -49,9 +53,9 @@ class RelaySourceHolder
      *
      * @return string|null The studio that holds the source, when known.
      */
-    public function connected(Station $station, string $icecastClient): ?string
+    public function connected(Station $station, string $icecastClient, ?string $sourceInstance = null): ?string
     {
-        return $this->attempt(function () use ($station, $icecastClient): ?string {
+        return $this->attempt(function () use ($station, $icecastClient, $sourceInstance): ?string {
             $studio = Cache::pull($this->loginKey($station, $icecastClient));
 
             if (! is_string($studio)) {
@@ -63,6 +67,7 @@ class RelaySourceHolder
             Cache::put($this->holderKey($station), [
                 'studio' => $studio,
                 'client' => $icecastClient,
+                'instance' => $sourceInstance,
             ], self::HOLDER_TTL_SECONDS);
 
             return $studio;
@@ -85,9 +90,24 @@ class RelaySourceHolder
         });
     }
 
-    public function holds(Station $station, string $studio): bool
+    /**
+     * The Icecast source this studio holds, by its `source-instance`: null
+     * when the studio holds none, or when its connect event did not name the
+     * source (nothing to check the mount against, so nothing to cut).
+     */
+    public function heldSource(Station $station, string $studio): ?string
     {
-        return $this->attempt(fn (): bool => (Cache::get($this->holderKey($station))['studio'] ?? null) === $studio) ?? false;
+        return $this->attempt(function () use ($station, $studio): ?string {
+            $holder = Cache::get($this->holderKey($station));
+
+            if (! is_array($holder) || ($holder['studio'] ?? null) !== $studio) {
+                return null;
+            }
+
+            $instance = $holder['instance'] ?? null;
+
+            return is_string($instance) && $instance !== '' ? $instance : null;
+        });
     }
 
     private function loginKey(Station $station, string $icecastClient): string

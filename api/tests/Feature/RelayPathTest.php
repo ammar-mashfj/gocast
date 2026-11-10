@@ -65,9 +65,18 @@ beforeEach(function () {
     $this->icecastStatus = 200;
     // mount => [client id => mount history], as listclients reports them.
     $this->icecastClients = [];
+    // mount => instance_uuid of the source on it, as /admin/stats reports it.
+    $this->icecastSources = [];
     Http::fake(function (HttpRequest $request) {
         if ($this->icecastStatus !== 200) {
             return Http::response('', $this->icecastStatus);
+        }
+
+        if (str_contains($request->url(), '/admin/stats')) {
+            // No source on a mount: Icecast answers 404.
+            return isset($this->icecastSources[$request['mount']])
+                ? Http::response(statsXml($request['mount'], $this->icecastSources[$request['mount']]))
+                : Http::response('', 404);
         }
 
         if (str_contains($request->url(), '/admin/listclients')) {
@@ -80,6 +89,16 @@ beforeEach(function () {
         return Http::response(str_contains($request->url(), '/admin/listmounts') ? $this->icecastMounts : '');
     });
 });
+
+/**
+ * /admin/stats?mount= as Icecast 2.5 answers it: the server's own
+ * instance_uuid at the top, the source's inside its element.
+ */
+function statsXml(string $mount, string $instance): string
+{
+    return '<?xml version="1.0"?><icestats><instance_uuid>server-0000</instance_uuid><server_id>Icecast 2.5.0</server_id>'
+        ."<source mount=\"{$mount}\"><genre>various</genre><instance_uuid>{$instance}</instance_uuid><listeners>3</listeners></source></icestats>";
+}
 
 /** @param  array<int, list<string>>  $listeners */
 function listClientsXml(string $mount, array $listeners): string
@@ -1451,14 +1470,33 @@ describe('a reconnecting studio takes its own mount back at once', function () {
             ->json('token');
     }
 
-    /** Icecast admitting a source (auth) and then connecting it, under one client id. */
-    function sourceConnects(Station $station, string $token, string $icecastClient): void
+    /**
+     * Icecast admitting a source (auth) and then connecting it, under one
+     * client id. The source is then the one on the mount, under an instance
+     * id of its own, as in Icecast's stats.
+     */
+    function sourceConnects(Station $station, string $token, string $icecastClient, bool $eventNamesTheSource = true): void
     {
         icecastCallback('auth', [
             'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
             'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
         ])->assertHeader('icecast-auth-user', '1');
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => $station->icecast_mount, 'client' => $icecastClient])->assertOk();
+        $instance = "source-{$icecastClient}";
+        test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => $instance];
+        icecastCallback('event', array_filter([
+            'action' => 'source-connect', 'mount' => $station->icecast_mount, 'client' => $icecastClient,
+            'source-instance' => $eventNamesTheSource ? $instance : null,
+        ]))->assertOk();
+    }
+
+    /** Another source on the mount whose connect event has not reached Laravel yet. */
+    function sourceTakesTheMountUnreported(Station $station, string $token, string $icecastClient): void
+    {
+        icecastCallback('auth', [
+            'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
+            'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
+        ])->assertHeader('icecast-auth-user', '1');
+        test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => "source-{$icecastClient}"];
     }
 
     it('cuts the dead source of the studio that is reconnecting', function () {
@@ -1483,6 +1521,63 @@ describe('a reconnecting studio takes its own mount back at once', function () {
         // cut the laptop, and so on for as long as both stayed open.
         studioToken($station, LAPTOP);
         studioToken($station, LAPTOP);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing when another device took the mount before its connect was processed', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        // The phone's source timed out at the relay, and the laptop's next
+        // try got the mount. Its connect event, and the phone's disconnect,
+        // are still on their way: the record says the phone holds the mount.
+        sourceTakesTheMountUnreported($station, studioToken($station, LAPTOP), '8');
+
+        // The phone comes back and asks for a token.
+        studioToken($station, PHONE);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing when the holder\'s record outlived a lost connect event', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        // The laptop has been on air for hours; its connect event never
+        // reached Laravel, so the phone is still on record.
+        sourceTakesTheMountUnreported($station, studioToken($station, LAPTOP), '8');
+        $this->travel(3)->hours();
+
+        studioToken($station, PHONE);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing when no source is on the mount any more', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        // Its source is gone, and the disconnect event is still on its way.
+        $this->icecastSources = [];
+
+        studioToken($station, PHONE);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing when Icecast cannot say which source is on the mount', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        $this->icecastStatus = 500;
+
+        studioToken($station, PHONE);
+
+        expect(killedSources())->toBe([]);
+    });
+
+    it('cuts nothing when the connect event did not name its source', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7', eventNamesTheSource: false);
+
+        studioToken($station, PHONE);
 
         expect(killedSources())->toBe([]);
     });
@@ -1604,6 +1699,25 @@ describe('a reconnecting studio takes its own mount back at once', function () {
             ->and(StationEvent::where('station_id', $station->id)->sole()->properties['client'])
             ->toBe('Mozilla/5.0 (Android 14) Chrome/130');
     });
+
+    it('never names a refused device when the studio\'s own origin is gone', function (bool $sessionStaysOpen) {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE, 'Mozilla/5.0 (Android 14) Chrome/130'), '7');
+        // The phone reconnects. Between its token request and its connect,
+        // a laptop asks for a token (and is refused), and the cache loses the
+        // phone's own entry.
+        $phoneToken = studioToken($station, PHONE, 'Mozilla/5.0 (Android 14) Chrome/130');
+        studioToken($station, LAPTOP, 'Mozilla/5.0 (Windows NT 10.0) Chrome/130');
+        Cache::forget("broadcast-origin:{$station->id}:".PHONE);
+        if (! $sessionStaysOpen) {
+            $this->icecastMounts = '<icestats/>';
+            icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show', 'client' => '7'])->assertOk();
+        }
+
+        sourceConnects($station, $phoneToken, '8');
+
+        expect($station->streamSessions()->sole()->client)->toBe('Mozilla/5.0 (Android 14) Chrome/130');
+    })->with(['session kept open' => true, 'session closed and rejoined' => false]);
 
     it('names the new device when another one takes the show over', function (bool $disconnectClosesTheSession) {
         $station = relayStation();

@@ -67,8 +67,10 @@ class BroadcastTokenController extends Controller
         // harbor connects, so it is the only place the real address exists.
         $origin->remember($station, $request, $studio);
 
-        if ($studio !== null && $station->usesRelay() && $holder->holds($station, $studio)) {
-            $this->releaseOwnDeadSource($station, $icecast);
+        $heldSource = $studio !== null && $station->usesRelay() ? $holder->heldSource($station, $studio) : null;
+
+        if ($heldSource !== null) {
+            $this->releaseOwnDeadSource($station, $icecast, $heldSource);
         }
 
         return response()->json([
@@ -103,9 +105,29 @@ class BroadcastTokenController extends Controller
      * Only the same studio: a second device or a stale tab has another id,
      * cuts nothing, and is told "already live". The listeners stay connected
      * either way — Icecast moves them to /standby and back.
+     *
+     * And only that studio's own source. Icecast cuts whatever is on the
+     * mount, and our record of the holder can be behind it: this studio's
+     * source may have timed out and another device's taken the mount before
+     * its connect event was processed. So Icecast is asked first which source
+     * is on the mount, and anything but the one this studio holds — another
+     * source, none, or no answer — is left alone. The reconnect then waits
+     * for the relay's idle timeout, as it did before the cut existed.
      */
-    private function releaseOwnDeadSource(Station $station, IcecastAdmin $icecast): void
+    private function releaseOwnDeadSource(Station $station, IcecastAdmin $icecast, string $heldSource): void
     {
+        $onMount = $icecast->sourceInstance($station->icecast_mount);
+
+        if ($onMount !== $heldSource) {
+            Log::info('Left a relay mount alone: its source is not the reconnecting studio\'s', [
+                'station' => $station->slug,
+                'held' => $heldSource,
+                'on_mount' => $onMount,
+            ]);
+
+            return;
+        }
+
         $released = $icecast->killSource($station);
 
         Log::info('Released a relay source for its reconnecting studio', [

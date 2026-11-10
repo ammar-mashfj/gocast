@@ -106,6 +106,15 @@ class BroadcastSessions
      */
     private function openUnlocked(Station $station, string $via, ?string $client, ?string $studio = null): bool
     {
+        // The origin only exists for the studio and the app, which ask for a
+        // broadcast token first. An encoder never does, so its row gets no IP.
+        $origin = $via === 'external' ? [] : $this->origin->for($station, $studio);
+        // Harbor reports the device itself; Icecast (the relay path) and a
+        // container from before harbor reported it cannot, so the token
+        // request's User-Agent stands in. Never for an encoder, whose
+        // connection did not come from the device that asked for a token.
+        $client ??= $via === 'browser' ? ($origin['client'] ?? null) : null;
+
         $existing = $station->streamSessions()->whereNull('ended_at')->latest('started_at')->first();
 
         // A relay source whose studio is known joins the open row as that
@@ -113,9 +122,8 @@ class BroadcastSessions
         // (its disconnect was answered by the new source already on air) is
         // the device on air now.
         if ($existing !== null && $studio !== null && $station->usesRelay()) {
-            $origin = $this->origin->for($station, $studio);
             $existing->update(array_filter([
-                'client' => $client ?? ($origin['client'] ?? null),
+                'client' => $client,
                 'ip_address' => $origin['ip_address'] ?? null,
                 'country' => $origin['country'] ?? null,
             ], fn ($value) => $value !== null));
@@ -135,15 +143,6 @@ class BroadcastSessions
             // reconnect inside the same second.
             return false;
         }
-
-        // The origin only exists for the studio and the app, which ask for a
-        // broadcast token first. An encoder never does, so its row gets no IP.
-        $origin = $via === 'external' ? [] : $this->origin->for($station, $studio);
-        // Harbor reports the device itself; Icecast (the relay path) and a
-        // container from before harbor reported it cannot, so the token
-        // request's User-Agent stands in. Never for an encoder, whose
-        // connection did not come from the device that asked for a token.
-        $client ??= $via === 'browser' ? ($origin['client'] ?? null) : null;
 
         if ($this->rejoinRecentSession($station, $via, $client, $origin)) {
             return true;

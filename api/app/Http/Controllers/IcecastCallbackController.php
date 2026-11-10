@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Station;
 use App\Models\StationEvent;
-use App\Services\BroadcastOrigin;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
@@ -113,7 +112,6 @@ class IcecastCallbackController extends Controller
         BroadcastSessions $sessions,
         IcecastAdmin $icecast,
         RelaySourceHolder $holder,
-        BroadcastOrigin $origin,
     ): Response {
         $action = (string) $request->input('action', '');
         $mount = (string) $request->input('mount', '');
@@ -147,10 +145,11 @@ class IcecastCallbackController extends Controller
             // The studio this source belongs to, and so its device: Icecast
             // only ever sees the relay. Unknown for a studio that sent no id;
             // open() then falls back to the latest token request's.
-            $studio = $icecastClient !== '' ? $holder->connected($station, $icecastClient) : null;
-            $client = $studio !== null ? ($origin->for($station, $studio)['client'] ?? null) : null;
-
-            $changed = $sessions->open($station, 'browser', $client, studio: $studio);
+            $sourceInstance = trim((string) $request->input('source-instance', ''));
+            $studio = $icecastClient !== ''
+                ? $holder->connected($station, $icecastClient, $sourceInstance !== '' ? $sourceInstance : null)
+                : null;
+            $changed = $sessions->open($station, 'browser', null, studio: $studio);
         } else {
             if ($icecastClient !== '') {
                 $holder->disconnected($station, $icecastClient);

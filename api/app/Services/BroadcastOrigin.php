@@ -76,9 +76,12 @@ class BroadcastOrigin
     public function for(Station $station, ?string $studio = null): array
     {
         try {
-            return ($studio !== null ? Cache::get(self::PREFIX.$station->id.':'.$studio) : null)
-                ?? Cache::get(self::PREFIX.$station->id)
-                ?? [];
+            // A known studio gets its own origin or none. Falling back to the
+            // station's latest token request would hand the show to whoever
+            // asked last: often a second device that was refused.
+            return ($studio !== null
+                ? Cache::get(self::PREFIX.$station->id.':'.$studio)
+                : Cache::get(self::PREFIX.$station->id)) ?? [];
         } catch (Throwable) {
             return [];
         }
