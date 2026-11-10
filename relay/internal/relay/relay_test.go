@@ -1100,6 +1100,46 @@ func TestBusyRetryIsPerStation(t *testing.T) {
 	}
 }
 
+// A retry that Icecast does not answer must not run past the budget: the
+// studio waits 12 s for an answer and would report a generic timeout.
+func TestSlowRetryStaysInsideTheBudget(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { ln.Close() })
+	var logins atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				bufio.NewReader(c).ReadString('\n')
+				if logins.Add(1) == 1 {
+					io.WriteString(c, "HTTP/1.0 403 Forbidden\r\n\r\nMountpoint in use\r\n")
+					c.Close()
+					return
+				}
+				// Every later login hangs: Icecast stuck on the auth call.
+				time.Sleep(5 * time.Second)
+				c.Close()
+			}(c)
+		}
+	}()
+	cfg := testConfig(ln.Addr().String())
+	cfg.IcecastTimeout = 5 * time.Second
+	cfg.BusyRetryFor = 600 * time.Millisecond
+	cfg.BusyRetryEvery = 100 * time.Millisecond
+	_, hs := startRelay(t, cfg)
+
+	start := time.Now()
+	if _, code := connectStudio(t, hs, "a"); code != CloseBusy {
+		t.Fatalf("got %d, want %d (still in use as far as anyone knows)", code, CloseBusy)
+	}
+	if d := time.Since(start); d > 1500*time.Millisecond {
+		t.Fatalf("answered after %s; the retry budget is 600ms", d)
+	}
+}
+
 func TestDefaultsGiveUpADeadStudioInFourSeconds(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.IdleTimeout != 4*time.Second {

@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Station;
 use App\Models\StationEvent;
+use App\Services\BroadcastOrigin;
 use App\Services\BroadcastSessions;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
 use App\Services\IngestMetrics;
+use App\Services\RelaySourceHolder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -45,7 +47,7 @@ class IcecastCallbackController extends Controller
      * source, anything else refuses it, and `icecast-auth-message` is what it
      * logs. Answered 200 either way — the refusal is in the header.
      */
-    public function auth(Request $request, BroadcastTokenService $tokens): Response
+    public function auth(Request $request, BroadcastTokenService $tokens, RelaySourceHolder $holder): Response
     {
         $slug = (string) $request->input('user', '');
         $mount = (string) $request->input('mount', '');
@@ -86,8 +88,19 @@ class IcecastCallbackController extends Controller
             return $this->refuse($slug, $mount, 'station is not on the relay path', 'unknown');
         }
 
-        if ($tokens->verify($token, $slug) === null) {
+        $verified = $tokens->verify($token, $slug);
+
+        if ($verified === null) {
             return $this->refuse($slug, $mount, 'invalid or expired credential', 'unknown');
+        }
+
+        // Which studio this login is, for the connect event that follows it
+        // with the same Icecast client id. A login for a mount that is in use
+        // gets here too; it never connects, so it never becomes the holder.
+        $icecastClient = (string) $request->input('client', '');
+
+        if ($verified['studio'] !== null && $icecastClient !== '') {
+            $holder->admitted($station, $icecastClient, $verified['studio']);
         }
 
         $this->metrics->allowed('token');
@@ -99,6 +112,8 @@ class IcecastCallbackController extends Controller
         Request $request,
         BroadcastSessions $sessions,
         IcecastAdmin $icecast,
+        RelaySourceHolder $holder,
+        BroadcastOrigin $origin,
     ): Response {
         $action = (string) $request->input('action', '');
         $mount = (string) $request->input('mount', '');
@@ -126,9 +141,21 @@ class IcecastCallbackController extends Controller
             return response('', Response::HTTP_OK);
         }
 
+        $icecastClient = (string) $request->input('client', '');
+
         if ($type === StationEvent::TYPE_LIVE_CONNECTED) {
-            $changed = $sessions->open($station, 'browser', null);
+            // The studio this source belongs to, and so its device: Icecast
+            // only ever sees the relay. Unknown for a studio that sent no id;
+            // open() then falls back to the latest token request's.
+            $studio = $icecastClient !== '' ? $holder->connected($station, $icecastClient) : null;
+            $client = $studio !== null ? ($origin->for($station, $studio)['client'] ?? null) : null;
+
+            $changed = $sessions->open($station, 'browser', $client, studio: $studio);
         } else {
+            if ($icecastClient !== '') {
+                $holder->disconnected($station, $icecastClient);
+            }
+
             // Unless the studio is already back on a new source. Icecast sends
             // events one at a time, in order, but a backlog (a relay restart
             // reconnects every studio at once) can deliver this after the

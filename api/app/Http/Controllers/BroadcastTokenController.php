@@ -7,6 +7,7 @@ use App\Services\BroadcastOrigin;
 use App\Services\BroadcastTokenService;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
+use App\Services\RelaySourceHolder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -41,10 +42,15 @@ class BroadcastTokenController extends Controller
         LiquidsoapSupervisor $supervisor,
         BroadcastOrigin $origin,
         IcecastAdmin $icecast,
+        RelaySourceHolder $holder,
     ): JsonResponse {
         $data = $request->validate([
             'station_slug' => ['required', 'string', 'max:255'],
+            // Random, made up by the studio once per go-live and sent on every
+            // reconnect of that show: see RelaySourceHolder.
+            'studio' => ['sometimes', 'nullable', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/'],
         ]);
+        $studio = $data['studio'] ?? null;
 
         $user = $request->user();
         if ($user === null) {
@@ -59,14 +65,14 @@ class BroadcastTokenController extends Controller
         // Admin monitoring: the IP and country shown on /admin/stations. This
         // request is the last one from the broadcaster's own device before
         // harbor connects, so it is the only place the real address exists.
-        $origin->remember($station, $request);
+        $origin->remember($station, $request, $studio);
 
-        if ($station->usesRelay()) {
-            $this->releaseStaleRelaySource($station, $icecast);
+        if ($studio !== null && $station->usesRelay() && $holder->holds($station, $studio)) {
+            $this->releaseOwnDeadSource($station, $icecast);
         }
 
         return response()->json([
-            'token' => $tokens->issue($user, $station),
+            'token' => $tokens->issue($user, $station, studio: $studio),
             'expires_in' => BroadcastTokenService::TTL_SECONDS,
             // Where to publish. Resolved server-side because in local dev it
             // is the container's current bridge IP, which changes on every
@@ -85,34 +91,24 @@ class BroadcastTokenController extends Controller
     }
 
     /**
-     * Free the station's Icecast mount for the connection this token is for.
+     * Cut the source this same studio left behind.
      *
      * The studio asks for a token right before every connect and reconnect.
-     * A source Icecast still carries at that moment is almost always the same
-     * studio's previous connection, which died without a close (a phone
-     * switching networks, a backgrounded tab): the relay only lets go of it
-     * after its idle timeout, and until then Icecast answers the reconnect
-     * "Mountpoint in use" — ten to fifteen seconds of silence on air, measured
-     * locally, against about one with this.
+     * When the source Icecast holds for this station is this studio's own
+     * (RelaySourceHolder), it is a connection that died without a close — a
+     * phone switching networks, a backgrounded tab — and the relay would hold
+     * it until its idle timeout, answering the reconnect "Mountpoint in use"
+     * meanwhile. Cutting it brings the show back in about a second instead.
      *
-     * Newest wins: a second device pressing Go Live takes the station over
-     * from the first. Only the owner can get here, and the listeners are not
-     * disconnected — Icecast moves them to /standby and back, exactly as when
-     * the idle timeout fires. The session close and rejoin that follow are the
-     * same callbacks a relay blip already produces.
-     *
-     * Only on the relay path. A container's source is Liquidsoap, which plays
-     * AutoDJ between shows and must never be cut from here.
+     * Only the same studio: a second device or a stale tab has another id,
+     * cuts nothing, and is told "already live". The listeners stay connected
+     * either way — Icecast moves them to /standby and back.
      */
-    private function releaseStaleRelaySource(Station $station, IcecastAdmin $icecast): void
+    private function releaseOwnDeadSource(Station $station, IcecastAdmin $icecast): void
     {
-        if ($icecast->carries($station->icecast_mount) !== true) {
-            return;
-        }
-
         $released = $icecast->killSource($station);
 
-        Log::info('Released a relay source for a reconnecting studio', [
+        Log::info('Released a relay source for its reconnecting studio', [
             'station' => $station->slug,
             'released' => $released,
         ]);

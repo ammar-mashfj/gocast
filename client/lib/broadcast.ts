@@ -220,6 +220,17 @@ const REBUILD_CREATE_TIMEOUT_MS = 8000
  */
 const MAX_EMPTY_DROPS = 3
 
+/**
+ * A random id for one show (see BroadcastManager.studioId): 32 hex digits.
+ * getRandomValues rather than randomUUID, which only exists in a secure
+ * context and would break the studio opened over plain http on a LAN.
+ */
+export function newStudioId(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 /** The pause before the next attempt, jittered. */
 function reconnectDelay(attempt: number): number {
   const base = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]
@@ -402,6 +413,15 @@ export class BroadcastManager {
   private quietSteps = false
   /** When the engine last emitted an encoded frame, socket or not. */
   private lastFrameAt = 0
+  /**
+   * This show's own id, sent with every broadcast-token request: made up
+   * fresh by start() and kept through every reconnect of the show. On the
+   * relay path the server cuts a source still on air only when it is this
+   * studio's own (a connection that died without a close), so a reconnect
+   * gets back on air in about a second, while another device or tab pressing
+   * Go Live mid-show cuts nothing and is told "already live".
+   */
+  private studioId = newStudioId()
   private frameWatchdog: ReturnType<typeof setInterval> | null = null
   private rebuilding = false
   /** Epoch ms of recent engine rebuilds, for MAX_REBUILDS. */
@@ -462,6 +482,7 @@ export class BroadcastManager {
     this.emptyDrops = 0
     this.parkedDrop = null
     this.startOptions = options
+    this.studioId = newStudioId()
     const run = ++this.checksRun
     this.callbacks.onStateChange('connecting')
 
@@ -1020,7 +1041,7 @@ export class BroadcastManager {
       // can show the right message.
       const resp = await api.post<{ token: string; ingest_url: string; ingest?: string }>(
         '/auth/broadcast-token',
-        { station_slug: this.stationSlug },
+        { station_slug: this.stationSlug, studio: this.studioId },
       )
       token = resp.data.token
       ingestUrl = resp.data.ingest_url
@@ -1174,10 +1195,10 @@ export class BroadcastManager {
       }
 
       ws.onclose = (event) => {
-        // The relay says why. 4009 is "already live". Our own dropped
-        // connection rarely causes it any more: the token request for this
-        // connect made Laravel cut the source Icecast still carried, and the
-        // relay waits out Icecast letting go. The loop retries it regardless.
+        // The relay says why. 4009 is "already live": another device or tab
+        // holds the station. Rarely our own dropped connection any more: the
+        // token request for this connect carried our studio id, so Laravel
+        // cut the source we left behind. The loop retries it regardless.
         if (relay && RELAY_REFUSALS[event.code]) {
           finish(() => reject(new Error(RELAY_REFUSALS[event.code])))
           return

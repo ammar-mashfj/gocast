@@ -42,14 +42,26 @@ class BroadcastOrigin
 
     public function __construct(private readonly GeoResolver $geo) {}
 
-    public function remember(Station $station, Request $request): void
+    /**
+     * $studio is the id the studio sends with its token request (see
+     * RelaySourceHolder): kept under it as well, so the session a source opens
+     * gets the origin of the studio that connected, not of whichever device
+     * asked for a token last.
+     */
+    public function remember(Station $station, Request $request, ?string $studio = null): void
     {
         try {
-            Cache::put(self::PREFIX.$station->id, [
+            $origin = [
                 'ip_address' => $request->ip(),
                 'country' => $this->geo->country($request),
                 'client' => mb_substr(trim((string) $request->userAgent()), 0, self::CLIENT_MAX_LENGTH) ?: null,
-            ], self::TTL_SECONDS);
+            ];
+
+            Cache::put(self::PREFIX.$station->id, $origin, self::TTL_SECONDS);
+
+            if ($studio !== null) {
+                Cache::put(self::PREFIX.$station->id.':'.$studio, $origin, self::TTL_SECONDS);
+            }
         } catch (Throwable $e) {
             Log::warning('Could not remember broadcast origin', [
                 'station' => $station->slug,
@@ -61,10 +73,12 @@ class BroadcastOrigin
     /**
      * @return array{ip_address?: ?string, country?: ?string, client?: ?string}
      */
-    public function for(Station $station): array
+    public function for(Station $station, ?string $studio = null): array
     {
         try {
-            return Cache::get(self::PREFIX.$station->id) ?? [];
+            return ($studio !== null ? Cache::get(self::PREFIX.$station->id.':'.$studio) : null)
+                ?? Cache::get(self::PREFIX.$station->id)
+                ?? [];
         } catch (Throwable) {
             return [];
         }
