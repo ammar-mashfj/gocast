@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import opentype from "opentype.js"
 import { describe, expect, it } from "vitest"
-import { arabicFonts, measureShaped } from "./ogFonts"
+import { arabicFonts, coversArabic, measureShaped } from "./ogFonts"
 
 function cairo(file: string): opentype.Font {
   const data = readFileSync(join(process.cwd(), "assets/fonts", file))
@@ -38,5 +38,28 @@ describe("arabicFonts", () => {
     // Each weight is measured with its own font.
     expect(measure("مريم", 74, 700)).toBeGreaterThan(0)
     expect(measure("مريم", 74, 700)).not.toBeCloseTo(measure("مريم", 74, 400), 0)
+  })
+})
+
+describe("coversArabic", () => {
+  const bold = cairo("Cairo-Bold.ttf")
+
+  it.each([
+    ["Arabic", "إذاعة القرآن الكريم"],
+    ["Persian, with a non-joiner", "نمایش\u200Cها"],
+    ["Urdu", "ریڈیو پاکستان"],
+    ["Arabic-Indic digits", "٤٠٣٠"],
+    ["an emoji beside Arabic, which is not Cairo's business", "راديو 🎵"],
+    ["no Arabic at all", "Радио"],
+  ])("covers %s", (_, text) => {
+    expect(coversArabic(bold, text)).toBe(true)
+  })
+
+  it.each([
+    ["Kurdish Sorani", "ڕادیۆ"],
+    ["Pashto", "ږغ"],
+    ["a presentation form", "\uFB50"],
+  ])("does not cover %s", (_, text) => {
+    expect(coversArabic(bold, text)).toBe(false)
   })
 })

@@ -21,6 +21,23 @@ export type ArabicCardFonts = {
   fonts: OgFont[]
   /** The width an Arabic word really takes when drawn, letters joined. */
   measure: (text: string, fontSize: number, weight: 400 | 700) => number
+  /**
+   * Whether Cairo has every Arabic-script letter in the text. A letter it
+   * lacks (Kurdish, Sindhi and Pashto letters, most presentation forms) makes
+   * next/og fetch Noto Sans Arabic for it: the very font whose tables crash
+   * the renderer. Other characters it lacks (emoji, other scripts) are
+   * fetched as before and are not this font's business.
+   */
+  covers: (text: string) => boolean
+}
+
+const ARABIC_SCRIPT_CHAR = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFC]/
+
+export function coversArabic(font: opentype.Font, text: string): boolean {
+  for (const ch of text) {
+    if (ARABIC_SCRIPT_CHAR.test(ch) && !font.charToGlyphIndex(ch)) return false
+  }
+  return true
 }
 
 /**
@@ -53,6 +70,7 @@ export function arabicFonts(): Promise<ArabicCardFonts> {
         { name: "Cairo", data: bold, weight: 700, style: "normal" },
       ],
       measure: (text, fontSize, weight) => measureShaped(shapers[weight], text, fontSize),
+      covers: (text) => coversArabic(shapers[400], text) && coversArabic(shapers[700], text),
     }
   })
   // A failed read is not cached: the next request tries again.

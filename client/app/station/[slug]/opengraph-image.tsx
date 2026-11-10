@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { ImageResponse } from "next/og"
 import { arabicFonts, type ArabicCardFonts } from "@/lib/ogFonts"
-import { hasArabicScript, isRtl, ltrPieces, rtlPieces } from "@/lib/rtlText"
+import { hasArabicScript, isRtl, joinParts, ltrPieces, rtlPieces, withoutInvisibles } from "@/lib/rtlText"
 import { getStation } from "./getStation"
 
 /**
@@ -90,19 +90,27 @@ function CardText({
         lineHeight: 1.3,
       }}
     >
-      {(rtl ? rtlPieces(text) : ltrPieces(text)).map((piece, i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            ...(measure && hasArabicScript(piece)
-              ? { width: Math.ceil(measure(piece, style.fontSize, style.fontWeight === 700 ? 700 : 400)) }
-              : {}),
-          }}
-        >
-          {piece}
-        </div>
-      ))}
+      {(rtl ? rtlPieces(text) : ltrPieces(text)).map((piece, i) =>
+        hasArabicScript(piece) ? (
+          // An Arabic word, in parts where a non-joiner breaks it: laid out
+          // from the right with no gap, each at its real joined width.
+          <div key={i} style={{ display: "flex", flexDirection: "row-reverse" }}>
+            {joinParts(piece).map((part, j) => (
+              <div
+                key={j}
+                style={{
+                  display: "flex",
+                  ...(measure ? { width: Math.ceil(measure(part, style.fontSize, style.fontWeight === 700 ? 700 : 400)) } : {}),
+                }}
+              >
+                {part}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div key={i} style={{ display: "flex" }}>{piece}</div>
+        ),
+      )}
     </div>
   )
 }
@@ -114,12 +122,17 @@ export default async function StationOpengraphImage({
 }) {
   const { slug } = await params
   const station = await getStation(slug)
-  const name = station?.name ?? "GoCast"
   const artwork = await loadArtwork(station?.artwork_url ?? null)
-  const genre = station?.genre ?? null
+  const rawName = withoutInvisibles(station?.name ?? "GoCast")
+  const rawGenre = station?.genre ? withoutInvisibles(station.genre) : null
   // Cairo only where it is needed: every other card keeps next/og's own font.
-  const arabic = hasArabicScript(name) || (genre !== null && hasArabicScript(genre))
+  const arabic = hasArabicScript(rawName) || (rawGenre !== null && hasArabicScript(rawGenre))
   const cairo = arabic ? await arabicFonts() : null
+  // Text with a letter Cairo lacks is left off the card rather than drawn
+  // with the font that crashes the renderer. The artwork and "Listen on
+  // GoCast" stay, and every network prints the station's name beside it.
+  const name = cairo && !cairo.covers(rawName) ? null : rawName
+  const genre = rawGenre !== null && cairo && !cairo.covers(rawGenre) ? null : rawGenre
 
   return new ImageResponse(
     (
@@ -182,7 +195,7 @@ export default async function StationOpengraphImage({
             gap: 22,
             minWidth: 0,
             // A right-to-left name sits against the right edge, as it reads.
-            alignItems: isRtl(name) ? "flex-end" : "flex-start",
+            alignItems: isRtl(name ?? rawName) ? "flex-end" : "flex-start",
           }}
         >
           {genre && (
@@ -197,6 +210,7 @@ export default async function StationOpengraphImage({
               }}
             />
           )}
+          {name !== null && (
           <CardText
             text={name}
             measure={cairo?.measure}
@@ -207,6 +221,7 @@ export default async function StationOpengraphImage({
               letterSpacing: -2,
             }}
           />
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12, fontSize: 28, color: "rgba(255,255,255,0.72)" }}>
             <div
               style={{
