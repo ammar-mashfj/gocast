@@ -36,6 +36,9 @@ use Illuminate\Support\Facades\Log;
  */
 class BroadcastTokenController extends Controller
 {
+    /** Each Icecast call the reconnect cut makes; the token waits on both. */
+    private const CUT_TIMEOUT_SECONDS = 1.0;
+
     public function __invoke(
         Request $request,
         BroadcastTokenService $tokens,
@@ -113,26 +116,43 @@ class BroadcastTokenController extends Controller
      * is on the mount, and anything but the one this studio holds — another
      * source, none, or no answer — is left alone. The reconnect then waits
      * for the relay's idle timeout, as it did before the cut existed.
+     *
+     * Icecast's killsource takes a mount, not a source, so a source that
+     * took the mount in the moment between the check and the cut would be
+     * cut instead. That moment is one round trip to Icecast, and a source
+     * has to finish a whole login inside it; the check closes every wider
+     * gap.
+     *
+     * Both calls are short (CUT_TIMEOUT_SECONDS each): the token waits on
+     * them, and an Icecast that cannot answer quickly costs only the cut.
      */
     private function releaseOwnDeadSource(Station $station, IcecastAdmin $icecast, string $heldSource): void
     {
-        $onMount = $icecast->sourceInstance($station->icecast_mount);
+        $started = hrtime(true);
+        $onMount = $icecast->sourceInstance($station->icecast_mount, self::CUT_TIMEOUT_SECONDS);
 
         if ($onMount !== $heldSource) {
             Log::info('Left a relay mount alone: its source is not the reconnecting studio\'s', [
                 'station' => $station->slug,
                 'held' => $heldSource,
                 'on_mount' => $onMount,
+                'elapsed_ms' => self::elapsedMs($started),
             ]);
 
             return;
         }
 
-        $released = $icecast->killSource($station);
+        $released = $icecast->killSource($station, self::CUT_TIMEOUT_SECONDS);
 
         Log::info('Released a relay source for its reconnecting studio', [
             'station' => $station->slug,
             'released' => $released,
+            'elapsed_ms' => self::elapsedMs($started),
         ]);
+    }
+
+    private static function elapsedMs(int|float $started): int
+    {
+        return (int) round((hrtime(true) - $started) / 1e6);
     }
 }

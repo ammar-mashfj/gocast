@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Station;
 use App\Services\IcecastAdmin;
 use Illuminate\Support\Facades\Http;
 
@@ -50,4 +51,29 @@ describe('which source is on a mount', function () {
         'not XML' => [200, 'gateway says hi'],
         'no instance id' => [200, '<icestats><source mount="/stream/labx"><listeners>0</listeners></source></icestats>'],
     ]);
+});
+
+describe('per-call timeouts', function () {
+    it('gives a call the timeout its caller asks for, and 3 s otherwise', function () {
+        $timeouts = [];
+        Http::fake(function ($request, array $options) use (&$timeouts) {
+            $timeouts[] = [parse_url($request->url(), PHP_URL_PATH), $options['timeout'] ?? null];
+
+            return Http::response(ICECAST_STATS);
+        });
+        $admin = app(IcecastAdmin::class);
+        $station = Station::factory()->create(['slug' => 'labx', 'icecast_mount' => '/stream/labx']);
+
+        $admin->sourceInstance('/stream/labx', 1.0);
+        $admin->killSource($station, 1.0);
+        $admin->sourceInstance('/stream/labx');
+        $admin->killSource($station);
+
+        expect($timeouts)->toBe([
+            ['/admin/stats', 1.0],
+            ['/admin/killsource', 1.0],
+            ['/admin/stats', 3.0],
+            ['/admin/killsource', 3.0],
+        ]);
+    });
 });

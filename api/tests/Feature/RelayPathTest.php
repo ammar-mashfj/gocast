@@ -122,6 +122,61 @@ function killedListeners(): array
         ->all();
 }
 
+const PHONE = 'phone-0a1b2c3d4e5f';
+const LAPTOP = 'laptop-9f8e7d6c5b4a';
+
+function killedSources(): array
+{
+    return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'))
+        ->map(fn (array $pair) => $pair[0]['mount'])
+        ->values()
+        ->all();
+}
+
+function icecastCalls(): int
+{
+    return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), 'icecast.test'))->count();
+}
+
+/** What the studio does before every connect: POST /auth/broadcast-token. */
+function studioToken(Station $station, ?string $studio, string $userAgent = 'Mozilla/5.0 (Android) Chrome/130'): string
+{
+    return test()->actingAs($station->user)
+        ->withHeaders(['User-Agent' => $userAgent])
+        ->postJson('/api/auth/broadcast-token', array_filter(['station_slug' => $station->slug, 'studio' => $studio]))
+        ->assertOk()
+        ->json('token');
+}
+
+/**
+ * Icecast admitting a source (auth) and then connecting it, under one
+ * client id. The source is then the one on the mount, under an instance
+ * id of its own, as in Icecast's stats.
+ */
+function sourceConnects(Station $station, string $token, string $icecastClient, bool $eventNamesTheSource = true): void
+{
+    icecastCallback('auth', [
+        'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
+        'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
+    ])->assertHeader('icecast-auth-user', '1');
+    $instance = "source-{$icecastClient}";
+    test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => $instance];
+    icecastCallback('event', array_filter([
+        'action' => 'source-connect', 'mount' => $station->icecast_mount, 'client' => $icecastClient,
+        'source-instance' => $eventNamesTheSource ? $instance : null,
+    ]))->assertOk();
+}
+
+/** Another source on the mount whose connect event has not reached Laravel yet. */
+function sourceTakesTheMountUnreported(Station $station, string $token, string $icecastClient): void
+{
+    icecastCallback('auth', [
+        'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
+        'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
+    ])->assertHeader('icecast-auth-user', '1');
+    test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => "source-{$icecastClient}"];
+}
+
 /** A Free station already started on the relay path. */
 function relayStation(array $attributes = []): Station
 {
@@ -1353,22 +1408,15 @@ describe('the reconciler', function () {
 
 describe('the broadcaster\'s device on a relay show', function () {
     // Icecast only ever sees the relay, so the device comes from the studio's
-    // own broadcast-token request, made right before every connect.
-    function requestRelayToken(Station $station, ?string $userAgent): void
-    {
-        test()->actingAs($station->user)
-            ->withHeaders($userAgent === null ? [] : ['User-Agent' => $userAgent])
-            ->postJson('/api/auth/broadcast-token', ['station_slug' => $station->slug])
-            ->assertOk();
-    }
-
+    // own broadcast-token request, made right before every connect, and is
+    // matched to the source by the studio id that request carries.
     $android = 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+    $windows = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36';
 
     it('records the studio\'s device on the session and the timeline', function () use ($android) {
         $station = relayStation();
-        requestRelayToken($station, $android);
 
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        sourceConnects($station, studioToken($station, PHONE, $android), '7');
 
         expect($station->streamSessions()->sole()->client)->toBe($android)
             ->and(StationEvent::where('station_id', $station->id)->sole()->properties)
@@ -1386,35 +1434,61 @@ describe('the broadcaster\'s device on a relay show', function () {
 
     it('records no device for a token request that sent no User-Agent', function () {
         $station = relayStation();
-        requestRelayToken($station, '');
 
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        sourceConnects($station, studioToken($station, PHONE, ''), '7');
 
         expect($station->streamSessions()->sole()->client)->toBeNull();
     });
 
     it('cuts a long User-Agent to the column', function () {
         $station = relayStation();
-        requestRelayToken($station, str_repeat('x', 400));
 
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        sourceConnects($station, studioToken($station, PHONE, str_repeat('x', 400)), '7');
 
         expect(mb_strlen($station->streamSessions()->sole()->client))->toBe(255);
     });
 
-    it('records the device of the latest token request', function () use ($android) {
+    it('records no device and no address for a source whose studio is unknown', function () use ($android, $windows) {
         $station = relayStation();
-        requestRelayToken($station, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36');
-        requestRelayToken($station, $android);
+        // A tab from before studio ids connects; a laptop asks for a token
+        // after it and is refused. The latest token request is the laptop's.
+        $oldTab = studioToken($station, null, $android);
+        studioToken($station, LAPTOP, $windows);
 
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        sourceConnects($station, $oldTab, '7');
 
-        expect($station->streamSessions()->sole()->client)->toBe($android);
+        $session = $station->streamSessions()->sole();
+        expect($session->client)->toBeNull()
+            ->and($session->ip_address)->toBeNull()
+            ->and($session->country)->toBeNull();
     });
 
-    it('records the device on a show reconcile reopens', function () use ($android) {
+    it('keeps the device a rejoined show had when the rejoining studio is unknown', function () use ($android, $windows) {
         $station = relayStation();
-        requestRelayToken($station, $android);
+        sourceConnects($station, studioToken($station, PHONE, $android), '7');
+        // The phone's source leaves and the session closes, rejoinable.
+        $this->icecastMounts = '<icestats/>';
+        icecastCallback('event', ['action' => 'source-disconnect', 'mount' => '/stream/free-show', 'client' => '7'])->assertOk();
+        // A laptop asks for a token and is refused; then a source connects
+        // with no login on record (lost, or a tab without a studio id), so
+        // its studio is unknown.
+        studioToken($station, LAPTOP, $windows);
+        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show', 'client' => '8'])->assertOk();
+
+        $session = $station->streamSessions()->sole();
+        expect($session->ended_at)->toBeNull()
+            ->and($session->client)->toBe($android)
+            ->and($session->ip_address)->toBe('127.0.0.1');
+    });
+
+    it('records the device on a show reconcile reopens when the holder is the source on the mount', function () use ($android, $windows) {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE, $android), '7');
+        // The connect was recorded but its session was lost (an open that
+        // timed out on its lock), and a laptop has asked for a token since.
+        $station->streamSessions()->delete();
+        StationEvent::query()->delete();
+        studioToken($station, LAPTOP, $windows);
         $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
 
         $this->artisan('stations:reconcile')->assertSuccessful();
@@ -1424,11 +1498,37 @@ describe('the broadcaster\'s device on a relay show', function () {
             ->toMatchArray(['via' => 'relay', 'reconciled' => true, 'client' => $android]);
     });
 
+    it('records no device on a show reconcile reopens without a confirmed holder', function (string $why) use ($android, $windows) {
+        $station = relayStation();
+        if ($why === 'the holder is behind the mount') {
+            sourceConnects($station, studioToken($station, PHONE, $android), '7');
+            $station->streamSessions()->delete();
+            // The laptop took the mount and its connect event was missed.
+            sourceTakesTheMountUnreported($station, studioToken($station, LAPTOP, $windows), '8');
+        } else {
+            // The phone's connect event was missed altogether.
+            icecastCallback('auth', [
+                'action' => 'stream_auth', 'mount' => '/stream/free-show', 'ip' => '127.0.0.1',
+                'user' => 'free-show', 'pass' => studioToken($station, PHONE, $android), 'client' => '7',
+            ])->assertHeader('icecast-auth-user', '1');
+            $this->icecastSources = ['/stream/free-show' => 'source-7'];
+            studioToken($station, LAPTOP, $windows);
+        }
+        StationEvent::query()->delete();
+        $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
+
+        $this->artisan('stations:reconcile')->assertSuccessful();
+
+        $session = $station->streamSessions()->sole();
+        expect($session->ended_at)->toBeNull()
+            ->and($session->client)->toBeNull()
+            ->and($session->ip_address)->toBeNull();
+    })->with(['the holder is behind the mount', 'no record of the connect']);
+
     it('names the device in the admin Telegram alert', function () use ($android) {
         config(['services.telegram.bot_token' => 'test-bot', 'services.telegram.admin_chat_id' => '1']);
         $station = relayStation();
-        requestRelayToken($station, $android);
-        icecastCallback('event', ['action' => 'source-connect', 'mount' => '/stream/free-show'])->assertOk();
+        sourceConnects($station, studioToken($station, PHONE, $android), '7');
         Queue::fake();
 
         app(AdminTelegram::class)->broadcastStarted($station->streamSessions()->sole());
@@ -1437,67 +1537,12 @@ describe('the broadcaster\'s device on a relay show', function () {
     });
 });
 
-const PHONE = 'phone-0a1b2c3d4e5f';
-const LAPTOP = 'laptop-9f8e7d6c5b4a';
-
 describe('a reconnecting studio takes its own mount back at once', function () {
     // Icecast carries the show's source throughout: the dead one, or the
     // live one a second device must not cut.
     beforeEach(function () {
         $this->icecastMounts = '<icestats><source mount="/stream/free-show"/></icestats>';
     });
-
-    function killedSources(): array
-    {
-        return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), '/admin/killsource'))
-            ->map(fn (array $pair) => $pair[0]['mount'])
-            ->values()
-            ->all();
-    }
-
-    function icecastCalls(): int
-    {
-        return Http::recorded(fn (HttpRequest $request) => str_contains($request->url(), 'icecast.test'))->count();
-    }
-
-    /** What the studio does before every connect: POST /auth/broadcast-token. */
-    function studioToken(Station $station, ?string $studio, string $userAgent = 'Mozilla/5.0 (Android) Chrome/130'): string
-    {
-        return test()->actingAs($station->user)
-            ->withHeaders(['User-Agent' => $userAgent])
-            ->postJson('/api/auth/broadcast-token', array_filter(['station_slug' => $station->slug, 'studio' => $studio]))
-            ->assertOk()
-            ->json('token');
-    }
-
-    /**
-     * Icecast admitting a source (auth) and then connecting it, under one
-     * client id. The source is then the one on the mount, under an instance
-     * id of its own, as in Icecast's stats.
-     */
-    function sourceConnects(Station $station, string $token, string $icecastClient, bool $eventNamesTheSource = true): void
-    {
-        icecastCallback('auth', [
-            'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
-            'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
-        ])->assertHeader('icecast-auth-user', '1');
-        $instance = "source-{$icecastClient}";
-        test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => $instance];
-        icecastCallback('event', array_filter([
-            'action' => 'source-connect', 'mount' => $station->icecast_mount, 'client' => $icecastClient,
-            'source-instance' => $eventNamesTheSource ? $instance : null,
-        ]))->assertOk();
-    }
-
-    /** Another source on the mount whose connect event has not reached Laravel yet. */
-    function sourceTakesTheMountUnreported(Station $station, string $token, string $icecastClient): void
-    {
-        icecastCallback('auth', [
-            'action' => 'stream_auth', 'mount' => $station->icecast_mount, 'ip' => '127.0.0.1',
-            'user' => $station->slug, 'pass' => $token, 'client' => $icecastClient,
-        ])->assertHeader('icecast-auth-user', '1');
-        test()->icecastSources = [...test()->icecastSources, $station->icecast_mount => "source-{$icecastClient}"];
-    }
 
     it('cuts the dead source of the studio that is reconnecting', function () {
         $station = relayStation();
@@ -1522,6 +1567,36 @@ describe('a reconnecting studio takes its own mount back at once', function () {
         studioToken($station, LAPTOP);
         studioToken($station, LAPTOP);
 
+        expect(killedSources())->toBe([]);
+    });
+
+    it('makes both Icecast calls short, and logs how long the cut took', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        $this->partialMock(IcecastAdmin::class, function ($mock) {
+            $mock->shouldReceive('sourceInstance')->once()->with('/stream/free-show', 1.0)->andReturn('source-7');
+            $mock->shouldReceive('killSource')->once()->withArgs(fn (Station $s, float $timeout) => $timeout === 1.0)->andReturn(true);
+        });
+        Log::spy();
+
+        studioToken($station, PHONE);
+
+        Log::shouldHaveReceived('info')->with('Released a relay source for its reconnecting studio', Mockery::on(
+            fn (array $context) => $context['released'] === true && is_int($context['elapsed_ms']) && $context['elapsed_ms'] >= 0,
+        ));
+    });
+
+    it('logs how long the check took when it leaves the mount alone', function () {
+        $station = relayStation();
+        sourceConnects($station, studioToken($station, PHONE), '7');
+        $this->icecastSources = ['/stream/free-show' => 'source-8'];
+        Log::spy();
+
+        studioToken($station, PHONE);
+
+        Log::shouldHaveReceived('info')->with('Left a relay mount alone: its source is not the reconnecting studio\'s', Mockery::on(
+            fn (array $context) => $context['held'] === 'source-7' && $context['on_mount'] === 'source-8' && is_int($context['elapsed_ms']),
+        ));
         expect(killedSources())->toBe([]);
     });
 

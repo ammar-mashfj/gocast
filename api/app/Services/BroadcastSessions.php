@@ -108,7 +108,19 @@ class BroadcastSessions
     {
         // The origin only exists for the studio and the app, which ask for a
         // broadcast token first. An encoder never does, so its row gets no IP.
-        $origin = $via === 'external' ? [] : $this->origin->for($station, $studio);
+        //
+        // On the relay, only the origin of the studio that holds this source:
+        // without its id (a tab from before studio ids, a lost login record,
+        // a reconcile that cannot confirm the holder) the device is unknown,
+        // and the latest token request is no stand-in — it is as likely to be
+        // a second device that was refused "already live". A container's
+        // harbor reports the device itself; its IP still comes from the
+        // station's latest token request, as it always has.
+        $origin = match (true) {
+            $via === 'external' => [],
+            $station->usesRelay() => $studio !== null ? $this->origin->for($station, $studio) : [],
+            default => $this->origin->for($station),
+        };
         // Harbor reports the device itself; Icecast (the relay path) and a
         // container from before harbor reported it cannot, so the token
         // request's User-Agent stands in. Never for an encoder, whose
@@ -181,6 +193,8 @@ class BroadcastSessions
     /**
      * The rejoined row takes the device and origin of the source that rejoins
      * it, when known: a phone that took over from a laptop is the phone.
+     * Unknown values change nothing, so a rejoin whose studio is unknown
+     * keeps the row's device and IP as they were.
      *
      * @param  array{ip_address?: ?string, country?: ?string, client?: ?string}  $origin
      */

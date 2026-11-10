@@ -91,6 +91,29 @@ class RelaySourceHolder
     }
 
     /**
+     * The studio whose source Icecast is carrying on this station's mount:
+     * the holder on record, only when its source is the one on the mount
+     * ($onMount, from IcecastAdmin::sourceInstance()). A record that is
+     * behind the mount names nobody.
+     */
+    public function confirmedStudio(Station $station, ?string $onMount): ?string
+    {
+        if ($onMount === null) {
+            return null;
+        }
+
+        return $this->attempt(function () use ($station, $onMount): ?string {
+            $holder = Cache::get($this->holderKey($station));
+
+            return is_array($holder)
+                && ($holder['instance'] ?? null) === $onMount
+                && is_string($holder['studio'] ?? null)
+                ? $holder['studio']
+                : null;
+        });
+    }
+
+    /**
      * The Icecast source this studio holds, by its `source-instance`: null
      * when the studio holds none, or when its connect event did not name the
      * source (nothing to check the mount against, so nothing to cut).
