@@ -74,15 +74,21 @@ function CardText({
   style: CSSProperties & { fontSize: number }
   measure?: ArabicCardFonts["measure"]
 }) {
-  if (!hasArabicScript(text)) {
-    return <div style={{ ...style, display: "flex" }}>{text}</div>
-  }
+  // Each line sits against the edge it reads from: a right-to-left name
+  // on the right, a Latin genre above it still on the left.
   const rtl = isRtl(text)
+  const alignSelf = rtl ? "flex-end" : "flex-start"
+  if (!hasArabicScript(text)) {
+    // Hebrew, too: Satori orders its words itself. A name long enough to
+    // wrap fills the width, so its lines are pushed right as well.
+    return <div style={{ ...style, display: "flex", alignSelf, textAlign: rtl ? "right" : "left" }}>{text}</div>
+  }
   return (
     <div
       style={{
         ...style,
         display: "flex",
+        alignSelf,
         flexDirection: rtl ? "row-reverse" : "row",
         flexWrap: "wrap",
         columnGap: "0.25em",
@@ -194,8 +200,7 @@ export default async function StationOpengraphImage({
             flex: 1,
             gap: 22,
             minWidth: 0,
-            // A right-to-left name sits against the right edge, as it reads.
-            alignItems: isRtl(name ?? rawName) ? "flex-end" : "flex-start",
+            alignItems: "flex-start",
           }}
         >
           {genre && (

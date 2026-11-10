@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import opentype from "opentype.js"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { arabicFonts, coversArabic, measureShaped } from "./ogFonts"
 
 function cairo(file: string): opentype.Font {
@@ -61,5 +61,27 @@ describe("coversArabic", () => {
     ["a presentation form", "\uFB50"],
   ])("does not cover %s", (_, text) => {
     expect(coversArabic(bold, text)).toBe(false)
+  })
+})
+
+describe("arabicFonts cache", () => {
+  it("retries a failed read on the next request, then keeps the fonts it got", async () => {
+    vi.resetModules()
+    const { arabicFonts: load } = await import("./ogFonts")
+    const root = process.cwd()
+    // A request whose read fails: the fonts are not where it looks.
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue("/nonexistent")
+
+    await expect(load()).rejects.toThrow(/ENOENT/)
+
+    cwd.mockReturnValue(root)
+    const retried = load()
+    await expect(retried).resolves.toMatchObject({ fonts: [{ name: "Cairo" }, { name: "Cairo" }] })
+    // Served from the cache from then on, even where a read would fail:
+    // the failed load did not throw the good one away.
+    cwd.mockReturnValue("/nonexistent")
+    expect(load()).toBe(retried)
+
+    cwd.mockRestore()
   })
 })

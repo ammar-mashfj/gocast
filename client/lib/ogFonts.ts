@@ -59,7 +59,8 @@ function parse(data: Buffer): opentype.Font {
 let cairo: Promise<ArabicCardFonts> | null = null
 
 export function arabicFonts(): Promise<ArabicCardFonts> {
-  cairo ??= Promise.all([
+  if (cairo) return cairo
+  const loading: Promise<ArabicCardFonts> = Promise.all([
     readFile(join(process.cwd(), "assets/fonts/Cairo-Regular.ttf")),
     readFile(join(process.cwd(), "assets/fonts/Cairo-Bold.ttf")),
   ]).then(([regular, bold]) => {
@@ -73,7 +74,11 @@ export function arabicFonts(): Promise<ArabicCardFonts> {
       covers: (text) => coversArabic(shapers[400], text) && coversArabic(shapers[700], text),
     }
   })
-  // A failed read is not cached: the next request tries again.
-  cairo.catch(() => { cairo = null })
-  return cairo
+  // A failed read is not cached: the next request tries again. Only this
+  // load is forgotten, never a newer one that replaced it.
+  cairo = loading
+  loading.catch(() => {
+    if (cairo === loading) cairo = null
+  })
+  return loading
 }
