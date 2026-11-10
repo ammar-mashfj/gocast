@@ -216,16 +216,16 @@ export default async function StationOpengraphImage({
             />
           )}
           {name !== null && (
-          <CardText
-            text={name}
-            measure={cairo?.measure}
-            style={{
-              fontSize: nameSize(name),
-              fontWeight: 700,
-              lineHeight: 1.02,
-              letterSpacing: -2,
-            }}
-          />
+            <CardText
+              text={name}
+              measure={cairo?.measure}
+              style={{
+                fontSize: nameSize(name),
+                fontWeight: 700,
+                lineHeight: 1.02,
+                letterSpacing: -2,
+              }}
+            />
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12, fontSize: 28, color: "rgba(255,255,255,0.72)" }}>
             <div

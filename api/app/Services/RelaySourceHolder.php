@@ -28,6 +28,13 @@ use Throwable;
  * off air in a loop: each cut studio reconnects, and its token request cut
  * the other.
  *
+ * This relies on WHEN the studio asks for a token: only right before a new
+ * connection (connectWebcast(), from Go Live and the reconnect loop), never
+ * while its own socket is still live. A token request from a live studio —
+ * a token refresh mid-show, say — would cut its own healthy source and take
+ * the show off air. Anything that asks for a token outside a connect must
+ * send no studio id.
+ *
  * Cache only, and every failure swallowed: without it a reconnect waits for
  * the relay's idle timeout, which is how it worked before this existed.
  */
