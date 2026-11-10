@@ -337,6 +337,106 @@ html, body, #root {
   }
 }
 
+/* The homepage hero (HeroHandover). One glow behind it, fixed in size and
+   strength, that only changes colour: violet while AutoDJ holds the station,
+   red from the countdown on. It is a flat background-color cut into an
+   ellipse by a mask, so the colour tweens like any background and the shape
+   never moves. The two colours are mixed to the same OKLab lightness and
+   chroma (violet 24%, red 22%), so neither reads louder. Centred under the
+   stack on phones, behind it on the right from lg. */
+.hero-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: color-mix(in oklab, var(--color-on-air) 24%, var(--color-background));
+  -webkit-mask-image: radial-gradient(ellipse 60% 70% at var(--hero-glow-at, 50% 60%), #000 0%, transparent 72%);
+  mask-image: radial-gradient(ellipse 60% 70% at var(--hero-glow-at, 50% 60%), #000 0%, transparent 72%);
+  transition: background-color 600ms ease;
+}
+[data-phase="count"] > .hero-glow,
+[data-phase="live"] > .hero-glow {
+  background-color: color-mix(in oklab, var(--color-live) 22%, var(--color-background));
+}
+
+/* The hero's talk pad, just before the mic opens: a red ring breathes in
+   twice, so the eye is on the pad when it turns red. */
+@keyframes pad-nudge {
+  0%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+  50% { box-shadow: inset 0 0 0 2px var(--color-live); }
+}
+.pad-nudge {
+  animation: pad-nudge 1s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pad-nudge {
+    animation: none;
+  }
+}
+
+/* Phones, where nothing tilts: the hero's middle card slides in from the
+   right at each step, like turning to the next one. */
+@keyframes hero-swap {
+  from { opacity: 0; transform: translateX(1.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 63.999rem) and (prefers-reduced-motion: no-preference) {
+  .hero-swap {
+    animation: hero-swap 360ms var(--ease-out-expo);
+  }
+}
+
+/* The studio stack: three layers at different depths, tilted. Phones get the
+   same composition scaled down (.hero-scale), with a small tilt (no pointer to follow) that sways slowly, so the depth reads;
+   from lg the full tilt leans toward the pointer, written inline by
+   HeroStage (HeroHandover.tsx). */
+@keyframes hero-sway {
+  0%, 100% { transform: translateX(2rem) rotateY(-22deg) rotateX(11deg); }
+  50% { transform: translateX(2rem) rotateY(-8deg) rotateX(5deg); }
+}
+/* The scale the stack is drawn at; HandoverStack measures the real one.
+   This first guess keeps a phone from overflowing before it does. */
+.hero-scale {
+  --hero-scale: 1;
+}
+@media (max-width: 63.999rem) {
+  .hero-scale {
+    --hero-scale: 0.63;
+  }
+  .hero-tilt {
+    transform-style: preserve-3d;
+    /* The front card swings out to the left, so the stack sits 2rem right. */
+    transform: translateX(2rem) rotateY(-15deg) rotateX(8deg);
+  }
+  /* The desktop's depths: the gap between the layers is what reads as 3D. */
+  .hero-tilt > [data-depth="back"] {
+    transform: translateZ(-90px);
+  }
+  .hero-tilt > [data-depth="front"] {
+    transform: translateZ(110px);
+  }
+}
+@media (max-width: 63.999rem) and (prefers-reduced-motion: no-preference) {
+  .hero-tilt {
+    animation: hero-sway 9s ease-in-out infinite;
+  }
+}
+@media (min-width: 64rem) {
+  .hero-glow {
+    --hero-glow-at: 78% 55%;
+  }
+  .hero-tilt {
+    transform-style: preserve-3d;
+    /* At rest; HeroStage writes the pointer's lean inline (HeroHandover.tsx). */
+    transform: rotateY(-20deg) rotateX(10deg);
+  }
+  .hero-tilt > [data-depth="back"] {
+    transform: translateZ(-90px);
+  }
+  .hero-tilt > [data-depth="front"] {
+    transform: translateZ(110px);
+  }
+}
+
 /* ── The sheet ────────────────────────────────────────────────────────────
    DESIGN.md: pages read as one continuous sheet, divided by hairline rules,
    not stacked boxes. Inside `.sheet`, a standard Card drops its fill, ring,

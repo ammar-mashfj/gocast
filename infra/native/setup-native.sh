@@ -107,6 +107,10 @@ if ! id -u "$RUN_USER" >/dev/null 2>&1; then
 else
   echo "  · $RUN_USER exists"
 fi
+# `adm` reads /var/log/nginx: security:scan-access-logs (scheduler) alerts on
+# 4xx storms and direct-to-origin attempts from those logs.
+usermod -aG adm "$RUN_USER"
+echo "  ✓ $RUN_USER in adm (nginx logs)"
 
 echo "==> Per-station data directories"
 # GID 101 is the `liquidsoap` group inside savonet/liquidsoap. It is the one
@@ -158,11 +162,15 @@ docker build -t gocast/liquidsoap:latest "$REPO_ROOT/infra/liquidsoap/"
 echo "  ✓ gocast/liquidsoap:latest"
 
 echo "==> nginx vhosts"
-for conf in gocast-api gocast-app gocast-icecast gocast-stream; do
+# gocast-default is the catch-all for unknown hostnames (444 / refused TLS).
+for conf in gocast-api gocast-app gocast-icecast gocast-stream gocast-default; do
   render "$NATIVE/nginx/${conf}.conf" > "/etc/nginx/sites-available/${conf}.conf"
   ln -sf "/etc/nginx/sites-available/${conf}.conf" "/etc/nginx/sites-enabled/${conf}.conf"
   echo "  ✓ ${conf}.conf"
 done
+# http-level, not a vhost: real client IPs behind Cloudflare for every server.
+install -m 644 "$NATIVE/nginx/cloudflare-realip.conf" /etc/nginx/conf.d/cloudflare-realip.conf
+echo "  ✓ conf.d/cloudflare-realip.conf"
 # Ubuntu's stock default vhost is `default_server` on :80, which means it
 # answers any Host header that does not match ours — including the ACME
 # challenge for a hostname whose vhost has a typo. Removing it turns that
@@ -180,10 +188,18 @@ done
 echo "  ✓ pool + ini for php${PHP_VERSION} (fpm, cli)"
 
 echo "==> systemd units"
-for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client; do
+# gocast-relay@ is a template: instances gocast-relay@8095 and @8096, enabled
+# in the Relay step below.
+for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client \
+            gocast-relay@ gocast-standby; do
   render "$NATIVE/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
   echo "  ✓ ${unit}.service"
 done
+# Every Free listener now plays Icecast directly, and every relay studio holds
+# a source there: the package default of 1024 open files is far too few.
+mkdir -p /etc/systemd/system/icecast2.service.d
+printf '[Service]\nLimitNOFILE=65536\n' > /etc/systemd/system/icecast2.service.d/gocast-limits.conf
+echo "  ✓ icecast2 LimitNOFILE=65536"
 systemctl daemon-reload
 
 echo "==> Icecast config"
@@ -209,13 +225,23 @@ if [[ -z "${ICECAST_SOURCE_PASSWORD:-}" ]]; then
 else
   # Same envsubst call the container entrypoint uses, restricted to exactly
   # these names so any literal '$' elsewhere in the XML survives.
+  # ICECAST_CALLBACK_*: the Basic credential Icecast sends to Laravel for
+  # relay logins and source events (config/relay.php). Unset, Pro is
+  # unaffected but every relay login is refused — the relay is effectively
+  # off, whatever RELAY_ENABLED says.
+  if [[ -z "${ICECAST_CALLBACK_PASSWORD:-}" ]]; then
+    echo "  ! ICECAST_CALLBACK_PASSWORD is not set in api/.env — Free stations on the"
+    echo "    relay will be refused until it is (Pro is unaffected)."
+  fi
   render "$NATIVE/icecast/icecast.xml.tpl" \
     | ICECAST_SOURCE_PASSWORD="$ICECAST_SOURCE_PASSWORD" \
-      ICECAST_RELAY_PASSWORD="${ICECAST_RELAY_PASSWORD:-$ICECAST_SOURCE_PASSWORD}" \
       ICECAST_ADMIN_USER="${ICECAST_ADMIN_USER:-admin}" \
       ICECAST_ADMIN_PASSWORD="${ICECAST_ADMIN_PASSWORD:?set in api/.env}" \
-      ICECAST_MAX_SOURCES="${ICECAST_MAX_SOURCES:-150}" \
-      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_RELAY_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD} ${ICECAST_MAX_SOURCES}' \
+      ICECAST_MAX_SOURCES="${ICECAST_MAX_SOURCES:-500}" \
+      ICECAST_MAX_CLIENTS="${ICECAST_MAX_CLIENTS:-5000}" \
+      ICECAST_CALLBACK_USER="${ICECAST_CALLBACK_USER:-icecast}" \
+      ICECAST_CALLBACK_PASSWORD="${ICECAST_CALLBACK_PASSWORD:-}" \
+      envsubst '${ICECAST_SOURCE_PASSWORD} ${ICECAST_ADMIN_USER} ${ICECAST_ADMIN_PASSWORD} ${ICECAST_MAX_SOURCES} ${ICECAST_MAX_CLIENTS} ${ICECAST_CALLBACK_USER} ${ICECAST_CALLBACK_PASSWORD}' \
     > /etc/icecast2/icecast.xml
   chown root:icecast /etc/icecast2/icecast.xml
   chmod 0640 /etc/icecast2/icecast.xml
@@ -223,6 +249,13 @@ else
   # start until it is flipped.
   sed -i 's/^ENABLE=.*/ENABLE=true/' /etc/default/icecast2 2>/dev/null || true
   echo "  ✓ /etc/icecast2/icecast.xml"
+
+  # The standby feeder's only secret, kept out of its command line (`ps`).
+  install -d -m 0750 -o root -g "$RUN_USER" /etc/gocast
+  printf 'ICECAST_SOURCE_PASSWORD=%s\n' "$ICECAST_SOURCE_PASSWORD" > /etc/gocast/standby.env
+  chown root:"$RUN_USER" /etc/gocast/standby.env
+  chmod 0640 /etc/gocast/standby.env
+  echo "  ✓ /etc/gocast/standby.env"
 fi
 
 echo "==> Support containers"
@@ -235,7 +268,7 @@ echo "==> Support containers"
 # with `set -a` above, so the interpolation in docker-compose.native.yml picks
 # it up without an --env-file.
 docker compose -f "$NATIVE/docker-compose.native.yml" up -d --build
-echo "  ✓ gocast-network, gocast-docker-proxy, gocast-station-router"
+echo "  ✓ gocast-network, gocast-docker-proxy (alone on gocast-docker-proxy-net), gocast-station-router"
 echo "    encoder ingest published on 0.0.0.0:${INGEST_PORT}"
 
 echo "==> Firewall"
@@ -258,8 +291,14 @@ GOCAST_SUBNET="$(docker network inspect gocast-network \
 : "${GOCAST_SUBNET:?could not read the gocast-network subnet}"
 
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow 80/tcp  >/dev/null
-  ufw allow 443/tcp >/dev/null
+  # Once ufw-cloudflare-only.sh has narrowed 80/443 to Cloudflare, re-running
+  # setup must not quietly open them to everyone again.
+  if ufw status | grep -q '# cloudflare'; then
+    echo "  · 80/443 are Cloudflare-only (ufw-cloudflare-only.sh); left as they are"
+  else
+    ufw allow 80/tcp  >/dev/null
+    ufw allow 443/tcp >/dev/null
+  fi
   for cidr in "$GOCAST_SUBNET" 172.17.0.0/16; do
     ufw allow from "$cidr" to any port "$ICECAST_PORT"      proto tcp >/dev/null
     ufw allow from "$cidr" to any port "$INTERNAL_API_PORT" proto tcp >/dev/null
@@ -279,6 +318,33 @@ else
   echo "    listening on all interfaces — close them before going live."
 fi
 
+
+echo "==> Relay"
+# Enabled here; built and (re)started by deploy-native.sh, which owns the
+# binary. Started now only if a deploy has already built it.
+systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
+if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
+  systemctl restart gocast-relay@8095; sleep 3; systemctl restart gocast-relay@8096
+  systemctl restart gocast-standby
+  echo "  ✓ gocast-relay@8095, gocast-relay@8096, gocast-standby running"
+else
+  echo "  · enabled; the next deploy builds and starts them"
+fi
+
+# nginx holds two sockets per relay studio and two per Icecast listener. The
+# Ubuntu default (768 connections per worker, 1024 open files) caps the relay
+# lab at about 1,000 studios. worker_rlimit_nofile is a main-context
+# directive; modules-enabled/ is the include Ubuntu's nginx.conf reads there.
+printf 'worker_rlimit_nofile 65536;\n' > /etc/nginx/modules-enabled/90-gocast-limits.conf
+if grep -Eq '^\s*worker_connections\s+[0-9]+;' /etc/nginx/nginx.conf; then
+  current="$(grep -Eo '^\s*worker_connections\s+[0-9]+' /etc/nginx/nginx.conf | grep -Eo '[0-9]+$')"
+  if (( current < 8192 )); then
+    sed -Ei 's/^(\s*worker_connections\s+)[0-9]+;/\18192;/' /etc/nginx/nginx.conf
+    echo "  ✓ nginx worker_connections ${current} → 8192, worker_rlimit_nofile 65536"
+  else
+    echo "  · nginx worker_connections already ${current}; worker_rlimit_nofile 65536"
+  fi
+fi
 
 echo ""
 echo "✓ Host provisioned."

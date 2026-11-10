@@ -135,6 +135,13 @@ class LiquidsoapSupervisor
      */
     private const CONTAINER_SYSTEM_DIR = '/data/system';
 
+    /**
+     * Where the station's JSON sidecar is mounted. It carries the owner's own
+     * text — name, description, genre — so none of it is ever Liquidsoap
+     * source: see renderStationMeta().
+     */
+    public const CONTAINER_META_PATH = '/station-meta.json';
+
     /** @var string Host path where per-station .liq files live. */
     private string $liqDir;
 
@@ -228,6 +235,14 @@ class LiquidsoapSupervisor
      */
     public function up(Station $station): void
     {
+        // A relay run has no container by design. Every caller that brings a
+        // station up — start, the reconciler, relaunch, the observer re-render
+        // after an edit — comes through here, so this is the one guard that
+        // keeps all of them from building one under a live relay show.
+        if ($station->usesRelay()) {
+            return;
+        }
+
         // A database write, not Docker, so it runs in tests too. Before the
         // container: its first ask can come within a second of `docker run`.
         app(JingleClock::class)->containerStarted($station);
@@ -647,6 +662,12 @@ class LiquidsoapSupervisor
      */
     public function applyWatermarkSettings(Station $station): bool
     {
+        // No Liquidsoap to tell on the relay path; the next start on a
+        // container renders the settings in.
+        if ($station->usesRelay()) {
+            return true;
+        }
+
         $commands = [
             self::VAR_WATERMARK_ENABLED.' = '.($this->watermarkEnabledFor($station) ? 'true' : 'false'),
             self::VAR_WATERMARK_INTERVAL.' = '.number_format($this->watermarkInterval(), 1, '.', ''),
@@ -1091,6 +1112,7 @@ class LiquidsoapSupervisor
     {
         return [
             '-v', "{$this->liqDir}/{$station->slug}.liq:/station.liq:ro",
+            '-v', "{$this->liqDir}/{$station->slug}.json:".self::CONTAINER_META_PATH.':ro',
             '-v', "{$this->playlistsDir}/{$station->slug}:/data/playlists:ro",
             '-v', "{$this->hlsDir}/{$station->slug}:/data/hls",
             // Shared and read-only: the same clip directory for every station
@@ -1111,7 +1133,7 @@ class LiquidsoapSupervisor
      */
     public function destroyArtifacts(string $slug): void
     {
-        foreach (["{$this->liqDir}/{$slug}.liq", "{$this->hlsDir}/{$slug}"] as $path) {
+        foreach (["{$this->liqDir}/{$slug}.liq", "{$this->liqDir}/{$slug}.json", "{$this->hlsDir}/{$slug}"] as $path) {
             if (is_dir($path)) {
                 File::deleteDirectory($path);
             } elseif (is_file($path)) {
@@ -1120,10 +1142,36 @@ class LiquidsoapSupervisor
         }
     }
 
+    /**
+     * Writes the script and its sidecar together. The sidecar must exist
+     * before `docker run`: a bind mount whose source is missing makes Docker
+     * create it — as a root-owned directory, which the script cannot read.
+     */
     private function renderLiqFile(Station $station): void
     {
         File::ensureDirectoryExists($this->liqDir);
+        File::put("{$this->liqDir}/{$station->slug}.json", $this->renderStationMeta($station));
         File::put("{$this->liqDir}/{$station->slug}.liq", $this->renderLiq($station));
+    }
+
+    /**
+     * The owner's text for the Icecast directory listing, as JSON the script
+     * parses at runtime. It used to be rendered into the .liq as string
+     * literals, and Liquidsoap evaluates `#{...}` inside those: a station
+     * named `#{process.run('...')}` ran shell commands in its container
+     * (2026-11-02). Data in a file the script reads cannot be evaluated,
+     * whatever it contains.
+     *
+     * Unescaped unicode on purpose: Liquidsoap's JSON parser mangles `\u`
+     * surrogate pairs, so an emoji written escaped arrives as two `?`.
+     */
+    public function renderStationMeta(Station $station): string
+    {
+        return json_encode([
+            'name' => (string) $station->name,
+            'description' => (string) ($station->description ?? ''),
+            'genre' => (string) ($station->genre ?? ''),
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)."\n";
     }
 
     /**
@@ -1160,6 +1208,7 @@ class LiquidsoapSupervisor
 
         return substr(hash('sha256', implode("\n", [
             $this->renderLiq($station, fingerprint: true),
+            $this->renderStationMeta($station),
             $imageId,
             implode(' ', array_merge(
                 $this->baseRunCommand($station),
@@ -1291,6 +1340,7 @@ class LiquidsoapSupervisor
             'crossfadeHigh' => (float) config('liquidsoap.crossfade_high_db'),
             'crossfadeMedium' => (float) config('liquidsoap.crossfade_medium_db'),
             'crossfadeMargin' => (float) config('liquidsoap.crossfade_margin_db'),
+            'stationMetaPath' => self::CONTAINER_META_PATH,
         ])->render();
     }
 

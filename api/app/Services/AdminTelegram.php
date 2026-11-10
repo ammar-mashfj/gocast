@@ -239,6 +239,31 @@ class AdminTelegram
         }
     }
 
+    /**
+     * A security signal raised from inside a request (a sign-up burst, a
+     * callback domain in input). Queued like the product alerts, so Telegram
+     * never adds latency to the request that tripped it, and throttled per
+     * `$key` like opsAlert, because whatever tripped it usually keeps going.
+     */
+    public function securityAlert(string $key, string $html, int $quietMinutes = 30): void
+    {
+        if (blank(config('services.telegram.bot_token')) || blank(config('services.telegram.admin_chat_id'))) {
+            return;
+        }
+
+        try {
+            if (! Cache::add('security-alert:'.$key, true, now()->addMinutes($quietMinutes))) {
+                return;
+            }
+        } catch (Throwable $e) {
+            Log::warning('Could not throttle security alert', ['key' => $key, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        SendAdminTelegramAlert::dispatch($html);
+    }
+
     private function send(string $html): void
     {
         if (blank(config('services.telegram.bot_token')) || blank(config('services.telegram.admin_chat_id'))) {

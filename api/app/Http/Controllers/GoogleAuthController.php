@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Rules\NotDisposableEmail;
+use App\Services\DisposableEmail;
 use App\Services\GoogleIdTokenVerifier;
+use App\Services\GoogleSignInRefused;
 use App\Services\InvalidGoogleIdToken;
 use App\Services\InviteException;
 use App\Services\InviteRedemption;
@@ -76,10 +79,11 @@ class GoogleAuthController extends Controller
      * /auth/callback route.
      *
      * If the user already exists by email (e.g. registered with password),
-     * their account is linked to Google. Email is auto-verified since Google
+     * their account is linked to Google, provided Google has verified that
+     * email (see signInGoogleUser). Email is auto-verified since Google
      * already confirmed ownership.
      */
-    public function callback(Request $request, InviteRedemption $invites): Response
+    public function callback(Request $request, InviteRedemption $invites, DisposableEmail $disposable): Response
     {
         $frontendOrigin = $this->frontendOrigin();
         $state = $request->string('state')->value();
@@ -101,14 +105,26 @@ class GoogleAuthController extends Controller
             ], $frontendOrigin);
         }
 
-        [$user, $invite] = $this->signInGoogleUser(
-            $invites,
-            $googleUser->getId(),
-            $googleUser->getEmail(),
-            $googleUser->getName(),
-            $googleUser->getAvatar(),
-            $request->cookie(self::INVITE_COOKIE),
-        );
+        try {
+            [$user, $invite] = $this->signInGoogleUser(
+                $invites,
+                $disposable,
+                $googleUser->getId(),
+                $googleUser->getEmail(),
+                // Google's userinfo endpoint answers whether it has confirmed
+                // the address; Socialite leaves the raw claim on ->user.
+                filter_var($googleUser->user['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                $googleUser->getName(),
+                $googleUser->getAvatar(),
+                $request->cookie(self::INVITE_COOKIE),
+            );
+        } catch (GoogleSignInRefused $e) {
+            return $this->callbackResponse([
+                'type' => 'gocast-oauth',
+                'error' => $e->reason,
+                'message' => $e->getMessage(),
+            ], $frontendOrigin);
+        }
 
         $payload = [
             'type' => 'gocast-oauth',
@@ -134,7 +150,7 @@ class GoogleAuthController extends Controller
      * a request that names its device. Account linking, verification and an
      * invite behave exactly as in the web callback.
      */
-    public function native(Request $request, GoogleIdTokenVerifier $verifier, InviteRedemption $invites): JsonResponse
+    public function native(Request $request, GoogleIdTokenVerifier $verifier, InviteRedemption $invites, DisposableEmail $disposable): JsonResponse
     {
         $data = $request->validate([
             'id_token' => ['required', 'string', 'max:8192'],
@@ -152,14 +168,21 @@ class GoogleAuthController extends Controller
             ]);
         }
 
-        [$user, $invite] = $this->signInGoogleUser(
-            $invites,
-            $google['sub'],
-            $google['email'],
-            $google['name'],
-            $google['picture'],
-            $data['invite'] ?? null,
-        );
+        try {
+            [$user, $invite] = $this->signInGoogleUser(
+                $invites,
+                $disposable,
+                $google['sub'],
+                $google['email'],
+                // verify() refuses a token without email_verified=true.
+                true,
+                $google['name'],
+                $google['picture'],
+                $data['invite'] ?? null,
+            );
+        } catch (GoogleSignInRefused $e) {
+            throw ValidationException::withMessages(['id_token' => $e->getMessage()]);
+        }
 
         return response()->json([
             'data' => new UserResource($user->loadMissing('plan')),
@@ -173,12 +196,22 @@ class GoogleAuthController extends Controller
      * password account with the same email, or create it; apply an invite;
      * and mark the email verified, since Google has confirmed it.
      *
+     * Linking by email needs Google to have verified that email: otherwise
+     * anyone could make a Google account with someone else's address and
+     * sign in as them. A new account gets the same throwaway-address check
+     * as a password sign-up, so Google is not a way around it. An account
+     * already linked by google_id is never re-checked.
+     *
      * @return array{0: User, 1: array{applied: bool, plan?: string, message: string}|null}
+     *
+     * @throws GoogleSignInRefused
      */
     private function signInGoogleUser(
         InviteRedemption $invites,
+        DisposableEmail $disposable,
         string $googleId,
         string $email,
+        bool $emailVerified,
         ?string $name,
         ?string $avatar,
         mixed $inviteCode,
@@ -187,6 +220,17 @@ class GoogleAuthController extends Controller
 
         if (! $user) {
             $user = User::where('email', $email)->first();
+
+            if ($user && ! $emailVerified) {
+                throw new GoogleSignInRefused(
+                    'google_email_unverified',
+                    'Google hasn’t confirmed this email address, so it can’t be linked to your GoCast account. Sign in with your password instead.',
+                );
+            }
+
+            if (! $user && $disposable->isDisposable($email)) {
+                throw new GoogleSignInRefused('disposable_email', NotDisposableEmail::MESSAGE);
+            }
 
             if ($user) {
                 $user->update([

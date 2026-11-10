@@ -1,12 +1,17 @@
 /**
- * The homepage's fictional week, shared by the grid (md and up) and the day
- * list (below md) so both tell the same story.
+ * The homepage's fictional week, shared by the grid (lg and up) and the day
+ * list (below lg) so both tell the same story.
  *
  * A plausible week, not a real one. Chosen to show the three things the
  * Schedule page actually does: one playlist repeating across weekdays, a
  * different one at the weekend, and a slot that runs past midnight onto the
  * next day — drawn as two segments exactly as the API resolves it. The gaps
  * are not empty; they are the default rotation (All Tracks).
+ *
+ * The times are also chosen so every day lists exactly five rows (slots plus
+ * the rotation between them) on the phone's day list, so switching days never
+ * makes the section jump: After Dark starts as Drivetime ends, and Sunday
+ * gets its own evening to make up for the row the wrap takes from it.
  */
 export const MINUTES_PER_DAY = 24 * 60
 /** Monday first, as the Schedule page draws it; indexes are JS `getDay()`. */
@@ -18,7 +23,8 @@ export const PLAYLISTS = [
   { id: "coffee", name: "Morning Coffee", days: [1, 2, 3, 4, 5], start: "06:00", end: "10:00" },
   { id: "drive", name: "Drivetime", days: [1, 2, 3, 4, 5], start: "16:00", end: "19:00" },
   { id: "brunch", name: "Weekend Brunch", days: [0, 6], start: "09:00", end: "13:00" },
-  { id: "late", name: "Late Night", days: [5, 6], start: "22:00", end: "02:00" },
+  { id: "late", name: "After Dark", days: [5, 6], start: "19:00", end: "02:00" },
+  { id: "sunday", name: "Sunday Wind-down", days: [0], start: "18:00", end: "00:00" },
 ] as const
 
 export type PlaylistId = (typeof PLAYLISTS)[number]["id"]

@@ -46,7 +46,9 @@ class RelaunchStations extends Command
 
     public function handle(LiquidsoapSupervisor $supervisor, PlaylistFileWriter $playlistWriter): int
     {
-        $query = Station::query()->running();
+        // A relay run has no container to relaunch: up() skips it anyway, and
+        // listing it would print a ✓ for work that never happened.
+        $query = Station::query()->running()->onContainer();
 
         if ($this->option('include-trashed')) {
             $query->withTrashed();

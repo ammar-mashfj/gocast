@@ -47,7 +47,9 @@ export default function Footer() {
         <div className="flex flex-col gap-3">
           <Wordmark />
           <p className="text-sm leading-normal font-medium text-muted-foreground">Live radio for everyone, from a browser tab.</p>
-          <div className="flex items-center gap-4">
+          {/* 40px tap targets around 18px icons; the negative margin keeps
+              the first icon on the text's edge. */}
+          <div className="-ml-2.75 flex items-center">
             {SOCIALS.map((social) => (
               <a
                 key={social.label}
@@ -55,7 +57,7 @@ export default function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={social.label}
-                className="text-muted-foreground transition-colors hover:text-foreground"
+                className="flex size-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
               >
                 <social.icon size={18} />
               </a>

@@ -170,7 +170,10 @@ class StationResource extends JsonResource
             // display question; it was never evidence of availability. The
             // only guard that mattered — don't claim a stopped station is
             // audible — is $isRunning, which is still here.
-            'is_on_air' => $isRunning,
+            // Except a relay run, which has no source until a broadcaster
+            // connects: a listener would get only the shared silence, and
+            // with no AutoDJ nothing else can come, so it waits for one.
+            'is_on_air' => $isRunning && ($isLive || ! $this->usesRelay()),
             // Owner intent, and the coarse state derived from it. This is the
             // cheap answer: it costs no network call, so list endpoints stay
             // at one Redis round-trip. It cannot tell "booting" from "on air"
@@ -375,7 +378,11 @@ class StationResource extends JsonResource
     {
         $base = (string) config('liquidsoap.hls_base_url');
 
-        if ($base === '') {
+        // A relay run has no container, so nothing writes HLS: the player
+        // must go straight to the Icecast mount. Read from this run's stored
+        // path, not the owner's plan — no per-row plan query, and nothing
+        // here says which plan a station is on while it is off air.
+        if ($base === '' || $this->resource->usesRelay()) {
             return null;
         }
 

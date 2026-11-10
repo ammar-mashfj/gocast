@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { isAuthenticated } from "@/lib/session";
 import HeroSection from "@/components/homepage/heroSection/HeroSection";
+import HearOneNow from "@/components/homepage/heroSection/HearOneNow";
 import HowItWorks from "@/components/homepage/HowItWorks";
 import StudioSection from "@/components/homepage/StudioSection";
 import ProgrammeSection from "@/components/homepage/ProgrammeSection";
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 /**
- * Hear it, see the desk, see the week, pay nothing. Each section after the
+ * See the handover, hear it, see the desk, see the week, pay nothing. Each section after the
  * hero shows one screen of the product doing the thing the copy claims;
  * the Pro extras sit inside the AutoDJ section rather than as a checklist
  * of their own, and pricing closes the argument.
@@ -27,11 +28,12 @@ export default async function Home() {
   return (
     <>
       <HeroSection isAuthed={isAuthed} />
+      <HearOneNow />
       <HowItWorks />
       <StudioSection />
       <ProgrammeSection />
       <ListenerLibrary />
-      <PricingSection />
+      <PricingSection isAuthed={isAuthed} />
       <CtaSection isAuthed={isAuthed} />
     </>
   );

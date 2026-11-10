@@ -56,15 +56,34 @@ class ListenerCountController extends Controller
             // including a station rotating untagged files or sitting on
             // silence. 'degraded' is excluded: the graph is fine but Icecast
             // is not carrying it, so there is nothing to connect to.
-            'is_on_air' => in_array(
-                $state,
-                [StationStatusService::STATE_ON_AIR, StationStatusService::STATE_LIVE],
-                true,
-            ),
+            //
+            // A relay run is the exception: with no broadcaster it has no
+            // source, and Icecast's fallback serves a newcomer the shared
+            // silence. A Free station has no AutoDJ, so that is all there
+            // could be until someone goes live; say off air instead.
+            'is_on_air' => $station->usesRelay()
+                ? $state === StationStatusService::STATE_LIVE
+                : in_array($state, [StationStatusService::STATE_ON_AIR, StationStatusService::STATE_LIVE], true),
             'now_playing' => [
                 'title' => $metadata['title'] ?? null,
                 'artist' => $metadata['artist'] ?? null,
             ],
+            // This run is on the relay path: there is no HLS stream, only the
+            // Icecast mount. Here as well as in StationResource::hls_url
+            // because a player page outlives the run it was rendered for —
+            // the station can go live on the relay after the page loaded.
+            //
+            // A known leak, accepted: the relay path is Free-only today, so
+            // this (like the empty hls_url) tells anyone which plan a station
+            // is on while it broadcasts. Any signal that sends the player to
+            // the right stream says as much; hiding it would mean every Free
+            // listener tries HLS first and starts late.
+            'icecast_only' => $station->usesRelay(),
+            // The owner's intent, for a player deciding whether to stop. Not
+            // `state`: a running station reads 'offline' for the moment its
+            // container is gone between a recreate's stop and start, and its
+            // listeners are on /standby waiting for it.
+            'switched_off' => ! $station->isRunning(),
         ]]);
     }
 }

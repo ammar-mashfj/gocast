@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Middleware\EnsureEmailIsVerified;
+use App\Http\Middleware\FlagCallbackDomains;
 use App\Http\Middleware\UseAuthTokenCookie;
+use App\Http\Middleware\VerifyIcecastCallback;
 use App\Http\Middleware\VerifyInternalKey;
 use App\Services\InviteException;
 use App\Services\StationLifecycleException;
@@ -46,19 +48,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ['middleware' => ['api', 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trust the Caddy/FrankenPHP container sitting directly in front of
-        // Laravel so `$request->ip()` returns the real client IP from
-        // X-Forwarded-For, not the proxy's own address. Without this, every
-        // visitor looks like the same IP — breaking rate limits and the
-        // login lockout counter.
+        // Host nginx talks to PHP-FPM over a unix socket and resolves the
+        // real client address itself (conf.d/cloudflare-realip.conf), so
+        // REMOTE_ADDR is already the visitor and nothing in front of Laravel
+        // needs trusting. Only loopback is trusted, for local tooling.
         //
-        // '*' is safe because Laravel is never internet-facing in this
-        // setup: Caddy is the only thing that can reach it. Behind
-        // Cloudflare, Caddy's `trusted_proxies cloudflare` directive
-        // (see api/Caddyfile.cloudflare) ensures the chain terminates at
-        // the real client IP before it reaches Laravel.
+        // This used to be '*', on the assumption that Caddy was the only
+        // thing that could reach Laravel. Under native nginx the origin is
+        // internet-facing, and '*' let anyone who connected to it directly
+        // pick their own `$request->ip()` with a forged X-Forwarded-For —
+        // walking straight past every IP-keyed rate limit and the login
+        // lockout. Do not widen this without a proxy that overwrites the
+        // header in front of every route to the app.
         $middleware->trustProxies(
-            at: '*',
+            at: ['127.0.0.1', '::1'],
             headers: Request::HEADER_X_FORWARDED_FOR
                 | Request::HEADER_X_FORWARDED_HOST
                 | Request::HEADER_X_FORWARDED_PORT
@@ -67,6 +70,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'internal' => VerifyInternalKey::class,
+            'icecast.callback' => VerifyIcecastCallback::class,
             // Override Laravel's default so verification 403s carry a stable
             // `code: "email_unverified"` — frontend distinguishes from policy
             // 403s without string-matching the English message.
@@ -76,6 +80,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             UseAuthTokenCookie::class,
         ]);
+
+        // Telegram alert when input carries an out-of-band callback host
+        // (dnslog.cn and friends) — the SSRF bait of the 2026-10-27 probe.
+        // Observe only; see FlagCallbackDomains.
+        $middleware->api(append: [FlagCallbackDomains::class]);
+        $middleware->web(append: [FlagCallbackDomains::class]);
 
         // One-click unsubscribe (RFC 8058). Gmail and Apple Mail POST to the
         // List-Unsubscribe-Post URL from their own infrastructure: no session,

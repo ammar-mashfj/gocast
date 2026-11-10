@@ -63,3 +63,13 @@ it('rejects a malformed token', function () {
 
     expect($tokens->verify('not-a-token', 'jazz'))->toBeNull();
 });
+
+it('carries the studio id the token was issued for', function () {
+    $station = Station::factory()->create();
+    $tokens = app(BroadcastTokenService::class);
+
+    expect($tokens->verify($tokens->issue($station->user, $station, studio: 'phone-0a1b2c3d'), $station->slug))
+        ->toMatchArray(['studio' => 'phone-0a1b2c3d'])
+        ->and($tokens->verify($tokens->issue($station->user, $station), $station->slug))
+        ->toMatchArray(['studio' => null]);
+});

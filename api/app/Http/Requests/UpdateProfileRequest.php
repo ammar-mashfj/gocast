@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\NotDisposableEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -31,7 +32,9 @@ class UpdateProfileRequest extends FormRequest
 
         return [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'email' => ['sometimes', 'required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($userId)],
+            // NotDisposableEmail only on a change: an account already on such
+            // an address must still be able to save its name.
+            'email' => array_filter(['sometimes', 'required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($userId), $emailChanging ? new NotDisposableEmail : null]),
             'current_password' => [Rule::requiredIf($emailChanging), 'string', 'current_password'],
         ];
     }

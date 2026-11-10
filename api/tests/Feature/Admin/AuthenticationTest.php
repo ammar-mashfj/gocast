@@ -15,8 +15,8 @@ it('renders the login page for guests', function () {
         ->assertSee('Sign in');
 });
 
-it('authenticates an admin and sends them to the stations page', function () {
-    $admin = Admin::factory()->create();
+it('authenticates an admin without two-factor and sends them to the stations page', function () {
+    $admin = Admin::factory()->withoutTwoFactor()->create();
 
     $this->post(route('admin.login.store'), [
         'email' => $admin->email,
@@ -27,7 +27,7 @@ it('authenticates an admin and sends them to the stations page', function () {
 });
 
 it('records the login timestamp', function () {
-    $admin = Admin::factory()->create(['last_login_at' => null]);
+    $admin = Admin::factory()->withoutTwoFactor()->create(['last_login_at' => null]);
 
     $this->post(route('admin.login.store'), [
         'email' => $admin->email,
@@ -72,6 +72,31 @@ it('locks out after five failed attempts', function () {
     foreach (range(1, 5) as $attempt) {
         $this->post(route('admin.login.store'), [
             'email' => $admin->email,
+            'password' => 'wrong',
+        ]);
+    }
+
+    $this->post(route('admin.login.store'), [
+        'email' => $admin->email,
+        'password' => 'password',
+    ])->assertSessionHasErrors('email');
+
+    Event::assertDispatched(Lockout::class);
+    $this->assertGuest('admin');
+});
+
+/**
+ * The email+IP key alone hands out five fresh guesses per email typed in.
+ * The per-IP budget is what stops a client rotating emails.
+ */
+it('locks out an IP that keeps switching emails', function () {
+    Event::fake([Lockout::class]);
+
+    $admin = Admin::factory()->create();
+
+    foreach (range(1, 20) as $attempt) {
+        $this->post(route('admin.login.store'), [
+            'email' => "guess{$attempt}@example.com",
             'password' => 'wrong',
         ]);
     }

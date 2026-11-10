@@ -82,6 +82,12 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    // Cloudflare Turnstile on sign-up, sign-in and forgot password. Blank secret = the
+    // check is off and `turnstile_token` is not asked for (dev, tests).
+    'turnstile' => [
+        'secret' => env('TURNSTILE_SECRET_KEY'),
+    ],
+
     'icecast' => [
         'source_password' => env('ICECAST_SOURCE_PASSWORD'),
         'admin_user' => env('ICECAST_ADMIN_USER', 'admin'),
@@ -93,10 +99,11 @@ return [
         // the public listener URL (NEXT_PUBLIC_ICECAST_URL).
         'url' => env('ICECAST_INTERNAL_URL', 'http://127.0.0.1:8000'),
 
-        // Icecast's <limits><sources>. One per running station, not per live
-        // broadcaster. setup-native.sh renders it into icecast.xml from this
-        // same variable, and stations:sync-listeners warns at 80% of it.
-        'max_sources' => (int) env('ICECAST_MAX_SOURCES', 150),
+        // Icecast's <limits><sources>: one per running station container, one
+        // per live Free relay show, and the /standby feed. setup-native.sh
+        // renders it into icecast.xml from this same variable, and
+        // stations:sync-listeners warns at 80% of it.
+        'max_sources' => (int) env('ICECAST_MAX_SOURCES', 500),
     ],
 
 ];

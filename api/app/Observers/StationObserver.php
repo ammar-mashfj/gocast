@@ -2,9 +2,13 @@
 
 namespace App\Observers;
 
+use App\Jobs\DropStationListeners;
 use App\Models\Station;
+use App\Services\BroadcastSessions;
+use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
+use App\Services\StationStatusService;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -31,8 +35,10 @@ use Throwable;
  *                since up() always re-renders.
  *                Jingle settings are not in the script at all: Laravel
  *                reads them at every track boundary (JingleClock).
- *  • deleting  → stop and remove the container (also fires for soft deletes;
- *                listeners stop hearing the station as soon as it's "deleted")
+ *  • deleting  → take it off air (also fires for soft deletes; listeners
+ *                stop hearing the station as soon as it's "deleted"): remove
+ *                the container, or on the relay path cut the Icecast source,
+ *                then close any open broadcast and release the listeners
  *  • restored  → bring a soft-deleted station back, if it was running
  *
  * Failures are logged but NOT re-thrown: a Docker daemon hiccup must not
@@ -45,6 +51,9 @@ class StationObserver
     public function __construct(
         private LiquidsoapSupervisor $supervisor,
         private PlaylistFileWriter $playlistWriter,
+        private IcecastAdmin $icecast,
+        private BroadcastSessions $sessions,
+        private StationStatusService $statusService,
     ) {}
 
     /**
@@ -161,7 +170,36 @@ class StationObserver
 
     public function deleting(Station $station): void
     {
+        // A relay run is kept on air by its Icecast source, not a container.
+        // Cut first: down() waits on Docker, and a stuck daemon must not keep
+        // a deleted station broadcasting. down() still runs, for a container
+        // left from an earlier run on the other path.
+        if ($station->usesRelay()) {
+            $this->safely('kill-source', $station, fn () => $this->icecast->killSource($station));
+        }
+
         $this->safely('down', $station, fn () => $this->supervisor->down($station));
+
+        // Nothing will close the session after this: the disconnect callback
+        // looks the station up by slug and no longer finds a deleted one. A
+        // deleted station is never live, whatever path it was on. close() also
+        // drops its now-playing title, and the cached status goes with it, or
+        // the deleted station would read as playing until both expired.
+        $this->safely('close-session', $station, fn () => $this->sessions->close($station));
+        $this->safely('forget-status', $station, fn () => $this->statusService->forget($station));
+    }
+
+    public function deleted(Station $station): void
+    {
+        // Here and not in deleting(): the job skips a mount whose station is
+        // still on, and until the row is trashed this one still reads as on.
+        //
+        // Only a station that was on can have an audience: a stopped one lost
+        // its listeners when it stopped, and each drop is a few Icecast calls.
+        // Deleting leaves desired_state as it was, so it still says which.
+        if ($station->isRunning()) {
+            DropStationListeners::dispatch($station->icecast_mount);
+        }
     }
 
     public function forceDeleted(Station $station): void

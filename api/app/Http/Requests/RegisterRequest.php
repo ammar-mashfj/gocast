@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\NotDisposableEmail;
+use App\Services\Turnstile;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,13 +29,24 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users', new NotDisposableEmail],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             // Validated for shape only. Whether the code is real, unused and
             // in date is InviteRedemption's call, made inside the same
             // transaction as the insert so the answer cannot change between
             // here and there.
             'invite_code' => ['nullable', 'string', 'max:40'],
+            // The bot check, when TURNSTILE_SECRET_KEY is set. Google sign-up
+            // doesn't go through here and doesn't need it.
+            'turnstile_token' => Turnstile::rules('register'),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return Turnstile::messages();
     }
 }

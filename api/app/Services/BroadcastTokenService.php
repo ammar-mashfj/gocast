@@ -33,14 +33,16 @@ class BroadcastTokenService
      * Issue a token for $user to publish to $station. The token is valid
      * only for that station + that user, and only for TTL_SECONDS.
      */
-    public function issue(User $user, Station $station, ?int $ttlSeconds = null): string
+    public function issue(User $user, Station $station, ?int $ttlSeconds = null, ?string $studio = null): string
     {
         $ttl = $ttlSeconds ?? self::TTL_SECONDS;
-        $payload = json_encode([
+        $payload = json_encode(array_filter([
             'u' => $user->id,
             's' => $station->slug,
             'e' => Carbon::now()->getTimestamp() + $ttl,
-        ], JSON_UNESCAPED_SLASHES);
+            // The studio's own id (RelaySourceHolder), when it sent one.
+            'st' => $studio,
+        ], fn ($value) => $value !== null), JSON_UNESCAPED_SLASHES);
 
         $encodedPayload = $this->base64UrlEncode($payload);
         $signature = $this->base64UrlEncode($this->mac($encodedPayload));
@@ -55,7 +57,7 @@ class BroadcastTokenService
      *
      * Constant-time MAC comparison via hash_equals to avoid timing oracles.
      *
-     * @return array{user_id: string, station_slug: string}|null
+     * @return array{user_id: string, station_slug: string, studio: ?string}|null
      */
     public function verify(string $token, string $expectedStationSlug): ?array
     {
@@ -97,6 +99,7 @@ class BroadcastTokenService
         return [
             'user_id' => (string) $payload['u'],
             'station_slug' => (string) $payload['s'],
+            'studio' => isset($payload['st']) && is_string($payload['st']) ? $payload['st'] : null,
         ];
     }
 

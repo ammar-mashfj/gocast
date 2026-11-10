@@ -25,7 +25,22 @@ class AuthenticatedSessionController extends Controller
 
     public function store(LoginRequest $request): RedirectResponse
     {
-        $request->authenticate();
+        $admin = $request->authenticate();
+
+        // Password right, code still owed: park who this is in the session
+        // and ask for it. Nothing is signed in until the code checks out.
+        if ($admin->hasTwoFactorEnabled()) {
+            $request->session()->regenerate();
+            $request->session()->put(TwoFactorChallengeController::SESSION_KEY, [
+                'id' => $admin->getKey(),
+                'remember' => $request->boolean('remember'),
+                'expires_at' => now()->addMinutes(TwoFactorChallengeController::PENDING_MINUTES)->getTimestamp(),
+            ]);
+
+            return redirect()->route('admin.two-factor.challenge');
+        }
+
+        Auth::guard('admin')->login($admin, $request->boolean('remember'));
 
         $request->session()->regenerate();
 

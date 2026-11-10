@@ -2,6 +2,8 @@
 
 use App\Models\Plan;
 use App\Models\User;
+use App\Services\DisposableEmail;
+use App\Services\MxLookup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -41,6 +43,20 @@ pest()->extend(TestCase::class)
         Cache::flush();
         Session::flush();
         Auth::forgetGuards();
+
+        // Every sign-up runs the throwaway-address check, whose MX half goes
+        // out over DNS-over-HTTPS. No test may do that, so every domain has
+        // no MX records unless a test binds its own MxLookup. The bundled
+        // list is the one in play, whatever a local refresh left in storage.
+        app()->instance(MxLookup::class, new class extends MxLookup
+        {
+            public function hosts(string $domain): ?array
+            {
+                return [];
+            }
+        });
+        config()->set('security.disposable_domains_list', storage_path('framework/testing/no-refreshed-disposable-list.txt'));
+        DisposableEmail::forgetLists();
     })
     ->in('Feature');
 

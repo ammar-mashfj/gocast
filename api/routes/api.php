@@ -9,6 +9,7 @@ use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
+use App\Http\Controllers\IcecastCallbackController;
 use App\Http\Controllers\InviteController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\ResendWebhookController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
+use App\Http\Controllers\StationNowPlayingController;
 use App\Http\Controllers\StationPowerController;
 use App\Http\Controllers\StationScheduleController;
 use App\Http\Controllers\StationSlugController;
@@ -178,6 +180,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Admin monitoring only; see UplinkCheckController.
         Route::post('/stations/{station:slug}/uplink-checks', UplinkCheckController::class)
             ->middleware('throttle:20,1,uplink-checks');
+
+        // The relay studio's track title. On the container path it rides the
+        // webcast socket instead; see StationNowPlayingController.
+        Route::post('/stations/{station:slug}/now-playing', StationNowPlayingController::class)
+            ->middleware('throttle:60,1,station-now-playing');
 
         // Skip the current AutoDJ track — a telnet command to the running
         // container, no restart involved.
@@ -359,6 +366,17 @@ Route::middleware(['internal', 'throttle:internal'])->group(function () {
     // Prometheus / Grafana Agent / Vector pipeline. Excluded from the
     // public throttle bucket because scrapes are scheduled, not bursty.
     Route::get('/internal/metrics', MetricsController::class)->withoutMiddleware('throttle:internal');
+});
+
+// Icecast's own callbacks for relay stations (Free, no container): the url
+// role that admits a relay broadcaster, and source connect/disconnect. Icecast
+// can only send Basic auth, hence a credential of their own instead of
+// X-Internal-Key. Not throttled: after a relay restart every live Free studio
+// logs in again within seconds, from the one loopback address, and a 429 here
+// would be a refusal. See IcecastCallbackController.
+Route::middleware('icecast.callback')->group(function () {
+    Route::post('/internal/icecast/auth', [IcecastCallbackController::class, 'auth']);
+    Route::post('/internal/icecast/event', [IcecastCallbackController::class, 'event']);
 });
 
 // Resend webhooks (inbound email today, delivery events later). Public, but

@@ -10,11 +10,16 @@ export type GoogleInviteOutcome =
 
 type GoogleOAuthPayload =
   | { type: "gocast-oauth"; authenticated: true; invite?: GoogleInviteOutcome }
-  | { type: "gocast-oauth"; error: string }
+  | { type: "gocast-oauth"; error: string; message?: string }
 
+/**
+ * `message` comes with a refusal the person can act on (a throwaway address,
+ * or an email Google hasn't verified that matches an existing account); show
+ * it as is. Without one the error is a plain failure.
+ */
 export type GoogleOAuthResult =
   | { authenticated: true; invite?: GoogleInviteOutcome }
-  | { error: string }
+  | { error: string; message?: string }
   | { dismissed: true }
 
 const POPUP_WIDTH = 500
@@ -87,7 +92,9 @@ export function signInWithGoogle(options: { invite?: string } = {}): Promise<Goo
       if ("authenticated" in data) {
         settle(data.invite ? { authenticated: true, invite: data.invite } : { authenticated: true })
       } else {
-        settle({ error: data.error || "google_auth_failed" })
+        settle(data.message
+          ? { error: data.error || "google_auth_failed", message: data.message }
+          : { error: data.error || "google_auth_failed" })
       }
 
       // The popup closes itself after posting, but close defensively in case

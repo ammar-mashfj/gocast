@@ -3,15 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Events\StationStateChanged;
-use App\Jobs\SendStationLiveNotifications;
 use App\Models\Station;
 use App\Models\StationEvent;
-use App\Services\BroadcastOrigin;
+use App\Services\BroadcastSessions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Validation\Rule;
 
 /**
@@ -98,7 +96,7 @@ class StationEventController extends Controller
      */
     private const TTL_SECONDS = 3600;
 
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, BroadcastSessions $sessions): JsonResponse
     {
         $validated = $request->validate([
             'slug' => ['required', 'string', 'max:64'],
@@ -107,7 +105,7 @@ class StationEventController extends Controller
             // rendered from the current template. Both are OPTIONAL and both
             // default to the browser studio, which is what every container
             // that has not been relaunched yet is implicitly reporting — see
-            // openSession().
+            // BroadcastSessions::open().
             //
             // `client` is the broadcaster's user-agent, allowlisted inside the
             // .liq. Everything else harbor saw, including the Authorization
@@ -169,7 +167,7 @@ class StationEventController extends Controller
         }
 
         if ($validated['event'] === 'live_connected') {
-            $this->openSession(
+            $sessions->open(
                 $station,
                 $validated['via'] ?? 'browser',
                 $validated['client'] ?? null,
@@ -177,11 +175,11 @@ class StationEventController extends Controller
         }
 
         if ($validated['event'] === 'live_disconnected') {
-            $this->closeSessions($station);
+            $sessions->close($station);
         }
 
         // LAST, after the side effects above, because the client's response to
-        // this is to refetch. A broadcast sent before openSession() commits
+        // this is to refetch. A broadcast sent before BroadcastSessions::open() commits
         // would race its own consumer: the dashboard asks
         // GET /stations/{slug}/status, the session row is not there yet, and
         // the answer it caches says nobody is broadcasting — the exact stale
@@ -208,72 +206,5 @@ class StationEventController extends Controller
         ]);
 
         return response()->json(['ok' => true]);
-    }
-
-    /**
-     * Open the StreamSession that makes this station read as live.
-     *
-     * Idempotent: harbor can report a connection twice (a broadcaster that
-     * reconnects inside the same second, a retried notification), and a second
-     * open session would double-count airtime. Reuse whatever is already open.
-     */
-    private function openSession(Station $station, string $via, ?string $client): void
-    {
-        $existing = $station->streamSessions()->whereNull('ended_at')->exists();
-
-        if ($existing) {
-            // A row is already open, so leave it alone — reopening would
-            // double-count airtime for a broadcaster who reconnected.
-            //
-            // NOT the web studio arriving ahead of harbor: it never calls
-            // StreamSessionController::store at all (see getSessionId() in
-            // client/lib/broadcast.ts — "Laravel opens the StreamSession from
-            // harbor's connect callback"). This event IS how a browser
-            // broadcast gets its row, which is why `via` below has to be
-            // right rather than merely a fallback. What reaches here is the
-            // desktop client, which does POST its own session, and a harbor
-            // reconnect inside the same second.
-            return;
-        }
-
-        // This is the only path into a session row for an encoder AND for the
-        // web studio — neither makes an API call that opens one. So `via` is
-        // not a refinement on top of something else that knows: it is the
-        // whole of what distinguishes them. While this hardcoded 'browser', as
-        // it did until external ingest shipped, every encoder broadcast was
-        // labelled "Studio" on the station overview, which is precisely where
-        // someone looks to check whether their encoder worked.
-        //
-        // The default is still 'browser', for containers rendered before the
-        // template started reporting `via`. Those keep their old behaviour
-        // until `stations:relaunch` recreates them.
-        // The origin only exists for the studio and the app, which ask for a
-        // broadcast token first. An encoder never does, so its row gets no IP.
-        $origin = $via === 'external' ? [] : app(BroadcastOrigin::class)->for($station);
-
-        $session = $station->streamSessions()->create([
-            'started_at' => now(),
-            'source_type' => $via,
-            'client' => $client,
-            'ip_address' => $origin['ip_address'] ?? null,
-            'country' => $origin['country'] ?? null,
-        ]);
-
-        SendStationLiveNotifications::dispatch($station->id, $session->id)
-            ->delay(now()->addMinutes(2));
-    }
-
-    /**
-     * Close any open session and drop the now-playing payload, so the
-     * listener-facing API stops showing the last broadcaster track instead of
-     * waiting out its TTL.
-     */
-    private function closeSessions(Station $station): void
-    {
-        $station->streamSessions()
-            ->whereNull('ended_at')
-            ->update(['ended_at' => now()]);
-
-        Redis::del("metadata:{$station->id}");
     }
 }

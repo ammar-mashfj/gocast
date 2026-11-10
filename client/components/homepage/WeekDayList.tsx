@@ -23,7 +23,7 @@ function rowsFor(day: number): Row[] {
 }
 
 /**
- * The Schedule page below md: a strip of seven days to pick from, then the
+ * The Schedule page below lg: a strip of seven days to pick from, then the
  * chosen day's rows (app/dashboard/stations/[slug]/schedule/DayList.tsx draws
  * the real one the same way, as does the Android app). The grid is hidden
  * there because a three-hour slot is 60px wide on a phone and reads as a dot.

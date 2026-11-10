@@ -6,6 +6,7 @@ use App\Models\Station;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Throwable;
 
 /**
@@ -64,8 +65,17 @@ class StationStatusService
      */
     public const STATE_DEGRADED = 'degraded';
 
+    /**
+     * Icecast's live mounts, asked at most once per pass: a sweep over many
+     * relay stations must not ask Icecast once each.
+     *
+     * @var array{at: float, mounts: array<string, true>|null}|null
+     */
+    private ?array $icecastMounts = null;
+
     public function __construct(
         private readonly LiquidsoapSupervisor $supervisor,
+        private readonly IcecastAdmin $icecast,
     ) {}
 
     /**
@@ -158,6 +168,31 @@ class StationStatusService
             return null;
         }
 
+        // The relay's "who is on air" is the session Icecast's source-connect
+        // opened, and Icecast sends that callback once, without retrying. A
+        // lost one must not get a live show turned off, so this — the reading
+        // the auto-stop acts on — also asks Icecast itself.
+        if ($station->usesRelay()) {
+            // No session and no answer from Icecast is not "nobody is on":
+            // it is exactly the lost callback this asks Icecast to cover.
+            // Unknown, like a container that does not answer.
+            if (! $station->isLive() && $this->icecastCarries($station) === null) {
+                return null;
+            }
+
+            $status = $this->relayStatus($station, askIcecast: true);
+
+            // Written back like a container's, so the dashboard shows what the
+            // auto-stop just decided on.
+            Cache::put(
+                self::CACHE_PREFIX.$station->id,
+                ['reachable' => true, 'status' => $status],
+                (int) config('liquidsoap.status_ttl_seconds', 2),
+            );
+
+            return $status;
+        }
+
         $payload = $this->pull($station);
 
         Cache::put(
@@ -248,6 +283,10 @@ class StationStatusService
      */
     private function pull(Station $station): array
     {
+        if ($station->usesRelay()) {
+            return ['reachable' => true, 'status' => $this->relayStatus($station)];
+        }
+
         $port = (int) config('liquidsoap.harbor_port', 8080);
 
         // Ask Docker BEFORE harbor. containerHost() is pure arithmetic — it
@@ -309,6 +348,58 @@ class StationStatusService
                 'container_up' => $this->probeContainer($station),
             ];
         }
+    }
+
+    /**
+     * The status of a station on the relay path, which has no container to ask.
+     *
+     * Nothing has to boot — the relay and Icecast are shared and always up —
+     * so a running relay station is ready at once, which is what lets the
+     * studio's pre-flight go straight to opening the socket. Whether someone
+     * is broadcasting comes from the StreamSession that Icecast's
+     * source-connect opened; ReconcileStations checks that row against
+     * Icecast's own mount list, as it checks a container's against harbor.
+     *
+     * `icecast` and `rms` are unknown (null), not good or silent: nothing
+     * measures them on this path, and the auto-stop policy has its own relay
+     * rule rather than reading them.
+     *
+     * @return array<string, mixed>
+     */
+    private function relayStatus(Station $station, bool $askIcecast = false): array
+    {
+        $live = $station->isLive() || ($askIcecast && $this->icecastCarries($station) === true);
+        $metadata = json_decode((string) Redis::get("metadata:{$station->id}"), true);
+        $metadata = is_array($metadata) ? $metadata : [];
+
+        return [
+            'ready' => true,
+            'icecast' => null,
+            'source' => $live ? 'live' : 'silence',
+            'broadcaster' => $live,
+            'rms' => null,
+            'title' => $live ? ($metadata['title'] ?? null) : null,
+            'artist' => $live ? ($metadata['artist'] ?? null) : null,
+            'elapsed' => null,
+            'remaining' => null,
+            'playlist_length' => null,
+            'up_next' => [],
+        ];
+    }
+
+    /**
+     * Does Icecast hold this station's source right now? Null when Icecast
+     * could not be asked.
+     */
+    private function icecastCarries(Station $station): ?bool
+    {
+        if ($this->icecastMounts === null || microtime(true) - $this->icecastMounts['at'] > 5) {
+            $this->icecastMounts = ['at' => microtime(true), 'mounts' => $this->icecast->liveMounts()];
+        }
+
+        $mounts = $this->icecastMounts['mounts'];
+
+        return $mounts === null ? null : isset($mounts[$station->icecast_mount]);
     }
 
     /**

@@ -1,0 +1,51 @@
+[Unit]
+# The Free-plan ingest: browser studio WebSocket → Icecast, byte for byte.
+# relay/ at the repo root, docs/RELAY-SERVICE-PLAN.md.
+#
+# TWO instances, named by port: gocast-relay@8095 and gocast-relay@8096, both
+# in the gocast_relay upstream in gocast-stream.conf. A crash or a restart
+# drops only that instance's studios, and they reconnect to the other within
+# milliseconds. NEVER restart both at once — deploy-native.sh restarts one,
+# waits for it to answer /healthz, then the other.
+Description=GoCast relay on :%i (Free-plan ingest)
+After=network-online.target icecast2.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_USER__
+
+# Health and /metrics on 1<port> (18095, 18096), loopback only.
+# -origins: the studio's own hosts. A browser from anywhere else is refused
+# at the upgrade; the mobile app sends no Origin and is not affected.
+ExecStart=__APP_ROOT__/relay/bin/gocast-relay \
+    -listen 127.0.0.1:%i \
+    -health 127.0.0.1:1%i \
+    -icecast 127.0.0.1:__ICECAST_PORT__ \
+    -origins __APP_HOST__,www.__APP_HOST__
+
+# SIGTERM: stop accepting, close every studio with 1001 so it reconnects at
+# once (to the other instance), exit. Takes milliseconds.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+Restart=always
+RestartSec=1
+
+# Two sockets per studio (browser side + Icecast side).
+LimitNOFILE=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gocast-relay-%i
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
