@@ -47,7 +47,7 @@ only that copy's studios, which reconnect to the other within milliseconds.
 
 ## Close codes the studio sees
 
-A studio's reconnect does not wait for the 4 s: its broadcast-token request
+A studio's reconnect does not wait for the 8 s: its broadcast-token request
 carries the studio's own id, and when the source Icecast still carries is that
 studio's (`RelaySourceHolder`), Laravel cuts it; the relay rides out the moment
 Icecast takes to free the mount. Another device or tab cuts nothing and gets
@@ -58,7 +58,7 @@ Icecast takes to free the mount. Another device or tab cuts nothing and gets
 | 4001 | Icecast/API refused the login (bad token, station off, not on relay) | final |
 | 4002 | malformed hello | final |
 | 4005 | Icecast ended the source mid-show (station turned off) | reconnect |
-| 4009 | mount still has a source after 1 s of asking again (a just-cut source is waited out) | final on first go-live, retried on reconnect |
+| 4009 | mount still has a source after 1 s of asking again, each ask given up to 3 s to answer (a just-cut source is waited out) | final on first go-live, retried on reconnect |
 | 1001 | relay restarting | reconnect (lands on the other copy) |
 | 1011 | Icecast unreachable | reconnect |
-| 1008 | studio sent nothing for 4 s (under Icecast's 10 s `source-timeout`) | reconnect |
+| 1008 | studio sent nothing for 8 s (under Icecast's 10 s `source-timeout`) | reconnect |

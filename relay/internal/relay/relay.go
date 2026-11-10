@@ -68,6 +68,7 @@ type Config struct {
 	IdleTimeout    time.Duration // no frame from the studio for this long = dead
 	BusyRetryFor   time.Duration // keep asking Icecast this long while it says "in use"
 	BusyRetryEvery time.Duration // between those asks
+	BusyRetryLogin time.Duration // the time each of those asks gets to answer
 	WriteTimeout   time.Duration // one write to Icecast may block this long
 	MaxMessage     int64         // largest single WebSocket message accepted
 	PingInterval   time.Duration // ping the studio this often; 0 = never
@@ -80,15 +81,17 @@ func DefaultConfig() Config {
 		MountPrefix:    "/stream/",
 		HelloTimeout:   10 * time.Second,
 		IcecastTimeout: 10 * time.Second,
-		// How long a dead studio keeps its station: a phone that loses its
-		// network sends no close, so this is when the relay gives the mount
-		// up. The studio sends a frame about every 90 ms, so 4 s is some 40
-		// missed frames, not a weak signal. Under Icecast's <source-timeout>
-		// (10 s), which would otherwise drop the source first and tell the
-		// studio 4005 "source ended" instead of 1008 "no audio". A studio that
-		// reconnects sooner does not wait for it: its token request has
-		// Laravel cut the dead source it left behind (RelaySourceHolder).
-		IdleTimeout:  4 * time.Second,
+		// How long a studio may send nothing before the relay gives its
+		// station up. Long enough to ride out a stall the studio recovers
+		// from on the same connection (a Wi-Fi hiccup, a busy tab, the
+		// studio rebuilding a frozen audio engine at 5 s): cutting sooner
+		// turns each into a disconnect and a reconnect. A studio that does
+		// reconnect does not wait for it: its token request has Laravel cut
+		// the dead source it left behind (RelaySourceHolder). Under
+		// Icecast's <source-timeout> (10 s), which would otherwise drop the
+		// source first and tell the studio 4005 "source ended" instead of
+		// 1008 "no audio".
+		IdleTimeout:  8 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		MaxMessage:   64 << 10,
 		PingInterval: 30 * time.Second,
@@ -99,6 +102,10 @@ func DefaultConfig() Config {
 		// so this stays short.
 		BusyRetryFor:   1 * time.Second,
 		BusyRetryEvery: 250 * time.Millisecond,
+		// A login is Icecast asking Laravel, usually tens of ms. 3 s lets a
+		// slow one finish, and keeps the worst case (1 s of asking, then a
+		// 3 s login) well inside the studio's 12 s wait for "ok".
+		BusyRetryLogin: 3 * time.Second,
 	}
 }
 
@@ -435,10 +442,11 @@ func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
 // previous connection, which Laravel has just cut and Icecast has not quite
 // let go of yet.
 //
-// The budget bounds the asking, not just the starting: a retry gets only the
-// time left, and one that runs out is reported as the "in use" it was asking
-// past, not as Icecast being down. Otherwise one slow retry could outlast the
-// studio's own 12 s wait and surface as a generic timeout.
+// BusyRetryFor bounds when a retry may start. Each retry then gets a whole
+// BusyRetryLogin to answer: a login cut short could be one Icecast was about
+// to admit, reported as "already live" while Icecast briefly held a source
+// the relay had already hung up on. A retry that gets no answer in that time
+// reports what happened (Icecast not answering), and the asking stops.
 func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (net.Conn, websocket.StatusCode, string) {
 	deadline := time.Now().Add(s.cfg.BusyRetryFor)
 	ice, code, why := s.openSource(ctx, slug, token, s.cfg.IcecastTimeout)
@@ -452,11 +460,7 @@ func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (ne
 		case <-time.After(s.cfg.BusyRetryEvery):
 		}
 		s.Metrics.busyRetry()
-		retry, retryCode, retryWhy := s.openSource(ctx, slug, token, time.Until(deadline))
-		if retryCode == CloseIcecastDown && !time.Now().Before(deadline) {
-			return nil, code, why
-		}
-		ice, code, why = retry, retryCode, retryWhy
+		ice, code, why = s.openSource(ctx, slug, token, s.cfg.BusyRetryLogin)
 	}
 	return ice, code, why
 }

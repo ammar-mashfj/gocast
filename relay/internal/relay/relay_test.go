@@ -1100,9 +1100,10 @@ func TestBusyRetryIsPerStation(t *testing.T) {
 	}
 }
 
-// A retry that Icecast does not answer must not run past the budget: the
-// studio waits 12 s for an answer and would report a generic timeout.
-func TestSlowRetryStaysInsideTheBudget(t *testing.T) {
+// A retry that Icecast does not answer ends at its own login time, and the
+// studio is told Icecast is not answering: it waits 12 s for an answer and
+// would otherwise report a generic timeout.
+func TestSlowRetryAnswersWithinItsOwnLoginTime(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	t.Cleanup(func() { ln.Close() })
 	var logins atomic.Int32
@@ -1129,21 +1130,84 @@ func TestSlowRetryStaysInsideTheBudget(t *testing.T) {
 	cfg.IcecastTimeout = 5 * time.Second
 	cfg.BusyRetryFor = 600 * time.Millisecond
 	cfg.BusyRetryEvery = 100 * time.Millisecond
+	cfg.BusyRetryLogin = 400 * time.Millisecond
 	_, hs := startRelay(t, cfg)
 
 	start := time.Now()
-	if _, code := connectStudio(t, hs, "a"); code != CloseBusy {
-		t.Fatalf("got %d, want %d (still in use as far as anyone knows)", code, CloseBusy)
+	if _, code := connectStudio(t, hs, "a"); code != CloseIcecastDown {
+		t.Fatalf("got %d, want %d: the retry got no answer from Icecast", code, CloseIcecastDown)
 	}
+	// The first retry hangs for its 400 ms and the asking stops there,
+	// nowhere near the 5 s a first login may take.
 	if d := time.Since(start); d > 1500*time.Millisecond {
-		t.Fatalf("answered after %s; the retry budget is 600ms", d)
+		t.Fatalf("answered after %s; one retry login is 400ms", d)
+	}
+	if n := logins.Load(); n != 2 {
+		t.Fatalf("%d logins, want 2: no retry after one Icecast did not answer", n)
 	}
 }
 
-func TestDefaultsGiveUpADeadStudioInFourSeconds(t *testing.T) {
+// The last retry can start with only a few ms of the asking budget left. It
+// still gets a whole login: Icecast admitting it a moment later must put the
+// studio on air, not be cut short and reported "already live".
+func TestLastRetryGetsAWholeLogin(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	t.Cleanup(func() { ln.Close() })
+	var logins atomic.Int32
+	admitted := make(chan struct{}, 1)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				br := bufio.NewReader(c)
+				br.ReadString('\n')
+				if logins.Add(1) < 3 {
+					io.WriteString(c, "HTTP/1.0 403 Forbidden\r\n\r\nMountpoint in use\r\n")
+					c.Close()
+					return
+				}
+				// The third login, which starts some 500 ms into a 600 ms
+				// budget: Icecast's auth call takes 300 ms, then it admits.
+				time.Sleep(300 * time.Millisecond)
+				io.WriteString(c, "HTTP/1.0 200 OK\r\n\r\n")
+				admitted <- struct{}{}
+				io.Copy(io.Discard, br)
+				c.Close()
+			}(c)
+		}
+	}()
+	cfg := testConfig(ln.Addr().String())
+	cfg.BusyRetryFor = 600 * time.Millisecond
+	cfg.BusyRetryEvery = 250 * time.Millisecond
+	cfg.BusyRetryLogin = 2 * time.Second
+	s, hs := startRelay(t, cfg)
+
+	ws, code := connectStudio(t, hs, "a")
+	if code != 0 {
+		t.Fatalf("refused with %d after Icecast admitted the last retry", code)
+	}
+	defer ws.CloseNow()
+	<-admitted
+	if n := logins.Load(); n != 3 {
+		t.Fatalf("%d logins, want 3", n)
+	}
+	if n := s.Metrics.Closes("busy"); n != 0 {
+		t.Fatalf("busy closes = %d, want none", n)
+	}
+}
+
+func TestDefaultsRideOutAShortStall(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.IdleTimeout != 4*time.Second {
-		t.Fatalf("idle timeout %s, want 4s", cfg.IdleTimeout)
+	// Past the studio's 5 s audio-engine rebuild, under Icecast's 10 s
+	// source-timeout.
+	if cfg.IdleTimeout != 8*time.Second {
+		t.Fatalf("idle timeout %s, want 8s", cfg.IdleTimeout)
+	}
+	if cfg.BusyRetryLogin < time.Second || cfg.BusyRetryFor+cfg.BusyRetryLogin >= 12*time.Second {
+		t.Fatalf("a retry login of %s after %s of asking: too short to finish, or past the studio's 12 s wait", cfg.BusyRetryLogin, cfg.BusyRetryFor)
 	}
 	if cfg.BusyRetryFor <= 0 || cfg.BusyRetryEvery <= 0 || cfg.BusyRetryEvery >= cfg.BusyRetryFor {
 		t.Fatalf("busy retry %s every %s is not a retry", cfg.BusyRetryFor, cfg.BusyRetryEvery)
