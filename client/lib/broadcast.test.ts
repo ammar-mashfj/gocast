@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { BroadcastManager } from "./broadcast"
+import { BroadcastManager, newStudioId } from "./broadcast"
 
 const api = vi.hoisted(() => ({
   desiredState: "running" as "running" | "stopped" | "deleted",
   posts: [] as string[],
+  bodies: [] as unknown[],
 }))
 vi.mock("./axios", () => ({
   default: {
@@ -11,9 +12,10 @@ vi.mock("./axios", () => ({
       if (api.desiredState === "deleted") throw Object.assign(new Error("Not Found"), { response: { status: 404 } })
       return { data: { data: { desired_state: api.desiredState, ready: true } } }
     },
-    post: async (url: string) => {
+    post: async (url: string, body?: unknown) => {
       api.posts.push(url)
-      return { data: {} }
+      api.bodies.push(body)
+      return { data: url === "/auth/broadcast-token" ? { token: "t", ingest_url: "wss://relay.test/relay", ingest: "relay" } : {} }
     },
   },
 }))
@@ -212,5 +214,67 @@ describe("a relay source cut on the server (4005)", () => {
 
     expect(api.posts).toContain("/stations/night-show/start")
     vi.useRealTimers()
+  })
+})
+
+describe("the studio id sent with each broadcast-token request", () => {
+  type Internals = {
+    start: () => Promise<void>
+    runChecks: () => Promise<void>
+    connectWebcast: (run: number) => Promise<void>
+    openSocket: () => Promise<unknown>
+    engine: unknown
+    checksRun: number
+  }
+
+  function manager(): Internals {
+    const m = new BroadcastManager("night-show", { onStepChange: () => {}, onStateChange: () => {}, onError: () => {} }) as unknown as Internals
+    m.runChecks = async () => {}
+    m.engine = {}
+    // Stop at the socket: what is under test is the token request before it.
+    m.openSocket = async () => { throw new Error("no socket in this test") }
+    return m
+  }
+
+  async function tokenRequestStudio(m: Internals): Promise<string> {
+    api.posts.length = 0
+    api.bodies.length = 0
+    await m.connectWebcast(m.checksRun).catch(() => {})
+    const i = api.posts.indexOf("/auth/broadcast-token")
+    return (api.bodies[i] as { studio: string }).studio
+  }
+
+  it("keeps one id through every reconnect of a show", async () => {
+    const m = manager()
+    await m.start()
+
+    const first = await tokenRequestStudio(m)
+    const reconnect = await tokenRequestStudio(m)
+
+    expect(first).toMatch(/^[0-9a-f]{32}$/)
+    expect(reconnect).toBe(first)
+  })
+
+  it("makes up a new id for the next go-live", async () => {
+    const m = manager()
+    await m.start()
+    const first = await tokenRequestStudio(m)
+
+    await m.start()
+
+    expect(await tokenRequestStudio(m)).not.toBe(first)
+  })
+
+  it("is different in another tab or device", async () => {
+    const tab = manager()
+    const other = manager()
+    await tab.start()
+    await other.start()
+
+    expect(await tokenRequestStudio(tab)).not.toBe(await tokenRequestStudio(other))
+  })
+
+  it("passes the server's format", () => {
+    expect(newStudioId()).toMatch(/^[A-Za-z0-9-]{8,64}$/)
   })
 })

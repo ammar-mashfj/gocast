@@ -51,6 +51,12 @@ const nextConfig: NextConfig = {
   // the server actually needs at runtime — lets the prod Docker image copy
   // ~30 MB instead of the full node_modules tree (~600 MB). Ignored in dev.
   output: "standalone",
+  // The share card reads the Arabic font from disk (lib/ogFonts.ts). Nothing
+  // imports it, so the standalone trace would leave it behind without this.
+  outputFileTracingIncludes: {
+    "/station/*/opengraph-image": ["./assets/fonts/**/*"],
+    "/station/*/twitter-image": ["./assets/fonts/**/*"],
+  },
   images: {
     formats: ["image/avif", "image/webp"],
     // Next 16 only serves the listed qualities. 85 is the station page's

@@ -15,6 +15,7 @@ use Throwable;
  *                        for "is a relay broadcaster really there?"
  *   • carries()        — the same question for one mount, yes/no/unknown.
  *   • killSource()     — cut a relay broadcaster off (station turned off).
+ *   • sourceInstance() — which source holds a mount, by Icecast's id for it.
  *   • updateMetadata() — the title Icecast-native players (VLC, car radios)
  *                        show; the web player reads Laravel's copy instead.
  *   • dropListeners()  — disconnect a stopped station's audience, which the
@@ -83,11 +84,46 @@ class IcecastAdmin
         return $mounts;
     }
 
-    public function killSource(Station $station): bool
+    /**
+     * The `instance_uuid` of the source on this mount: the same id the
+     * source-connect event sends as `source-instance`, new for every source.
+     * Null when no source holds the mount or Icecast could not be asked.
+     */
+    public function sourceInstance(string $mount, float $timeoutSeconds = self::TIMEOUT_SECONDS): ?string
+    {
+        $response = $this->get('/admin/stats', ['mount' => $mount], goneIsDone: true, timeoutSeconds: $timeoutSeconds);
+
+        // 404: no source on that mount.
+        if ($response === null || $response === '') {
+            return null;
+        }
+
+        $parsed = @simplexml_load_string($response, null, LIBXML_NONET);
+
+        if ($parsed === false) {
+            Log::warning('Could not parse Icecast stats', ['mount' => $mount]);
+
+            return null;
+        }
+
+        // The top level carries the server's own instance_uuid: only the
+        // source element's is the source's.
+        foreach ($parsed->source as $source) {
+            if ((string) ($source['mount'] ?? '') === $mount) {
+                $instance = trim((string) $source->instance_uuid);
+
+                return $instance === '' ? null : $instance;
+            }
+        }
+
+        return null;
+    }
+
+    public function killSource(Station $station, float $timeoutSeconds = self::TIMEOUT_SECONDS): bool
     {
         // 404 is the usual answer, not a failure: End show closes the studio's
         // socket before the stop request, so the source is normally gone already.
-        return $this->get('/admin/killsource', ['mount' => $station->icecast_mount], goneIsDone: true) !== null;
+        return $this->get('/admin/killsource', ['mount' => $station->icecast_mount], goneIsDone: true, timeoutSeconds: $timeoutSeconds) !== null;
     }
 
     /**
@@ -210,7 +246,7 @@ class IcecastAdmin
     /**
      * @param  array<string, string>  $query
      */
-    private function get(string $path, array $query = [], bool $goneIsDone = false): ?string
+    private function get(string $path, array $query = [], bool $goneIsDone = false, float $timeoutSeconds = self::TIMEOUT_SECONDS): ?string
     {
         $base = rtrim((string) config('services.icecast.url'), '/');
         $password = (string) config('services.icecast.admin_password');
@@ -221,7 +257,7 @@ class IcecastAdmin
 
         try {
             $response = Http::withBasicAuth((string) config('services.icecast.admin_user'), $password)
-                ->timeout(self::TIMEOUT_SECONDS)
+                ->timeout($timeoutSeconds)
                 ->get($base.$path, $query);
         } catch (Throwable $e) {
             Log::warning('Icecast admin call failed', ['path' => $path, 'error' => $e->getMessage()]);

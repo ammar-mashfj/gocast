@@ -13,6 +13,8 @@ type Metrics struct {
 	active   atomic.Int64
 	accepted atomic.Int64
 	bytes    atomic.Int64
+	// Second and later asks to Icecast for a mount it said was in use.
+	busyRetries atomic.Int64
 
 	mu     sync.Mutex
 	closes map[string]int64
@@ -23,6 +25,9 @@ func NewMetrics() *Metrics { return &Metrics{closes: map[string]int64{}} }
 func (m *Metrics) connOpened()   { m.active.Add(1); m.accepted.Add(1) }
 func (m *Metrics) connClosed()   { m.active.Add(-1) }
 func (m *Metrics) bytesIn(n int) { m.bytes.Add(int64(n)) }
+func (m *Metrics) busyRetry()    { m.busyRetries.Add(1) }
+
+func (m *Metrics) BusyRetries() int64 { return m.busyRetries.Load() }
 
 func (m *Metrics) Close(reason string) {
 	m.mu.Lock()
@@ -40,6 +45,7 @@ func (m *Metrics) Render(w io.Writer) {
 	fmt.Fprintf(w, "relay_connections_active %d\n", m.active.Load())
 	fmt.Fprintf(w, "relay_connections_total %d\n", m.accepted.Load())
 	fmt.Fprintf(w, "relay_bytes_in_total %d\n", m.bytes.Load())
+	fmt.Fprintf(w, "relay_busy_retries_total %d\n", m.busyRetries.Load())
 	m.mu.Lock()
 	keys := make([]string, 0, len(m.closes))
 	for k := range m.closes {

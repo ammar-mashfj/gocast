@@ -66,6 +66,9 @@ type Config struct {
 	HelloTimeout   time.Duration // studio must send its hello within this
 	IcecastTimeout time.Duration // dial + Icecast's answer (it waits on the API)
 	IdleTimeout    time.Duration // no frame from the studio for this long = dead
+	BusyRetryFor   time.Duration // keep asking Icecast this long while it says "in use"
+	BusyRetryEvery time.Duration // between those asks
+	BusyRetryLogin time.Duration // the time each of those asks gets to answer
 	WriteTimeout   time.Duration // one write to Icecast may block this long
 	MaxMessage     int64         // largest single WebSocket message accepted
 	PingInterval   time.Duration // ping the studio this often; 0 = never
@@ -78,13 +81,31 @@ func DefaultConfig() Config {
 		MountPrefix:    "/stream/",
 		HelloTimeout:   10 * time.Second,
 		IcecastTimeout: 10 * time.Second,
-		// Under Icecast's <source-timeout> (10 s): Icecast drops a silent
-		// source itself, and the studio would get 4005 "source ended" instead
-		// of 1008 "no audio" if it got there first.
+		// How long a studio may send nothing before the relay gives its
+		// station up. Long enough to ride out a stall the studio recovers
+		// from on the same connection (a Wi-Fi hiccup, a busy tab, the
+		// studio rebuilding a frozen audio engine at 5 s): cutting sooner
+		// turns each into a disconnect and a reconnect. A studio that does
+		// reconnect does not wait for it: its token request has Laravel cut
+		// the dead source it left behind (RelaySourceHolder). Under
+		// Icecast's <source-timeout> (10 s), which would otherwise drop the
+		// source first and tell the studio 4005 "source ended" instead of
+		// 1008 "no audio".
 		IdleTimeout:  8 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		MaxMessage:   64 << 10,
 		PingInterval: 30 * time.Second,
+		// Icecast frees a cut source a moment after the cut, and the studio's
+		// reconnect can arrive inside that moment. Asking again briefly rides
+		// it out; a station really in use still gets 4009, a second later.
+		// Each ask is a full source login, which Icecast checks with Laravel,
+		// so this stays short.
+		BusyRetryFor:   1 * time.Second,
+		BusyRetryEvery: 250 * time.Millisecond,
+		// A login is Icecast asking Laravel, usually tens of ms. 3 s lets a
+		// slow one finish, and keeps the worst case (1 s of asking, then a
+		// 3 s login) well inside the studio's 12 s wait for "ok".
+		BusyRetryLogin: 3 * time.Second,
 	}
 }
 
@@ -301,7 +322,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 	}
 
 	// 2. Icecast.
-	ice, code, why := s.openSource(ctx, slug, token)
+	ice, code, why := s.openSourceWhenFree(ctx, slug, token)
 	if ice == nil {
 		ws.Close(code, why)
 		return labelFor(code)
@@ -416,15 +437,43 @@ func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
 	}
 }
 
+// openSourceWhenFree is openSource, asked again while Icecast says the mount
+// is in use, for up to BusyRetryFor. The usual holder is the studio's own
+// previous connection, which Laravel has just cut and Icecast has not quite
+// let go of yet.
+//
+// BusyRetryFor bounds when a retry may start. Each retry then gets a whole
+// BusyRetryLogin to answer: a login cut short could be one Icecast was about
+// to admit, reported as "already live" while Icecast briefly held a source
+// the relay had already hung up on. A retry that gets no answer in that time
+// reports what happened (Icecast not answering), and the asking stops.
+func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (net.Conn, websocket.StatusCode, string) {
+	deadline := time.Now().Add(s.cfg.BusyRetryFor)
+	ice, code, why := s.openSource(ctx, slug, token, s.cfg.IcecastTimeout)
+	for code == CloseBusy {
+		if !time.Now().Add(s.cfg.BusyRetryEvery).Before(deadline) {
+			return ice, code, why
+		}
+		select {
+		case <-ctx.Done():
+			return ice, code, why
+		case <-time.After(s.cfg.BusyRetryEvery):
+		}
+		s.Metrics.busyRetry()
+		ice, code, why = s.openSource(ctx, slug, token, s.cfg.BusyRetryLogin)
+	}
+	return ice, code, why
+}
+
 // openSource dials Icecast and logs in. On failure it returns the close code
 // and reason to send the studio.
-func (s *Server) openSource(ctx context.Context, slug, token string) (net.Conn, websocket.StatusCode, string) {
-	d := net.Dialer{Timeout: s.cfg.IcecastTimeout}
+func (s *Server) openSource(ctx context.Context, slug, token string, timeout time.Duration) (net.Conn, websocket.StatusCode, string) {
+	d := net.Dialer{Timeout: timeout}
 	ice, err := d.DialContext(ctx, "tcp", s.cfg.IcecastAddr)
 	if err != nil {
 		return nil, CloseIcecastDown, "stream server unavailable"
 	}
-	ice.SetDeadline(time.Now().Add(s.cfg.IcecastTimeout))
+	ice.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.WriteString(ice, SourceRequest(s.cfg, slug, token)); err != nil {
 		ice.Close()
 		return nil, CloseIcecastDown, "stream server unavailable"

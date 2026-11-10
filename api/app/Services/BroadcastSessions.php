@@ -62,10 +62,10 @@ class BroadcastSessions
      *
      * @return bool Whether a new session was opened.
      */
-    public function open(Station $station, string $via, ?string $client, bool $whileRelayRuns = false): bool
+    public function open(Station $station, string $via, ?string $client, bool $whileRelayRuns = false, ?string $studio = null): bool
     {
         try {
-            return self::lock($station)->block(5, function () use ($station, $via, $client, $whileRelayRuns) {
+            return self::lock($station)->block(5, function () use ($station, $via, $client, $whileRelayRuns, $studio) {
                 if ($whileRelayRuns) {
                     $fresh = Station::find($station->id);
 
@@ -79,7 +79,7 @@ class BroadcastSessions
                     $station = $fresh;
                 }
 
-                return $this->openUnlocked($station, $via, $client);
+                return $this->openUnlocked($station, $via, $client, $studio);
             });
         } catch (LockTimeoutException) {
             // Whoever holds the lock is opening this very session. Throwing
@@ -100,11 +100,48 @@ class BroadcastSessions
         return Cache::lock("stream-session-open:{$station->id}", 10);
     }
 
-    private function openUnlocked(Station $station, string $via, ?string $client): bool
+    /**
+     * $studio is the relay studio's own id (RelaySourceHolder), when known:
+     * its token request's origin is the one that belongs to this source.
+     */
+    private function openUnlocked(Station $station, string $via, ?string $client, ?string $studio = null): bool
     {
-        $existing = $station->streamSessions()->whereNull('ended_at')->exists();
+        // The origin only exists for the studio and the app, which ask for a
+        // broadcast token first. An encoder never does, so its row gets no IP.
+        //
+        // On the relay, only the origin of the studio that holds this source:
+        // without its id (a tab from before studio ids, a lost login record,
+        // a reconcile that cannot confirm the holder) the device is unknown,
+        // and the latest token request is no stand-in — it is as likely to be
+        // a second device that was refused "already live". A container's
+        // harbor reports the device itself; its IP still comes from the
+        // station's latest token request, as it always has.
+        $origin = match (true) {
+            $via === 'external' => [],
+            $station->usesRelay() => $studio !== null ? $this->origin->for($station, $studio) : [],
+            default => $this->origin->for($station),
+        };
+        // Harbor reports the device itself; Icecast (the relay path) and a
+        // container from before harbor reported it cannot, so the token
+        // request's User-Agent stands in. Never for an encoder, whose
+        // connection did not come from the device that asked for a token.
+        $client ??= $via === 'browser' ? ($origin['client'] ?? null) : null;
 
-        if ($existing) {
+        $existing = $station->streamSessions()->whereNull('ended_at')->latest('started_at')->first();
+
+        // A relay source whose studio is known joins the open row as that
+        // studio: a device that took the show over while the row stayed open
+        // (its disconnect was answered by the new source already on air) is
+        // the device on air now.
+        if ($existing !== null && $studio !== null && $station->usesRelay()) {
+            $existing->update(array_filter([
+                'client' => $client,
+                'ip_address' => $origin['ip_address'] ?? null,
+                'country' => $origin['country'] ?? null,
+            ], fn ($value) => $value !== null));
+        }
+
+        if ($existing !== null) {
             // A row is already open, so leave it alone — reopening would
             // double-count airtime for a broadcaster who reconnected.
             //
@@ -119,7 +156,7 @@ class BroadcastSessions
             return false;
         }
 
-        if ($this->rejoinRecentSession($station, $via)) {
+        if ($this->rejoinRecentSession($station, $via, $client, $origin)) {
             return true;
         }
 
@@ -134,10 +171,6 @@ class BroadcastSessions
         // The default is still 'browser', for containers rendered before the
         // template started reporting `via`. Those keep their old behaviour
         // until `stations:relaunch` recreates them.
-        // The origin only exists for the studio and the app, which ask for a
-        // broadcast token first. An encoder never does, so its row gets no IP.
-        $origin = $via === 'external' ? [] : $this->origin->for($station);
-
         $session = $station->streamSessions()->create([
             'started_at' => now(),
             'source_type' => $via,
@@ -157,7 +190,15 @@ class BroadcastSessions
      * moments ago. True still counts as opened: the disconnect was announced,
      * so the dashboard must hear the station is live again.
      */
-    private function rejoinRecentSession(Station $station, string $via): bool
+    /**
+     * The rejoined row takes the device and origin of the source that rejoins
+     * it, when known: a phone that took over from a laptop is the phone.
+     * Unknown values change nothing, so a rejoin whose studio is unknown
+     * keeps the row's device and IP as they were.
+     *
+     * @param  array{ip_address?: ?string, country?: ?string, client?: ?string}  $origin
+     */
+    private function rejoinRecentSession(Station $station, string $via, ?string $client, array $origin): bool
     {
         $last = $station->streamSessions()->latest('started_at')->first();
 
@@ -175,7 +216,12 @@ class BroadcastSessions
             return false;
         }
 
-        $last->update(['ended_at' => null]);
+        $last->update(array_filter([
+            'ended_at' => null,
+            'client' => $client,
+            'ip_address' => $origin['ip_address'] ?? null,
+            'country' => $origin['country'] ?? null,
+        ], fn ($value, $key) => $key === 'ended_at' || $value !== null, ARRAY_FILTER_USE_BOTH));
         Cache::forget(self::rejoinKey($station));
 
         return true;
@@ -191,6 +237,16 @@ class BroadcastSessions
      */
     public function announce(Station $station, string $type, array $context): void
     {
+        // The device on the timeline, as a container's live_connected records
+        // it: the open session holds what open() resolved.
+        if ($type === StationEvent::TYPE_LIVE_CONNECTED && ! array_key_exists('client', $context)) {
+            $client = $station->streamSessions()->whereNull('ended_at')->latest('started_at')->value('client');
+
+            if ($client !== null) {
+                $context['client'] = $client;
+            }
+        }
+
         $this->statusService->forget($station);
         StationEvent::record($station, $type, StationEvent::SOURCE_SYSTEM, $context);
         event(StationStateChanged::for($station, $type));

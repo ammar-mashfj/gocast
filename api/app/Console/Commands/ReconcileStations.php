@@ -10,6 +10,7 @@ use App\Services\BroadcastSessions;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
 use App\Services\PlaylistFileWriter;
+use App\Services\RelaySourceHolder;
 use App\Services\StationLifecycleService;
 use App\Services\StationStatusService;
 use Illuminate\Console\Command;
@@ -107,6 +108,7 @@ class ReconcileStations extends Command
         IcecastAdmin $icecast,
         BroadcastSessions $sessions,
         StationLifecycleService $lifecycle,
+        RelaySourceHolder $holder,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -196,7 +198,7 @@ class ReconcileStations extends Command
 
         $liveCleared = $this->reconcileLiveFlags($statusService, $liveMounts, $sessions, $dryRun);
 
-        $relayReopened = $this->reopenMissedRelaySessions($liveMounts, $sessions, $dryRun);
+        $relayReopened = $this->reopenMissedRelaySessions($liveMounts, $sessions, $icecast, $holder, $dryRun);
 
         if ($relayReopened > 0) {
             $this->line("  ✓ reopened the session of {$relayReopened} relay show(s) Icecast is carrying");
@@ -547,6 +549,8 @@ class ReconcileStations extends Command
     private function reopenMissedRelaySessions(
         \Closure $liveMounts,
         BroadcastSessions $sessions,
+        IcecastAdmin $icecast,
+        RelaySourceHolder $holder,
         bool $dryRun,
     ): int {
         $quiet = Station::query()
@@ -578,9 +582,14 @@ class ReconcileStations extends Command
                 continue;
             }
 
+            // The device, only when the holder on record is the source Icecast
+            // carries. A missed connect usually means no record of it at all,
+            // and then the show is reopened without one.
+            $studio = $holder->confirmedStudio($station, $icecast->sourceInstance($station->icecast_mount));
+
             // The connect callback may have landed since the query above; open()
             // is locked and reuses its session, and then there is nothing to say.
-            if (! $sessions->open($station, 'browser', null, whileRelayRuns: true)) {
+            if (! $sessions->open($station, 'browser', null, whileRelayRuns: true, studio: $studio)) {
                 continue;
             }
 
