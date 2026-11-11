@@ -659,6 +659,11 @@ class LiquidsoapSupervisor
      * to keep. Best-effort, because these
      * values are also rendered into the script as its initial state, so a
      * container that is down or unreachable is correct again on its next boot.
+     *
+     * False unless every `var.set` was confirmed by Liquidsoap's reply, which
+     * includes a container rendered without the watermark (the variable does
+     * not exist) and test mode (telnet answers nothing). Callers treat it as
+     * advisory.
      */
     public function applyWatermarkSettings(Station $station): bool
     {
@@ -1043,9 +1048,15 @@ class LiquidsoapSupervisor
      * free.
      *
      * The probe is bash's /dev/tcp because the image ships no curl, wget or
-     * nc. /healthz answers 200 only when the audio graph is producing frames
-     * AND the Icecast connection is up, so "healthy" means audible rather than
-     * merely alive.
+     * nc. /healthz answers 200 only while the audio graph is ready AND its
+     * clock produced a frame in the last 5 seconds (st_alive() in the
+     * template), so a frozen clock fails it even though harbor still answers.
+     * The Icecast connection is reported but deliberately not part of the
+     * verdict: an Icecast outage would otherwise mark the whole fleet
+     * unhealthy. A hung Icecast can still fail it, by stalling the clock on
+     * its socket writes; ReconcileStations throttles recreates to a few per pass
+     * when many stations fail together for that reason, and holds them for up
+     * to 10 minutes while Icecast's admin API is not answering.
      *
      * start_period must cover a cold boot — audio graph plus Icecast connect —
      * or a station is marked unhealthy while it is still legitimately coming up.

@@ -198,3 +198,14 @@ The harness lived in the session scratchpad and isn't in the repo. To rebuild:
 
 Don't log `current_source()` or any source method from a harness thread unless
 it reads the cache. On the unfixed script, that alone causes the freeze.
+
+## Addendum 2026-11-11: the same race froze production with crossfade off
+
+unity-radio went silent for 6h45m on 2026-11-10 (17:18 to 00:03 CET) on `main`'s script, Liquidsoap 2.4.5, `LIQUIDSOAP_CROSSFADE_ENABLED=false`: hard cuts, no `cross()` in the graph. A gdb dump of the live process showed the clock thread in `pthread_cond_wait` inside `Mutex_utils.mutable_wait`, under `Source.is_ready`, reached from `Output` through `switch.ml`. No other thread held the lock. The Docker healthcheck called `/healthz` (which called `output_source.is_ready()`) in the same second the clock stopped, and kept getting 200 afterwards because `is_ready()` answers from the cached `Ready` state of a cycle that never finishes.
+
+So the conclusion above ("only sources at or after `cross()`") was too narrow: the 0-of-3 result for `remaining()` on the pre-cross `request.dynamic` was too few runs to rule it out.
+
+Mechanism, from the v2.4.5 source (`src/core/base/tools/mutex_utils.ml`, identical in v2.4.6): a waiter reads the lock state as `Mutating` outside the mutex, then takes the mutex and calls `Condition.wait` without re-checking. If the holder broadcasts and releases in between, the wakeup is lost and the waiter sleeps until the next mutation of that queue. `is_ready()` is not a read: the first caller in a cycle runs `before_streaming_cycle`, which for `request.dynamic` can call `get_next_file` and pop the `retrieved` queue. When that caller is the HTTP thread and the clock thread arrives at the same queue, the clock thread can be the one left sleeping, and nothing mutates that queue again.
+
+What feat/crossfade-safe does about it: the `st_*` copies remove every source call from the HTTP handlers, crossfade on or off, and `/healthz` answers from `st_alive()`, which fails once no frame has been produced for 5 s. Verified 2026-11-11 by blocking the clock thread in a test copy of the script: the PR's `/healthz` went 503 after 6.4 s and Docker marked the container unhealthy after 47.5 s; `main`'s script kept answering 200 and stayed healthy. The residual risk is the same lost wakeup between Liquidsoap's own fetch thread and the clock thread; the healthcheck is the backstop for that.
+

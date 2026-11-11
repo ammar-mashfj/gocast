@@ -151,7 +151,7 @@ TLS: the templates are port 80 only. `certbot --nginx -d <four hosts>` rewrites 
 
 ## Station containers
 
-Started by `LiquidsoapSupervisor::run()` (image `LIQUIDSOAP_IMAGE`, default `gocast/liquidsoap:latest`, built locally by `setup-native.sh` from `infra/liquidsoap/Dockerfile`, which is `FROM savonet/liquidsoap:v2.4.5` plus ffmpeg).
+Started by `LiquidsoapSupervisor::run()` (image `LIQUIDSOAP_IMAGE`, default `gocast/liquidsoap:latest`, built locally by `setup-native.sh` from `infra/liquidsoap/Dockerfile`, which is `FROM savonet/liquidsoap:v2.4.6` plus ffmpeg).
 
 | Flag | Value |
 |---|---|

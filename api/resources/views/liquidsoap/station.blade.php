@@ -670,10 +670,41 @@ autodj_leveled = autodj_rotation
 # is_ready() 3 of 3. Those values are now copied on the clock thread (see
 # `st_*` under output_source) and the handlers read the copies.
 #
+# It is not only a crossfade problem. On 2026-11-10 unity-radio froze in
+# production for 6h45m with crossfade OFF (hard cuts, no cross() anywhere in
+# its graph): the clock thread sat in pthread_cond_wait inside
+# Mutex_utils.mutable_wait, under Source.is_ready, and /healthz kept saying
+# ready. is_ready() is not a read: the first caller in a cycle does that
+# cycle's preparation, which includes waking the per-track source that
+# fade.out(track_sensitive=true) builds with source.dynamic, and popping
+# request.dynamic's queue. Both take a lock, and Liquidsoap's lock
+# (mutex_utils.ml, unchanged in 2.4.6) can lose the wakeup of a thread that
+# started waiting just as the holder let go: the clock thread then sleeps
+# forever. Reproduced 2026-11-11 with main's script on 2.4.5 under /healthz
+# load: 3 of 6 stations froze within an hour, each clock thread stuck in
+# Mutex_utils.mutable_wait under Source.is_ready, same as production.
+#
 # THE RULE: nothing outside the clock thread — harbor.http handlers,
-# thread.run, telnet commands — may call a method on a source at or after
-# cross(). That is autodj_mix, live, mixed, output_source, listener_source.
-# Read an `st_*` ref instead, or add one.
+# thread.run, telnet commands — may call is_ready(), remaining(), elapsed(),
+# rms() or last_metadata() on ANY source. Read an `st_*` ref instead, or add
+# one. Two calls on `autodj` stay off-thread on purpose because neither takes
+# a lock on request.dynamic: `skip` (telnet) only sets an atomic flag, and
+# `remaining()` (in autodj_next, on the fetch thread) reads a plain field.
+# One known violation is left: `watermark.reload` (sent over telnet by
+# ReloadWatermarkClips when an admin changes the clips) runs set_queue() and
+# fetch() on the watermark playlist from the telnet thread, which takes the
+# same kind of lock. It cannot happen today: the watermark is switched off
+# (LIQUIDSOAP_WATERMARK_ENABLED=false), so neither the source nor the reload
+# exists. It must be fixed before the watermark is ever turned back on; see
+# "Free-tier watermark" in config/liquidsoap.php.
+#
+# The same lost wakeup can still happen inside Liquidsoap with nothing of ours
+# involved: its fetch thread pushes onto request.dynamic's queue, and garbage
+# collector finalisers (which run on whichever thread allocates) prune the
+# same activation queues. That window is far smaller, but it is why /healthz
+# answers from st_alive() and not st_ready():
+# a frozen clock fails the healthcheck within seconds and the reconciler
+# recreates the container.
 #
 # Detection, since none of it reaches the log: End_of_file should appear once
 # per track, and elapsed()+remaining() from /status should equal the track
@@ -882,11 +913,12 @@ output_source = rms(duration={{ number_format($rmsWindow, 1, '.', '') }}, mixed)
 # Source state for the HTTP handlers, copied on the clock thread.
 #
 # /status, /healthz and current_source() run on the harbor HTTP thread. Calling
-# remaining() or is_ready() on a source at or after cross() from there races
-# the clock thread and wedges the crossfade: one buffered frame looped forever,
-# remaining() frozen, nothing logged (docs/CROSSFADE-INVESTIGATION.md). This
-# callback runs on the clock thread once per frame (~25/s, ~0.1% CPU measured)
-# and the handlers read these refs instead. Values are at most a frame old.
+# a source method from there races the clock thread: with crossfade on it
+# wedged the crossfade (one buffered frame looped forever, nothing logged,
+# docs/CROSSFADE-INVESTIGATION.md), and without crossfade it froze the clock
+# outright (unity-radio, 2026-11-10; see THE RULE above). This callback runs on
+# the clock thread once per frame (~25/s, ~0.1% CPU measured) and the handlers
+# read these refs instead. Values are at most a frame old.
 #
 # Read through st_alive(), never st_ready() alone: if the clock stalls, this
 # callback stops and st_ready keeps its last value (true) forever, so a wedged

@@ -227,6 +227,19 @@ it('pushes the crossfade switch live instead of restarting', function () {
     $station->update(['crossfade_enabled' => false]);
 });
 
+it('does not push the crossfade switch to a relay station, which has no container', function () {
+    $station = Station::factory()->for(User::factory(), 'user')->create([
+        'desired_state' => Station::STATE_RUNNING,
+        'ingest_path' => Station::INGEST_RELAY,
+    ]);
+
+    $supervisor = Mockery::mock(LiquidsoapSupervisor::class)->makePartial();
+    $supervisor->shouldNotReceive('applyCrossfadeSetting');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['crossfade_enabled' => false]);
+});
+
 it('leaves a stopped station alone when its crossfade switch changes', function () {
     $station = Station::factory()->for(User::factory(), 'user')->create([
         'desired_state' => Station::STATE_STOPPED,

@@ -12,6 +12,16 @@ use Throwable;
 /**
  * Tell every running station to re-read the watermark clip directory.
  *
+ * NOT IN USE: the watermark is switched off (LIQUIDSOAP_WATERMARK_ENABLED=false)
+ * and not wanted any more, so handle() returns before touching any station.
+ * Before it is ever turned back on, this job must change: `watermark.reload`
+ * runs set_queue()/fetch() on the telnet thread, outside the clock thread,
+ * which is the lock race that froze unity-radio on 2026-11-10 (THE RULE in
+ * resources/views/liquidsoap/station.blade.php). Drop the live reload and let
+ * clips apply when containers are recreated, or make it only set a flag the
+ * clock thread acts on. The full checklist is in config/liquidsoap.php under
+ * "Free-tier watermark".
+ *
  * The rendered script sets `reload_mode = "never"` on that playlist, so a clip
  * added or removed on disk is invisible to a container that is already up
  * until this runs. Without it, a new clip would take effect at each station's

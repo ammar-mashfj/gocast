@@ -343,6 +343,10 @@ return [
     // 2.4.6, crossfade got through ~860 transitions in 11 scenarios with no
     // crash and no freeze; the same image without the copies froze in 92s.
     //
+    // The race is not crossfade-only: with this false, unity-radio's clock
+    // froze in production on 2026-11-10 from /healthz calling is_ready(). The
+    // st_* copies and the st_alive() healthcheck cover both settings.
+    //
     // To adopt: set this true and let stations:reconcile recreate the
     // containers. Watch /status for `remaining` stuck while `elapsed` climbs,
     // and for no further next-track requests while AutoDJ is on air.
@@ -564,6 +568,20 @@ return [
     |--------------------------------------------------------------------------
     | Free-tier watermark
     |--------------------------------------------------------------------------
+    |
+    | OFF AND NOT IN USE (decided 2026-10-01): LIQUIDSOAP_WATERMARK_ENABLED is
+    | false and the feature is not wanted any more. The code is kept, not
+    | removed. Turning it back on requires, in order:
+    |   1. Fixing App\Jobs\ReloadWatermarkClips first. Its live
+    |      `watermark.reload` over telnet runs set_queue()/fetch() off the
+    |      clock thread — the lock race that froze unity-radio for 6h45m on
+    |      2026-11-10 (see THE RULE in station.blade.php). Either drop the
+    |      live reload (new clips apply when each container is recreated) or
+    |      make it only set a flag that the clock thread acts on.
+    |   2. `liquidsoap --check` on a rendered script with the watermark on.
+    |   3. Expecting every station container to be recreated: the flag changes
+    |      the rendered script, so the reconciler rolls the whole fleet.
+    |   4. Announcing it to Free users before it goes live (Terms §4).
     |
     | A short platform-owned clip ("powered by GoCast") mixed OVER the station
     | at intervals, ducking whatever is playing rather than replacing it. Which
@@ -871,6 +889,18 @@ return [
 
     'unhealthy_passes_before_recreate' => (int) env('LIQUIDSOAP_UNHEALTHY_PASSES', 2),
     'unhealthy_recreates_per_hour' => (int) env('LIQUIDSOAP_UNHEALTHY_RECREATES_PER_HOUR', 3),
+    // More RUNNING stations than this failing their healthcheck in one pass is
+    // treated as a likely shared cause (a hung Icecast stalls every clock on
+    // its socket writes; so does an overloaded host): those recreates are
+    // throttled to `unhealthy_recreates_per_pass_when_shared` per pass, for as
+    // long as it lasts and 3 minutes after, and an ops alert goes out. While
+    // Icecast's admin API is not answering they are held entirely, for at
+    // most 10 minutes.
+    // Exited/crash-looping containers are never throttled, and stations past
+    // their hourly recreate budget are not counted.
+    'unhealthy_shared_cause_threshold' => (int) env('LIQUIDSOAP_UNHEALTHY_SHARED_CAUSE_THRESHOLD', 5),
+    // 3 recovers a real fleet-wide freeze (~44 stations) in about 15 minutes.
+    'unhealthy_recreates_per_pass_when_shared' => (int) env('LIQUIDSOAP_UNHEALTHY_RECREATES_PER_PASS_WHEN_SHARED', 3),
 
     /*
     | Outdated stations (container started on an older .liq, image or docker

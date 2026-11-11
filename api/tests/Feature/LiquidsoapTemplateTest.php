@@ -439,13 +439,22 @@ it('answers healthz with a status code, because docker greps the status line', f
 
 it('fails healthz when the clock stops, not just when the graph is not ready', function () {
     // st_ready is copied on the clock thread, so a stalled clock leaves it
-    // true forever. Health must also require a recent frame.
+    // true forever. Health must also require a recent frame, or a frozen
+    // station stays "healthy" forever (unity-radio, 2026-11-10: 6h45m silent).
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('st_frame_at := time()')
-        ->and($script)->toContain('st_ready() and time() - st_frame_at() < 5.')
-        ->and($script)->toContain('ready = st_alive()')
-        ->and($script)->not->toMatch('/if not st_ready\(\) then/');
+        ->and($script)->toMatch('/def st_alive\(\) =\s+st_ready\(\) and time\(\) - st_frame_at\(\) < 5\./');
+
+    // Scoped to the /healthz handler itself: /status also says `ready =
+    // st_alive()`, so a script-wide check passes with /healthz reverted.
+    $healthz = substr($script, strpos($script, '"/healthz"'));
+    $healthz = substr($healthz, 0, strpos($healthz, "\n)\n"));
+
+    expect($healthz)->toContain('ready = st_alive()')
+        ->and($healthz)->toContain('if not ready then response.status_code(503) end')
+        ->and($healthz)->not->toContain('st_ready()')
+        ->and($healthz)->not->toContain('is_ready()');
 });
 
 it('keeps the icecast connection out of the health verdict', function () {
@@ -515,13 +524,15 @@ it('never reads playlist methods from the status endpoint', function () {
         ->and($script)->toContain('remaining = finite(st_remaining())');
 });
 
-it('reads source state for the http handlers on the clock thread', function () {
-    // Calling remaining() or is_ready() on a source at or after cross() from
-    // the harbor HTTP thread races the clock thread and wedges the crossfade:
-    // one frame looped forever, nothing logged (docs/CROSSFADE-INVESTIGATION.md).
-    // on_frame copies the values on the clock thread; the handlers read those.
-    config(['liquidsoap.crossfade_enabled' => true]);
-    $script = renderStationScript($this->station);
+it('reads source state for the http handlers on the clock thread', function (bool $crossfade) {
+    // Calling a source method from the harbor HTTP thread races the clock
+    // thread. With crossfade on it wedged the crossfade (one frame looped
+    // forever, docs/CROSSFADE-INVESTIGATION.md); with it off it froze the
+    // clock outright: unity-radio, 2026-11-10, 6h45m silent while /healthz
+    // said ready. on_frame copies the values on the clock thread; the
+    // handlers read those.
+    config(['liquidsoap.crossfade_enabled' => $crossfade]);
+    $script = renderStationScript($this->station, ['crossfadeEnabled' => $crossfade]);
 
     expect($script)->toContain('output_source.on_frame(synchronous=true, before=false, fun () -> begin')
         ->and($script)->toContain('st_remaining := output_source.remaining()');
@@ -534,11 +545,15 @@ it('reads source state for the http handlers on the clock thread', function () {
 
     $handlers = preg_replace('/^\s*#.*$/m', '', substr($script, $start, $end - $start));
 
-    // Any method, not just the ones that wedged: last_metadata() and rms()
-    // were the next ones left in /status.
+    // Any method on the graph's own sources, and the state methods on any
+    // name at all, so a source added later is covered too.
     expect($handlers)
-        ->not->toMatch('/\b(output_source|autodj_mix|live|mixed|listener_source|autodj_faded)\.\w+\(/');
-});
+        ->not->toMatch('/\b(output_source|autodj_mix|autodj|live|live_in|mixed|listener_source|autodj_faded)\.\w+\(/')
+        ->not->toMatch('/\b\w+\.(is_ready|remaining|elapsed|rms|last_metadata|seek|duration)\(/');
+})->with([
+    'crossfade off (production today)' => false,
+    'crossfade on' => true,
+]);
 
 it('leaves jingles to laravel: no jingle source in the graph', function () {
     // Laravel hands jingles out through next-track (JingleClock), annotated
@@ -574,7 +589,8 @@ it('fades a song laravel cut short inside the crossfade transition', function ()
     expect($script)->toContain('a.metadata["liq_fade_out"] != ""')
         ->and($script)->toContain('autodj_cross_cut(')
         ->and($script)->toContain('autodj_rotation = autodj')
-        ->and($script)->not->toContain('fade.out(track_sensitive=true');
+        // Code lines only: the comments name this operator to explain the race.
+        ->and($script)->not->toMatch('/^[^#\n]*fade\.out\(track_sensitive=true/m');
 
     expect(strpos($script, 'a.metadata["liq_fade_out"] != ""'))
         ->toBeLessThan(strpos($script, 'a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"'));
