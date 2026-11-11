@@ -287,6 +287,7 @@ class Station extends Model
             'featured_at' => 'datetime',
             'storage_cap_bytes' => 'integer',
             'jingles_enabled' => 'boolean',
+            'crossfade_enabled' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
             'jingle_times' => 'array',

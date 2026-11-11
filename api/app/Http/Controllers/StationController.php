@@ -65,6 +65,14 @@ class StationController extends Controller
             $this->lifecycle->assertAutoDjEnabled($request->user());
         }
 
+        // Crossfade only shapes AutoDJ: a station without it would store a
+        // setting that can never be heard. Unlike jingles, gated both ways:
+        // turning it off silences nothing, so there is no reason to let a
+        // downgraded owner change it.
+        if (array_key_exists('crossfade_enabled', $data) && (bool) $data['crossfade_enabled'] !== (bool) $station->crossfade_enabled) {
+            $this->lifecycle->assertAutoDjEnabled($request->user());
+        }
+
         // Sorted and deduplicated so the settings card reads them back in
         // order and JingleClock can walk them as a clock face.
         if (isset($data['jingle_times'])) {

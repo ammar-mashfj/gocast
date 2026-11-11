@@ -37,6 +37,9 @@ function renderStationScript(Station $station, array $overrides = []): string
         'crossfadeHigh' => -15.0,
         'crossfadeMedium' => -32.0,
         'crossfadeMargin' => 4.0,
+        'autodjLeadSeconds' => 5.0,
+        'crossfadeOn' => true,
+        'crossfadeOnVar' => LiquidsoapSupervisor::VAR_CROSSFADE,
         'autodjRetryDelay' => 10.0,
         'nextTrackUrl' => 'http://api/api/internal/next-track?slug=night-shift',
         'liqSource' => PlaylistFileWriter::LIQ_SOURCE,
@@ -289,8 +292,8 @@ it('decides transitions by loudness instead of always overlapping', function () 
         ->and($script)->toContain('autodj_cross_margin = 4.0')
         // The fade must be strictly shorter than the cross window, or the
         // envelopes never complete (book §6.4). These were one value once.
-        ->and($script)->toContain('autodj_cross_duration = 5.0')
-        ->and($script)->toContain('autodj_cross_fade = 3.0')
+        ->and($script)->toContain('autodj_cross_duration = 5.000')
+        ->and($script)->toContain('autodj_cross_fade = 3.000')
         ->and($script)->toContain('duration=autodj_cross_fade, s)')
         ->and($script)->not->toContain('fade.out(type="sin", duration=autodj_cross_duration');
 });
@@ -325,7 +328,7 @@ it('emits liquidsoap-valid floats for the crossfade thresholds', function () {
         'crossfadeHigh' => -12.5,
     ]);
 
-    expect($script)->toContain('autodj_cross_duration = 3.0')
+    expect($script)->toContain('autodj_cross_duration = 3.000')
         ->and($script)->toContain('autodj_cross_high = -12.5')
         ->and($script)->not->toContain('3..')
         ->and($script)->not->toContain('-12.5.');
@@ -405,8 +408,10 @@ it('keeps the raw rotation bound under its own name', function () {
     expect($script)->toContain('autodj = request.dynamic(')
         ->and($script)->not->toContain('autodj = cross')
         ->and($script)->not->toContain('autodj = limit')
-        // Readiness is read off the arm the fallback actually selects.
-        ->and($script)->toContain('elsif autodj_mix.is_ready() then');
+        // Readiness is read off the arm the fallback actually selects, via
+        // the copy the clock thread takes of it.
+        ->and($script)->toContain('st_autodj := autodj_mix.is_ready()')
+        ->and($script)->toContain('elsif st_autodj() then');
 });
 
 it('tracks the icecast connection so status can tell ready from audible', function () {
@@ -430,6 +435,26 @@ it('answers healthz with a status code, because docker greps the status line', f
     $script = renderStationScript($this->station);
 
     expect($script)->toContain('response.status_code(503)');
+});
+
+it('fails healthz when the clock stops, not just when the graph is not ready', function () {
+    // st_ready is copied on the clock thread, so a stalled clock leaves it
+    // true forever. Health must also require a recent frame, or a frozen
+    // station stays "healthy" forever (unity-radio, 2026-11-10: 6h45m silent).
+    $script = renderStationScript($this->station);
+
+    expect($script)->toContain('st_frame_at := time()')
+        ->and($script)->toMatch('/def st_alive\(\) =\s+st_ready\(\) and time\(\) - st_frame_at\(\) < 5\./');
+
+    // Scoped to the /healthz handler itself: /status also says `ready =
+    // st_alive()`, so a script-wide check passes with /healthz reverted.
+    $healthz = substr($script, strpos($script, '"/healthz"'));
+    $healthz = substr($healthz, 0, strpos($healthz, "\n)\n"));
+
+    expect($healthz)->toContain('ready = st_alive()')
+        ->and($healthz)->toContain('if not ready then response.status_code(503) end')
+        ->and($healthz)->not->toContain('st_ready()')
+        ->and($healthz)->not->toContain('is_ready()');
 });
 
 it('keeps the icecast connection out of the health verdict', function () {
@@ -456,8 +481,8 @@ it('never emits nan or infinity into the status payload', function () {
 
     expect($script)
         ->toContain('float.is_nan(x) or float.is_infinite(x)')
-        ->toContain('elapsed = finite(output_source.elapsed())')
-        ->toContain('remaining = finite(output_source.remaining())');
+        ->toContain('elapsed = finite(st_elapsed())')
+        ->toContain('remaining = finite(st_remaining())');
 });
 
 it('reports its own lifecycle so laravel does not have to infer it', function () {
@@ -495,9 +520,40 @@ it('never reads playlist methods from the status endpoint', function () {
     expect($script)->not->toMatch('/^[^#\n]*autodj\.(length|remaining_files)\(/m')
         ->and($script)->not->toContain('def up_next(')
         // The container still reports what it alone knows.
-        ->and($script)->toContain('elapsed = finite(output_source.elapsed())')
-        ->and($script)->toContain('remaining = finite(output_source.remaining())');
+        ->and($script)->toContain('elapsed = finite(st_elapsed())')
+        ->and($script)->toContain('remaining = finite(st_remaining())');
 });
+
+it('reads source state for the http handlers on the clock thread', function (bool $crossfade) {
+    // Calling a source method from the harbor HTTP thread races the clock
+    // thread. With crossfade on it wedged the crossfade (one frame looped
+    // forever, docs/CROSSFADE-INVESTIGATION.md); with it off it froze the
+    // clock outright: unity-radio, 2026-11-10, 6h45m silent while /healthz
+    // said ready. on_frame copies the values on the clock thread; the
+    // handlers read those.
+    config(['liquidsoap.crossfade_enabled' => $crossfade]);
+    $script = renderStationScript($this->station, ['crossfadeEnabled' => $crossfade]);
+
+    expect($script)->toContain('output_source.on_frame(synchronous=true, before=false, fun () -> begin')
+        ->and($script)->toContain('st_remaining := output_source.remaining()');
+
+    // Everything from current_source() through the /healthz handler runs on
+    // the HTTP thread. Comments stripped: they name these calls to forbid them.
+    $start = strpos($script, 'def current_source() =');
+    $end = strpos($script, '# === Now-playing push ===');
+    expect($start)->not->toBeFalse()->and($end)->toBeGreaterThan($start);
+
+    $handlers = preg_replace('/^\s*#.*$/m', '', substr($script, $start, $end - $start));
+
+    // Any method on the graph's own sources, and the state methods on any
+    // name at all, so a source added later is covered too.
+    expect($handlers)
+        ->not->toMatch('/\b(output_source|autodj_mix|autodj|live|live_in|mixed|listener_source|autodj_faded)\.\w+\(/')
+        ->not->toMatch('/\b\w+\.(is_ready|remaining|elapsed|rms|last_metadata|seek|duration)\(/');
+})->with([
+    'crossfade off (production today)' => false,
+    'crossfade on' => true,
+]);
 
 it('leaves jingles to laravel: no jingle source in the graph', function () {
     // Laravel hands jingles out through next-track (JingleClock), annotated
@@ -533,7 +589,8 @@ it('fades a song laravel cut short inside the crossfade transition', function ()
     expect($script)->toContain('a.metadata["liq_fade_out"] != ""')
         ->and($script)->toContain('autodj_cross_cut(')
         ->and($script)->toContain('autodj_rotation = autodj')
-        ->and($script)->not->toContain('fade.out(track_sensitive=true');
+        // Code lines only: the comments name this operator to explain the race.
+        ->and($script)->not->toMatch('/^[^#\n]*fade\.out\(track_sensitive=true/m');
 
     expect(strpos($script, 'a.metadata["liq_fade_out"] != ""'))
         ->toBeLessThan(strpos($script, 'a.metadata["jingle"] == "true" or b.metadata["jingle"] == "true"'));
@@ -844,4 +901,48 @@ it('keeps a fractional harbor timeout intact', function () {
     $script = renderStationScript($station, ['harborInputTimeout' => 7.5]);
 
     expect($script)->toContain('timeout=7.5,');
+});
+
+it('tells laravel the lead it was rendered with', function () {
+    expect(renderStationScript($this->station))->toContain('("X-Gocast-Lead", "5.000")')
+        ->and(renderStationScript($this->station, ['crossfadeEnabled' => false, 'autodjLeadSeconds' => 0.0]))
+        ->toContain('("X-Gocast-Lead", "0.000")');
+});
+
+it('renders the lead at the precision the cross window runs at', function () {
+    // The scheduler falls back to the unrounded config value for containers
+    // without the header; both must agree with the window cross() really uses.
+    $script = renderStationScript($this->station, ['crossfadeDuration' => 2.25, 'autodjLeadSeconds' => 2.25]);
+
+    expect($script)->toContain('autodj_cross_duration = 2.250')
+        ->and($script)->toContain('("X-Gocast-Lead", "2.250")');
+});
+
+it('makes the owner crossfade switch a live flag inside the transition', function () {
+    $on = renderStationScript($this->station);
+    $off = renderStationScript($this->station, ['crossfadeOn' => false]);
+
+    expect($on)->toContain('autodj_crossfade_on = interactive.bool("autodj_crossfade", true)')
+        ->and($off)->toContain('autodj_crossfade_on = interactive.bool("autodj_crossfade", false)')
+        ->and($on)->toContain('not autodj_crossfade_on()');
+
+    // The on-time cut keeps its fade with the switch off, so its branch
+    // must be tested first.
+    expect(strpos($on, 'a.metadata["liq_fade_out"] != ""'))->toBeLessThan(strpos($on, 'not autodj_crossfade_on()'));
+
+    // Without crossfade for the install there is no cross() and no flag.
+    $none = renderStationScript($this->station, ['crossfadeEnabled' => false]);
+    expect($none)->not->toContain('interactive.bool("autodj_crossfade"');
+});
+
+it('renders the station switch as the starting state', function () {
+    config(['liquidsoap.crossfade_enabled' => true]);
+    $supervisor = app(LiquidsoapSupervisor::class);
+    $render = new ReflectionMethod($supervisor, 'renderLiq');
+
+    $this->station->crossfade_enabled = false;
+    expect($render->invoke($supervisor, $this->station))->toContain('interactive.bool("autodj_crossfade", false)');
+
+    $this->station->crossfade_enabled = true;
+    expect($render->invoke($supervisor, $this->station))->toContain('interactive.bool("autodj_crossfade", true)');
 });

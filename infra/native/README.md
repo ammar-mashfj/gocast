@@ -34,12 +34,13 @@ to live there and every service in it is now a host service.
 Two things need it, and only two.
 
 **1. Per-station Liquidsoap.** `infra/liquidsoap/Dockerfile` pins
-`savonet/liquidsoap:v2.4.5` and the comment above the `FROM` explains why:
+`savonet/liquidsoap:v2.4.6` and the comment above the `FROM` explains why:
 2.4.0–2.4.2 shipped a crossfade bug (savonet#4851) that wedged AutoDJ into
 emitting one buffered frame forever — listeners hear a stuck buzz, nothing
 is logged — and 2.4.5 also carries the fix for a crash when `source.skip` is
 called from a `harbor.http` handler (savonet#5194), which this app does
-every couple of seconds when Laravel polls `/status`.
+every couple of seconds when Laravel polls `/status`. 2.4.6 fixes crossfaded
+titles going blank (savonet#5360, #5379).
 
 Ubuntu 24.04 ships Liquidsoap 2.2.x. It cannot parse the generated `.liq` at
 all — `on_metadata(synchronous=…)` is 2.4-only. So the host package is not

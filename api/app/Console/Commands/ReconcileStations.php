@@ -6,6 +6,7 @@ use App\Events\StationStateChanged;
 use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\StreamSession;
+use App\Services\AdminTelegram;
 use App\Services\BroadcastSessions;
 use App\Services\IcecastAdmin;
 use App\Services\LiquidsoapSupervisor;
@@ -98,6 +99,19 @@ class ReconcileStations extends Command
      */
     private const OUTDATED_HALT = 'stations-outdated-halt';
 
+    /**
+     * Cache key: set while many running stations fail their healthcheck at
+     * once, and for a few minutes after, so unhealthy recreates stay throttled
+     * while a shared cause clears.
+     */
+    private const SHARED_CAUSE_KEY = 'stations-unhealthy-shared-cause';
+
+    /** Cache key: when the reconciler started holding recreates because Icecast was not answering. */
+    private const ICECAST_HOLD_SINCE_KEY = 'stations-icecast-hold-since';
+
+    /** Longest the reconciler holds unhealthy recreates on "Icecast is not answering" before falling back to the throttle. */
+    private const ICECAST_HOLD_MINUTES = 10;
+
     /** Cache key prefix: consecutive passes an open session disagreed with the container. */
     private const LIVE_STRIKES_PREFIX = 'station-live-strikes:';
 
@@ -109,6 +123,7 @@ class ReconcileStations extends Command
         BroadcastSessions $sessions,
         StationLifecycleService $lifecycle,
         RelaySourceHolder $holder,
+        AdminTelegram $telegram,
     ): int {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -303,6 +318,106 @@ class ReconcileStations extends Command
         $threshold = max(1, (int) config('liquidsoap.unhealthy_passes_before_recreate', 2));
         $recreateCap = max(1, (int) config('liquidsoap.unhealthy_recreates_per_hour', 3));
 
+        // Many RUNNING containers failing their healthcheck in the same pass
+        // is most likely a shared cause, not many broken stations: a hung
+        // Icecast blocks every station's clock on its socket writes (measured:
+        // /healthz 503 in 25-30 s bursts), and an overloaded host stalls them
+        // all at once. Recreating the whole fleet in one pass cannot fix
+        // either and makes a loaded host worse. But it is not always a shared
+        // cause recreating cannot fix (a bad image, the watermark reload
+        // hitting every station), so they are THROTTLED, not held: at most
+        // `unhealthy_recreates_per_pass_when_shared` per pass, which still
+        // recovers a real mass freeze a few stations a minute (3 by default).
+        //
+        // The throttle stays on for a few minutes after the count drops, so
+        // the stations still catching up when the cause clears are not all
+        // recreated in the first pass under the limit, and a count flapping
+        // around the limit cannot starve anyone.
+        //
+        // Exited or crash-looping containers are never throttled: a restart is
+        // exactly what they need, however many there are. Stations already
+        // past their hourly budget are left out of the count, so a handful of
+        // permanently broken ones cannot throttle the rest of the fleet.
+        // Only stations that are due a recreate this pass are counted: a
+        // fleet-wide blip shorter than the pass threshold is not an event.
+        $failingHealthchecks = array_keys(array_filter(
+            $unhealthy,
+            fn (array $state, string $slug) => $state['status'] === 'running'
+                && $state['health'] === LiquidsoapSupervisor::HEALTH_UNHEALTHY
+                && (int) Cache::get(self::UNHEALTHY_PASSES_PREFIX.$slug, 0) + 1 >= $threshold
+                && (int) Cache::get(self::RECREATES_PREFIX.$slug, 0) < $recreateCap,
+            ARRAY_FILTER_USE_BOTH,
+        ));
+        $sharedCauseLimit = max(1, (int) config('liquidsoap.unhealthy_shared_cause_threshold', 5));
+        $sharedCauseNow = count($failingHealthchecks) > $sharedCauseLimit;
+
+        if ($sharedCauseNow && ! $dryRun) {
+            Cache::put(self::SHARED_CAUSE_KEY, true, now()->addMinutes(3));
+        }
+
+        $throttled = $sharedCauseNow || Cache::has(self::SHARED_CAUSE_KEY);
+        $throttledBudget = max(1, (int) config('liquidsoap.unhealthy_recreates_per_pass_when_shared', 3));
+        $throttledRecreates = 0;
+
+        // If Icecast itself is not answering, the shared cause is most likely
+        // Icecast and no recreate can help: each one would only drop that
+        // station's live broadcaster and spend its hourly budget, leaving
+        // nothing for a real freeze later in the hour. Hold them all, but for
+        // at most ICECAST_HOLD_MINUTES: the admin API can fail for its own
+        // reasons (a rotated admin password) while the stations are frozen for
+        // real, and then the throttle is the better bet. The mount list is the
+        // one this pass already asked for.
+        $icecastDown = $throttled && $liveMounts() === null;
+
+        // The hold's clock restarts only when Icecast has actually answered
+        // (this pass's mount list, whichever step asked for it). Forgetting
+        // it on any quiet pass would give an admin API that is broken for
+        // good a fresh 10-minute hold on every later event.
+        if ($listed && $snapshot !== null && ! $dryRun) {
+            Cache::forget(self::ICECAST_HOLD_SINCE_KEY);
+        }
+
+        if ($icecastDown) {
+            if (! $dryRun) {
+                Cache::add(self::ICECAST_HOLD_SINCE_KEY, now()->getTimestamp(), now()->addHours(6));
+            }
+
+            $holdSince = (int) Cache::get(self::ICECAST_HOLD_SINCE_KEY, now()->getTimestamp());
+            $icecastDown = now()->getTimestamp() - $holdSince < self::ICECAST_HOLD_MINUTES * 60;
+        }
+
+        if ($icecastDown) {
+            $throttledBudget = 0;
+        }
+
+        if ($sharedCauseNow) {
+            $this->error(sprintf(
+                '  ✗ %d running stations failing their healthcheck at once — likely a shared cause (Icecast, host); %s',
+                count($failingHealthchecks),
+                $icecastDown ? 'Icecast is not answering, holding their recreates' : "recreating at most {$throttledBudget} per pass",
+            ));
+
+            Log::error('Many stations failing their healthcheck at once; recreates throttled', [
+                'stations' => $failingHealthchecks,
+            ]);
+        }
+
+        // Alerts are collected and sent once, after the loop: a slow Telegram
+        // must not delay a recreate, and a fleet-wide crash loop is one
+        // message, not one per station.
+        $recreatedSlugs = [];
+        $pastBudgetSlugs = [];
+
+        // Longest-failing first. Under the throttle only a few get through a
+        // pass, and `docker ps` lists the newest container first, so without
+        // this a station just recreated (and failing again) would take the
+        // slot back from the one that has been frozen all along. A recreate
+        // resets the count, which puts it at the back: round-robin.
+        if ($throttled) {
+            $failingFor = fn (string $slug): int => (int) Cache::get(self::UNHEALTHY_PASSES_PREFIX.$slug, 0);
+            uksort($unhealthy, fn (string $a, string $b) => $failingFor($b) <=> $failingFor($a));
+        }
+
         foreach ($unhealthy as $slug => $state) {
             $passes = (int) Cache::get(self::UNHEALTHY_PASSES_PREFIX.$slug, 0) + 1;
 
@@ -330,13 +445,26 @@ class ReconcileStations extends Command
                     'recreates_this_hour' => $recreates,
                 ]);
 
+                $pastBudgetSlugs[] = $slug;
                 $failed++;
+
+                continue;
+            }
+
+            $isFailingHealthcheck = in_array($slug, $failingHealthchecks, true);
+
+            if ($throttled && $isFailingHealthcheck && $throttledRecreates >= $throttledBudget) {
+                $this->line("  • {$slug} unhealthy ({$state['status']}/{$state['health']}), pass {$passes}: waiting, shared-cause throttle");
 
                 continue;
             }
 
             if ($dryRun) {
                 $this->line("  • recreate {$slug} (unhealthy: {$state['status']}/{$state['health']})");
+
+                if ($throttled && $isFailingHealthcheck) {
+                    $throttledRecreates++;
+                }
 
                 continue;
             }
@@ -356,6 +484,12 @@ class ReconcileStations extends Command
 
                 $this->line("  ✓ recreated {$slug} (was {$state['status']}/{$state['health']})");
 
+                // Only a recreate that happened uses the throttled slot: a
+                // station whose recreate throws must not take it every pass.
+                if ($throttled && $isFailingHealthcheck) {
+                    $throttledRecreates++;
+                }
+
                 // Same reasoning as the missing branch above. A crash-looping
                 // container is the case that used to be invisible from both
                 // sides: it is listed by `docker ps -a`, so it is neither
@@ -367,6 +501,8 @@ class ReconcileStations extends Command
                     'status' => $state['status'],
                     'health' => $state['health'],
                 ]);
+
+                $recreatedSlugs[] = "{$slug} ({$state['status']}/{$state['health']})";
             } catch (Throwable $e) {
                 $failed++;
                 $this->error("  ✗ {$slug}: {$e->getMessage()}");
@@ -374,6 +510,11 @@ class ReconcileStations extends Command
         }
 
         $failed += $this->recreateOutdated($supervisor, $playlistWriter, $statusService, $outdated, $dryRun);
+
+        // After every recreate this pass, so a slow Telegram delays none.
+        if (! $dryRun) {
+            $this->sendUnhealthyAlerts($telegram, $recreatedSlugs, $pastBudgetSlugs, $sharedCauseNow ? $failingHealthchecks : [], $throttled, $icecastDown);
+        }
 
         if ($liveCleared > 0) {
             $this->line("  ✓ closed a stranded broadcast session on {$liveCleared} station(s)");
@@ -533,6 +674,57 @@ class ReconcileStations extends Command
         }
 
         return $state['health'] === LiquidsoapSupervisor::HEALTH_UNHEALTHY;
+    }
+
+    /**
+     * One message per kind per pass, so listeners losing audio is never silent
+     * again (unity-radio was off air 6h45m on 2026-11-10 with nothing raised)
+     * and a fleet-wide crash loop is still one message. Throttled on the exact
+     * set of stations, so the same set failing pass after pass is not repeated
+     * while a different one still gets through.
+     *
+     * @param  list<string>  $recreated
+     * @param  list<string>  $pastBudget
+     * @param  list<string>  $sharedCause
+     * @param  bool  $throttled  whether the shared-cause throttle was on this pass
+     * @param  bool  $icecastDown  whether Icecast failed to answer during a shared-cause event
+     */
+    private function sendUnhealthyAlerts(AdminTelegram $telegram, array $recreated, array $pastBudget, array $sharedCause, bool $throttled, bool $icecastDown): void
+    {
+        $list = fn (array $items): string => e(implode(', ', array_slice($items, 0, 20))).(count($items) > 20 ? ' …' : '');
+        $key = fn (string $kind, array $items): string => $kind.':'.md5(implode(',', $items));
+
+        if ($sharedCause !== []) {
+            sort($sharedCause);
+            $telegram->opsAlert('stations-unhealthy-shared', sprintf(
+                '⚠️ <b>%d stations failing their healthcheck at once</b>, likely a shared cause (Icecast, host load). %s %s',
+                count($sharedCause),
+                $icecastDown
+                    ? '<b>Icecast is not answering</b>: their recreates are held until it is back.'
+                    : sprintf('Recreating at most %d per pass.', max(1, (int) config('liquidsoap.unhealthy_recreates_per_pass_when_shared', 3))),
+                $list($sharedCause),
+            ), 30);
+        }
+
+        if ($recreated !== []) {
+            sort($recreated);
+            // Under the throttle every pass recreates a different station, so
+            // a per-set key would message every minute; the shared-cause
+            // alert already describes the event, so one key covers it.
+            $telegram->opsAlert($throttled ? 'stations-recreated:throttled' : $key('stations-recreated', $recreated), sprintf(
+                '🔁 Recreated %d unhealthy station(s): %s',
+                count($recreated),
+                $list($recreated),
+            ), 30);
+        }
+
+        if ($pastBudget !== []) {
+            sort($pastBudget);
+            $telegram->opsAlert($key('stations-recreate-budget', $pastBudget), sprintf(
+                '🛑 Still unhealthy after their hourly recreate budget, left for a human (read the container logs): %s',
+                $list($pastBudget),
+            ), 60);
+        }
     }
 
     /**

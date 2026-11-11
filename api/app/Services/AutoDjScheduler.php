@@ -92,7 +92,7 @@ class AutoDjScheduler
      * advancing the cursor — or dealing a new shuffle deck — on each of those
      * would shred the running order the owner gets back if they re-subscribe.
      */
-    public function next(Station $station, ?float $remaining = null): ?string
+    public function next(Station $station, ?float $remaining = null, ?float $lead = null): ?string
     {
         if (! ($station->user?->canUseAutoDj() ?? false)) {
             return null;
@@ -104,7 +104,7 @@ class AutoDjScheduler
 
         $now = CarbonImmutable::now();
         $queueStart = $this->queueStart($station, $now, $remaining);
-        $start = $queueStart->addMilliseconds((int) round(self::leadSeconds() * 1000));
+        $start = $queueStart->addMilliseconds((int) round(self::leadSeconds($lead) * 1000));
 
         $answer = $this->nextPlanned($station, $start);
 
@@ -159,13 +159,22 @@ class AutoDjScheduler
      * heard — measured on 2.4.5 with a 5s window: 6.3s after a song, 1.5s
      * after a 3s jingle. Adding the window lands on-time starts within about
      * a second and a half after songs, a few seconds early after a jingle.
+     *
+     * $containerLead is what the asking container says it was rendered with
+     * (X-Gocast-Lead). It beats the install config, which can change while an
+     * older container is still running. The owner's crossfade switch does not
+     * enter into it: cross() buffers its window whether or not it blends.
      */
-    public static function leadSeconds(): float
+    public static function leadSeconds(?float $containerLead = null): float
     {
         $configured = config('liquidsoap.planning_lead_seconds');
 
         if (is_numeric($configured)) {
             return max(0.0, (float) $configured);
+        }
+
+        if ($containerLead !== null) {
+            return max(0.0, $containerLead);
         }
 
         return config('liquidsoap.crossfade_enabled') ? max(0.0, (float) config('liquidsoap.crossfade_duration')) : 0.0;

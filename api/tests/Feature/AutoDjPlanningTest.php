@@ -165,6 +165,34 @@ it('plans in what listeners hear, a crossfade window behind the container', func
     expect(cutOf(ask($station)))->toBe(235.0);
 });
 
+it('plans with the lead the asking container was rendered with', function () {
+    // Crossfade was turned off for the install, but this container still
+    // runs the script with cross() in it: its 5s lead is what listeners
+    // hear, not the config's 0.
+    config(['liquidsoap.planning_lead_seconds' => null, 'liquidsoap.crossfade_enabled' => false]);
+    $station = plannedStation(['A' => 240, 'B' => 240]);
+    slotAt($station, '08:00', AutodjSlot::START_HARD);
+
+    at('07:56:00');
+
+    $answer = test()->withHeaders(['X-Internal-Key' => 'test-internal-key', 'X-Gocast-Remaining' => '0', 'X-Gocast-Lead' => '5.0'])
+        ->get('/api/internal/next-track?slug='.$station->slug);
+
+    expect(cutOf($answer))->toBe(235.0);
+});
+
+it('keeps the crossfade lead with the owner switch off', function () {
+    // cross() is still in the graph and still buffers its window; the
+    // switch only makes it cut instead of blend.
+    config(['liquidsoap.planning_lead_seconds' => null, 'liquidsoap.crossfade_enabled' => true, 'liquidsoap.crossfade_duration' => 5.0]);
+    $station = plannedStation(['A' => 240, 'B' => 240]);
+    $station->forceFill(['crossfade_enabled' => false])->saveQuietly();
+    slotAt($station, '08:00', AutodjSlot::START_HARD);
+
+    at('07:56:00');
+    expect(cutOf(ask($station)))->toBe(235.0);
+});
+
 it('places a back-to-back ask after the answer still loading, not after the track on air', function () {
     // request.dynamic sometimes asks again a fraction of a second later,
     // before the first answer has started. The second answer plays after A.

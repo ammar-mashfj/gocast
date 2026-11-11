@@ -156,6 +156,18 @@ it('keeps the config fingerprint when only artwork changes', function () {
     expect($supervisor->configFingerprint($station))->toBe($before);
 });
 
+it('keeps the config fingerprint when the owner flips crossfade', function () {
+    // Pushed live over telnet; flipping it must not recreate the station.
+    config(['liquidsoap.crossfade_enabled' => true]);
+    $station = Station::factory()->for(User::factory(), 'user')->create(['crossfade_enabled' => true]);
+    $supervisor = app(LiquidsoapSupervisor::class);
+
+    $before = $supervisor->configFingerprint($station);
+    $station->crossfade_enabled = false;
+
+    expect($supervisor->configFingerprint($station))->toBe($before);
+});
+
 it('keeps the config fingerprint when the owner plan flips the watermark', function () {
     // The watermark follows the plan and is pushed live; a plan change must
     // not read as drift and recreate the station.

@@ -6,7 +6,7 @@
 #
 # What cannot be a host service:
 #
-#   • Per-station Liquidsoap. infra/liquidsoap/Dockerfile pins v2.4.5 and
+#   • Per-station Liquidsoap. infra/liquidsoap/Dockerfile pins v2.4.6 and
 #     documents why (savonet#4851 crossfade wedge, savonet#5194 crash in
 #     source.skip from a harbor.http handler). Ubuntu ships 2.2.x, which
 #     cannot even parse the generated .liq. Those containers are spawned by

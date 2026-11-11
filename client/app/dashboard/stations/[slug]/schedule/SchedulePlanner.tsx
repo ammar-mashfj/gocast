@@ -12,6 +12,7 @@ import { Notice } from "@/components/ds/Notice"
 import { PageHeader } from "@/components/ds/PageHeader"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
+import { AutoDjSettingsButton } from "@/components/dashboard/autodj/AutoDjSettingsButton"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { useMounted } from "@/hooks/useMounted"
 import api from "@/lib/axios"
@@ -383,6 +384,7 @@ export function SchedulePlanner({ station, playlists }: Props) {
               )}
             </span>}
             <span aria-hidden className="h-0 basis-full sm:hidden" />
+            <AutoDjSettingsButton station={station} className="max-sm:flex-1" />
             {!locked && (
               <Button
                 variant="ghost"

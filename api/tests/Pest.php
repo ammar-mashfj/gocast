@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Plan;
+use App\Models\User;
 use App\Services\DisposableEmail;
 use App\Services\MxLookup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -108,4 +110,28 @@ function sentMessage(int $index = 0): Email
     expect($message)->not->toBeNull('No email was sent.');
 
     return $message;
+}
+
+/**
+ * An owner who can actually use AutoDJ, and with it jingles and crossfade.
+ * Those settings are gated on the same plan flag as uploading, and a test
+ * that skipped this would be asserting against the free default.
+ */
+function proOwner(): User
+{
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    return User::factory()->create(['plan_id' => $plan->id]);
+}
+
+/**
+ * An owner whose plan has no AutoDJ, for asserting that its settings refuse.
+ */
+function freeOwner(): User
+{
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    return User::factory()->create(['plan_id' => $plan->id]);
 }

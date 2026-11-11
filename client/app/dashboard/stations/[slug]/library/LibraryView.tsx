@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ds/PageHeader"
 import { ProgressBar } from "@/components/ds/Progress"
 import { ProTag } from "@/components/ds/Tag"
 import { HelpLink } from "@/components/dashboard/HelpLink"
+import { AutoDjSettingsButton } from "@/components/dashboard/autodj/AutoDjSettingsButton"
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog"
 import { AllTracksView } from "./AllTracksView"
 import { AutoDjUpsell } from "./AutoDjUpsell"
@@ -197,21 +198,24 @@ export function LibraryView({
         actionsClassName="max-sm:w-full max-sm:*:flex-1"
         actions={
           !locked && (
-            page === "playlists" ? (
-              <Button onClick={() => setNameDialog({ mode: "create" })}>
-                <IconPlus />
-                New playlist
-              </Button>
-            ) : (
-              <Button
-                onClick={() => fileInput.current?.click()}
-                disabled={lib.uploading}
-                title={`Uploads join ${currentPlaylist?.name ?? defaultPlaylist?.name ?? "the default playlist"}.`}
-              >
-                {lib.uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
-                {lib.uploading ? "Uploading…" : "Add tracks"}
-              </Button>
-            )
+            <>
+              <AutoDjSettingsButton station={station} />
+              {page === "playlists" ? (
+                <Button onClick={() => setNameDialog({ mode: "create" })}>
+                  <IconPlus />
+                  New playlist
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => fileInput.current?.click()}
+                  disabled={lib.uploading}
+                  title={`Uploads join ${currentPlaylist?.name ?? defaultPlaylist?.name ?? "the default playlist"}.`}
+                >
+                  {lib.uploading ? <IconLoader2 className="animate-spin" /> : <IconPlus />}
+                  {lib.uploading ? "Uploading…" : "Add tracks"}
+                </Button>
+              )}
+            </>
           )
         }
       />
