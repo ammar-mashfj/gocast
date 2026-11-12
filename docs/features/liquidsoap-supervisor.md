@@ -265,6 +265,8 @@ All in `api/config/liquidsoap.php`. Defaults as read from code.
 | `LIQUIDSOAP_ICECAST_HOST` / `_PORT` / `LIQUIDSOAP_API_URL` | `host.docker.internal`, 8000, `http://host.docker.internal:8081` | From the container's point of view. `host-gateway` resolves to the default bridge gateway, so Icecast and the API must listen on all interfaces. |
 | `LIQUIDSOAP_DELETED_STATION_RETENTION_DAYS` | 30 | |
 
+Crossfade is compiled into a station's script when `Station::crossfadeAvailable()` says so: `LIQUIDSOAP_CROSSFADE_ENABLED` for every station, or `LIQUIDSOAP_CROSSFADE_STATIONS` (comma-separated slugs) for a canary. Adding or removing a slug changes only that station's fingerprint, so `stations:reconcile` recreates only it; `applyCrossfadeSetting()` pushes the owner's switch only to such stations.
+
 Other keys in the same file (crossfade, limiter, loudness, silence trimming, watermark, auto-stop windows, storage cap, encoder host/port) belong to other features; only the ones the supervisor renders are listed above. Docker is reached via the `DOCKER_HOST` real environment variable (set for php-fpm, queue and scheduler units in the native deploy; a `config:cache` deploy no longer reads `.env`).
 
 ## Drift: what stays wrong until something recreates the container

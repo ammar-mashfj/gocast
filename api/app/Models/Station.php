@@ -342,6 +342,25 @@ class Station extends Model
     }
 
     /**
+     * Is crossfade compiled into this station's script? True for every
+     * station when it is on install-wide, otherwise only for the canary
+     * slugs in `liquidsoap.crossfade_stations`. A station outside both gets
+     * the hard-cut script, byte for byte the same as before the canary list
+     * existed, so listing one slug recreates that station alone.
+     *
+     * This is the install's side. The owner's own switch
+     * (`crossfade_enabled`) is a live flag inside a script that has it.
+     */
+    public function crossfadeAvailable(): bool
+    {
+        if (config('liquidsoap.crossfade_enabled')) {
+            return true;
+        }
+
+        return in_array($this->slug, config('liquidsoap.crossfade_stations', []), true);
+    }
+
+    /**
      * Is this run on the relay path? Reads the path stored at start, never
      * the plan: an owner who upgrades mid-show keeps the path the show began
      * on until the station next starts.

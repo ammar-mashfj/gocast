@@ -696,13 +696,14 @@ class LiquidsoapSupervisor
      * because its starting value is the station's saved one: without that,
      * Docker restarting this same container after a crash would bring the
      * old setting back. Liquidsoap only reads the file at start, so the
-     * rewrite restarts nothing. A script rendered with crossfade off for the
-     * install has no such variable and only hard cuts, so there is nothing
+     * rewrite restarts nothing. A script rendered without crossfade (off for
+     * the install and not a canary, see Station::crossfadeAvailable()) has
+     * no such variable and only hard cuts, so there is nothing
      * to push.
      */
     public function applyCrossfadeSetting(Station $station): bool
     {
-        if (! config('liquidsoap.crossfade_enabled')) {
+        if (! $station->crossfadeAvailable()) {
             return true;
         }
 
@@ -1308,12 +1309,13 @@ class LiquidsoapSupervisor
             'watermarkInterval' => $this->watermarkInterval(),
             'watermarkDuck' => $this->watermarkDuck(),
             'watermarkFade' => (float) config('liquidsoap.watermark_fade_seconds'),
-            // AutoDJ track transitions. The install-wide switch decides
-            // whether cross() is in the graph at all — off => hard cuts, the
+            // AutoDJ track transitions. The install-wide switch (or this
+            // station being on the canary list) decides whether cross() is in
+            // the graph at all — off => hard cuts, the
             // safe fallback if a transition ever wedges playback again. The
             // owner's switch is a live flag inside it (applyCrossfadeSetting),
             // rendered as on for the fingerprint so flipping it is not drift.
-            'crossfadeEnabled' => $crossfadeEnabled = (bool) config('liquidsoap.crossfade_enabled'),
+            'crossfadeEnabled' => $crossfadeEnabled = $station->crossfadeAvailable(),
             'crossfadeOn' => $fingerprint || ($station->crossfade_enabled ?? true),
             'crossfadeOnVar' => self::VAR_CROSSFADE,
             'crossfadeDuration' => $crossfadeDuration = (float) config('liquidsoap.crossfade_duration'),

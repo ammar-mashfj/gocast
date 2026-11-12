@@ -132,3 +132,136 @@ it('rewrites the script on disk so a crash restart keeps the new value', functio
     expect(file_get_contents(config('liquidsoap.liq_dir')."/{$station->slug}.liq"))
         ->toContain('interactive.bool("autodj_crossfade", false)');
 });
+
+/*
+ * Per-station canary: LIQUIDSOAP_CROSSFADE_STATIONS turns crossfade on for
+ * the listed slugs while the install-wide switch stays off. The other
+ * stations' scripts must not change at all, or the reconciler recreates the
+ * whole fleet.
+ */
+
+/** The script as the supervisor renders it, for the container or for the fingerprint. */
+function crossfadeRender(Station $station, bool $fingerprint = false): string
+{
+    $supervisor = app(LiquidsoapSupervisor::class);
+
+    return (new ReflectionMethod($supervisor, 'renderLiq'))->invoke($supervisor, $station, $fingerprint);
+}
+
+function canaryStation(string $slug): Station
+{
+    return Station::factory()->for(User::factory(), 'user')->create([
+        'slug' => $slug,
+        'desired_state' => Station::STATE_RUNNING,
+    ]);
+}
+
+it('reads the canary list from env, trimming whitespace and empty entries', function () {
+    $_SERVER['LIQUIDSOAP_CROSSFADE_STATIONS'] = ' gocast-official-station , ,other-station,';
+
+    try {
+        $config = require config_path('liquidsoap.php');
+    } finally {
+        unset($_SERVER['LIQUIDSOAP_CROSSFADE_STATIONS']);
+    }
+
+    expect($config['crossfade_stations'])->toBe(['gocast-official-station', 'other-station']);
+});
+
+it('reads an unset canary list as empty', function () {
+    unset($_SERVER['LIQUIDSOAP_CROSSFADE_STATIONS'], $_ENV['LIQUIDSOAP_CROSSFADE_STATIONS']);
+    putenv('LIQUIDSOAP_CROSSFADE_STATIONS');
+
+    $config = require config_path('liquidsoap.php');
+
+    expect($config['crossfade_stations'])->toBe([]);
+});
+
+it('gives crossfade to a canary station only', function () {
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => ['canary']]);
+    $canary = canaryStation('canary');
+    $other = canaryStation('other');
+
+    expect($canary->crossfadeAvailable())->toBeTrue()
+        ->and($other->crossfadeAvailable())->toBeFalse();
+
+    expect(crossfadeRender($canary))->toContain('def autodj_cross(')
+        ->toContain('("X-Gocast-Lead", "5.000")');
+
+    expect(crossfadeRender($other))->not->toContain('def autodj_cross(')
+        ->not->toMatch('/^[^#\n]*\bcross\(/m')
+        ->toContain('("X-Gocast-Lead", "0.000")');
+});
+
+it('still means every station when crossfade is on install-wide', function () {
+    config(['liquidsoap.crossfade_enabled' => true, 'liquidsoap.crossfade_stations' => []]);
+    $station = canaryStation('anyone');
+
+    expect($station->crossfadeAvailable())->toBeTrue()
+        ->and(crossfadeRender($station))->toContain('def autodj_cross(');
+});
+
+it('leaves a non-canary script byte for byte unchanged by the list', function () {
+    // The reconciler recreates any station whose fingerprint render changes.
+    // Listing other slugs, or slugs that match nothing, must not touch it.
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => []]);
+    $station = canaryStation('bystander');
+    $script = crossfadeRender($station);
+    $fingerprintScript = crossfadeRender($station, fingerprint: true);
+    $fingerprint = app(LiquidsoapSupervisor::class)->configFingerprint($station);
+
+    config(['liquidsoap.crossfade_stations' => ['someone-else', 'no-such-station']]);
+
+    expect(crossfadeRender($station))->toBe($script)
+        ->and(crossfadeRender($station, fingerprint: true))->toBe($fingerprintScript)
+        ->and(app(LiquidsoapSupervisor::class)->configFingerprint($station))->toBe($fingerprint);
+});
+
+it('changes the fingerprint of the canary station when it is listed', function () {
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => []]);
+    $station = canaryStation('canary');
+    $before = app(LiquidsoapSupervisor::class)->configFingerprint($station);
+
+    config(['liquidsoap.crossfade_stations' => ['canary']]);
+
+    expect(app(LiquidsoapSupervisor::class)->configFingerprint($station))->not->toBe($before);
+});
+
+it('reports crossfade as available to the dashboard for a canary station only', function () {
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => ['canary']]);
+    $owner = proOwner();
+    $canary = Station::factory()->for($owner, 'user')->create(['slug' => 'canary']);
+    $other = Station::factory()->for($owner, 'user')->create(['slug' => 'other']);
+
+    actingAs($owner, 'sanctum')->getJson('/api/stations/canary')
+        ->assertOk()->assertJsonPath('data.crossfade_available', true);
+
+    actingAs($owner, 'sanctum')->getJson('/api/stations/other')
+        ->assertOk()->assertJsonPath('data.crossfade_available', false);
+});
+
+it('pushes the owner switch live to a canary station', function () {
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => ['canary']]);
+    $station = canaryStation('canary');
+
+    $supervisor = crossfadeSupervisor();
+    $supervisor->shouldReceive('telnet')->once()
+        ->with(Mockery::on(fn ($s) => $s->is($station)), 'var.set autodj_crossfade = false')
+        ->andReturn("Variable autodj_crossfade set.\n");
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['crossfade_enabled' => false]);
+});
+
+it('pushes nothing to a station outside the canary list', function () {
+    config(['liquidsoap.crossfade_enabled' => false, 'liquidsoap.crossfade_stations' => ['canary']]);
+    $station = canaryStation('other');
+
+    $supervisor = crossfadeSupervisor();
+    $supervisor->shouldNotReceive('telnet');
+    app()->instance(LiquidsoapSupervisor::class, $supervisor);
+
+    $station->update(['crossfade_enabled' => false]);
+
+    expect($supervisor->applyCrossfadeSetting($station))->toBeTrue();
+});
