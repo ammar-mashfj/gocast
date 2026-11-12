@@ -351,6 +351,18 @@ return [
     // containers. Watch /status for `remaining` stuck while `elapsed` climbs,
     // and for no further next-track requests while AutoDJ is on air.
     'crossfade_enabled' => (bool) env('LIQUIDSOAP_CROSSFADE_ENABLED', false),
+    // Per-station canary while the switch above is off: a comma-separated
+    // list of station slugs that get crossfade anyway, e.g.
+    // LIQUIDSOAP_CROSSFADE_STATIONS=gocast-official-station. Only the listed
+    // stations' scripts change, so stations:reconcile recreates only them
+    // (once nobody is live). Empty by default; whitespace and empty entries
+    // are dropped, and a slug that matches no station does nothing. Ignored
+    // when crossfade_enabled is true, which already means every station.
+    // Station::crossfadeAvailable() is the one place that reads both.
+    'crossfade_stations' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('LIQUIDSOAP_CROSSFADE_STATIONS', '')),
+    ), fn (string $slug): bool => $slug !== '')),
     // Two DIFFERENT things, which must not share a value:
     //
     //   crossfade_duration — the cross window. How much audio is buffered from

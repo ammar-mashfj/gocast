@@ -164,6 +164,9 @@ class AutoDjScheduler
      * (X-Gocast-Lead). It beats the install config, which can change while an
      * older container is still running. The owner's crossfade switch does not
      * enter into it: cross() buffers its window whether or not it blends.
+     * The same goes for a canary station (LIQUIDSOAP_CROSSFADE_STATIONS):
+     * its container sends its own window, so the install-wide fallback below
+     * only serves containers older than the header.
      */
     public static function leadSeconds(?float $containerLead = null): float
     {
