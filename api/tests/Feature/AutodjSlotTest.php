@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\StationEvent;
 use App\Models\Track;
 use App\Models\User;
+use App\Services\AutoDjProgramme;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
@@ -55,6 +56,48 @@ it('stores slots in payload order and returns them with the programme', function
         ->and($response->json('data.autodj_slots.1.end_time'))->toBe('02:00')
         ->and($response->json('data.programme.playlist.id'))->toBeString()
         ->and($this->station->autodjSlots()->pluck('position')->all())->toBe([0, 1]);
+});
+
+it('saves 500 slots and resolves the last slot and the following gap', function () {
+    $this->calm->tracks()->attach(Track::factory()->for($this->station)->create()->id, ['position' => 1]);
+    $slots = array_map(fn (int $index) => [
+        'label' => "Slot {$index}",
+        'playlist_id' => $this->calm->id,
+        'days' => [1],
+        'start_time' => sprintf('%02d:%02d', intdiv($index, 60), $index % 60),
+        'end_time' => sprintf('%02d:%02d', intdiv($index + 1, 60), ($index + 1) % 60),
+    ], range(0, 499));
+
+    putSlots($this->owner, $this->station, $slots)
+        ->assertOk()
+        ->assertJsonCount(500, 'data.autodj_slots')
+        ->assertJsonPath('data.autodj_slots.499.label', 'Slot 499');
+
+    expect($this->station->autodjSlots()->orderBy('position')->pluck('position')->all())->toBe(range(0, 499));
+
+    $station = $this->station->fresh()->load('autodjSlots.playlist', 'defaultPlaylist');
+    $programme = app(AutoDjProgramme::class);
+    $inside = $programme->resolve($station, CarbonImmutable::parse('2026-09-21 08:19:30', 'Europe/Madrid'));
+    $after = $programme->resolve($station, CarbonImmutable::parse('2026-09-21 08:20', 'Europe/Madrid'));
+
+    expect($inside['slot']->label)->toBe('Slot 499')
+        ->and($inside['playlist']->id)->toBe($this->calm->id)
+        ->and($inside['until']->format('H:i'))->toBe('08:20')
+        ->and($after['slot'])->toBeNull()
+        ->and($after['playlist']->id)->toBe($station->defaultPlaylist->id)
+        ->and($after['next']['slot']->label)->toBe('Slot 0');
+
+    $savedIds = $this->station->autodjSlots()->orderBy('position')->pluck('id')->all();
+    $slots[] = ['playlist_id' => $this->calm->id, 'days' => [1], 'start_time' => '08:20', 'end_time' => '08:21'];
+    putSlots($this->owner, $this->station, $slots)
+        ->assertUnprocessable()->assertJsonValidationErrors('slots');
+
+    array_pop($slots);
+    $slots[499]['start_time'] = '08:18';
+    putSlots($this->owner, $this->station, $slots)
+        ->assertUnprocessable()->assertJsonValidationErrors('slots.499.start_time');
+
+    expect($this->station->autodjSlots()->orderBy('position')->pluck('id')->all())->toBe($savedIds);
 });
 
 it('stores whether each slot starts on time, soft when not said', function () {

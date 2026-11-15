@@ -51,9 +51,8 @@ class ReplaceAutodjSlotsRequest extends FormRequest
 
         return [
             'timezone' => ['nullable', 'timezone:all'],
-            // A week has 168 hours; 50 slots is a sanity bound well past
-            // any programme grid a person would draw by hand.
-            'slots' => ['present', 'array', 'max:50'],
+            // Allow detailed weekly grids while bounding full-list requests.
+            'slots' => ['present', 'array', 'max:500'],
             'slots.*.label' => ['nullable', 'string', 'max:60'],
             'slots.*.playlist_id' => [
                 'required',
