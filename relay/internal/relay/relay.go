@@ -72,6 +72,12 @@ type Config struct {
 	WriteTimeout   time.Duration // one write to Icecast may block this long
 	MaxMessage     int64         // largest single WebSocket message accepted
 	PingInterval   time.Duration // ping the studio this often; 0 = never
+
+	// Harbor pass-through (harbor.go). Empty HarborAddr turns it off and
+	// /broadcast/{slug} answers 404.
+	HarborAddr         string        // station router, host:port, loopback
+	HarborTimeout      time.Duration // dial + upgrade at the router
+	HarborWriteTimeout time.Duration // one frame to harbor (or the studio) may block this long
 }
 
 func DefaultConfig() Config {
@@ -95,6 +101,14 @@ func DefaultConfig() Config {
 		WriteTimeout: 5 * time.Second,
 		MaxMessage:   64 << 10,
 		PingInterval: 30 * time.Second,
+		// The router answers an upgrade in milliseconds; a station that is
+		// off is a quick 502. Under the studio's 10 s connect timeout.
+		HarborTimeout: 5 * time.Second,
+		// Longer than the Icecast write limit: without the relay a studio
+		// rides out a slow harbor on its own send buffer, so cutting a
+		// stall short would be the relay's doing. Harbor's own 10 s input
+		// timeout ends a really stuck show either way.
+		HarborWriteTimeout: 10 * time.Second,
 		// Icecast frees a cut source a moment after the cut, and the studio's
 		// reconnect can arrive inside that moment. Asking again briefly rides
 		// it out; a station really in use still gets 4009, a second later.
@@ -269,6 +283,16 @@ func (s *Server) Draining() bool {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.Draining() {
 		http.Error(w, "draining", http.StatusServiceUnavailable)
+		return
+	}
+	if strings.Contains(r.URL.Path, "/broadcast/") {
+		// A pass-through address: never the Icecast path, whatever the slug.
+		slug, ok := HarborSlug(r.URL.Path)
+		if !ok || s.cfg.HarborAddr == "" {
+			http.NotFound(w, r)
+			return
+		}
+		s.serveHarbor(w, r, slug)
 		return
 	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{

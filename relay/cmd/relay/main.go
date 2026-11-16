@@ -1,4 +1,6 @@
-// Command relay serves the studio WebSocket endpoint (see package relay).
+// Command relay serves the studio WebSocket endpoints (see package relay):
+// /relay for Free studios (→ Icecast) and /relay/broadcast/{slug} for
+// container studios (→ the station router → harbor, see harbor.go).
 //
 // Two copies run behind nginx. A deploy restarts them one at a time: on
 // SIGTERM a copy stops accepting, closes every studio with 1001 so it
@@ -37,7 +39,17 @@ func main() {
 	flag.StringVar(&cfg.IcecastAddr, "icecast", cfg.IcecastAddr, "Icecast host:port")
 	flag.StringVar(&cfg.MountPrefix, "mount-prefix", cfg.MountPrefix, "Icecast mount prefix")
 	flag.DurationVar(&cfg.IdleTimeout, "idle-timeout", cfg.IdleTimeout, "close a studio that sends nothing for this long")
+	// On by default, at the station router's standard loopback port, so the
+	// systemd unit needs no new flag: the unit is only rendered by
+	// setup-native.sh, and a deploy that rolls back to an older binary would
+	// otherwise restart it with a flag it does not know.
+	flag.StringVar(&cfg.HarborAddr, "harbor", "127.0.0.1:8091", "station router host:port for the Pro pass-through at /relay/broadcast/{slug} (empty = off)")
 	flag.Parse()
+	if cfg.HarborAddr != "" {
+		if err := relay.HarborAddrOK(cfg.HarborAddr); err != nil {
+			log.Fatalf("-harbor %q: %v", cfg.HarborAddr, err)
+		}
+	}
 	host, _, err := net.SplitHostPort(cfg.IcecastAddr)
 	if err != nil {
 		log.Fatalf("-icecast %q: %v", cfg.IcecastAddr, err)
@@ -78,7 +90,7 @@ func main() {
 	hsrv := &http.Server{Handler: hmux, ReadHeaderTimeout: 5 * time.Second}
 	go hsrv.Serve(hln)
 
-	log.Printf("relay pid %d on %s → icecast %s", os.Getpid(), *listen, cfg.IcecastAddr)
+	log.Printf("relay pid %d on %s → icecast %s, harbor %q", os.Getpid(), *listen, cfg.IcecastAddr, cfg.HarborAddr)
 
 	term := make(chan os.Signal, 1)
 	signal.Notify(term, syscall.SIGTERM, syscall.SIGINT)

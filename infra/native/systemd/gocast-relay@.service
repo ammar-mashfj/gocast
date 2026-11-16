@@ -1,5 +1,6 @@
 [Unit]
-# The Free-plan ingest: browser studio WebSocket → Icecast, byte for byte.
+# The studio ingest: Free studios → Icecast, byte for byte; container (Pro)
+# studios → station router → harbor, frame for frame, plus pings.
 # relay/ at the repo root, docs/RELAY-SERVICE-PLAN.md.
 #
 # TWO instances, named by port: gocast-relay@8095 and gocast-relay@8096, both
@@ -19,6 +20,8 @@ Group=__RUN_USER__
 # Health and /metrics on 1<port> (18095, 18096), loopback only.
 # -origins: the studio's own hosts. A browser from anywhere else is refused
 # at the upgrade; the mobile app sends no Origin and is not affected.
+# -harbor (not set here): the station router for the container-studio
+# pass-through; the binary's default, 127.0.0.1:8091, is the router's port.
 ExecStart=__APP_ROOT__/relay/bin/gocast-relay \
     -listen 127.0.0.1:%i \
     -health 127.0.0.1:1%i \
@@ -32,7 +35,7 @@ TimeoutStopSec=10
 Restart=always
 RestartSec=1
 
-# Two sockets per studio (browser side + Icecast side).
+# Two sockets per studio (browser side + Icecast or harbor side).
 LimitNOFILE=65536
 
 StandardOutput=journal
