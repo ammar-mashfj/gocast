@@ -339,6 +339,23 @@ sudo systemctl enable --now gocast-queue gocast-realtime gocast-analysis gocast-
 pull, install deps, build the client, migrate, cache, reload php-fpm,
 restart the workers, then relaunch and reconcile station containers.
 
+The relay is not restarted by a deploy: `relay-rollover.sh` installs the new
+binary and the two copies move onto it by themselves, one at a time, keeping
+live container (Pro) shows on until they end (see `relay/README.md`). A
+deploy that reports "still rolling over" needs nothing.
+
+**Pro studios through the relay** (the 100-minute Cloudflare fix). Do these in
+order; `deploy-native.sh` warns when the URL is switched too early:
+
+1. Deploy a commit that has `relay/internal/relay/harbor.go`.
+2. Add the `/relay/broadcast/` location and `http_503` on both relay locations
+   from `nginx/gocast-stream.conf` to the live vhost by hand, then
+   `nginx -t && systemctl reload nginx`.
+3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in
+   `api/.env`, then `php artisan config:cache`.
+
+To undo, set it back to `/broadcast/{slug}` and run `config:cache` again.
+
 ---
 
 ## Verification

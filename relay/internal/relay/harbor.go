@@ -23,6 +23,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -73,6 +74,14 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 		s.Metrics.Close("harbor_unreachable")
 		return
 	}
+	// A drain or retire that began during the dial: refuse the upgrade, so
+	// nginx retries the other copy, rather than accept and close with 1001.
+	if s.Draining() {
+		up.CloseNow()
+		http.Error(w, "draining", http.StatusServiceUnavailable)
+		s.Metrics.Close("harbor_draining")
+		return
+	}
 
 	// Offer the studio whatever harbor chose, so the studio sees the same
 	// handshake it would have seen from the router.
@@ -90,9 +99,12 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 		s.Metrics.Close("refused_upgrade")
 		return
 	}
-	if !s.track(ws) {
+	st, ok := s.track(ws, PathHarbor)
+	if !ok {
+		// The few microseconds between the check above and here.
 		up.CloseNow()
 		ws.Close(CloseDraining, "relay restarting")
+		s.Metrics.Close("harbor_draining")
 		return
 	}
 	defer s.untrack(ws)
@@ -102,9 +114,9 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 	// other copy finds the mount free instead of "source already connected".
 	s.holdsSource(ws, func() { up.CloseNow() })
 
-	s.Metrics.connOpened()
-	reason := s.pipeHarbor(r.Context(), ws, up)
-	s.Metrics.connClosed()
+	s.Metrics.connOpened(PathHarbor)
+	reason := s.pipeHarbor(r.Context(), ws, up, st)
+	s.Metrics.connClosed(PathHarbor)
 	s.Metrics.Close(reason)
 }
 
@@ -153,7 +165,7 @@ func (s *Server) dialHarbor(r *http.Request, slug string) (*websocket.Conn, int)
 
 // pipeHarbor copies frames both ways until either side ends, and closes the
 // other side the way the first one ended. It returns a metrics label.
-func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn) string {
+func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn, st *conn) string {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
@@ -171,24 +183,46 @@ func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn) stri
 	)
 	// Harbor not taking a frame for HarborWriteTimeout. The flag is set
 	// before harbor's socket is closed, so whichever read notices the close
-	// first reports the stall, not "harbor closed".
-	var stalled atomic.Bool
+	// first reports the stall, not "harbor closed". The timer only acts on a
+	// write still in flight (under wmu), so a write that finishes just as it
+	// fires is not cut and mislabelled.
+	var (
+		stalled  atomic.Bool
+		wmu      sync.Mutex
+		inFlight bool
+	)
 	tellStudioHarborStalled := func() {
 		up.CloseNow()
 		ws.Close(CloseHarborWrite, "stream server stopped accepting audio")
 	}
 	stall := time.AfterFunc(s.cfg.HarborWriteTimeout, func() {
-		stalled.Store(true)
-		up.CloseNow()
+		wmu.Lock()
+		defer wmu.Unlock()
+		if inFlight {
+			stalled.Store(true)
+			up.CloseNow()
+		}
 	})
 	stall.Stop()
 	defer stall.Stop()
+	writeHarbor := func(typ websocket.MessageType, data []byte) error {
+		wmu.Lock()
+		inFlight = true
+		wmu.Unlock()
+		stall.Reset(s.cfg.HarborWriteTimeout)
+		err := up.Write(ctx, typ, data)
+		wmu.Lock()
+		inFlight = false
+		wmu.Unlock()
+		stall.Stop()
+		return err
+	}
 
 	finish := func(r string, closeOther func()) {
 		once.Do(func() {
 			ended.Store(true)
 			reason = r
-			if s.kicked.Load() {
+			if st.kicked.Load() {
 				// Drain is closing the studio with 1001; a second close of
 				// the studio would race it. Harbor is let go here too: drain
 				// already did it unless it caught this connection before its
@@ -214,10 +248,17 @@ func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn) stri
 				}
 				code, why := closeOf(err)
 				label := "harbor_client_closed"
+				switch {
 				// coder/websocket has already closed the studio with 1009;
 				// the error it returns is a plain "read limited" one.
-				if code == websocket.StatusMessageTooBig || strings.Contains(err.Error(), "read limited") {
+				case code == websocket.StatusMessageTooBig || strings.Contains(err.Error(), "read limited"):
 					label = "harbor_too_big"
+				// Closed from this side, not by the studio: a write to the
+				// studio (a ping, or a frame from harbor) timed out because
+				// the studio stopped reading, and coder/websocket closed the
+				// socket. The studio did not leave; the relay gave up on it.
+				case code == -1 && errors.Is(err, net.ErrClosed):
+					label = "harbor_studio_stalled"
 				}
 				finish(label, func() { forwardClose(up, code, why) })
 				return
@@ -225,10 +266,7 @@ func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn) stri
 			// A timer rather than a deadline on the write's context: the
 			// write cut short by its context closes harbor's socket before
 			// this goroutine can say why (see stalled above).
-			stall.Reset(s.cfg.HarborWriteTimeout)
-			err = up.Write(ctx, typ, data)
-			stall.Stop()
-			if err != nil {
+			if err := writeHarbor(typ, data); err != nil {
 				if ended.Load() {
 					return
 				}
@@ -242,7 +280,7 @@ func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn) stri
 				return
 			}
 			if typ == websocket.MessageBinary {
-				s.Metrics.bytesIn(len(data))
+				s.Metrics.bytesIn(PathHarbor, len(data))
 			}
 		}
 	}()
@@ -307,9 +345,27 @@ func forwardClose(c *websocket.Conn, code websocket.StatusCode, why string) {
 	}
 }
 
+// ValidateOriginPatterns refuses patterns originAllowed would read
+// differently from websocket.Accept. Accept matches a pattern holding "://"
+// against scheme+host; originAllowed, which runs first so a foreign page
+// never costs a dial to harbor, only knows hosts. Bare hosts (with optional
+// port and globs) mean the same to both, so those are all that is allowed.
+func ValidateOriginPatterns(patterns []string) error {
+	for _, p := range patterns {
+		if strings.Contains(p, "://") || strings.Contains(p, "/") {
+			return fmt.Errorf("origin pattern %q: give the host only, e.g. gocast.fm or *.gocast.fm", p)
+		}
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("origin pattern %q: %v", p, err)
+		}
+	}
+	return nil
+}
+
 // originAllowed applies the same rule websocket.Accept does, before the relay
 // spends a dial on harbor: no Origin (a native app), the request's own host,
-// or a host matching one of the patterns.
+// or a host matching one of the patterns. Equivalent to Accept for the
+// patterns ValidateOriginPatterns lets through.
 func originAllowed(r *http.Request, patterns []string) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {

@@ -740,8 +740,8 @@ func TestHarborDrainFreesTheMountEvenWithoutARecordedRelease(t *testing.T) {
 	c.Write(ctx, websocket.MessageText, helloJSON("a", "t"))
 	eventually(t, "connected", func() bool { return h.conn("a") != nil })
 	s.mu.Lock()
-	for k := range s.conns {
-		s.conns[k] = nil
+	for _, st := range s.conns {
+		st.release = nil
 	}
 	s.mu.Unlock()
 

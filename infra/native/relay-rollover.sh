@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Moves the relay copies onto the binary deploy-native.sh just installed,
+# without cutting a live container (Pro) show. Run as root.
+#
+#   relay-rollover.sh <relay bin dir> <run user> <port>...
+#
+# Copies that support it (their /healthz reports a "build") roll over BY
+# THEMSELVES (relay/internal/relay/rollover.go): each notices the new binary,
+# and one at a time it stops taking new studios, hands its Free studios to the
+# other copy, waits for its container shows to end, and exits; systemd starts
+# the new binary. This script only watches: it waits for the copies with no
+# show to come back on the new build, reports the ones still carrying a show,
+# and puts the previous binary back if a copy cannot start (the copies already
+# on the new build then roll back the same gentle way).
+#
+# Copies that don't (the first deploy of this feature) are restarted the old
+# way, one at a time. Nothing Pro is on the relay before that deploy: Pro
+# studios move to it only when LIQUIDSOAP_INGEST_URL is switched, after.
+#
+# Exit: 0 every copy on the new build; 10 rolling over, a copy is still
+# carrying a container show and will restart when it ends; 1 rolled back.
+set -euo pipefail
+
+BIN="$1"; RUN_USER="$2"; shift 2
+PORTS=("$@")
+WAIT_SECS="${RELAY_ROLLOVER_WAIT:-180}"   # how long to watch before reporting
+DOWN_SECS="${RELAY_ROLLOVER_DOWN:-30}"    # unreachable this long = cannot start
+
+as_app() { sudo -u "$RUN_USER" "$@"; }
+health() { curl -fsS --max-time 1 "http://127.0.0.1:1$1/healthz" 2>/dev/null || true; }
+# field <json> <name>: a scalar from /healthz's flat JSON object.
+field() { sed -n "s/.*\"$2\":\([^,}]*\).*/\1/p" <<<"$1" | tr -d '"'; }
+healthy() {
+  local i
+  for i in $(seq 1 20); do [[ -n "$(health "$1")" ]] && return 0; sleep 0.5; done
+  return 1
+}
+
+NEW_BUILD="$(sha256sum "$BIN/gocast-relay" | cut -c1-12)"
+
+put_back_previous() {
+  # Copied aside, then renamed over: a plain cp onto a binary that systemd
+  # is still running fails "Text file busy".
+  if [[ -f "$BIN/gocast-relay.prev" ]]; then
+    as_app cp -p "$BIN/gocast-relay.prev" "$BIN/.new/gocast-relay" \
+      && as_app mv -f "$BIN/.new/gocast-relay" "$BIN/gocast-relay" \
+      || echo "  ✗ could not put the previous relay binary back"
+  fi
+}
+
+# ---- Copies from before self-rollover: the old hard rolling restart --------
+# Only a copy that ANSWERS without a "build" is an old one. A copy that does
+# not answer is not evidence of anything: a self-rolling copy with nothing on
+# is down for a second right after the install (it noticed the new binary and
+# restarted), and treating that as "old" would hard-restart the other copy,
+# cutting its container shows. Down copies are the watch loop's business.
+legacy=0
+for port in "${PORTS[@]}"; do
+  for _ in $(seq 1 20); do
+    h="$(health "$port")"
+    [[ -n "$h" ]] && break
+    sleep 0.5
+  done
+  [[ -n "$h" && -z "$(field "$h" build)" ]] && legacy=1
+done
+if [[ $legacy -eq 1 ]]; then
+  echo "  · relay copies predate self-rollover: restarting them one at a time"
+  restarted=()
+  for port in "${PORTS[@]}"; do
+    systemctl restart "gocast-relay@${port}"
+    if healthy "$port"; then
+      echo "  ✓ gocast-relay@${port} restarted"
+      restarted+=("$port")
+    else
+      echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
+      put_back_previous
+      systemctl reset-failed "gocast-relay@${port}" 2>/dev/null || true
+      systemctl restart "gocast-relay@${port}" || true
+      for done_port in "${restarted[@]}"; do
+        healthy "$port" || true
+        systemctl restart "gocast-relay@${done_port}" || true
+        healthy "$done_port" && echo "  ✓ gocast-relay@${done_port} back on the previous binary"
+      done
+      exit 1
+    fi
+    [[ "$port" != "${PORTS[-1]}" ]] && sleep 10
+  done
+  exit 0
+fi
+
+# ---- Self-rollover: watch -----------------------------------------------------
+echo "  · new relay build $NEW_BUILD: the copies roll over by themselves, one at a time"
+declare -A down=()
+end=$((SECONDS + WAIT_SECS))
+while :; do
+  all_new=1 waiting=""
+  for port in "${PORTS[@]}"; do
+    h="$(health "$port")"
+    if [[ -z "$h" ]]; then
+      # Down for a second while systemd restarts it is normal; down for
+      # DOWN_SECS is a binary that cannot start.
+      all_new=0
+      down[$port]=$(( ${down[$port]:-0} + 1 ))
+      if (( down[$port] >= DOWN_SECS )); then
+        echo "  ✗ gocast-relay@${port} has not answered /healthz for ${DOWN_SECS}s — putting the previous binary back"
+        put_back_previous
+        systemctl reset-failed "gocast-relay@${port}" 2>/dev/null || true
+        systemctl restart "gocast-relay@${port}" || true
+        healthy "$port" && echo "  ✓ gocast-relay@${port} back on the previous binary"
+        echo "  · copies already on the new build roll back by themselves, keeping their shows"
+        exit 1
+      fi
+      continue
+    fi
+    down[$port]=0
+    if [[ "$(field "$h" build)" != "$NEW_BUILD" ]]; then
+      all_new=0
+      shows="$(field "$h" harbor_active)"
+      if [[ "$(field "$h" retiring)" == "true" && "${shows:-0}" -gt 0 ]]; then
+        waiting+=" @${port}:${shows}"
+      fi
+    fi
+  done
+  if [[ $all_new -eq 1 ]]; then
+    for port in "${PORTS[@]}"; do echo "  ✓ gocast-relay@${port} on build $NEW_BUILD"; done
+    exit 0
+  fi
+  if [[ -n "$waiting" ]]; then
+    # A copy is keeping container shows on air until they end; the rest
+    # follows on its own. Nothing to wait for here.
+    for port in "${PORTS[@]}"; do
+      h="$(health "$port")"
+      echo "  · gocast-relay@${port}: build $(field "$h" build), retiring=$(field "$h" retiring), container shows $(field "$h" harbor_active)"
+    done
+    echo "  · rolling over: waiting for container show(s) to end on${waiting}; those copies restart by themselves"
+    exit 10
+  fi
+  if (( SECONDS >= end )); then
+    echo "  ! relay copies not all on build $NEW_BUILD after ${WAIT_SECS}s:"
+    for port in "${PORTS[@]}"; do echo "    @${port}: $(health "$port")"; done
+    exit 10
+  fi
+  sleep 1
+done

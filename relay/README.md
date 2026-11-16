@@ -41,16 +41,33 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o gocast-relay ./cmd/relay
 
 ## Running
 
-Two copies, `gocast-relay@1` (:8095, health :8195) and `gocast-relay@2`
-(:8096, health :8196), behind nginx `least_conn`. A crash or a restart drops
-only that copy's studios, which reconnect to the other within milliseconds.
+Two copies, `gocast-relay@8095` (health :18095) and `gocast-relay@8096`
+(health :18096), behind nginx `least_conn`. A crash drops only that copy's
+studios, which reconnect to the other within milliseconds.
 
-- **Deploy = restart one, wait, restart the other.** SIGTERM closes every
-  studio with 1001 so it reconnects at once; never restart both together.
-- `-origins` must list the studio's hosts (e.g. `gocast.fm,www.gocast.fm`);
-  without it every browser is refused.
-- `curl 127.0.0.1:8195/healthz` → `{"active":N,"draining":false,"pid":…}`;
-  `/metrics` → active, total, bytes, closes by reason.
+- **A new binary is picked up by the copies themselves** (`internal/relay/rollover.go`).
+  The deploy only renames it into place (`infra/native/relay-rollover.sh` watches).
+  Each copy notices, and **one at a time** (a host-wide lock, and only
+  while the other copy is up) it retires:
+  - New studios get 503, and nginx (`proxy_next_upstream … http_503`) sends them to the other copy.
+  - Free studios are handed over at once with 1001.
+  - Container shows are left to end on their own, up to `RELAY_RETIRE_MAX`, 12 h by default.
+
+  Then the copy exits and systemd starts the new binary. Rolling back is the same move: put the previous binary back.
+- **SIGTERM** (`systemctl restart/stop`) is the hard stop: every studio gets
+  1001 at once. A live container show is heard as a ~5 s gap. **SIGUSR1**
+  retires by hand.
+- Per-host settings come from the environment as well as flags, because the unit is only rendered by
+  `setup-native.sh` and an older binary would refuse an unknown flag:
+  - `RELAY_HARBOR`: the router, `127.0.0.1:<ROUTER_PORT>`.
+  - `RELAY_PEERS`: both health addresses.
+  - `RELAY_RETIRE_MAX`.
+- `-origins` must list the studio's hosts as bare hosts (e.g. `gocast.fm,www.gocast.fm`);
+  without it every browser is refused, and a pattern with a scheme stops the
+  binary at startup.
+- `curl 127.0.0.1:18095/healthz` returns:
+  `{"active","icecast_active","harbor_active","draining","retiring","stale","build","pid"}`.
+  `/metrics` gives active, total and bytes per `path` (`icecast`, `harbor`), plus closes by reason.
 
 ## Close codes the studio sees
 
@@ -103,6 +120,22 @@ a second source on a held mount).
 | harbor stops reading for 10 s | 1011 "stream server stopped accepting audio" | (fake harbor only) |
 | foreign Origin | 403, harbor never dialled | |
 
-`-harbor` defaults to `127.0.0.1:8091` (the router's port) so the systemd
-unit carries no new flag; `-harbor ''` turns the pass-through off (404).
-Metrics: `relay_closes_total{reason="harbor_*"}`.
+`-harbor` / `RELAY_HARBOR` defaults to `127.0.0.1:8091`; empty turns the
+pass-through off (404).
+
+Metrics:
+- `relay_connections_active{path="harbor"}` and its siblings.
+- `relay_closes_total{reason="harbor_*"}`, where the reasons are:
+  - `harbor_client_closed`: the studio left.
+  - `harbor_closed`: harbor ended it.
+  - `harbor_write`: harbor stopped taking audio.
+  - `harbor_studio_stalled`: the studio stopped reading.
+  - `harbor_draining`: a restart handed it over.
+  - `harbor_unreachable`, `harbor_refused_origin`, `harbor_too_big`.
+
+**Turning it on, in this order.** Each step is safe on its own, and the deploy
+warns if the URL is switched before the other two:
+
+1. Deploy a commit with this code. The first time, the relay copies are restarted the old way; no Pro show is on them yet.
+2. Add the `/relay/broadcast/` location and `http_503` to the live `gocast-stream.conf` by hand (never re-run `setup-native.sh` on a certbot host), then `nginx -t && systemctl reload nginx`.
+3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in `api/.env`, then run `php artisan config:cache`.
