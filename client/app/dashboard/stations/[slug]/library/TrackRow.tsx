@@ -128,7 +128,11 @@ interface TrackRowProps {
   reorderable: boolean
   onAir: boolean
   onEdit: (id: string, fields: TrackEditFields) => void
-  /** Delete the FILE. Offered in the library only — a playlist row removes, it never deletes. */
+  /**
+   * Delete the FILE, from the library and every playlist. A playlist row offers
+   * it beside Remove (owners asked to clean up without leaving the playlist);
+   * there it is labelled "Delete file" so the two can't be mistaken.
+   */
   onDelete?: (id: string) => void
   /** Take the track out of the playlist being viewed. The file stays in the library. */
   onRemove?: (id: string) => void
@@ -417,8 +421,17 @@ export function TrackRow({
           </Button>
         )}
         {onDelete && (
-          <Button size="sm" variant="quiet" className="px-2.5" aria-label={`Delete ${track.title}`} onClick={() => onDelete(track.id)}>
-            Delete
+          <Button
+            size="sm"
+            variant="quiet"
+            // Red where it sits beside Remove, so the permanent one reads as
+            // different at a glance. The library's lone Delete stays quiet.
+            className={cn("px-2.5", onRemove && "text-error hover:bg-error/10 hover:text-error")}
+            title={onRemove ? "Delete the file from your library and every playlist." : undefined}
+            aria-label={`Delete ${track.title}`}
+            onClick={() => onDelete(track.id)}
+          >
+            {onRemove ? "Delete file" : "Delete"}
           </Button>
         )}
       </div>
@@ -430,7 +443,7 @@ export function TrackRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={startEditing}>Edit title and artist</DropdownMenuItem>
-          {onRemove && <DropdownMenuItem onSelect={() => onRemove(track.id)}>Remove from playlist</DropdownMenuItem>}
+          {onRemove && <DropdownMenuItem onSelect={() => onRemove(track.id)}>Remove from this playlist</DropdownMenuItem>}
           {onDelete && <DropdownMenuItem variant="danger" onSelect={() => onDelete(track.id)}>Delete file</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>

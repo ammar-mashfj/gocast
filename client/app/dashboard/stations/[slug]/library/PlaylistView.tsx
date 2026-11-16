@@ -75,6 +75,8 @@ interface Props {
   /** The full new order, ids only. */
   onReorder: (ids: string[]) => void
   onRemove: (trackId: string) => void
+  /** Delete the track's FILE from the library, and so from every playlist. Confirms first. */
+  onDeleteFile: (trackId: string) => void
   onEdit: (id: string, fields: TrackEditFields) => void
   onToggleOrder: () => void
   onRename: () => void
@@ -104,6 +106,7 @@ export function PlaylistView({
   onRetry,
   onReorder,
   onRemove,
+  onDeleteFile,
   onEdit,
   onToggleOrder,
   onRename,
@@ -348,6 +351,7 @@ export function PlaylistView({
                   onAir={track.id === nowPlayingId}
                   onEdit={onEdit}
                   onRemove={onRemove}
+                  onDelete={onDeleteFile}
                   onPreview={preview.toggle}
                   previewing={preview.previewingId === track.id}
                   previewBuffering={preview.buffering}

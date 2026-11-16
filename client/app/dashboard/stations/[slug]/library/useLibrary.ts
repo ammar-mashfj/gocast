@@ -12,6 +12,7 @@ import type { Track, LibraryMeta } from "@/interfaces/Track"
 import { LIBRARY_KEY } from "./PlaylistRail"
 import type { TrackEditFields } from "./TrackRow"
 import { useTrackUpload } from "./useTrackUpload"
+import { deleteTrackDescription } from "./deleteTrackCopy"
 import { useResyncOnHistoryNav } from "@/hooks/useResyncOnHistoryNav"
 
 /** Renumber a member list after anything that changes it, so `position` stays what the # column shows. */
@@ -256,7 +257,7 @@ export function useLibrary(
       if (!target) return
       const ok = await confirm({
         title: `Delete “${target.title}”?`,
-        description: "It leaves every playlist too. This can't be undone.",
+        description: deleteTrackDescription(target.playlist_ids?.length ?? 0),
         confirmLabel: "Delete track",
         keepLabel: "Keep it",
         tone: "danger",
@@ -408,6 +409,13 @@ export function useLibrary(
       const playlist = currentPlaylist
       if (!playlist) return
       const removed = members[playlist.id]?.find((t) => t.id === trackId)
+      const ok = await confirm({
+        title: `Remove “${removed?.title ?? "this track"}” from this playlist?`,
+        description: `It leaves “${playlist.name}” only. The file stays in your library and in any other playlist it's in.`,
+        confirmLabel: "Remove from playlist",
+        keepLabel: "Keep it",
+      })
+      if (!ok) return
       setMembers((prev) => ({ ...prev, [playlist.id]: renumber((prev[playlist.id] ?? []).filter((t) => t.id !== trackId)) }))
       setTracks((prev) =>
         prev.map((t) =>
@@ -422,7 +430,7 @@ export function useLibrary(
         await Promise.allSettled([refetchMembers(playlist.id), refetchLibrary()])
       }
     },
-    [currentPlaylist, members, bumpPlaylist, refetchMembers, refetchLibrary],
+    [currentPlaylist, members, bumpPlaylist, refetchMembers, refetchLibrary, confirm],
   )
 
   const handleAddFromLibrary = useCallback(

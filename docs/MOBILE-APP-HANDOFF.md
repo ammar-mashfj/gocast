@@ -52,7 +52,7 @@ The plan agreed with Ammar:
 | Station console: Overview, Audience | ✅ Read-only, real data (§3b) |
 | Library: upload from phone, select and delete | ✅ Built 2026-09-28 (§3c). Upload tested on Waydroid; delete not yet run |
 | Schedule: add, edit, delete show times and AutoDJ slots | ✅ Built 2026-09-28 (§3c). Sheet and clock tested on Waydroid; a real save not yet run. **Open: the "Live show" label** (§3c) |
-| Email sign-in (token in body) | ✅ In production |
+| Email sign-in (token in body) | ⚠️ Works today, **breaks once `TURNSTILE_SECRET_KEY` is set on the API** (PR #12): `/auth/login` then requires a Cloudflare Turnstile token, which the app doesn't send. Needs its own path (e.g. a separate mobile login route with its own throttle) before release. Google sign-in (`/auth/google/native`) is unaffected |
 | Google sign-in (Android's native sheet) | 🟡 In production, and the API tests pass. Not yet confirmed from the phone against production (§5) |
 | Production build | ✅ Built and installed 2026-09-28, points at `api.gocast.fm` (§7) |
 | Production ingest, and switching Wi-Fi ↔ 4G mid-show | ❌ Not yet tested live. The first live show on the production build is the test (§8 D) |

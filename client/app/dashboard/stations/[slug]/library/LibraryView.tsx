@@ -303,6 +303,7 @@ export function LibraryView({
                 uploading={lib.uploading}
                 onReorder={lib.handleReorder}
                 onRemove={lib.handleRemove}
+                onDeleteFile={lib.handleDelete}
                 onEdit={lib.handleEdit}
                 onToggleOrder={lib.toggleOrder}
                 onRename={() => setNameDialog({ mode: "rename", playlist: currentPlaylist })}
