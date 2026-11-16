@@ -1,8 +1,13 @@
 # relay
 
-The Free-plan ingest: a browser studio's WebSocket audio, written to Icecast
-byte for byte. No container, no decoding, no re-encoding. Pro stations never
-touch it. Why and how it fits: `docs/RELAY-SERVICE-PLAN.md`.
+The studio ingest. Two jobs on one binary:
+
+- **Free** (`/relay`): a browser studio's WebSocket audio, written to Icecast
+  byte for byte. No container, no decoding, no re-encoding. Why and how it
+  fits: `docs/RELAY-SERVICE-PLAN.md`.
+- **Container / Pro** (`/relay/broadcast/{slug}`): a pass-through to the
+  station's harbor via the station router, plus pings. See
+  [Container pass-through](#container-pass-through) below.
 
 ```
 studio ──wss (webcast)──▶ nginx (relay.gocast.fm) ─▶ relay@1 :8095 / relay@2 :8096 ──PUT /stream/{slug}──▶ Icecast
@@ -16,7 +21,9 @@ its event bindings report connect/disconnect.
 
 | Path | What |
 |---|---|
-| `internal/relay/relay.go` | the whole protocol: hello → PUT → `{"type":"ok"}` → copy |
+| `internal/relay/relay.go` | the Icecast protocol: hello → PUT → `{"type":"ok"}` → copy |
+| `internal/relay/harbor.go` | the container pass-through: router WebSocket ↔ studio WebSocket, plus pings |
+| `internal/relay/harbor_test.go` | tests against a fake router + harbor that copies the real one's behaviour |
 | `internal/relay/metrics.go` | Prometheus counters for `/metrics` |
 | `internal/relay/relay_test.go` | unit tests against a fake Icecast 2.5, plus a fuzz test of the hello parser |
 | `cmd/relay/main.go` | the binary: flags, health server, SIGTERM drain |
@@ -62,3 +69,40 @@ Icecast takes to free the mount. Another device or tab cuts nothing and gets
 | 1001 | relay restarting | reconnect (lands on the other copy) |
 | 1011 | Icecast unreachable | reconnect |
 | 1008 | studio sent nothing for 8 s (under Icecast's 10 s `source-timeout`) | reconnect |
+
+## Container pass-through
+
+```
+studio ──wss──▶ nginx /relay/broadcast/{slug} ─▶ relay ──ws──▶ router 127.0.0.1:8091/broadcast/{slug} ─▶ harbor
+```
+
+Turned on by `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}`
+in api/.env; nothing in Laravel or the studio changes. Turned off (the way
+back) by pointing it at `/broadcast/{slug}` again: new connections go straight
+to the router, shows already on the relay carry on there.
+
+**Why.** Harbor sends nothing to the studio during a show, so Cloudflare
+closes the socket at 6010 s (100 min) and the studio reconnects. The relay
+pings the studio every 30 s, which is what Cloudflare needs to see.
+
+**What the relay does NOT do.** It reads nothing. The hello, the token check
+(harbor asks Laravel), audio, `metadata` frames and every close code are
+harbor's, so the studio's container mode sees the same thing it sees from
+the router directly. There is no `{"type":"ok"}`, no idle timer (harbor's
+own 10 s input timeout ends a silent show), and no busy retry (harbor drops
+a second source on a held mount).
+
+| Event | Studio sees | Measured on real harbor (2026-11-16) |
+|---|---|---|
+| station off / container gone | upgrade fails with the router's status (502) | same as direct |
+| bad token | close 1011 "Authentication failed." | same as direct |
+| second source on a held mount | TCP drop (1006), first show untouched | same as direct |
+| studio silent 10 s | harbor drops it (1006) | same as direct |
+| studio closes / vanishes | harbor is let go at once | mount free for the reconnect |
+| relay copy restarted | 1001, harbor let go first | reconnect through the other copy in 3 ms, station stayed `live` |
+| harbor stops reading for 10 s | 1011 "stream server stopped accepting audio" | (fake harbor only) |
+| foreign Origin | 403, harbor never dialled | |
+
+`-harbor` defaults to `127.0.0.1:8091` (the router's port) so the systemd
+unit carries no new flag; `-harbor ''` turns the pass-through off (404).
+Metrics: `relay_closes_total{reason="harbor_*"}`.
