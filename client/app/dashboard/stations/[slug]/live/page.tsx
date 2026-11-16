@@ -337,7 +337,7 @@ export default function GoLivePage() {
 
         {/* Kept in Music only, dimmed: removing it shrank the column and the
             music card beside it, which is sized to this column. */}
-        <MicCheckCard canRetry={micCanRetry} mic={mic} disabled={mode !== "mic"} handedOver={pressed ? { deviceId: handedMic } : null} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
+        <MicCheckCard canRetry={micCanRetry} mic={mic} disabled={mode !== "mic"} handedOver={pressed && state !== "error" ? { deviceId: handedMic } : null} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
       </div>
 
       <RunningOrderCard

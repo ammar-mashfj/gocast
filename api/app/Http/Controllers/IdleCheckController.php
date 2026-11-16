@@ -15,9 +15,10 @@ use Illuminate\Http\Request;
  * IdleShowGuard.tsx): an hour with nobody touching the dashboard asks the
  * host whether they are still there, and ten minutes without an answer ends
  * the show through the ordinary End show path (`ended`). The host can also
- * stay (`kept`) or end the show from the question themselves (`ended_by_host`). Nothing on the server knows the
- * difference between that and a host pressing End show, so these rows are the
- * only trace of how often Free shows are left running unattended.
+ * stay (`kept`) or end the show from the question themselves
+ * (`ended_by_host`). Nothing on the server knows the difference between that
+ * and a host pressing End show, so these rows are the only trace of how often
+ * Free shows are left running unattended.
  *
  * Admin monitoring only, like every StationEvent.
  */

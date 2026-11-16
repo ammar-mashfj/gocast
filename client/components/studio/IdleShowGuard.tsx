@@ -23,6 +23,16 @@ import { IDLE_MS, WARN_MS, describeDuration, formatCountdown, idleEndedKey, idle
  */
 const ACTIVITY_EVENTS: EventsType[] = ["mousemove", "mousedown", "keydown", "wheel", "touchstart", "touchmove"]
 
+/**
+ * Activity in another dashboard tab of this browser counts too: each tab has
+ * its own broadcast and its own guard, and only the tab on air is armed, so
+ * a host working in the Library in a second tab would otherwise be asked
+ * after an hour. Every tab announces its activity here, at most once per
+ * ACTIVITY_SHARE_MS; the armed tab takes it as presence.
+ */
+const ACTIVITY_CHANNEL = "gocast-studio-activity"
+const ACTIVITY_SHARE_MS = 5_000
+
 /** Tab title prefix while the question is waiting, so the countdown shows from any tab. */
 const TITLE_PREFIX = "⚠ Still on air?"
 
@@ -31,7 +41,8 @@ const TITLE_PREFIX = "⚠ Still on air?"
  *
  * Mounted once in the dashboard layout, beside the broadcast it watches, so a
  * host who leaves the studio for the library mid-show is still covered, and
- * activity on any dashboard page counts. Armed only while a Free show is on
+ * activity on any dashboard page counts, in this tab or another dashboard
+ * tab of the same browser (ACTIVITY_CHANNEL). Armed only while a Free show is on
  * air; Pro, idle, and a plan not yet known are never checked.
  *
  * react-idle-timer does the timing from timestamps, so a background tab's
@@ -107,6 +118,37 @@ export function IdleShowGuard() {
     }
     document.addEventListener("visibilitychange", onVisible)
     return () => document.removeEventListener("visibilitychange", onVisible)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed])
+
+  // Tell the other dashboard tabs someone is here (every tab, armed or not:
+  // the one that needs to hear it is the one on air)...
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return
+    const channel = new BroadcastChannel(ACTIVITY_CHANNEL)
+    let last = 0
+    const share = () => {
+      const now = Date.now()
+      if (now - last < ACTIVITY_SHARE_MS) return
+      last = now
+      channel.postMessage(now)
+    }
+    ACTIVITY_EVENTS.forEach((e) => document.addEventListener(e, share, { passive: true }))
+    return () => {
+      ACTIVITY_EVENTS.forEach((e) => document.removeEventListener(e, share))
+      channel.close()
+    }
+  }, [])
+
+  // ...and, on air, take theirs as presence. Like activity here, it doesn't
+  // answer a question already up: only the dialog's buttons do.
+  useEffect(() => {
+    if (!armed || typeof BroadcastChannel === "undefined") return
+    const channel = new BroadcastChannel(ACTIVITY_CHANNEL)
+    channel.onmessage = () => {
+      if (!timer.isPrompted()) timer.activate()
+    }
+    return () => channel.close()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed])
 

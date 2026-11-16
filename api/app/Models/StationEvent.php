@@ -156,10 +156,11 @@ class StationEvent extends Model
      * Studio: the idle check on a Free live show (IdleShowGuard in the
      * client, IdleCheckController here). After an hour with nobody touching
      * the dashboard the host is asked whether they are still there; `outcome`
-     * is kept (they answered) or ended (ten minutes passed and the show was
-     * ended). With `on_air_seconds`, `hidden` (the tab was in the background)
-     * and `notified` (a desktop notification went out). Here to see how often
-     * Free shows are left running unattended, and whether those hosts upgrade.
+     * is kept (they answered, or chose Get AutoDJ), ended (ten minutes passed
+     * and the show was ended) or ended_by_host (they pressed End show in the
+     * question). With `on_air_seconds` and `hidden` (the tab was in the
+     * background). Here to see how often Free shows are left running
+     * unattended, and whether those hosts upgrade.
      */
     public const TYPE_IDLE_CHECK = 'idle_check';
 

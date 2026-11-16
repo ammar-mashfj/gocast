@@ -37,6 +37,29 @@ vi.mock("@/lib/idleShow", async (importOriginal) => ({
   reportIdleCheck: (...args: unknown[]) => reportIdleCheck(...(args as [])),
 }))
 
+/**
+ * In-memory BroadcastChannel: every channel of a name hears every other one,
+ * synchronously, as tabs of one browser would (but never itself).
+ */
+class FakeChannel {
+  static open = new Set<FakeChannel>()
+  onmessage: ((e: MessageEvent) => void) | null = null
+  constructor(public name: string) {
+    FakeChannel.open.add(this)
+  }
+  postMessage(data: unknown) {
+    FakeChannel.open.forEach((c) => {
+      if (c !== this && c.name === this.name) c.onmessage?.({ data } as MessageEvent)
+    })
+  }
+  close() {
+    FakeChannel.open.delete(this)
+  }
+}
+vi.stubGlobal("BroadcastChannel", FakeChannel)
+/** Activity in another dashboard tab of the same browser. */
+const otherTabActivity = () => new FakeChannel("gocast-studio-activity").postMessage(Date.now())
+
 // Before the import: react-idle-timer binds window.setTimeout once, when it
 // loads, so the fake clock has to be in place first and stay for the file.
 vi.useFakeTimers()
@@ -183,6 +206,36 @@ describe("IdleShowGuard", () => {
     setHidden(false)
     await wait(50 * MIN)
     expect(question()).toBeNull()
+  })
+
+  it("counts activity in another dashboard tab", async () => {
+    render(<IdleShowGuard />)
+    await wait(50 * MIN)
+    otherTabActivity()
+    await wait(50 * MIN)
+    expect(question()).toBeNull()
+    await wait(11 * MIN)
+    expect(question()).toBeInTheDocument()
+  })
+
+  it("doesn't let another tab answer the question", async () => {
+    render(<IdleShowGuard />)
+    await wait(IDLE_MS + 1000)
+    otherTabActivity()
+    await wait(WARN_MS)
+    expect(endShow).toHaveBeenCalledOnce()
+  })
+
+  it("tells other tabs when someone is here", async () => {
+    broadcast.state = "idle"
+    const heard = vi.fn()
+    const otherTab = new FakeChannel("gocast-studio-activity")
+    otherTab.onmessage = heard
+    render(<IdleShowGuard />)
+    fireEvent.keyDown(document)
+    fireEvent.keyDown(document)
+    expect(heard).toHaveBeenCalledOnce()
+    otherTab.close()
   })
 
   it("uses the timings the API sends", async () => {
