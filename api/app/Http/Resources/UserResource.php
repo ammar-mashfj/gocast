@@ -68,7 +68,37 @@ class UserResource extends JsonResource
                 // an open-ended plan, which is every plan not granted by a
                 // time-limited invite. Display only; plans:expire enforces it.
                 'expires_at' => $this->plan_expires_at,
+                // The studio's "Still at the desk?" check, in seconds, or
+                // null where it doesn't apply: a plan with AutoDJ, or the
+                // check switched off. Configured in config/studio.php.
+                'idle_check' => $this->idleCheck(),
             ],
+        ];
+    }
+
+    /**
+     * The idle check for this account's live shows, or null when there is
+     * none. Follows the same AutoDJ answer as `autodj_enabled` above, so a
+     * plan the UI treats as Free is the plan that gets checked.
+     *
+     * @return array{idle_seconds: int, warn_seconds: int}|null
+     */
+    private function idleCheck(): ?array
+    {
+        if ($this->plan?->autodj_enabled) {
+            return null;
+        }
+
+        $idleSeconds = (int) config('studio.idle_check.idle_seconds');
+        $warnSeconds = (int) config('studio.idle_check.warn_seconds');
+
+        if ($idleSeconds <= 0) {
+            return null;
+        }
+
+        return [
+            'idle_seconds' => $idleSeconds,
+            'warn_seconds' => max(1, $warnSeconds),
         ];
     }
 }

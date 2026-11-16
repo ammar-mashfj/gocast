@@ -56,3 +56,44 @@ it('never leaks the password hash', function () {
         ->assertJsonMissingPath('data.password')
         ->assertJsonMissingPath('data.remember_token');
 });
+
+it('sends the idle check timings to a plan without AutoDJ', function () {
+    config(['studio.idle_check.idle_seconds' => 3600, 'studio.idle_check.warn_seconds' => 600]);
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    actingAs(User::factory()->create(['plan_id' => $plan->id]), 'sanctum')
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('data.plan.idle_check', ['idle_seconds' => 3600, 'warn_seconds' => 600]);
+});
+
+it('follows the configured idle check timings', function () {
+    config(['studio.idle_check.idle_seconds' => 10, 'studio.idle_check.warn_seconds' => 10]);
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    actingAs(User::factory()->create(['plan_id' => $plan->id]), 'sanctum')
+        ->getJson('/api/user')
+        ->assertJsonPath('data.plan.idle_check', ['idle_seconds' => 10, 'warn_seconds' => 10]);
+});
+
+it('never idle-checks a plan with AutoDJ', function () {
+    $plan = Plan::query()->where('slug', 'pro')->firstOrFail();
+    $plan->update(['autodj_enabled' => true]);
+
+    actingAs(User::factory()->create(['plan_id' => $plan->id]), 'sanctum')
+        ->getJson('/api/user')
+        ->assertOk()
+        ->assertJsonPath('data.plan.idle_check', null);
+});
+
+it('switches the idle check off when its time is zero', function () {
+    config(['studio.idle_check.idle_seconds' => 0]);
+    $plan = Plan::query()->where('slug', 'free')->firstOrFail();
+    $plan->update(['autodj_enabled' => false]);
+
+    actingAs(User::factory()->create(['plan_id' => $plan->id]), 'sanctum')
+        ->getJson('/api/user')
+        ->assertJsonPath('data.plan.idle_check', null);
+});

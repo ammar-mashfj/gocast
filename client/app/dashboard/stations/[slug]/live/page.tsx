@@ -50,6 +50,9 @@ export default function GoLivePage() {
   const [mode, setMode] = useState<Mode>(() => readMode(slug))
   const [resumeFromStart, setResumeFromStart] = useState(readResumeFromStart)
   const [pressed, setPressed] = useState(false)
+  // The mic the preview had open when Go live was pressed: the card keeps
+  // showing it after the preview lets go (MicCheckCard `handedOver`).
+  const [handedMic, setHandedMic] = useState("")
   /**
    * The DJ software dialog, here so it stays open across the swap to "You're
    * already live". ?dj=1 (Settings' "Open Go live") opens it on arrival.
@@ -158,6 +161,7 @@ export default function GoLivePage() {
     // Tracks still being read aren't saved yet, and the engine loads the
     // saved queue: going live now would start the show without them.
     if (queue.adding) return
+    setHandedMic(mic.current)
     mic.release()
     setPressed(true)
     // Another start still holds the provider: nothing ran, so give the host
@@ -333,7 +337,7 @@ export default function GoLivePage() {
 
         {/* Kept in Music only, dimmed: removing it shrank the column and the
             music card beside it, which is sized to this column. */}
-        <MicCheckCard canRetry={micCanRetry} mic={mic} disabled={mode !== "mic"} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
+        <MicCheckCard canRetry={micCanRetry} mic={mic} disabled={mode !== "mic"} handedOver={pressed && state !== "error" ? { deviceId: handedMic } : null} onMusicOnly={() => chooseMode("music")} onUseMic={() => chooseMode("mic")} />
       </div>
 
       <RunningOrderCard

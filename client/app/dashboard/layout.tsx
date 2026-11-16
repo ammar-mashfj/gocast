@@ -10,6 +10,7 @@ import { StationProvider, type CurrentStation } from "@/contexts/StationContext"
 import { StationStatusProvider } from "@/contexts/StationStatusContext"
 import { ProCheckoutProvider } from "@/contexts/ProCheckoutContext"
 import { RealtimeProvider } from "@/contexts/RealtimeContext"
+import { IdleShowGuard } from "@/components/studio/IdleShowGuard"
 import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { User } from "@/interfaces/User"
@@ -111,6 +112,10 @@ export default async function DashboardLayout({
           <StationProvider station={station}>
             {/* The Get Pro checkout, and the return from OxaPay's payment page. */}
             <ProCheckoutProvider>
+              {/* Free live shows end after an hour with nobody at the desk;
+                  here, not in the studio, so it follows the host around the
+                  dashboard mid-show. See lib/idleShow.ts. */}
+              <IdleShowGuard />
               <StationStatusProvider>
                 <SidebarProvider data-surface="dashboard">
                   <AppSidebar user={user} />

@@ -440,7 +440,7 @@ export function FileQueue({
             <IconUpload size={20} className="text-muted-foreground" />
             <span className="text-sm font-medium">Drop audio files here, or browse</span>
             <span className="max-w-xs text-xs text-muted-foreground">
-              They play in order and loop, so the station never runs out. Files stay on this device.
+              They play in order and loop while you’re in the studio. Files stay on this device.
             </span>
           </button>
         ) : (

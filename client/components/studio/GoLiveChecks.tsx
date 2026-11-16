@@ -7,14 +7,22 @@ import { useAutoDjLocked } from "@/contexts/AccountContext"
 import { Button } from "@/components/ds/Button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { StatusLamp } from "@/components/ds/StatusLamp"
+import { toast } from "sonner"
 import { MIC_TRIES, useMicFailures } from "@/lib/micFailures"
 import { CheckList } from "@/components/dashboard/golive/CheckList"
 import { MicPermissionLink } from "@/components/dashboard/golive/MicPermissionLink"
 
 /** A step spinning this long gets a hint and a way out. */
 const SLOW_STEP_MS = 5_000
-/** How long "You're on air" stays up before the studio shows. */
-const ON_AIR_MS = 1_200
+/**
+ * How the box leaves once the show is on air: at once, no hold (standing
+ * over a studio already showing LIVE read as stuck), in a slow fade, box
+ * and backdrop together, so the live studio comes up from underneath rather
+ * than the box snapping away (every other dialog closes in 200 ms). A fade
+ * on phones too, not the sheet's slide down, which reads as "dismissed".
+ * "You're on air" itself is a toast, which blocks nothing.
+ */
+const ON_AIR_EXIT = "data-closed:duration-500 data-closed:ease-out data-closed:slide-out-to-bottom-0! data-closed:fade-out-0"
 
 /** No device at all, as opposed to a refused permission: different advice. */
 const isNoMic = (message: string | null) => !!message && /no microphone found/i.test(message)
@@ -63,14 +71,12 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
 
   // Derived from changes of `state` and of the running step, adjusted while
   // rendering (React's pattern for state that follows a prop) rather than
-  // in effects: "You're on air" for a moment after the switch to live, and
-  // whether this is still about getting on air — a show that was live and
+  // in effects: whether this is still about getting on air — a show that was live and
   // later failed for good is the studio's and the band's to report, not
   // "Couldn't go live".
   const active = steps.find((s) => s.status === "active")
   const activeId = active?.id ?? null
   const [seen, setSeen] = useState({ state, activeId })
-  const [onAirShown, setOnAirShown] = useState(false)
   // From the provider when this mounts mid-show: back in the studio after a
   // trip to Library, a show that then fails for good is a lost show, not a
   // failed start. liveSince outlives `error`; a new run clears it.
@@ -82,7 +88,6 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   }, [everLive])
   if (seen.state !== state || seen.activeId !== activeId) {
     if (seen.state !== state) {
-      if (state === "live" && (seen.state === "ready" || seen.state === "connecting")) setOnAirShown(true)
       if (state === "live") setEverLive(true)
       if (state === "connecting") setEverLive(false)
     }
@@ -90,12 +95,18 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
     setSeen({ state, activeId })
   }
 
-  // Timers only set state from their callbacks.
+  // Made it: the checks box fades straight away and this says so instead,
+  // without standing over the studio. Only on the switch from the checks,
+  // not on a reconnect or on coming back to the studio mid-show.
+  const prevState = useRef(state)
   useEffect(() => {
-    if (!onAirShown) return
-    const t = setTimeout(() => setOnAirShown(false), ON_AIR_MS)
-    return () => clearTimeout(t)
-  }, [onAirShown])
+    const prev = prevState.current
+    prevState.current = state
+    // Static on purpose: a station name can be long enough to wrap the toast.
+    if (state === "live" && (prev === "ready" || prev === "connecting")) toast.success("You’re on air", { description: "Listeners can hear you now." })
+  }, [state])
+
+  // Timers only set state from their callbacks.
   useEffect(() => {
     if (!activeId) return
     const t = setTimeout(() => setSlow(true), SLOW_STEP_MS)
@@ -139,7 +150,7 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
     void stop({ releaseStation: autoDjLocked ? "if-started-here" : false })
   }
 
-  const open = (!everLive && (checking || failed)) || onAirShown
+  const open = !everLive && (checking || failed)
   const doneCount = steps.filter((s) => s.status === "done").length
   const stepNo = Math.min(steps.length, doneCount + 1)
   // By the step that failed, not the wording: any failure asking for the mic
@@ -157,10 +168,11 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
   // Every check passed but not on air yet: a blink. Never "You're on air"
   // until it is.
   const passed = state === "ready" && doneCount === steps.length
-  const title = failed ? "Couldn’t go live" : onAirShown ? "You’re on air" : passed ? "Checks passed" : "Going live"
+  // everLive: what the box says during its fade-out, once on air.
+  const title = failed ? "Couldn’t go live" : everLive ? "You’re on air" : passed ? "Checks passed" : "Going live"
   const description = failed
     ? "Nobody heard anything."
-    : onAirShown
+    : everLive
       ? stationName
       : passed
         ? `${stationName} · Going on air…`
@@ -170,18 +182,20 @@ export function GoLiveChecks({ stationName }: { stationName: string }) {
     // Closable (×, Escape, swiping the phone sheet down): with no way out a
     // phone was stuck on a failure. Closing during the checks or after a
     // failure is Back to setup (which hands back a station the run turned
-    // on); closing "You're on air" just dismisses it. A tap outside still
+    // on). A tap outside still
     // does nothing, so a stray tap can't cancel a show starting.
     <Dialog
       open={open}
       onOpenChange={(next) => {
         if (next) return
-        if (onAirShown) setOnAirShown(false)
-        else back()
+        back()
       }}
     >
       <DialogContent
         size="sm"
+        // Only once on air: a failure or Back to setup closes as usual.
+        className={everLive ? ON_AIR_EXIT : undefined}
+        overlayClassName={everLive ? "data-closed:duration-500 data-closed:ease-out" : undefined}
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
       >

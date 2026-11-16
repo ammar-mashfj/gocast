@@ -235,7 +235,7 @@ export default function Body() {
         plainly.
       </p>
       <p>
-        GoCast is free for live broadcasting, with no card and no time limit:
+        GoCast is free for live broadcasting, with no card and no trial that runs out:
         your microphone, music from your own machine, a page you can share, and
         up to a hundred people listening at once. That covers a lot of
         stations completely.
@@ -287,7 +287,7 @@ export default function Body() {
       <p>
         Yes. A free platform, talk content or royalty-free music, and the
         microphone in your laptop will get you a real station with no cost at
-        all. The free tier on GoCast has no card and no time limit, and handles
+        all. The free tier on GoCast needs no card and never expires, and handles
         up to a hundred listeners at once.
       </p>
 

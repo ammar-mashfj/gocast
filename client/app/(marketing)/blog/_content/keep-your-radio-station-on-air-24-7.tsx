@@ -158,8 +158,8 @@ export default function Body() {
           shows even when nothing is playing.
         </li>
         <li>
-          As many broadcasts as you like, for as long as you like. Nothing is
-          metered.
+          As many live shows as you like, while you&#39;re at the desk. When
+          you&#39;re away, that&#39;s what Pro&#39;s AutoDJ is for.
         </li>
       </ul>
       <p>

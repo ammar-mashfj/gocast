@@ -10,6 +10,7 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\IcecastCallbackController;
+use App\Http\Controllers\IdleCheckController;
 use App\Http\Controllers\InviteController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
@@ -180,6 +181,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Admin monitoring only; see UplinkCheckController.
         Route::post('/stations/{station:slug}/uplink-checks', UplinkCheckController::class)
             ->middleware('throttle:20,1,uplink-checks');
+
+        // The Free idle check's outcome: answered, or the show ended with
+        // nobody at the desk. Admin monitoring only; see IdleCheckController.
+        Route::post('/stations/{station:slug}/idle-checks', IdleCheckController::class)
+            ->middleware('throttle:20,1,idle-checks');
 
         // The relay studio's track title. On the container path it rides the
         // webcast socket instead; see StationNowPlayingController.
