@@ -551,10 +551,10 @@ echo "==> Relay"
 # relay/ changed, in a throwaway golang container so the host needs no Go,
 # and as $RUN_USER so nothing in the tree ends up root-owned.
 #
-# Then a ROLLING restart: @8095, wait until it answers /healthz, settle, then
-# @8096. Each restart closes that copy's studios with 1001 and they reconnect
-# to the other copy within milliseconds (relay lab: show back in 45-173 ms,
-# listeners hear at most ~2 s of standby silence). Never both at once.
+# Then the copies move onto it one at a time (relay-rollover.sh): Free
+# studios reconnect to the other copy within milliseconds (relay lab: show
+# back in 45-173 ms, listeners hear at most ~2 s of standby silence);
+# container shows are left to end on their own first.
 #
 # Independent of the API: a relay that fails to come up puts the previous
 # binary back and is reported below, but does not roll back this deploy.
@@ -573,14 +573,6 @@ build_relay() {
     "$RELAY_GO_IMAGE" \
     sh -c 'go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-relay ./cmd/relay &&
            go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-standby ./cmd/standby'
-}
-relay_healthy() {
-  local port=$1 i
-  for i in $(seq 1 20); do
-    curl -fsS --max-time 1 "http://127.0.0.1:1${port}/healthz" >/dev/null 2>&1 && return 0
-    sleep 0.5
-  done
-  return 1
 }
 # Rebuilt when the binary on disk was not built from this tree, not when
 # relay/ changed since the last deploy: a failed build does not fail the
@@ -615,44 +607,44 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
         systemctl restart gocast-standby || true
         echo "  ✓ gocast-standby restarted (new build)"
       fi
-      RELAY_RESTARTED=()
-      for port in "${RELAY_PORTS[@]}"; do
-        systemctl restart "gocast-relay@${port}"
-        if relay_healthy "$port"; then
-          echo "  ✓ gocast-relay@${port} restarted"
-          RELAY_RESTARTED+=("$port")
-        else
-          echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
-          # Copied aside, then renamed over: a plain cp onto a binary that
-          # systemd is still running fails "Text file busy", and set -e would
-          # end the deploy here with the broken binary live.
-          if [[ -f "$bin/gocast-relay.prev" ]]; then
-            as_app cp -p "$bin/gocast-relay.prev" "$bin/.new/gocast-relay" \
-              && as_app mv -f "$bin/.new/gocast-relay" "$bin/gocast-relay" \
-              || echo "  ✗ could not put the previous relay binary back"
-          fi
-          rm -f "$RELAY_STAMP"
-          systemctl restart "gocast-relay@${port}" || true
-          # The copies before this one already run the new build. Back onto
-          # the old one too, one at a time as on the way out, once the failed
-          # copy is up again to take their studios. The standby feeder is a
-          # separate program and nothing here says it is broken: it stays.
-          for done_port in "${RELAY_RESTARTED[@]}"; do
-            relay_healthy "$port" || true
-            systemctl restart "gocast-relay@${done_port}" || true
-            relay_healthy "$done_port" && echo "  ✓ gocast-relay@${done_port} back on the previous binary"
-          done
-          MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:
-      journalctl -u gocast-relay@${port} -n 50")
-          break
-        fi
-        # Let this copy's studios land on the other before restarting that one.
-        [[ "$port" != "${RELAY_PORTS[-1]}" ]] && sleep 10
-      done
+      # One at a time and without cutting a live container show: see
+      # relay-rollover.sh. Copies that predate self-rollover get the old
+      # hard rolling restart there.
+      rc=0
+      bash "$NATIVE/relay-rollover.sh" "$bin" "$RUN_USER" "${RELAY_PORTS[@]}" || rc=$?
+      case $rc in
+        0) ;;
+        10) MANUAL_STEPS+=("the relay is still rolling over (a copy is keeping container shows on air until they end) —
+      nothing to do; check later with: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz") ;;
+        *) rm -f "$RELAY_STAMP"
+           MANUAL_STEPS+=("the new relay binary could not start and was rolled back:
+      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50") ;;
+      esac
     fi
   fi
 else
   echo "  · unchanged"
+fi
+
+echo "==> Checking the studio ingest route"
+# LIQUIDSOAP_INGEST_URL decides where Pro studios connect. Pointing it at the
+# relay before nginx has the /relay/broadcast/ location (setup-native.sh does
+# not run on deploys; it is added by hand) or before the relay can serve it
+# turns every Pro go-live into a 404.
+INGEST_URL="$(sed -n 's/^LIQUIDSOAP_INGEST_URL=//p' "$REPO_ROOT/api/.env" | tail -1 | tr -d '"')"
+if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
+  if ! nginx -T 2>/dev/null | grep -q 'location ~ "^/relay/broadcast/'; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx has no such
+      location, so every Pro go-live fails. Add it from infra/native/nginx/gocast-stream.conf (nginx -t &&
+      systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
+  fi
+  if ! curl -fsS --max-time 1 http://127.0.0.1:18095/healthz 2>/dev/null | grep -q '"harbor_active"'; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the running relay does not
+      serve it yet. Let the relay roll over first, or point the URL back at /broadcast/{slug}.")
+  fi
+  echo "  · Pro studios go through the relay ($INGEST_URL)"
+else
+  echo "  · Pro studios go straight to the station router (${INGEST_URL:-unset})"
 fi
 
 echo "==> Reconciling containers against the station table"

@@ -183,38 +183,65 @@ type Server struct {
 	Metrics *Metrics
 
 	mu       sync.Mutex
-	conns    map[*websocket.Conn]func() // each studio's Icecast release, once it has one
+	conns    map[*websocket.Conn]*conn
 	draining bool
+	retiring bool
 	wg       sync.WaitGroup
+}
 
-	// Set once Drain gives up waiting and closes the remaining studios, so
-	// those closes are counted as the restart's, not as studios leaving.
+// Which path a studio came in on; a label on the metrics.
+const (
+	PathIcecast = "icecast" // Free: /relay → Icecast
+	PathHarbor  = "harbor"  // container: /relay/broadcast/{slug} → harbor
+)
+
+// conn is one studio connection as Drain and Retire see it.
+type conn struct {
+	path    string
+	release func() // lets go of the Icecast source or harbor; nil until held
+
+	// Set when the relay itself closes this studio for a restart, so the
+	// close is counted as the restart's, not as the studio leaving, and the
+	// connection's own code does not race the 1001 with a close of its own.
 	kicked atomic.Bool
 }
 
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, Metrics: NewMetrics(), conns: map[*websocket.Conn]func(){}}
+	return &Server{cfg: cfg, Metrics: NewMetrics(), conns: map[*websocket.Conn]*conn{}}
 }
 
-func (s *Server) track(c *websocket.Conn) bool {
+func (s *Server) track(c *websocket.Conn, path string) (*conn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draining {
-		return false
+		return nil, false
 	}
-	s.conns[c] = nil
+	st := &conn{path: path}
+	s.conns[c] = st
 	s.wg.Add(1)
-	return true
+	return st, true
 }
 
-// holdsSource records how to give up this studio's Icecast source, so a drain
-// can free the mount before it closes the socket.
+// holdsSource records how to give up this studio's source (Icecast) or
+// harbor connection, so a drain can free the mount before it closes the
+// socket.
 func (s *Server) holdsSource(c *websocket.Conn, release func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.conns[c]; ok {
-		s.conns[c] = release
+	if st, ok := s.conns[c]; ok {
+		st.release = release
 	}
+}
+
+// kick ends one studio for a restart: its source first, so the reconnect
+// through the other copy finds the mount free, then 1001. Close waits for
+// the studio's reply, so it runs on its own goroutine.
+func kick(c *websocket.Conn, st *conn) {
+	st.kicked.Store(true)
+	if st.release != nil {
+		st.release()
+	}
+	go c.Close(CloseDraining, "relay restarting")
 }
 
 func (s *Server) untrack(c *websocket.Conn) {
@@ -249,23 +276,59 @@ func (s *Server) Drain(ctx context.Context) {
 	// the close handshake can take seconds, and a studio reconnecting through
 	// the other copy in the meantime would find its mount still held (4009).
 	s.mu.Lock()
-	conns := make([]*websocket.Conn, 0, len(s.conns))
-	releases := make([]func(), 0, len(s.conns))
-	for c, release := range s.conns {
-		conns = append(conns, c)
-		if release != nil {
-			releases = append(releases, release)
+	for c, st := range s.conns {
+		kick(c, st)
+	}
+	s.mu.Unlock()
+	<-done
+}
+
+// Retire hands this copy over to a new binary without cutting a live
+// container show. It refuses new studios (nginx sends them to the other
+// copy), hands the Free studios over at once (Icecast's fallback covers
+// their listeners, as on every restart), and waits for the container shows
+// to end on their own: a dropped container studio is heard as a gap, since
+// harbor has no fallback of its own to splice in. Whatever is still on after
+// maxWait is handed over too. Returns when every studio is gone; the caller
+// exits and systemd starts the new binary.
+func (s *Server) Retire(maxWait time.Duration) {
+	s.mu.Lock()
+	s.draining = true
+	s.retiring = true
+	for c, st := range s.conns {
+		if st.path != PathHarbor {
+			kick(c, st)
 		}
 	}
 	s.mu.Unlock()
-	s.kicked.Store(true)
-	for _, release := range releases {
-		release()
+
+	deadline := time.Now().Add(maxWait)
+	for s.ActiveOn(PathHarbor) > 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Second)
 	}
-	for _, c := range conns {
-		go c.Close(CloseDraining, "relay restarting")
+	expired, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	s.Drain(expired)
+}
+
+// ActiveOn counts the studios on one path.
+func (s *Server) ActiveOn(path string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, st := range s.conns {
+		if st.path == path {
+			n++
+		}
 	}
-	<-done
+	return n
+}
+
+// Retiring reports whether Retire has been called.
+func (s *Server) Retiring() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.retiring
 }
 
 func (s *Server) Active() int {
@@ -285,14 +348,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "draining", http.StatusServiceUnavailable)
 		return
 	}
-	if strings.Contains(r.URL.Path, "/broadcast/") {
-		// A pass-through address: never the Icecast path, whatever the slug.
-		slug, ok := HarborSlug(r.URL.Path)
-		if !ok || s.cfg.HarborAddr == "" {
-			http.NotFound(w, r)
-			return
-		}
+	if slug, ok := HarborSlug(r.URL.Path); ok && s.cfg.HarborAddr != "" {
 		s.serveHarbor(w, r, slug)
+		return
+	} else if ok || strings.Contains(r.URL.Path, "/broadcast/") {
+		// Pass-through off, or a malformed pass-through address. Either way
+		// not the Icecast path: that one speaks another protocol (it answers
+		// {"type":"ok"} and logs in to Icecast), and a container studio sent
+		// there would be refused with a misleading code.
+		http.NotFound(w, r)
 		return
 	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -309,21 +373,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Metrics.Close("no_subprotocol")
 		return
 	}
-	if !s.track(ws) {
+	st, ok := s.track(ws, PathIcecast)
+	if !ok {
 		ws.Close(CloseDraining, "relay restarting")
+		s.Metrics.Close("draining")
 		return
 	}
 	defer s.untrack(ws)
 	ws.SetReadLimit(s.cfg.MaxMessage)
 
-	s.Metrics.connOpened()
-	reason := s.serve(r.Context(), ws)
-	s.Metrics.connClosed()
+	s.Metrics.connOpened(PathIcecast)
+	reason := s.serve(r.Context(), ws, st)
+	s.Metrics.connClosed(PathIcecast)
 	s.Metrics.Close(reason)
 }
 
 // serve runs one studio connection and returns why it ended (a metrics label).
-func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
+func (s *Server) serve(parent context.Context, ws *websocket.Conn, st *conn) string {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
@@ -371,7 +437,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 		close(iceClosed)
 		// Not when the relay itself let go: the idle timer and a drain each
 		// close the socket with their own code.
-		if !idle.Load() && !s.kicked.Load() {
+		if !idle.Load() && !st.kicked.Load() {
 			ws.Close(CloseSourceKilled, "source ended by server")
 		}
 	}()
@@ -397,7 +463,7 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			if idle.Load() {
 				return "idle"
 			}
-			if s.kicked.Load() {
+			if st.kicked.Load() {
 				return "draining"
 			}
 			select {
@@ -432,13 +498,13 @@ func (s *Server) serve(parent context.Context, ws *websocket.Conn) string {
 			if idle.Load() {
 				return "idle"
 			}
-			if s.kicked.Load() {
+			if st.kicked.Load() {
 				return "draining"
 			}
 			ws.Close(CloseSourceKilled, "stream server stopped accepting audio")
 			return "icecast_write"
 		}
-		s.Metrics.bytesIn(len(data))
+		s.Metrics.bytesIn(PathIcecast, len(data))
 	}
 }
 

@@ -494,7 +494,7 @@ func TestUnansweredPingsDoNotEndTheShow(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	eventually(t, "audio at icecast", func() bool { return len(ice.received()) == 50 })
-	if n := s.Metrics.active.Load(); n != 1 {
+	if n := s.Metrics.ActiveCount(PathIcecast); n != 1 {
 		t.Fatalf("active = %d, want the show still open", n)
 	}
 }
@@ -701,12 +701,12 @@ func TestMetrics(t *testing.T) {
 	c.Write(ctx, websocket.MessageText, helloJSON("a", "tok"))
 	expectOK(t, c)
 	c.Write(ctx, websocket.MessageBinary, make([]byte, 1000))
-	eventually(t, "bytes counted", func() bool { return s.Metrics.bytes.Load() == 1000 })
+	eventually(t, "bytes counted", func() bool { return s.Metrics.Bytes(PathIcecast) == 1000 })
 	c.Close(websocket.StatusNormalClosure, "")
 	eventually(t, "close counted", func() bool { return s.Metrics.Closes("client_closed") == 1 })
 	var b bytes.Buffer
 	s.Metrics.Render(&b)
-	for _, want := range []string{"relay_connections_total 1", "relay_bytes_in_total 1000", `relay_closes_total{reason="client_closed"} 1`} {
+	for _, want := range []string{`relay_connections_total{path="icecast"} 1`, `relay_bytes_in_total{path="icecast"} 1000`, `relay_connections_total{path="harbor"} 0`, `relay_closes_total{reason="client_closed"} 1`} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("metrics missing %q:\n%s", want, b.String())
 		}
