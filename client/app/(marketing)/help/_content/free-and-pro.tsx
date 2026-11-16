@@ -73,9 +73,9 @@ export default function Body() {
         The honest summary is that <strong>Free needs you there</strong>. You can
         run a real station, share a real link and have a hundred people listening
         at once &mdash; talking, playing files from the queue, or both. What you
-        cannot do is walk away: the station plays while your browser is open and
-        goes quiet when you close it, because the thing that would keep it going
-        without you is AutoDJ.
+        cannot do is walk away: the station plays while you are at the desk and
+        goes quiet when you close your browser or leave it unattended, because
+        the thing that would keep it going without you is AutoDJ.
       </p>
       <p>
         <strong>Pro is the station that keeps going.</strong>{" "}Upload music, give

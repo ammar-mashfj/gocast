@@ -171,7 +171,7 @@ export const ARTICLES: Article[] = [
       {
         question: "Can I run an internet radio station for free?",
         answer:
-          "Yes. A free platform, talk content or royalty-free music, and the microphone in your laptop will get you a real station at no cost. GoCast's free tier needs no card, has no time limit, and handles up to 100 listeners at once.",
+          "Yes. A free platform, talk content or royalty-free music, and the microphone in your laptop will get you a real station at no cost. GoCast's free tier needs no card, never expires, and handles up to 100 listeners at once.",
       },
       {
         question: "How much does music licensing cost for internet radio?",

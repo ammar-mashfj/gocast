@@ -3,7 +3,7 @@ import { getCatalog } from "@/lib/billing-server"
 import { PricingPlans } from "./PricingPlans"
 import { Section, SectionIntro } from "./Section"
 
-const LAST_UPDATED = "14 October 2026"
+const LAST_UPDATED = "16 November 2026"
 
 /**
  * Free, Pro and Custom, with Pro's terms on a switch. The terms are the

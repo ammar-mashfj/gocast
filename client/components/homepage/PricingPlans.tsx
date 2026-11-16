@@ -21,7 +21,7 @@ const FREE_FEATURES = [
   "Drag-and-drop file queue",
   "Shareable player page with live metadata",
   "Live listener count and all-time peak",
-  "Unlimited broadcast hours",
+  "Unlimited live hours, while you’re at the desk",
   "No bandwidth bill, ever",
   "Listeners need no app or account",
 ]

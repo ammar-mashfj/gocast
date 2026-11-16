@@ -153,6 +153,17 @@ class StationEvent extends Model
     public const TYPE_UPLINK_CHECK = 'uplink_check';
 
     /**
+     * Studio: the idle check on a Free live show (IdleShowGuard in the
+     * client, IdleCheckController here). After an hour with nobody touching
+     * the dashboard the host is asked whether they are still there; `outcome`
+     * is kept (they answered) or ended (ten minutes passed and the show was
+     * ended). With `on_air_seconds`, `hidden` (the tab was in the background)
+     * and `notified` (a desktop notification went out). Here to see how often
+     * Free shows are left running unattended, and whether those hosts upgrade.
+     */
+    public const TYPE_IDLE_CHECK = 'idle_check';
+
+    /**
      * Types a station's container is allowed to report.
      *
      * StationEventController holds the same list for its own validation. This
@@ -189,6 +200,7 @@ class StationEvent extends Model
         self::TYPE_STREAM_KEY_ROTATED,
         self::TYPE_STUDIO_DROP,
         self::TYPE_UPLINK_CHECK,
+        self::TYPE_IDLE_CHECK,
     ];
 
     /** @var list<string> */

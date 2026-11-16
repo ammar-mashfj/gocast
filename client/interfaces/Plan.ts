@@ -49,6 +49,13 @@ export interface Plan {
    * only — the API's `plans:expire` job is what enforces it.
    */
   expires_at: string | null
+  /**
+   * The studio's "Still at the desk?" check (IdleShowGuard), in seconds, or
+   * null when this plan isn't checked (it has AutoDJ, or the check is off).
+   * Configured in the API (config/studio.php, STUDIO_IDLE_SECONDS and
+   * STUDIO_IDLE_WARN_SECONDS). Absent from an API older than the check.
+   */
+  idle_check?: { idle_seconds: number; warn_seconds: number } | null
 }
 
 /**
