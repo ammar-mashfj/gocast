@@ -154,6 +154,7 @@ function DialogContent({
   size,
   showCloseButton = true,
   swipeToClose = showCloseButton,
+  overlayClassName,
   ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> &
@@ -161,6 +162,8 @@ function DialogContent({
     showCloseButton?: boolean
     /** Pull the phone sheet down to close it. Defaults to on wherever the × is. */
     swipeToClose?: boolean
+    /** Extra classes for the backdrop, e.g. a slower exit to match the content's. */
+    overlayClassName?: string
   }) {
   const swipe = useSwipeToClose(swipeToClose)
   const keyboard = useKeyboardInset()
@@ -178,7 +181,10 @@ function DialogContent({
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay
-        className="fixed inset-0 z-50 bg-black/60 duration-200 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
+        className={cn(
+          "fixed inset-0 z-50 bg-black/60 duration-200 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+          overlayClassName,
+        )}
       />
       <DialogPrimitive.Content ref={contentRef} data-slot="ds-dialog" className={cn(content({ size }), className)} {...props}>
         {/* The grabber, in a strip tall enough to take a thumb. */}

@@ -35,6 +35,15 @@ interface MicCheckProps {
   onUseMic?: () => void
   /** Music only: the card stays, dimmed and closed, so the page keeps its shape. */
   disabled?: boolean
+  /**
+   * Go live was pressed, with the device the preview had open then (""
+   * when none was). The preview let the mic go (the show's checks open the
+   * same device, and some browsers refuse two holders), so `mic.state`
+   * falls back to idle and `mic.current` to "". The card keeps its checked
+   * shape, picker locked on that device, instead of offering "Check your
+   * mic" again in the middle of going live.
+   */
+  handedOver?: { deviceId: string } | null
 }
 
 /**
@@ -82,7 +91,25 @@ export function MicCheckCard(props: MicCheckProps) {
   )
 }
 
-function FullCard({ mic, onUseMic, disabled = false, canRetry }: MicCheckProps) {
+function FullCard({ mic, onUseMic, disabled = false, canRetry, handedOver }: MicCheckProps) {
+  if (handedOver && !disabled) {
+    return (
+      <Card className={CARD_HEIGHT}>
+        <CardHeader title="Your microphone" description="Going on air with this mic…" />
+        {mic.devices.length > 1 && (
+          <Select
+            aria-label="Microphone"
+            value={handedOver.deviceId}
+            onChange={() => {}}
+            disabled
+            options={mic.devices.map((d, i) => ({ value: d.deviceId, label: d.label || `Microphone ${i + 1}` }))}
+          />
+        )}
+        <MicMeter stream={null} open={false} className="text-muted-foreground" />
+      </Card>
+    )
+  }
+
   if (disabled) {
     return (
       <Card aria-disabled className={cn(CARD_HEIGHT, "opacity-55")}>
@@ -172,13 +199,23 @@ function FullCard({ mic, onUseMic, disabled = false, canRetry }: MicCheckProps) 
 }
 
 /** One line: the mic, a slim live meter, and "Change" for the picker sheet. */
-function MicRow({ mic, onUseMic, disabled = false, className }: MicCheckProps & { className?: string }) {
+function MicRow({ mic, onUseMic, disabled = false, handedOver, className }: MicCheckProps & { className?: string }) {
   const [open, setOpen] = useState(false)
   const row = "flex min-h-16 items-center gap-3 rounded-panel bg-card px-4 py-3"
   const label = mic.devices.find((d) => d.deviceId === mic.current)?.label || "Microphone"
 
   let rowEl: React.ReactNode
-  if (disabled) {
+  if (handedOver && !disabled) {
+    rowEl = (
+      <div className={cn(row, className)}>
+        <IconMicrophone size={18} className="shrink-0 text-muted-foreground" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {mic.devices.find((d) => d.deviceId === handedOver.deviceId)?.label || "Microphone"}
+        </span>
+        <span className="shrink-0 text-sm text-muted-foreground">Going on air…</span>
+      </div>
+    )
+  } else if (disabled) {
     rowEl = (
       <div aria-disabled className={cn(row, "text-muted-foreground", className)}>
         <IconMicrophoneOff size={18} className="shrink-0" aria-hidden />
