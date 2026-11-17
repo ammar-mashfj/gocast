@@ -67,7 +67,10 @@ if [[ $legacy -eq 1 ]]; then
   echo "  · relay copies predate self-rollover: restarting them one at a time"
   restarted=()
   for port in "${PORTS[@]}"; do
-    systemctl restart "gocast-relay@${port}"
+    # || true: a failed restart is judged by the health check below, which
+    # rolls back. Under set -e it would end the script before the rollback,
+    # with the broken binary left installed.
+    systemctl restart "gocast-relay@${port}" || true
     if healthy "$port"; then
       echo "  ✓ gocast-relay@${port} restarted"
       restarted+=("$port")
@@ -113,6 +116,16 @@ while :; do
       continue
     fi
     down[$port]=0
+    # The copy test-ran the new binary before stepping aside for it, and it
+    # failed: no copy will ever move onto it, so put the previous one back.
+    # Every copy is still serving on its own build at this point.
+    blocked="$(sed -n 's/.*"rollover_blocked":"\([^"]*\)".*/\1/p' <<<"$h")"
+    if [[ -n "$blocked" ]]; then
+      echo "  ✗ gocast-relay@${port} refuses the new binary: $blocked"
+      echo "    putting the previous binary back; every copy kept serving on its own build"
+      put_back_previous
+      exit 1
+    fi
     if [[ "$(field "$h" build)" != "$NEW_BUILD" ]]; then
       all_new=0
       shows="$(field "$h" harbor_active)"

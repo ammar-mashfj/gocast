@@ -155,7 +155,13 @@ func (s *Server) dialHarbor(r *http.Request, slug string) (*websocket.Conn, int)
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
-		if resp != nil && resp.StatusCode >= 400 {
+		// 503 means one thing to nginx in front of the relay: THIS COPY is
+		// draining, try the other (proxy_next_upstream http_503, and it
+		// counts towards max_fails). A 503 from one station's router or
+		// harbor passed on as is would send the retry to the other copy,
+		// get the same 503 there, and mark both copies down: every studio,
+		// Free included, refused for fail_timeout. So it goes out as 502.
+		if resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusServiceUnavailable {
 			return nil, resp.StatusCode
 		}
 		return nil, http.StatusBadGateway
@@ -195,6 +201,10 @@ func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn, st *
 		up.CloseNow()
 		ws.Close(CloseHarborWrite, "stream server stopped accepting audio")
 	}
+	// Left as is on purpose: a write that returns in the nanoseconds between
+	// the timer firing and it taking wmu is still a write that blocked for
+	// the whole HarborWriteTimeout, which is the stall this reports. Closing
+	// on that is the right call, not a healthy show cut short.
 	stall := time.AfterFunc(s.cfg.HarborWriteTimeout, func() {
 		wmu.Lock()
 		defer wmu.Unlock()

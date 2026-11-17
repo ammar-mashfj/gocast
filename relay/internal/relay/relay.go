@@ -233,6 +233,20 @@ func (s *Server) holdsSource(c *websocket.Conn, release func()) {
 	}
 }
 
+// kicked is one studio a drain or retire is about to hand over.
+type kicked struct {
+	c  *websocket.Conn
+	st *conn
+}
+
+// kickAll hands studios over, outside s.mu: closing sockets under the lock
+// would let one slow close hold up /healthz and every other caller.
+func kickAll(list []kicked) {
+	for _, k := range list {
+		kick(k.c, k.st)
+	}
+}
+
 // kick ends one studio for a restart: its source first, so the reconnect
 // through the other copy finds the mount free, then 1001. Close waits for
 // the studio's reply, so it runs on its own goroutine.
@@ -276,10 +290,12 @@ func (s *Server) Drain(ctx context.Context) {
 	// the close handshake can take seconds, and a studio reconnecting through
 	// the other copy in the meantime would find its mount still held (4009).
 	s.mu.Lock()
+	list := make([]kicked, 0, len(s.conns))
 	for c, st := range s.conns {
-		kick(c, st)
+		list = append(list, kicked{c, st})
 	}
 	s.mu.Unlock()
+	kickAll(list)
 	<-done
 }
 
@@ -291,16 +307,26 @@ func (s *Server) Drain(ctx context.Context) {
 // harbor has no fallback of its own to splice in. Whatever is still on after
 // maxWait is handed over too. Returns when every studio is gone; the caller
 // exits and systemd starts the new binary.
+//
+// A second call (a manual SIGUSR1 racing the automatic rollover) does not
+// start a second retirement: it waits for the first to finish.
 func (s *Server) Retire(maxWait time.Duration) {
 	s.mu.Lock()
+	if s.retiring {
+		s.mu.Unlock()
+		s.wg.Wait()
+		return
+	}
 	s.draining = true
 	s.retiring = true
+	var free []kicked
 	for c, st := range s.conns {
 		if st.path != PathHarbor {
-			kick(c, st)
+			free = append(free, kicked{c, st})
 		}
 	}
 	s.mu.Unlock()
+	kickAll(free)
 
 	deadline := time.Now().Add(maxWait)
 	for s.ActiveOn(PathHarbor) > 0 && time.Now().Before(deadline) {

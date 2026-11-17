@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -128,10 +129,20 @@ func TestRetireWithNothingOnReturnsAtOnce(t *testing.T) {
 	}
 }
 
+// exeBody is a stand-in binary named by build: a script that answers -help
+// with exit 0, as every real relay build does. A build named "broken"
+// fails, like a binary that cannot start.
+func exeBody(build string) []byte {
+	if build == "broken" {
+		return []byte("#!/bin/sh\necho cannot start >&2\nexit 1\n")
+	}
+	return []byte("#!/bin/sh\n# " + build + "\nexit 0\n")
+}
+
 func writeExe(t *testing.T, dir, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, "gocast-relay")
-	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(p, exeBody(content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -142,7 +153,7 @@ func writeExe(t *testing.T, dir, content string) string {
 func replaceExe(t *testing.T, path, content string) {
 	t.Helper()
 	tmp := path + ".new"
-	if err := os.WriteFile(tmp, []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(tmp, exeBody(content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -467,5 +478,168 @@ func TestDrainDuringTheDialRefusesTheUpgrade(t *testing.T) {
 	e := h.waitEnd(t)
 	if e.code != -1 {
 		t.Fatalf("harbor saw %+v, want the relay's dial dropped", e)
+	}
+}
+
+// Review round 2.
+
+// #1: a 503 from one station's router must not reach nginx as 503, which
+// would mark both relay copies down for everyone.
+func TestRouter503GoesOutAs502(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(router.Close)
+	s, hs := startRelay(t, harborConfig(strings.TrimPrefix(router.URL, "http://")))
+	_, resp, err := dialPath(t, hs, "/relay/broadcast/a", nil)
+	if err == nil || resp == nil || resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("err=%v resp=%v, want 502", err, resp)
+	}
+	if s.Metrics.Closes("harbor_unreachable") != 1 {
+		t.Fatal("not counted")
+	}
+}
+
+// #2: the lock lives as long as the Rollover, through any garbage collection.
+func TestRolloverLockSurvivesGC(t *testing.T) {
+	name := fmt.Sprintf("@gocast-relay-gc-test-%d", time.Now().UnixNano())
+	var peer atomic.Pointer[Health]
+	peer.Store(&Health{})
+	s, _ := startRelay(t, harborConfig(newFakeHarbor(t).addr()))
+	r := rolloverFor(t, writeExe(t, t.TempDir(), "build-1"), []string{fakePeer(t, &peer)}, name)
+	if why, ok := r.Begin(context.Background(), s, false); !ok {
+		t.Fatalf("Begin refused: %s", why)
+	}
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if l, ok := (&Rollover{LockName: name}).TryLock(); ok {
+		l.Close()
+		t.Fatal("lock released by the garbage collector while retiring")
+	}
+	runtime.KeepAlive(r)
+}
+
+// #3: a manual retire goes through the same lock: refused while the other
+// copy holds it, so the two never drain at once.
+func TestManualRetireRespectsTheLock(t *testing.T) {
+	name := fmt.Sprintf("@gocast-relay-manual-test-%d", time.Now().UnixNano())
+	var peer atomic.Pointer[Health]
+	peer.Store(&Health{})
+	other, ok := (&Rollover{LockName: name}).TryLock()
+	if !ok {
+		t.Fatal("could not take the lock")
+	}
+	defer other.Close()
+	s, _ := startRelay(t, harborConfig(newFakeHarbor(t).addr()))
+	r := rolloverFor(t, writeExe(t, t.TempDir(), "build-1"), []string{fakePeer(t, &peer)}, name)
+	why, ok := r.Begin(context.Background(), s, false)
+	if ok || why != "the other copy is retiring" {
+		t.Fatalf("manual retire while the other copy retires: ok=%v why=%q", ok, why)
+	}
+	if s.Draining() {
+		t.Fatal("drained anyway")
+	}
+	// And with the peer down it refuses too.
+	other.Close()
+	peer.Store(nil)
+	if why, ok := r.Begin(context.Background(), s, false); ok || why != "no other copy ready to take new studios" {
+		t.Fatalf("peer down: ok=%v why=%q", ok, why)
+	}
+	// Once allowed, a second Begin (a second SIGUSR1) is refused.
+	peer.Store(&Health{})
+	if why, ok := r.Begin(context.Background(), s, false); !ok {
+		t.Fatalf("refused: %s", why)
+	}
+	if why, ok := r.Begin(context.Background(), s, false); ok || why != "already retiring" {
+		t.Fatalf("second Begin: ok=%v why=%q", ok, why)
+	}
+}
+
+// #3: two Retire calls at once run one retirement.
+func TestRetireTwiceRunsOnce(t *testing.T) {
+	ice := newFakeIcecast(t, ok200)
+	cfg := harborConfig(newFakeHarbor(t).addr())
+	cfg.IcecastAddr = ice.ln.Addr().String()
+	cfg.IdleTimeout = 10 * time.Second
+	s, hs := startRelay(t, cfg)
+	free := dial(t, hs, nil)
+	free.Write(context.Background(), websocket.MessageText, helloJSON("f", "t"))
+	expectOK(t, free)
+	go readUntilClose(t, free) // a real studio reads, so its close handshake completes
+	done := make(chan struct{}, 2)
+	go func() { s.Retire(time.Minute); done <- struct{}{} }()
+	go func() { s.Retire(time.Minute); done <- struct{}{} }()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a Retire call never returned")
+		}
+	}
+	if n := s.Metrics.Closes("draining"); n != 1 {
+		t.Fatalf("free studio handed over %d times", n)
+	}
+}
+
+// #4: a binary that cannot start is never stepped aside for: the copy keeps
+// serving on its own build and says why in /healthz.
+func TestBrokenBinaryBlocksTheRollover(t *testing.T) {
+	h := newFakeHarbor(t)
+	s, hs := startRelay(t, harborConfig(h.addr()))
+	var peer atomic.Pointer[Health]
+	peer.Store(&Health{})
+	exe := writeExe(t, t.TempDir(), "build-1")
+	r := rolloverFor(t, exe, []string{fakePeer(t, &peer)}, fmt.Sprintf("@gocast-relay-broken-%d", time.Now().UnixNano()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.Run(ctx, s, t.Logf)
+
+	replaceExe(t, exe, "broken")
+	eventually(t, "blocked", func() bool { return strings.HasPrefix(r.Blocked(), "new binary failed its test run") })
+	time.Sleep(300 * time.Millisecond)
+	if s.Draining() {
+		t.Fatal("stepped aside for a binary that cannot start")
+	}
+	c := studio(t, hs, "a") // still taking studios
+	c.CloseNow()
+
+	// The previous binary goes back (the deploy's rollback): nothing to do.
+	replaceExe(t, exe, "build-1")
+	if r.Blocked() != "" || r.Stale() {
+		t.Fatalf("after rollback: blocked=%q stale=%v", r.Blocked(), r.Stale())
+	}
+	// A good new build later is taken.
+	replaceExe(t, exe, "build-2")
+	eventually(t, "retiring on a good build", s.Retiring)
+}
+
+// #6: studios are handed over with s.mu free, so /healthz and the peer's
+// readiness check never wait on a close.
+func TestKicksRunOutsideTheLock(t *testing.T) {
+	h := newFakeHarbor(t)
+	s, hs := startRelay(t, harborConfig(h.addr()))
+	c := studio(t, hs, "a")
+	c.Write(context.Background(), websocket.MessageText, helloJSON("a", "t"))
+	eventually(t, "connected", func() bool { return h.conn("a") != nil })
+	var lockFree atomic.Bool
+	s.mu.Lock()
+	for _, st := range s.conns {
+		orig := st.release
+		st.release = func() {
+			if s.mu.TryLock() {
+				lockFree.Store(true)
+				s.mu.Unlock()
+			}
+			orig()
+		}
+	}
+	s.mu.Unlock()
+	expired, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	s.Drain(expired)
+	if !lockFree.Load() {
+		t.Fatal("release ran with s.mu held")
 	}
 }
