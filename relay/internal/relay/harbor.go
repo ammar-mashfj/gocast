@@ -30,11 +30,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
 // The public path, with or without nginx's /relay prefix. The slug charset is
@@ -52,13 +48,13 @@ func HarborSlug(p string) (string, bool) {
 }
 
 // CloseHarborWrite is sent to the studio when harbor stops taking audio.
-const CloseHarborWrite = websocket.StatusInternalError
+const CloseHarborWrite = StatusInternalError
 
 // serveHarbor runs one studio's pass-through and records why it ended.
 func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string) {
-	// Not an upgrade at all: refuse before spending a dial on harbor.
-	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-		http.Error(w, "WebSocket upgrade required", http.StatusUpgradeRequired)
+	// Not a valid upgrade: refuse before spending a dial on harbor.
+	if e := checkUpgrade(r); e != nil {
+		http.Error(w, e.msg, e.status)
 		s.Metrics.Close("refused_upgrade")
 		return
 	}
@@ -68,7 +64,7 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 		return
 	}
 
-	up, status := s.dialHarbor(r, slug)
+	up, proto, status := s.dialHarbor(r, slug)
 	if up == nil {
 		http.Error(w, "stream server unavailable", status)
 		s.Metrics.Close("harbor_unreachable")
@@ -77,7 +73,7 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 	// A drain or retire that began during the dial: refuse the upgrade, so
 	// nginx retries the other copy, rather than accept and close with 1001.
 	if s.Draining() {
-		up.CloseNow()
+		up.closeNow()
 		http.Error(w, "draining", http.StatusServiceUnavailable)
 		s.Metrics.Close("harbor_draining")
 		return
@@ -85,75 +81,50 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 
 	// Offer the studio whatever harbor chose, so the studio sees the same
 	// handshake it would have seen from the router.
-	var protos []string
-	if p := up.Subprotocol(); p != "" {
-		protos = []string{p}
+	var ours []string
+	if proto != "" {
+		ours = []string{proto}
 	}
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols:    protos,
-		OriginPatterns:  s.cfg.OriginPatterns,
-		CompressionMode: websocket.CompressionDisabled,
-	})
+	studio, err := acceptUpgrade(w, r, selectSubprotocol(r, ours), s.cfg.MaxMessage, s.cfg.HarborWriteTimeout)
 	if err != nil {
-		up.CloseNow()
+		up.closeNow()
 		s.Metrics.Close("refused_upgrade")
 		return
 	}
-	st, ok := s.track(ws, PathHarbor)
-	if !ok {
+	ss := newSession(s, PathHarbor, studio)
+	ss.up = up
+	ss.id = slug + "-" + ss.id
+	if _, ok := s.track(ss, PathHarbor); !ok {
 		// The few microseconds between the check above and here.
-		up.CloseNow()
-		ws.Close(CloseDraining, "relay restarting")
+		up.closeNow()
+		studio.closeAndWait(CloseDraining, "relay restarting")
 		s.Metrics.Close("harbor_draining")
 		return
 	}
-	defer s.untrack(ws)
-	ws.SetReadLimit(s.cfg.MaxMessage)
-	up.SetReadLimit(s.cfg.MaxMessage)
 	// A drain lets go of harbor first, so the studio's reconnect through the
 	// other copy finds the mount free instead of "source already connected".
-	s.holdsSource(ws, func() { up.CloseNow() })
-
+	s.holdsSource(ss, up.closeNow)
 	s.Metrics.connOpened(PathHarbor)
-	reason := s.pipeHarbor(r.Context(), ws, up, st)
-	s.Metrics.connClosed(PathHarbor)
-	s.Metrics.Close(reason)
+	s.finish(ss, ss.runHarbor())
 }
 
 // dialHarbor opens the relay's own socket to the station router. On failure
 // it returns the HTTP status to refuse the studio's upgrade with: the
 // router's own answer when there was one (502 for a station that is off).
-func (s *Server) dialHarbor(r *http.Request, slug string) (*websocket.Conn, int) {
+func (s *Server) dialHarbor(r *http.Request, slug string) (*wsConn, string, int) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.HarborTimeout)
 	defer cancel()
 
 	h := http.Header{}
 	// The router overwrites X-Real-IP with its own peer, but pass on what
 	// nginx told us so the chain still carries the broadcaster's address.
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		h.Set("X-Forwarded-For", v)
-	}
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		h.Set("X-Real-IP", v)
-	}
-	if v := r.Header.Get("User-Agent"); v != "" {
-		h.Set("User-Agent", v)
-	}
-	var protos []string
-	if p := r.Header.Get("Sec-WebSocket-Protocol"); p != "" {
-		for _, v := range strings.Split(p, ",") {
-			if v = strings.TrimSpace(v); v != "" {
-				protos = append(protos, v)
-			}
+	for _, k := range []string{"X-Forwarded-For", "X-Real-IP", "User-Agent"} {
+		if v := r.Header.Get(k); v != "" {
+			h.Set(k, v)
 		}
 	}
-
-	u := "ws://" + s.cfg.HarborAddr + "/broadcast/" + slug
-	up, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{
-		Subprotocols:    protos,
-		HTTPHeader:      h,
-		CompressionMode: websocket.CompressionDisabled,
-	})
+	protos := headerTokens(r.Header, "Sec-WebSocket-Protocol")
+	up, proto, err := dialWebSocket(ctx, s.cfg.HarborAddr, "/broadcast/"+slug, protos, h, s.cfg.MaxMessage, s.cfg.HarborWriteTimeout)
 	if err != nil {
 		// 503 means one thing to nginx in front of the relay: THIS COPY is
 		// draining, try the other (proxy_next_upstream http_503, and it
@@ -161,198 +132,162 @@ func (s *Server) dialHarbor(r *http.Request, slug string) (*websocket.Conn, int)
 		// harbor passed on as is would send the retry to the other copy,
 		// get the same 503 there, and mark both copies down: every studio,
 		// Free included, refused for fail_timeout. So it goes out as 502.
-		if resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusServiceUnavailable {
-			return nil, resp.StatusCode
+		var de *dialError
+		if errors.As(err, &de) && de.status >= 400 && de.status != http.StatusServiceUnavailable {
+			return nil, "", de.status
 		}
-		return nil, http.StatusBadGateway
+		return nil, "", http.StatusBadGateway
 	}
-	return up, 0
+	return up, proto, 0
 }
 
-// pipeHarbor copies frames both ways until either side ends, and closes the
-// other side the way the first one ended. It returns a metrics label.
-func (s *Server) pipeHarbor(parent context.Context, ws, up *websocket.Conn, st *conn) string {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+func (ss *session) runHarbor() string {
+	ss.mu.Lock()
+	ss.nextPing.Store(time.Now().Add(ss.srv.cfg.PingInterval).UnixNano())
+	ss.goLiveLocked(ss.harborStudioReader, ss.harborReader)
+	ss.mu.Unlock()
+	return ss.wait()
+}
 
-	if s.cfg.PingInterval > 0 {
-		go s.keepAlive(ctx, ws)
-	}
-
-	var (
-		once   sync.Once
-		reason string
-		wg     sync.WaitGroup
-		// Which side ended first. The other side's read then fails because
-		// the relay closed it, which says nothing.
-		ended atomic.Bool
-	)
-	// Harbor not taking a frame for HarborWriteTimeout. The flag is set
-	// before harbor's socket is closed, so whichever read notices the close
-	// first reports the stall, not "harbor closed". The timer only acts on a
-	// write still in flight (under wmu), so a write that finishes just as it
-	// fires is not cut and mislabelled.
-	var (
-		stalled  atomic.Bool
-		wmu      sync.Mutex
-		inFlight bool
-	)
-	tellStudioHarborStalled := func() {
-		up.CloseNow()
-		ws.Close(CloseHarborWrite, "stream server stopped accepting audio")
-	}
-	// Left as is on purpose: a write that returns in the nanoseconds between
-	// the timer firing and it taking wmu is still a write that blocked for
-	// the whole HarborWriteTimeout, which is the stall this reports. Closing
-	// on that is the right call, not a healthy show cut short.
-	stall := time.AfterFunc(s.cfg.HarborWriteTimeout, func() {
-		wmu.Lock()
-		defer wmu.Unlock()
-		if inFlight {
-			stalled.Store(true)
-			up.CloseNow()
+// harborStudioReader: studio → harbor. The hello, audio and metadata go
+// through frame for frame (re-masked, as a client must); pings and pongs are
+// the relay's own business with the studio.
+func (ss *session) harborStudioReader() {
+	c, up := ss.studio, ss.up
+	upBroken := false
+	for {
+		f, err := c.readFrame()
+		if err != nil {
+			if handled, exit := ss.park(err); handled {
+				if exit {
+					return
+				}
+				continue
+			}
+			ss.studioReadFailed(err)
+			return
 		}
+		if ss.ending() {
+			if f.op == opClose { // the answer to the relay's own close
+				c.closeNow()
+				return
+			}
+			continue
+		}
+		switch f.op {
+		case opPing:
+			if err := c.writeFrame(true, opPong, f.payload); err != nil {
+				ss.studioWriteFailed(err)
+			}
+			continue
+		case opPong:
+			continue
+		case opClose:
+			ss.studioClosed(f.payload)
+			return
+		}
+		if upBroken {
+			continue
+		}
+		if err := up.writeFrame(f.fin, f.op, f.payload); err != nil {
+			if errors.Is(err, errStalled) {
+				ss.harborWriteFailed(err)
+				continue
+			}
+			// Harbor's socket broke. Harbor's reader reports it, with
+			// harbor's own close code if it sent one; reporting here would
+			// race that read and could hand the studio a bare drop instead
+			// of, say, 1011. Keep reading the studio for its close reply.
+			upBroken = true
+			continue
+		}
+		if f.msgOp == opBinary {
+			ss.srv.Metrics.bytesIn(PathHarbor, len(f.payload))
+		}
+	}
+}
+
+// harborReader: harbor → studio. Normally nothing until the close.
+func (ss *session) harborReader() {
+	c, up := ss.studio, ss.up
+	studioBroken := false
+	for {
+		f, err := up.readFrame()
+		if err != nil {
+			if handled, exit := ss.park(err); handled {
+				if exit {
+					return
+				}
+				continue
+			}
+			if ss.ending() {
+				up.closeNow()
+				return
+			}
+			code, why := closeCodeFor(err, ss.srv.cfg.MaxMessage)
+			ss.end("harbor_closed", func() {
+				if code != 0 {
+					up.writeClose(code, why)
+				}
+				up.closeNow()
+				c.closeNow() // a drop, as the studio sees when harbor hangs up on it
+			})
+			return
+		}
+		if ss.ending() {
+			if f.op == opClose {
+				up.closeNow()
+				return
+			}
+			continue
+		}
+		switch f.op {
+		case opPing:
+			up.writeFrame(true, opPong, f.payload) // a failure is the next read's to report
+			continue
+		case opPong:
+			continue
+		case opClose:
+			code, reason, perr := parseClose(f.payload)
+			if perr != nil {
+				ss.end("harbor_closed", func() {
+					up.writeClose(StatusProtocolError, perr.Error())
+					up.closeNow()
+					c.closeNow()
+				})
+				return
+			}
+			if !ss.end("harbor_closed", func() {
+				up.answerClose(f.payload)
+				forwardClose(c, code, reason)
+			}) {
+				up.closeNow()
+			}
+			return
+		}
+		if studioBroken {
+			continue
+		}
+		if err := c.writeFrame(f.fin, f.op, f.payload); err != nil {
+			if errors.Is(err, errStalled) {
+				ss.studioWriteFailed(err)
+				continue
+			}
+			studioBroken = true // the studio reader reports it
+		}
+	}
+}
+
+// harborWriteFailed: harbor took nothing for HarborWriteTimeout. Anything
+// else is harbor's socket breaking, which harbor's reader reports.
+func (ss *session) harborWriteFailed(err error) {
+	if !errors.Is(err, errStalled) {
+		return
+	}
+	ss.end("harbor_write", func() {
+		ss.up.closeNow()
+		ss.studio.closeHandshake(CloseHarborWrite, "stream server stopped accepting audio")
 	})
-	stall.Stop()
-	defer stall.Stop()
-	writeHarbor := func(typ websocket.MessageType, data []byte) error {
-		wmu.Lock()
-		inFlight = true
-		wmu.Unlock()
-		stall.Reset(s.cfg.HarborWriteTimeout)
-		err := up.Write(ctx, typ, data)
-		wmu.Lock()
-		inFlight = false
-		wmu.Unlock()
-		stall.Stop()
-		return err
-	}
-
-	finish := func(r string, closeOther func()) {
-		once.Do(func() {
-			ended.Store(true)
-			reason = r
-			if st.kicked.Load() {
-				// Drain is closing the studio with 1001; a second close of
-				// the studio would race it. Harbor is let go here too: drain
-				// already did it unless it caught this connection before its
-				// release was recorded, and a mount left held would turn the
-				// studio's reconnect away until harbor's own timeout.
-				reason = "harbor_draining"
-				up.CloseNow()
-				return
-			}
-			go closeOther()
-		})
-	}
-
-	// Studio → harbor: audio, the hello, metadata.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			typ, data, err := ws.Read(ctx)
-			if err != nil {
-				if ended.Load() {
-					return
-				}
-				code, why := closeOf(err)
-				label := "harbor_client_closed"
-				switch {
-				// coder/websocket has already closed the studio with 1009;
-				// the error it returns is a plain "read limited" one.
-				case code == websocket.StatusMessageTooBig || strings.Contains(err.Error(), "read limited"):
-					label = "harbor_too_big"
-				// Closed from this side, not by the studio: a write to the
-				// studio (a ping, or a frame from harbor) timed out because
-				// the studio stopped reading, and coder/websocket closed the
-				// socket. The studio did not leave; the relay gave up on it.
-				case code == -1 && errors.Is(err, net.ErrClosed):
-					label = "harbor_studio_stalled"
-				}
-				finish(label, func() { forwardClose(up, code, why) })
-				return
-			}
-			// A timer rather than a deadline on the write's context: the
-			// write cut short by its context closes harbor's socket before
-			// this goroutine can say why (see stalled above).
-			if err := writeHarbor(typ, data); err != nil {
-				if ended.Load() {
-					return
-				}
-				if stalled.Load() {
-					finish("harbor_write", tellStudioHarborStalled)
-				}
-				// Otherwise harbor's socket is closed (a failed write closes
-				// it), and the harbor read below reports it with harbor's own
-				// close code. Reporting here would race that read and could
-				// hand the studio a bare drop instead of, say, 1011.
-				return
-			}
-			if typ == websocket.MessageBinary {
-				s.Metrics.bytesIn(PathHarbor, len(data))
-			}
-		}
-	}()
-
-	// Harbor → studio: normally nothing until the close.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			typ, data, err := up.Read(ctx)
-			if err != nil {
-				if ended.Load() {
-					return
-				}
-				if stalled.Load() {
-					finish("harbor_write", tellStudioHarborStalled)
-					return
-				}
-				code, why := closeOf(err)
-				finish("harbor_closed", func() { forwardClose(ws, code, why) })
-				return
-			}
-			wctx, wcancel := context.WithTimeout(ctx, s.cfg.HarborWriteTimeout)
-			err = ws.Write(wctx, typ, data)
-			wcancel()
-			if err != nil {
-				// A failed write closes the studio's socket; the studio read
-				// above reports it.
-				return
-			}
-		}
-	}()
-
-	wg.Wait()
-	// Both reads have returned, so both sockets are closed or closing. The
-	// closer goroutine may still be in its handshake; it ends on its own
-	// (coder/websocket gives a close handshake 5 s).
-	return reason
-}
-
-// closeOf reads the close code and reason a peer sent; -1 when the socket
-// dropped without one.
-func closeOf(err error) (websocket.StatusCode, string) {
-	var ce websocket.CloseError
-	if errors.As(err, &ce) {
-		return ce.Code, ce.Reason
-	}
-	return -1, ""
-}
-
-// forwardClose closes c the way its partner was closed. A partner that
-// dropped without a close frame, or with a code that may not be sent on the
-// wire (1005, 1006, 1015), is passed on as a drop too: the studio then sees
-// exactly what it sees today when harbor or the router hangs up.
-func forwardClose(c *websocket.Conn, code websocket.StatusCode, why string) {
-	switch {
-	case code == -1, code == websocket.StatusNoStatusRcvd,
-		code == websocket.StatusAbnormalClosure, code == websocket.StatusTLSHandshake:
-		c.CloseNow()
-	default:
-		c.Close(code, why)
-	}
 }
 
 // ValidateOriginPatterns refuses patterns originAllowed would read

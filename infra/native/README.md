@@ -340,9 +340,11 @@ pull, install deps, build the client, migrate, cache, reload php-fpm,
 restart the workers, then relaunch and reconcile station containers.
 
 The relay is not restarted by a deploy: `relay-rollover.sh` installs the new
-binary and the two copies move onto it by themselves, one at a time, keeping
-live container (Pro) shows on until they end (see `relay/README.md`). A
-deploy that reports "still rolling over" needs nothing.
+binary and the two copies move onto it by themselves, one at a time, each
+handing its live sessions (Free and Pro) to the other copy without anyone
+noticing (see `relay/README.md`). It takes seconds. Copies from before
+hand-offs move the old way, keeping live container shows on until they end;
+a deploy that reports "still rolling over" needs nothing.
 
 **Pro studios through the relay** (the 100-minute Cloudflare fix). Do these in
 order; `deploy-native.sh` warns when the URL is switched too early:

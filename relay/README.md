@@ -23,6 +23,10 @@ its event bindings report connect/disconnect.
 |---|---|
 | `internal/relay/relay.go` | the Icecast protocol: hello → PUT → `{"type":"ok"}` → copy |
 | `internal/relay/harbor.go` | the container pass-through: router WebSocket ↔ studio WebSocket, plus pings |
+| `internal/relay/wsframe.go`, `wslink.go` | the relay's own WebSocket: frames, handshakes, sockets that can be frozen at any byte |
+| `internal/relay/session.go` | one studio connection: live, frozen for a hand-off, ending |
+| `internal/relay/handoff.go` | moving live sessions to the other copy, sockets and all |
+| `internal/relay/rollover.go` | when a copy moves to a new binary |
 | `internal/relay/harbor_test.go` | tests against a fake router + harbor that copies the real one's behaviour |
 | `internal/relay/metrics.go` | Prometheus counters for `/metrics` |
 | `internal/relay/relay_test.go` | unit tests against a fake Icecast 2.5, plus a fuzz test of the hello parser |
@@ -50,18 +54,30 @@ studios, which reconnect to the other within milliseconds.
   Each copy notices, and **one at a time** (a host-wide lock, and only
   while the other copy is up) it retires:
   - New studios get 503, and nginx (`proxy_next_upstream … http_503`) sends them to the other copy.
-  - Free studios are handed over at once with 1001.
-  - Container shows are left to end on their own, up to `RELAY_RETIRE_MAX`, 12 h by default.
+  - **Every live session is handed to the other copy, sockets and all** (`handoff.go`).
+    Nobody notices: the studio, Icecast and harbor keep the same TCP connection,
+    and the audio pauses for the hand-off itself (about a tenth of a millisecond per show).
 
-  Then the copy exits and systemd starts the new binary. Rolling back is the same move: put the previous binary back.
+  Then the copy exits and systemd starts the new binary, and the other copy does the same,
+  back onto it. A whole rollover takes seconds. Rolling back is the same move: put the previous binary back.
+- **When the other copy cannot take sessions** (a build from before hand-offs, a copy that is
+  draining, a hand-off that fails), the copy retires the old way:
+  - Free studios are handed over with 1001 and reconnect at once.
+  - Container shows are left to end on their own, up to `RELAY_RETIRE_MAX`, 12 h by default.
+- **Hand-offs, in short.** A session is frozen at whatever byte its sockets are on; the
+  descriptors go to the other copy over an abstract unix socket (`@gocast-relay-handoff-<health addr>`,
+  SCM_RIGHTS) with the relay's own state for them (bytes read but not parsed, bytes owed but not
+  written, a fragmented message in progress, the ping and idle clocks). Two steps (ready, commit),
+  so the sockets are never run by both copies or by neither. Only to the same uid and to the pid
+  the other copy's `/healthz` named.
 - **Before stepping aside, a copy test-runs the new binary** (`-help` must exit 0 within 5 s; every relay build does). If it fails, nothing changes:
   - The copy keeps serving on its own build.
   - `/healthz` shows `rollover_blocked`.
   - The deploy puts the previous binary back.
 - **SIGTERM** (`systemctl restart/stop`) is the hard stop: every studio gets
   1001 at once. A live container show is heard as a ~5 s gap.
-- **SIGUSR1** retires by hand under the same rules: the other copy must be up and not
-  retiring, and the lock must be free. Otherwise the copy logs `SIGUSR1 refused: …` and does nothing.
+- **SIGUSR1** retires by hand under the same rules (hand-offs included): the other copy must be up
+  and not retiring, and the lock must be free. Otherwise the copy logs `SIGUSR1 refused: …` and does nothing.
 - **503 belongs to the relay.** It means "this copy is draining, try the other",
   and nginx counts it against the copy. A 503 from a station's router or harbor
   goes to the studio as 502 instead, or one busy station would mark both copies down for everyone.
@@ -74,8 +90,9 @@ studios, which reconnect to the other within milliseconds.
   without it every browser is refused, and a pattern with a scheme stops the
   binary at startup.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"active","icecast_active","harbor_active","draining","retiring","stale","build","pid"}`.
-  `/metrics` gives active, total and bytes per `path` (`icecast`, `harbor`), plus closes by reason.
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff"}`.
+  `handoff` is the hand-off version the copy takes sessions with (0: it does not).
+  `/metrics` gives active, total, bytes and hand-offs in/out per `path` (`icecast`, `harbor`), plus closes by reason.
 
 ## Close codes the studio sees
 
@@ -124,7 +141,8 @@ a second source on a held mount).
 | second source on a held mount | TCP drop (1006), first show untouched | same as direct |
 | studio silent 10 s | harbor drops it (1006) | same as direct |
 | studio closes / vanishes | harbor is let go at once | mount free for the reconnect |
-| relay copy restarted | 1001, harbor let go first | reconnect through the other copy in 3 ms, station stayed `live` |
+| relay copy rolls over (deploy) | nothing: the session moves to the other copy | one harbor connection throughout |
+| relay copy restarted (SIGTERM) | 1001, harbor let go first | reconnect through the other copy in 3 ms, station stayed `live` |
 | harbor stops reading for 10 s | 1011 "stream server stopped accepting audio" | (fake harbor only) |
 | foreign Origin | 403, harbor never dialled | |
 
@@ -139,7 +157,7 @@ Metrics:
   - `harbor_write`: harbor stopped taking audio.
   - `harbor_studio_stalled`: the studio stopped reading.
   - `harbor_draining`: a restart handed it over.
-  - `harbor_unreachable`, `harbor_refused_origin`, `harbor_too_big`.
+  - `harbor_unreachable`, `harbor_refused_origin`, `harbor_too_big`, `harbor_bad_frame` (a protocol violation, answered 1002).
 
 **Turning it on, in this order.** Each step is safe on its own, and the deploy
 warns if the URL is switched before the other two:

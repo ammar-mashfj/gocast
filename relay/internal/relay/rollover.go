@@ -1,13 +1,18 @@
 package relay
 
-// Rollover: how a relay copy moves to a new binary without cutting a live
-// container (Pro) show.
+// Rollover: how a relay copy moves to a new binary without anyone noticing.
 //
 // A deploy only renames the new binary into place. Each copy notices its
 // binary on disk no longer matches the one it is running, and retires
-// itself (Server.Retire): new studios go to the other copy, Free studios are
-// handed over at once, container shows are left to end on their own. Then
-// the process exits and systemd (Restart=always) starts the new binary.
+// itself (Server.RetireVia): new studios go to the other copy, and every
+// live session is handed to the other copy, sockets and all (handoff.go).
+// Then the process exits and systemd (Restart=always) starts the new
+// binary. The other copy then does the same, back onto the new one.
+//
+// When the other copy cannot take sessions (a build from before hand-offs,
+// or a hand-off that fails), the copy retires the way it did before: Free
+// studios are told to reconnect (1001), container shows are left to end on
+// their own, for up to MaxWait.
 //
 // Two rules keep a studio always able to connect somewhere:
 //   - a copy retires only while another copy answers /healthz and is not
@@ -52,6 +57,8 @@ type Health struct {
 	// the new binary failed its test run. The deploy reads it and puts the
 	// previous binary back.
 	RolloverBlocked string `json:"rollover_blocked"`
+	// The hand-off version this copy takes sessions with (0 = it does not).
+	Handoff int `json:"handoff"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -79,6 +86,9 @@ type Rollover struct {
 	// process, so the garbage collector can never close it: a closed
 	// listener would let the other copy retire at the same time.
 	held net.Listener
+	// The copy to hand sessions to, chosen with the lock held (nil: the
+	// ready copy cannot take them).
+	target *HandoffTarget
 }
 
 // NewRollover hashes the binary this process is running. Read from the path
@@ -146,34 +156,44 @@ func hashFile(path string) (string, os.FileInfo, error) {
 // PeerReady reports whether some other copy can take the studios this one
 // would turn away: it answers /healthz and is neither draining nor retiring.
 func (r *Rollover) PeerReady(ctx context.Context) bool {
-	for _, p := range r.Peers {
-		if peerReady(ctx, p) {
-			return true
-		}
-	}
-	return false
+	_, ok := r.readyPeer(ctx)
+	return ok
 }
 
-func peerReady(ctx context.Context, addr string) bool {
+// readyPeer is the first ready copy, and where it takes hand-offs (nil when
+// it does not speak this copy's hand-off version).
+func (r *Rollover) readyPeer(ctx context.Context) (*HandoffTarget, bool) {
+	for _, p := range r.Peers {
+		if h, ok := peerReady(ctx, p); ok {
+			if h.Handoff != HandoffVersion {
+				return nil, true
+			}
+			return &HandoffTarget{Socket: HandoffSocket(p), PID: h.PID}, true
+		}
+	}
+	return nil, false
+}
+
+func peerReady(ctx context.Context, addr string) (Health, bool) {
+	var h Health
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil)
 	if err != nil {
-		return false
+		return h, false
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return h, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return h, false
 	}
-	var h Health
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
-		return false
+		return h, false
 	}
-	return !h.Draining && !h.Retiring
+	return h, !h.Draining && !h.Retiring
 }
 
 // TryLock takes the host-wide rollover lock. The returned listener is the
@@ -260,14 +280,24 @@ func (r *Rollover) Begin(ctx context.Context, srv *Server, onlyIfStale bool) (st
 	}
 	// Ask once more with the lock held: the peer may have started retiring
 	// between the first look and the lock (it cannot now).
-	if !r.PeerReady(ctx) {
+	target, ready := r.readyPeer(ctx)
+	if !ready {
 		lock.Close()
 		return "no other copy ready to take new studios", false
 	}
 	r.mu.Lock()
 	r.held = lock
+	r.target = target
 	r.mu.Unlock()
 	return "", true
+}
+
+// Target is where Begin found the other copy taking hand-offs (nil: retire
+// the old way).
+func (r *Rollover) Target() *HandoffTarget {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.target
 }
 
 // Run checks every CheckEvery until ctx ends or this copy retires. It
@@ -293,9 +323,14 @@ func (r *Rollover) Run(ctx context.Context, srv *Server, logf func(string, ...an
 			lastBlocked = why
 			continue
 		}
-		logf("binary on disk changed: retiring (%d Free studio(s) handed over now, waiting up to %s for %d container show(s))",
-			srv.ActiveOn(PathIcecast), r.MaxWait, srv.ActiveOn(PathHarbor))
-		srv.Retire(r.MaxWait)
+		if t := r.Target(); t != nil {
+			logf("binary on disk changed: handing %d session(s) to the other copy (pid %d), then exiting for the new binary",
+				srv.Active(), t.PID)
+		} else {
+			logf("binary on disk changed; the other copy cannot take sessions: retiring (%d Free studio(s) told to reconnect, waiting up to %s for %d container show(s))",
+				srv.ActiveOn(PathIcecast), r.MaxWait, srv.ActiveOn(PathHarbor))
+		}
+		srv.RetireVia(r.MaxWait, r.Target())
 		logf("retired: every studio gone, exiting for the new binary")
 		return true
 	}

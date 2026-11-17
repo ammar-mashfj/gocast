@@ -6,19 +6,23 @@
 #
 # Copies that support it (their /healthz reports a "build") roll over BY
 # THEMSELVES (relay/internal/relay/rollover.go): each notices the new binary,
-# and one at a time it stops taking new studios, hands its Free studios to the
-# other copy, waits for its container shows to end, and exits; systemd starts
-# the new binary. This script only watches: it waits for the copies with no
-# show to come back on the new build, reports the ones still carrying a show,
-# and puts the previous binary back if a copy cannot start (the copies already
-# on the new build then roll back the same gentle way).
+# and one at a time it stops taking new studios, hands every live session to
+# the other copy (sockets and all: nobody notices, relay/internal/relay/
+# handoff.go), and exits; systemd starts the new binary. A copy whose peer
+# cannot take sessions (a build from before hand-offs) retires the old way:
+# Free studios reconnect, container shows are left to end. This script only
+# watches: it waits for every copy to come back on the new build (seconds,
+# with hand-offs), reports the ones still carrying a show (old way only), and
+# puts the previous binary back if a copy cannot start (the copies already on
+# the new build then roll back the same gentle way).
 #
 # Copies that don't (the first deploy of this feature) are restarted the old
 # way, one at a time. Nothing Pro is on the relay before that deploy: Pro
 # studios move to it only when LIQUIDSOAP_INGEST_URL is switched, after.
 #
 # Exit: 0 every copy on the new build; 10 rolling over, a copy is still
-# carrying a container show and will restart when it ends; 1 rolled back.
+# carrying a container show and will restart when it ends (the old way only);
+# 1 rolled back.
 set -euo pipefail
 
 BIN="$1"; RUN_USER="$2"; shift 2
