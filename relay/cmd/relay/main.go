@@ -151,9 +151,10 @@ func main() {
 			HarborActive:    srv.ActiveOn(relay.PathHarbor),
 			Draining:        srv.Draining(),
 			Retiring:        srv.Retiring(),
+			HandingOff:      srv.HandingOff(),
 			Stale:           roll.Stale(),
 			Build:           roll.Build(),
-			RolloverBlocked: roll.Blocked(),
+			RolloverBlocked: roll.BlockedSoFar(),
 			Handoff:         handoff,
 		})
 	})

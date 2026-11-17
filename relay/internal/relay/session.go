@@ -86,6 +86,15 @@ func newSession(srv *Server, path string, studio *wsConn) *session {
 
 func (ss *session) name() string { return ss.path + "/" + ss.id }
 
+// reason is a close label for this session's path: the container path's
+// labels carry a "harbor_" prefix (harbor_draining, harbor_client_closed, ...).
+func (ss *session) reason(base string) string {
+	if ss.path == PathHarbor {
+		return "harbor_" + base
+	}
+	return base
+}
+
 // links are every socket the session holds, studio first.
 func (ss *session) links() []*link {
 	ls := []*link{&ss.studio.link}
@@ -209,11 +218,7 @@ func (ss *session) kick(release func()) {
 	}
 	ice, up := ss.ice, ss.up
 	ss.mu.Unlock()
-	label := "draining"
-	if ss.path == PathHarbor {
-		label = "harbor_draining"
-	}
-	ss.end(label, func() {
+	ss.end(ss.reason("draining"), func() {
 		if release != nil {
 			release()
 		}
@@ -324,11 +329,7 @@ func (ss *session) studioWriteFailed(err error) {
 	ss.mu.Lock()
 	ice, up := ss.ice, ss.up
 	ss.mu.Unlock()
-	label := "studio_stalled"
-	if ss.path == PathHarbor {
-		label = "harbor_studio_stalled"
-	}
-	ss.end(label, func() {
+	ss.end(ss.reason("studio_stalled"), func() {
 		if ice != nil {
 			ice.closeNow()
 		}
@@ -428,10 +429,18 @@ func (ss *session) unfreeze() {
 	}
 }
 
-// snapshot is the frozen session as the other process needs it. freeze must
-// have returned true. Taking each write lock waits out a write that was in
-// flight when the freeze came (it returns at once, its rest kept pending).
+// snapshot is the frozen session as the other process needs it, or nil if
+// it is no longer frozen (a drain ended it after freeze returned). Taken
+// under ss.mu: the readers' buffers are theirs again the moment a thaw wakes
+// them, and a thaw needs ss.mu. Taking each write lock waits out a write that
+// was in flight when the freeze came (it returns at once, its rest kept
+// pending); a frozen link never holds its write lock for long.
 func (ss *session) snapshot() *sessionSnap {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if ss.state != stFreezing {
+		return nil
+	}
 	snap := &sessionSnap{
 		V:         HandoffVersion,
 		Path:      ss.path,
@@ -456,14 +465,14 @@ func snapLink(l *link) linkSnap {
 	defer l.wmu.Unlock()
 	s := linkSnap{Pending: append([]byte(nil), l.pending...)}
 	if len(l.pending) > 0 {
-		s.PendingSince = l.pendingSince.UnixNano()
+		s.PendingAge = int64(l.pendingAge)
 	}
 	return s
 }
 
 func snapWS(c *wsConn) linkSnap {
 	s := snapLink(&c.link)
-	s.RBuf = append([]byte(nil), c.rbuf...)
+	s.RBuf = append([]byte(nil), c.unread()...)
 	s.MsgOp, s.MsgLen = c.p.msgOp, c.p.msgLen
 	return s
 }
@@ -537,7 +546,7 @@ func restoreWS(nc net.Conn, client bool, maxMessage int64, timeout time.Duration
 func restorePending(l *link, s linkSnap) {
 	if len(s.Pending) > 0 {
 		l.pending = s.Pending
-		l.pendingSince = time.Unix(0, s.PendingSince)
+		l.pendingAge = time.Duration(s.PendingAge)
 	}
 }
 

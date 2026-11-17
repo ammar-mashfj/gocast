@@ -59,6 +59,9 @@ type Health struct {
 	RolloverBlocked string `json:"rollover_blocked"`
 	// The hand-off version this copy takes sessions with (0 = it does not).
 	Handoff int `json:"handoff"`
+	// Retiring and still moving its sessions to the other copy (seconds).
+	// A copy retiring without it carries shows it waits for to end.
+	HandingOff bool `json:"handing_off"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -254,6 +257,23 @@ func (r *Rollover) Blocked() string {
 	return blocked
 }
 
+// BlockedSoFar is Blocked without ever running the test itself: what the
+// last test run found, if it was of the binary on disk now, else "". For
+// /healthz, which must answer at once: the test can take TestRunTimeout,
+// longer than the deploy's and the other copy's health checks wait. Run (via
+// Begin) tests every new binary within CheckEvery.
+func (r *Rollover) BlockedSoFar() string {
+	if !r.Stale() {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastMod.Equal(r.testedMod) && r.lastSz == r.testedSz {
+		return r.blocked
+	}
+	return ""
+}
+
 // Begin decides whether this copy may retire now and, if so, takes the lock
 // for the rest of the process's life. It returns why not otherwise. Both
 // the automatic rollover (onlyIfStale) and a manual SIGUSR1 go through it,
@@ -271,15 +291,13 @@ func (r *Rollover) Begin(ctx context.Context, srv *Server, onlyIfStale bool) (st
 	if why := r.Blocked(); why != "" {
 		return why, false
 	}
-	if !r.PeerReady(ctx) {
-		return "no other copy ready to take new studios", false
-	}
 	lock, ok := r.TryLock()
 	if !ok {
 		return "the other copy is retiring", false
 	}
-	// Ask once more with the lock held: the peer may have started retiring
-	// between the first look and the lock (it cannot now).
+	// The other copy is asked with the lock held: it cannot start retiring
+	// itself from here on, so what it answers now still holds while this
+	// copy retires.
 	target, ready := r.readyPeer(ctx)
 	if !ready {
 		lock.Close()

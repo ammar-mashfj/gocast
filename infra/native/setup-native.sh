@@ -320,13 +320,29 @@ fi
 
 
 echo "==> Relay"
-# Enabled here; built and (re)started by deploy-native.sh, which owns the
-# binary. Started now only if a deploy has already built it.
+# Enabled here; built by deploy-native.sh, which owns the binary. Started now
+# only if a deploy has already built it.
+#
+# A copy that is already running is LEFT RUNNING, never restarted: it carries
+# live studios, Pro shows included, and a restart cuts every one of them
+# (twice for a studio that reconnects to the other copy just before that one
+# restarts too). The copies pick up a new binary by themselves, handing their
+# sessions over (relay/README.md). Only copies that are not running start.
+# A changed unit file (systemctl daemon-reload above) applies the next time a
+# copy restarts, which a deploy's rollover does.
 systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
 if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
-  systemctl restart gocast-relay@8095; sleep 3; systemctl restart gocast-relay@8096
+  for unit in gocast-relay@8095 gocast-relay@8096; do
+    if systemctl is-active --quiet "$unit"; then
+      echo "  · $unit running; left as is"
+    else
+      systemctl reset-failed "$unit" 2>/dev/null || true
+      systemctl start "$unit" && echo "  ✓ $unit started"
+    fi
+  done
+  # The standby feeder carries no studio: a restart costs nothing.
   systemctl restart gocast-standby
-  echo "  ✓ gocast-relay@8095, gocast-relay@8096, gocast-standby running"
+  echo "  ✓ gocast-standby running"
 else
   echo "  · enabled; the next deploy builds and starts them"
 fi

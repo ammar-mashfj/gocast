@@ -90,8 +90,10 @@ studios, which reconnect to the other within milliseconds.
   without it every browser is refused, and a pattern with a scheme stops the
   binary at startup.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff"}`.
-  `handoff` is the hand-off version the copy takes sessions with (0: it does not).
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off"}`.
+  `handoff` is the hand-off version the copy takes sessions with (0: it does not); `handing_off`
+  is true while a retiring copy is moving its sessions over (seconds). `rollover_blocked` is the
+  last test run's verdict on the binary on disk (the test runs in the rollover loop, never in `/healthz`).
   `/metrics` gives active, total, bytes and hand-offs in/out per `path` (`icecast`, `harbor`), plus closes by reason.
 
 ## Close codes the studio sees
@@ -163,5 +165,5 @@ Metrics:
 warns if the URL is switched before the other two:
 
 1. Deploy a commit with this code. The first time, the relay copies are restarted the old way; no Pro show is on them yet.
-2. Add the `/relay/broadcast/` location and `http_503` to the live `gocast-stream.conf` by hand (never re-run `setup-native.sh` on a certbot host), then `nginx -t && systemctl reload nginx`.
+2. In the live `gocast-stream.conf`, by hand (never re-run `setup-native.sh` on a certbot host): change `location = /relay {` to `location ~ "^/relay(/broadcast/[a-z0-9][a-z0-9-]{0,62})?$" {` and add `proxy_next_upstream error timeout http_503;` inside it. Then `nginx -t && systemctl reload nginx`.
 3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in `api/.env`, then run `php artisan config:cache`.

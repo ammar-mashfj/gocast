@@ -52,6 +52,23 @@ put_back_previous() {
   fi
 }
 
+# ---- Copies that were not running at all -----------------------------------
+# Stopped by hand, failed before this deploy, or a fresh host: nothing would
+# start them (only a running copy picks up a new binary), and the watch below
+# would take a copy that is simply off for a new binary that cannot start,
+# put the previous one back and fail the deploy. Start them; from here on a
+# copy that does not come up IS the new binary's fault. A copy systemd is
+# restarting right now ("activating": it just exited for the new binary) is
+# left alone.
+for port in "${PORTS[@]}"; do
+  state="$(systemctl is-active "gocast-relay@${port}" 2>/dev/null || true)"
+  if [[ "$state" == "inactive" || "$state" == "failed" ]]; then
+    echo "  · gocast-relay@${port} was not running ($state): starting it"
+    systemctl reset-failed "gocast-relay@${port}" 2>/dev/null || true
+    systemctl start "gocast-relay@${port}" || true
+  fi
+done
+
 # ---- Copies from before self-rollover: the old hard rolling restart --------
 # Only a copy that ANSWERS without a "build" is an old one. A copy that does
 # not answer is not evidence of anything: a self-rolling copy with nothing on
@@ -133,7 +150,12 @@ while :; do
     if [[ "$(field "$h" build)" != "$NEW_BUILD" ]]; then
       all_new=0
       shows="$(field "$h" harbor_active)"
-      if [[ "$(field "$h" retiring)" == "true" && "${shows:-0}" -gt 0 ]]; then
+      # Retiring with shows still on is one of two things. Handing them to
+      # the other copy (handing_off): seconds, keep watching, the copy is
+      # about to restart on the new binary and must be seen to come up. Or
+      # waiting for them to end (the old way, when the other copy cannot
+      # take them): hours, nothing to watch.
+      if [[ "$(field "$h" retiring)" == "true" && "$(field "$h" handing_off)" != "true" && "${shows:-0}" -gt 0 ]]; then
         waiting+=" @${port}:${shows}"
       fi
     fi

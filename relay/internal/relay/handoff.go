@@ -77,8 +77,12 @@ var (
 
 const handoffMaxMessage = 8 << 20
 
-// testHookSnapshot sees every snapshot sent (tests only).
-var testHookSnapshot func(*sessionSnap)
+// Tests only: testHookSnapshot sees every snapshot sent; testHookBeforeLive
+// runs as a container session is about to go live.
+var (
+	testHookSnapshot   func(*sessionSnap)
+	testHookBeforeLive func(*session)
+)
 
 // sessionSnap is a frozen session, as the receiving process needs it.
 type sessionSnap struct {
@@ -93,11 +97,11 @@ type sessionSnap struct {
 }
 
 type linkSnap struct {
-	RBuf         []byte `json:"rbuf,omitempty"`
-	Pending      []byte `json:"pending,omitempty"`
-	PendingSince int64  `json:"pending_since,omitempty"`
-	MsgOp        byte   `json:"msg_op,omitempty"`
-	MsgLen       int64  `json:"msg_len,omitempty"`
+	RBuf       []byte `json:"rbuf,omitempty"`
+	Pending    []byte `json:"pending,omitempty"`
+	PendingAge int64  `json:"pending_age,omitempty"` // ns the owed write had been under way
+	MsgOp      byte   `json:"msg_op,omitempty"`
+	MsgLen     int64  `json:"msg_len,omitempty"`
 }
 
 type hmsg struct {
@@ -466,6 +470,9 @@ func (s *Server) handOffOne(uc *net.UnixConn, ss *session) (ok, peerOK bool) {
 		return false, true // ended, or not parked in time: it stays here
 	}
 	snap := ss.snapshot()
+	if snap == nil {
+		return false, true // ended between the freeze and here: it stays here, ending
+	}
 	if testHookSnapshot != nil {
 		testHookSnapshot(snap)
 	}

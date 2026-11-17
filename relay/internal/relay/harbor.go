@@ -142,7 +142,17 @@ func (s *Server) dialHarbor(r *http.Request, slug string) (*wsConn, string, int)
 }
 
 func (ss *session) runHarbor() string {
+	if testHookBeforeLive != nil {
+		testHookBeforeLive(ss)
+	}
 	ss.mu.Lock()
+	// A drain's kick between track and here has already let harbor go and
+	// told the studio 1001: going live now would overwrite that, and the
+	// close would be counted under another reason.
+	if ss.state != stSetup {
+		ss.mu.Unlock()
+		return ss.endLabel()
+	}
 	ss.nextPing.Store(time.Now().Add(ss.srv.cfg.PingInterval).UnixNano())
 	ss.goLiveLocked(ss.harborStudioReader, ss.harborReader)
 	ss.mu.Unlock()

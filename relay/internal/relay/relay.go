@@ -195,11 +195,12 @@ type Server struct {
 	Metrics *Metrics
 	Logf    func(format string, args ...any)
 
-	mu       sync.Mutex
-	conns    map[*session]*conn
-	draining bool
-	retiring bool
-	wg       sync.WaitGroup
+	mu         sync.Mutex
+	conns      map[*session]*conn
+	draining   bool
+	retiring   bool
+	handingOff bool // RetireVia is moving sessions to the other copy right now
+	wg         sync.WaitGroup
 }
 
 // Which path a studio came in on; a label on the metrics.
@@ -279,11 +280,14 @@ type kicked struct {
 	release func()
 }
 
-// kickAll hands studios over, outside s.mu: closing sockets under the lock
-// would let one slow close hold up /healthz and every other caller.
+// kickAll hands studios over, outside s.mu (closing sockets under the lock
+// would let one slow close hold up /healthz and every other caller), and all
+// at once: a close can take closeWait on a studio that stopped reading, and
+// one by one a few of those would use up systemd's 10 s stop window, the
+// studios behind them killed without ever hearing 1001.
 func kickAll(list []kicked) {
 	for _, k := range list {
-		k.st.sess.kick(k.release)
+		go k.st.sess.kick(k.release)
 	}
 }
 
@@ -346,10 +350,14 @@ func (s *Server) RetireVia(maxWait time.Duration, to *HandoffTarget) {
 	}
 	s.draining = true
 	s.retiring = true
+	// With retiring, under the same lock: the deploy must never see this
+	// copy retiring with shows on and not handing off while it is about to.
+	s.handingOff = to != nil
 	s.mu.Unlock()
 
 	if to != nil {
 		s.handOffAll(*to)
+		s.setHandingOff(false)
 	}
 
 	s.mu.Lock()
@@ -382,6 +390,21 @@ func (s *Server) ActiveOn(path string) int {
 		}
 	}
 	return n
+}
+
+func (s *Server) setHandingOff(v bool) {
+	s.mu.Lock()
+	s.handingOff = v
+	s.mu.Unlock()
+}
+
+// HandingOff reports whether a retirement is moving sessions to the other
+// copy right now. Whatever is still here then is on its way out in seconds;
+// once it is false, what a retiring copy still carries stays until it ends.
+func (s *Server) HandingOff() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.handingOff
 }
 
 // Retiring reports whether Retire has been called.
@@ -680,10 +703,7 @@ func (ss *session) studioReadFailed(err error) {
 	case StatusProtocolError:
 		label = "bad_frame"
 	}
-	if ss.path == PathHarbor {
-		label = "harbor_" + label
-	}
-	if !ss.end(label, func() {
+	if !ss.end(ss.reason(label), func() {
 		ss.closeUpstream()
 		if code != 0 {
 			c.writeClose(code, why)
@@ -703,11 +723,7 @@ func (ss *session) studioClosed(payload []byte) {
 		ss.studioReadFailed(err)
 		return
 	}
-	label := "client_closed"
-	if ss.path == PathHarbor {
-		label = "harbor_client_closed"
-	}
-	if !ss.end(label, func() {
+	if !ss.end(ss.reason("client_closed"), func() {
 		c.answerClose(payload)
 		if ss.path == PathHarbor {
 			forwardClose(ss.up, code, reason)
