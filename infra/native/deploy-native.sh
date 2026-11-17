@@ -551,9 +551,12 @@ echo "==> Relay"
 # relay/ changed, in a throwaway golang container so the host needs no Go,
 # and as $RUN_USER so nothing in the tree ends up root-owned.
 #
-# Then the copies move onto it one at a time (relay-rollover.sh): Free
-# studios reconnect to the other copy within milliseconds (relay lab: show
-# back in 45-173 ms, listeners hear at most ~2 s of standby silence);
+# The deploy installs it (renamed into place); the copies then move onto it
+# by themselves, one at a time, each handing its live sessions, Free and
+# Pro, to the other copy without anyone noticing (relay/internal/relay/
+# handoff.go). relay-rollover.sh only watches, and puts the previous binary
+# back if a copy cannot start. Copies from before hand-offs move the old
+# way: Free studios reconnect to the other copy within milliseconds,
 # container shows are left to end on their own first.
 #
 # Independent of the API: a relay that fails to come up puts the previous
@@ -633,7 +636,11 @@ echo "==> Checking the studio ingest route"
 # turns every Pro go-live into a 404.
 INGEST_URL="$(sed -n 's/^LIQUIDSOAP_INGEST_URL=//p' "$REPO_ROOT/api/.env" | tail -1 | tr -d '"')"
 if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
-  if ! nginx -T 2>/dev/null | grep -q 'location ~ "^/relay/broadcast/'; then
+  # Either form: one location for /relay and /relay/broadcast/ (the
+  # template now), or a separate /relay/broadcast/ block (hosts edited before).
+  # grep without -q: -q stops at the first match, and under pipefail the
+  # SIGPIPE that kills a large `nginx -T` dump after it would fail the test.
+  if ! nginx -T 2>/dev/null | grep -E 'location ~ "\^/relay(/broadcast/|\(/broadcast/)' >/dev/null; then
     MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx has no such
       location, so every Pro go-live fails. Add it from infra/native/nginx/gocast-stream.conf (nginx -t &&
       systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
@@ -644,7 +651,7 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
   relay_serves=0
   for _ in $(seq 1 20); do
     for hp in 18095 18096; do
-      curl -fsS --max-time 1 "http://127.0.0.1:${hp}/healthz" 2>/dev/null | grep -q '"harbor_active"' && relay_serves=1
+      curl -fsS --max-time 1 "http://127.0.0.1:${hp}/healthz" 2>/dev/null | grep '"harbor_active"' >/dev/null && relay_serves=1
     done
     [[ $relay_serves -eq 1 ]] && break
     sleep 1

@@ -48,9 +48,14 @@ type link struct {
 
 	frozen atomic.Bool
 
-	wmu          sync.Mutex
-	pending      []byte    // owed to the peer, not yet written (a hand-off's doing)
-	pendingSince time.Time // when the oldest of those bytes began to be written
+	wmu     sync.Mutex
+	pending []byte // owed to the peer, not yet written (a hand-off's doing)
+	// How long the oldest of those bytes had been on its way when the freeze
+	// stopped it. An age, not a start time: time spent frozen must not count
+	// against the write timeout, or a hand-off that is called off (or a slow
+	// one) would leave the write's deadline already passed when it resumes,
+	// and a healthy show would be cut as stalled.
+	pendingAge time.Duration
 }
 
 func newLink(nc net.Conn, timeout time.Duration) link {
@@ -64,7 +69,7 @@ func (l *link) write(b []byte) error {
 	if l.frozen.Load() {
 		if len(b) > 0 {
 			if len(l.pending) == 0 {
-				l.pendingSince = time.Now()
+				l.pendingAge = 0
 			}
 			l.pending = append(l.pending, b...)
 		}
@@ -73,8 +78,8 @@ func (l *link) write(b []byte) error {
 	buf, since := b, time.Now()
 	if len(l.pending) > 0 {
 		buf = append(l.pending, b...)
-		since = l.pendingSince
-		l.pending, l.pendingSince = nil, time.Time{}
+		since = since.Add(-l.pendingAge)
+		l.pending, l.pendingAge = nil, 0
 	}
 	if len(buf) == 0 {
 		return nil
@@ -92,7 +97,7 @@ func (l *link) write(b []byte) error {
 	}
 	if isDeadline(err) && l.frozen.Load() {
 		l.pending = append([]byte(nil), buf[n:]...)
-		l.pendingSince = since
+		l.pendingAge = time.Since(since)
 		return nil
 	}
 	if isDeadline(err) {
@@ -114,15 +119,13 @@ func (l *link) thaw() {
 
 func (l *link) closeNow() { l.nc.Close() }
 
-// parked reports whether a read error is this link's freeze, not the peer.
-func (l *link) parked(err error) bool { return l.frozen.Load() && isDeadline(err) }
-
 // wsConn is a WebSocket on a link.
 type wsConn struct {
 	link
 	client bool // the relay dialled this one (harbor): its frames are masked
 	p      frameParser
-	rbuf   []byte // read, not yet parsed
+	rbuf   []byte // read from the socket; rbuf[rpos:] is not parsed yet
+	rpos   int
 
 	closeSent atomic.Bool // our close frame is out: the peer's close is its reply
 }
@@ -134,17 +137,30 @@ func newWSConn(nc net.Conn, client bool, maxMessage int64, timeout time.Duration
 	return c
 }
 
+// unread is what has been read from the socket and not parsed yet.
+func (c *wsConn) unread() []byte { return c.rbuf[c.rpos:] }
+
 // readFrame returns the next frame. On error, every byte read and not yet
-// used stays in rbuf: after a freeze, that is what moves with the socket.
+// used stays in unread(): after a freeze, that is what moves with the
+// socket. Frames are taken from the front by moving rpos; the buffer is
+// compacted only before the next socket read, so a burst of N frames (the
+// catch-up after a hand-off) costs O(N), not O(N²).
 func (c *wsConn) readFrame() (wsFrame, error) {
 	for {
-		f, n, err := c.p.parse(c.rbuf)
+		f, n, err := c.p.parse(c.rbuf[c.rpos:])
 		if err != nil {
 			return f, err
 		}
 		if n > 0 {
-			c.rbuf = c.rbuf[:copy(c.rbuf, c.rbuf[n:])]
+			c.rpos += n
+			if c.rpos == len(c.rbuf) {
+				c.rbuf, c.rpos = c.rbuf[:0], 0
+			}
 			return f, nil
+		}
+		if c.rpos > 0 {
+			c.rbuf = c.rbuf[:copy(c.rbuf, c.rbuf[c.rpos:])]
+			c.rpos = 0
 		}
 		if cap(c.rbuf)-len(c.rbuf) < 4096 {
 			grown := make([]byte, len(c.rbuf), 2*cap(c.rbuf)+4096)
@@ -172,16 +188,18 @@ func (c *wsConn) writeClose(code int, reason string) error {
 }
 
 // closeHandshake sends close and gives the peer closeWait to answer; the
-// reader that sees the answer drops the socket, or the timer does.
+// reader that sees the answer drops the socket, or the timer does. The timer
+// starts before the write, so a studio that stopped reading (the close frame
+// itself blocks) is also dropped at closeWait, never later: a drain must fit
+// in systemd's stop window.
 func (c *wsConn) closeHandshake(code int, reason string) {
 	if c.closeSent.Load() {
 		return
 	}
+	time.AfterFunc(closeWait, c.closeNow)
 	if err := c.writeClose(code, reason); err != nil {
 		c.closeNow()
-		return
 	}
-	time.AfterFunc(closeWait, c.closeNow)
 }
 
 // answerClose is the reply to a close the peer started: echo it, then drop

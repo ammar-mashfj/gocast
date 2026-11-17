@@ -339,20 +339,25 @@ sudo systemctl enable --now gocast-queue gocast-realtime gocast-analysis gocast-
 pull, install deps, build the client, migrate, cache, reload php-fpm,
 restart the workers, then relaunch and reconcile station containers.
 
-The relay is not restarted by a deploy: `relay-rollover.sh` installs the new
-binary and the two copies move onto it by themselves, one at a time, each
-handing its live sessions (Free and Pro) to the other copy without anyone
-noticing (see `relay/README.md`). It takes seconds. Copies from before
+The relay is not restarted by a deploy: the deploy installs the new binary
+(renamed into place) and the two copies move onto it by themselves, one at a
+time, each handing its live sessions (Free and Pro) to the other copy without
+anyone noticing (see `relay/README.md`). It takes seconds. `relay-rollover.sh`
+only watches: it starts a copy that was not running, and puts the previous
+binary back if a copy cannot start on the new one. Copies from before
 hand-offs move the old way, keeping live container shows on until they end;
-a deploy that reports "still rolling over" needs nothing.
+a deploy that reports "still rolling over" needs nothing. Re-running
+`setup-native.sh` leaves running copies alone.
 
 **Pro studios through the relay** (the 100-minute Cloudflare fix). Do these in
 order; `deploy-native.sh` warns when the URL is switched too early:
 
 1. Deploy a commit that has `relay/internal/relay/harbor.go`.
-2. Add the `/relay/broadcast/` location and `http_503` on both relay locations
-   from `nginx/gocast-stream.conf` to the live vhost by hand, then
-   `nginx -t && systemctl reload nginx`.
+2. In the live vhost, by hand (certbot edited it, so never re-render it):
+   change the relay block's `location = /relay {` line to
+   `location ~ "^/relay(/broadcast/[a-z0-9][a-z0-9-]{0,62})?$" {` and add
+   `proxy_next_upstream error timeout http_503;` inside it, as in
+   `nginx/gocast-stream.conf`. Then `nginx -t && systemctl reload nginx`.
 3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in
    `api/.env`, then `php artisan config:cache`.
 
