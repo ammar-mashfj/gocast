@@ -161,8 +161,8 @@ func TestHandoffHarborShowNeverNotices(t *testing.T) {
 	eventually(t, "audio at harbor", func() bool { return len(h.got("a")) > 50 })
 
 	a.handOffAll(toB)
-	if a.Active() != 0 || b.Active() != 1 || a.Metrics.HandedOut(PathHarbor) != 1 || b.Metrics.HandedIn(PathHarbor) != 1 {
-		t.Fatalf("after: a=%d b=%d out=%d in=%d", a.Active(), b.Active(), a.Metrics.HandedOut(PathHarbor), b.Metrics.HandedIn(PathHarbor))
+	if a.Active() != 0 || b.Active() != 1 || a.Metrics.handedOutTotal(PathHarbor) != 1 || b.Metrics.handedInTotal(PathHarbor) != 1 {
+		t.Fatalf("after: a=%d b=%d out=%d in=%d", a.Active(), b.Active(), a.Metrics.handedOutTotal(PathHarbor), b.Metrics.handedInTotal(PathHarbor))
 	}
 	p0 := pings.Load()
 	time.Sleep(200 * time.Millisecond)
@@ -323,7 +323,7 @@ func TestHandoffBackAndForthUnderLoad(t *testing.T) {
 	if h.dials.Load() != 3 || ice.requestCount() != 1 {
 		t.Fatalf("reconnects: harbor dials %d, icecast logins %d", h.dials.Load(), ice.requestCount())
 	}
-	if out := a.Metrics.HandedOut(PathHarbor) + b.Metrics.HandedOut(PathHarbor); out != 60 {
+	if out := a.Metrics.handedOutTotal(PathHarbor) + b.Metrics.handedOutTotal(PathHarbor); out != 60 {
 		t.Fatalf("%d harbor hand-offs, want 60", out)
 	}
 }
@@ -419,7 +419,7 @@ func (sh *slowHarbor) serve(t *testing.T, nc net.Conn) {
 			return
 		}
 		sh.mu.Lock()
-		sh.frames = append(sh.frames, f.payload)
+		sh.frames = append(sh.frames, append([]byte(nil), f.payload...)) // the payload is only valid until the next read
 		sh.mu.Unlock()
 	}
 }
@@ -520,7 +520,7 @@ func TestDrainingCopyRefusesAndTheOldWayFollows(t *testing.T) {
 	}
 	pro.Close(websocket.StatusNormalClosure, "")
 	<-retired
-	if a.Metrics.HandedOut(PathHarbor)+a.Metrics.HandedOut(PathIcecast) != 0 || b.Active() != 0 {
+	if a.Metrics.handedOutTotal(PathHarbor)+a.Metrics.handedOutTotal(PathIcecast) != 0 || b.Active() != 0 {
 		t.Fatal("something was handed to a draining copy")
 	}
 }
@@ -599,7 +599,7 @@ func TestNoCommitLeavesTheShowWhereItWas(t *testing.T) {
 	n := st.finish(t)
 	noEnd(t, ended, "a")
 	harborGotInOrder(t, h, "a", "a", n)
-	if b.Metrics.HandedIn(PathHarbor) != 0 || a.Active() != 1 || h.dials.Load() != 1 {
+	if b.Metrics.handedInTotal(PathHarbor) != 0 || a.Active() != 1 || h.dials.Load() != 1 {
 		t.Fatal("the show moved or reconnected")
 	}
 }

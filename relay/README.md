@@ -90,8 +90,10 @@ studios, which reconnect to the other within milliseconds.
   without it every browser is refused, and a pattern with a scheme stops the
   binary at startup.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off"}`.
-  `handoff` is the hand-off version the copy takes sessions with (0: it does not); `handing_off`
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor"}`.
+  `build` is the program the process is running (`/proc/self/exe`), not the file now at its path.
+  `harbor` is where container studios are passed to ("" = pass-through off); the deploy checks a router answers there.
+  `handoff` is the hand-off version the copy takes sessions with, while its hand-off socket is listening (0: it does not); `handing_off`
   is true while a retiring copy is moving its sessions over (seconds). `rollover_blocked` is the
   last test run's verdict on the binary on disk (the test runs in the rollover loop, never in `/healthz`).
   `/metrics` gives active, total, bytes and hand-offs in/out per `path` (`icecast`, `harbor`), plus closes by reason.

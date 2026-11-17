@@ -645,23 +645,41 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
       location, so every Pro go-live fails. Add it from infra/native/nginx/gocast-stream.conf (nginx -t &&
       systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
   fi
+  # A copy serves it only if its pass-through is on (/healthz "harbor": the
+  # router address, "" when RELAY_HARBOR is empty) and the station router
+  # answers there: the pass-through off, or pointed at the wrong port, fails
+  # every Pro go-live with 404 or 502 while the relay itself looks healthy.
   # Either copy will do, and give them time: right after the relay step a
   # copy can be mid-restart onto the new build. Pointing the URL back is
   # NOT the advice here: that brings the 100-minute Cloudflare cuts back.
   relay_serves=0
+  relay_why="no relay copy answers /healthz"
   for _ in $(seq 1 20); do
-    for hp in 18095 18096; do
-      curl -fsS --max-time 1 "http://127.0.0.1:${hp}/healthz" 2>/dev/null | grep '"harbor_active"' >/dev/null && relay_serves=1
+    for p in "${RELAY_PORTS[@]}"; do
+      h="$(curl -fsS --max-time 1 "http://127.0.0.1:1${p}/healthz" 2>/dev/null || true)"
+      [[ -z "$h" ]] && continue
+      harbor="$(sed -n 's/.*"harbor":"\([^"]*\)".*/\1/p' <<<"$h")"
+      if [[ -z "$harbor" ]]; then
+        relay_why="gocast-relay@${p} has the pass-through off (RELAY_HARBOR is empty, or the build predates this check)"
+        continue
+      fi
+      if [[ "$(curl -fsS --max-time 2 "http://${harbor}/healthz" 2>/dev/null || true)" == ok* ]]; then
+        relay_serves=1
+        break
+      fi
+      relay_why="gocast-relay@${p} passes Pro studios to ${harbor}, where no station router answers /healthz (wrong RELAY_HARBOR port, or the router is down)"
     done
     [[ $relay_serves -eq 1 ]] && break
     sleep 1
   done
   if [[ $relay_serves -eq 0 ]]; then
-    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but no relay copy serves it right
-      now. Check the relay: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz;
-      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50")
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but no relay copy can serve it:
+      ${relay_why}. Check: curl -s 127.0.0.1:1${RELAY_PORTS[0]}/healthz; RELAY_HARBOR in
+      /etc/systemd/system/gocast-relay@.service; journalctl -u gocast-relay@${RELAY_PORTS[0]} -n 50")
+    echo "  ✗ Pro studios are sent to the relay ($INGEST_URL), which cannot serve them: see below"
+  else
+    echo "  · Pro studios go through the relay ($INGEST_URL)"
   fi
-  echo "  · Pro studios go through the relay ($INGEST_URL)"
 else
   echo "  · Pro studios go straight to the station router (${INGEST_URL:-unset})"
 fi

@@ -56,6 +56,7 @@ type link struct {
 	// one) would leave the write's deadline already passed when it resumes,
 	// and a healthy show would be cut as stalled.
 	pendingAge time.Duration
+	owed       atomic.Bool // len(pending) > 0, readable without wmu
 }
 
 func newLink(nc net.Conn, timeout time.Duration) link {
@@ -72,39 +73,66 @@ func (l *link) write(b []byte) error {
 				l.pendingAge = 0
 			}
 			l.pending = append(l.pending, b...)
+			l.owed.Store(true)
+			b = nil
 		}
-		return nil
+		// Still frozen: the bytes wait. A thaw in the meantime may have
+		// looked for owed bytes before these were stored, so write them now.
+		if l.frozen.Load() {
+			return nil
+		}
 	}
 	buf, since := b, time.Now()
 	if len(l.pending) > 0 {
 		buf = append(l.pending, b...)
 		since = since.Add(-l.pendingAge)
 		l.pending, l.pendingAge = nil, 0
+		l.owed.Store(false)
 	}
-	if len(buf) == 0 {
-		return nil
+	deadline := since.Add(l.timeout)
+	for len(buf) > 0 {
+		// Set, then look at frozen again: a freeze between the two would
+		// otherwise have its past deadline overwritten by this one, and this
+		// write could block for the whole timeout during a hand-off.
+		l.nc.SetWriteDeadline(deadline)
+		if l.frozen.Load() {
+			l.nc.SetWriteDeadline(pastDeadline)
+		}
+		n, err := l.nc.Write(buf)
+		if err == nil {
+			return nil
+		}
+		if !isDeadline(err) {
+			return err
+		}
+		buf = buf[n:]
+		// Which deadline was it? Before this write's own, it can only be a
+		// freeze's. Frozen still: keep the rest owed. Thawed already (a
+		// hand-off called off between the freeze and here): carry on, the
+		// peer is not stalled. Only a write past its own deadline is.
+		if l.frozen.Load() {
+			l.pending = append([]byte(nil), buf...)
+			l.pendingAge = time.Since(since)
+			l.owed.Store(len(buf) > 0)
+			// Same as above: a thaw that came just now did not see these.
+			if l.frozen.Load() {
+				return nil
+			}
+			buf = l.pending
+			l.pending, l.pendingAge = nil, 0
+			l.owed.Store(false)
+			continue
+		}
+		if !time.Now().Before(deadline) {
+			return errStalled
+		}
 	}
-	// Set, then look at frozen again: a freeze between the two would
-	// otherwise have its past deadline overwritten by this one, and this
-	// write could block for the whole timeout during a hand-off.
-	l.nc.SetWriteDeadline(since.Add(l.timeout))
-	if l.frozen.Load() {
-		l.nc.SetWriteDeadline(pastDeadline)
-	}
-	n, err := l.nc.Write(buf)
-	if err == nil {
-		return nil
-	}
-	if isDeadline(err) && l.frozen.Load() {
-		l.pending = append([]byte(nil), buf[n:]...)
-		l.pendingAge = time.Since(since)
-		return nil
-	}
-	if isDeadline(err) {
-		return errStalled
-	}
-	return err
+	return nil
 }
+
+// hasOwed reports bytes left by a freeze, without the write lock (a stalled
+// write can hold that for its whole timeout).
+func (l *link) hasOwed() bool { return l.owed.Load() }
 
 func (l *link) freeze() {
 	l.frozen.Store(true)

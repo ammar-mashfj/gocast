@@ -347,7 +347,9 @@ only watches: it starts a copy that was not running, and puts the previous
 binary back if a copy cannot start on the new one. Copies from before
 hand-offs move the old way, keeping live container shows on until they end;
 a deploy that reports "still rolling over" needs nothing. Re-running
-`setup-native.sh` leaves running copies alone.
+`setup-native.sh` never restarts a running copy; when it changed the relay
+unit (APP_HOST, ROUTER_PORT, peers), it rolls the copies onto it one at a
+time with SIGUSR1, which hands their sessions over like a deploy does.
 
 **Pro studios through the relay** (the 100-minute Cloudflare fix). Do these in
 order; `deploy-native.sh` warns when the URL is switched too early:

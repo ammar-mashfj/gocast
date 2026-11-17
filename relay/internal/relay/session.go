@@ -394,11 +394,14 @@ func (ss *session) thawLocked(to sessionState) {
 
 // flushPendingLocked writes out whatever a freeze left owed to each peer.
 // Anything else written meanwhile goes after it (link.write keeps order).
-// Always a goroutine, never a look at pending here: that needs the write
+// Checked through the owed flag, never pending itself: that needs the write
 // lock, which a stalled write can hold for its whole timeout, and ss.mu must
 // never wait on it.
 func (ss *session) flushPendingLocked() {
 	for _, l := range ss.links() {
+		if !l.hasOwed() {
+			continue
+		}
 		go func() {
 			if err := l.write(nil); err != nil {
 				ss.writeFailed(l, err)
@@ -512,7 +515,11 @@ func adoptSession(srv *Server, snap *sessionSnap, conns []net.Conn) (*session, e
 	if len(conns) != want {
 		return nil, fmt.Errorf("%d sockets, want %d", len(conns), want)
 	}
-	ss := newSession(srv, snap.Path, restoreWS(conns[0], false, cfg.MaxMessage, cfg.HarborWriteTimeout, snap.Studio))
+	studioTimeout := cfg.StudioWriteTimeout
+	if snap.Path == PathHarbor {
+		studioTimeout = cfg.HarborWriteTimeout
+	}
+	ss := newSession(srv, snap.Path, restoreWS(conns[0], false, cfg.MaxMessage, studioTimeout, snap.Studio))
 	ss.id = snap.ID
 	switch snap.Path {
 	case PathHarbor:
@@ -545,6 +552,7 @@ func restoreWS(nc net.Conn, client bool, maxMessage int64, timeout time.Duration
 
 func restorePending(l *link, s linkSnap) {
 	if len(s.Pending) > 0 {
+		l.owed.Store(true)
 		l.pending = s.Pending
 		l.pendingAge = time.Duration(s.PendingAge)
 	}

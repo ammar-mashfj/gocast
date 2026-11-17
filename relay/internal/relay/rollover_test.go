@@ -36,7 +36,7 @@ func TestRetireHandsOverFreeAndKeepsContainerShows(t *testing.T) {
 	eventually(t, "pro at harbor", func() bool { return h.conn("pro-one") != nil })
 
 	retired := make(chan struct{})
-	go func() { s.Retire(time.Minute); close(retired) }()
+	go func() { s.retire(time.Minute); close(retired) }()
 
 	// The Free studio is handed over at once, its source released first.
 	if got := readUntilClose(t, free); got != CloseDraining {
@@ -106,7 +106,7 @@ func TestRetireHandsOverContainerShowsAfterMaxWait(t *testing.T) {
 
 	start := time.Now()
 	retired := make(chan struct{})
-	go func() { s.Retire(500 * time.Millisecond); close(retired) }()
+	go func() { s.retire(500 * time.Millisecond); close(retired) }()
 	if got := readUntilClose(t, pro); got != CloseDraining {
 		t.Fatalf("close %d, want 1001", got)
 	}
@@ -121,7 +121,7 @@ func TestRetireHandsOverContainerShowsAfterMaxWait(t *testing.T) {
 func TestRetireWithNothingOnReturnsAtOnce(t *testing.T) {
 	s, _ := startRelay(t, harborConfig(newFakeHarbor(t).addr()))
 	done := make(chan struct{})
-	go func() { s.Retire(time.Hour); close(done) }()
+	go func() { s.retire(time.Hour); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -236,25 +236,25 @@ func TestPeerReady(t *testing.T) {
 	ctx := context.Background()
 
 	h.Store(&Health{})
-	if !r.PeerReady(ctx) {
+	if !r.anyPeerReady(ctx) {
 		t.Fatal("a healthy peer is not ready")
 	}
 	h.Store(&Health{Draining: true})
-	if r.PeerReady(ctx) {
+	if r.anyPeerReady(ctx) {
 		t.Fatal("a draining peer counted as ready")
 	}
 	h.Store(&Health{Draining: true, Retiring: true})
-	if r.PeerReady(ctx) {
+	if r.anyPeerReady(ctx) {
 		t.Fatal("a retiring peer counted as ready")
 	}
 	h.Store(nil)
-	if r.PeerReady(ctx) {
+	if r.anyPeerReady(ctx) {
 		t.Fatal("a peer answering 503 counted as ready")
 	}
-	if (&Rollover{Peers: []string{"127.0.0.1:1"}}).PeerReady(ctx) {
+	if (&Rollover{Peers: []string{"127.0.0.1:1"}}).anyPeerReady(ctx) {
 		t.Fatal("an unreachable peer counted as ready")
 	}
-	if (&Rollover{}).PeerReady(ctx) {
+	if (&Rollover{}).anyPeerReady(ctx) {
 		t.Fatal("no peers counted as ready")
 	}
 }
@@ -569,8 +569,8 @@ func TestRetireTwiceRunsOnce(t *testing.T) {
 	expectOK(t, free)
 	go readUntilClose(t, free) // a real studio reads, so its close handshake completes
 	done := make(chan struct{}, 2)
-	go func() { s.Retire(time.Minute); done <- struct{}{} }()
-	go func() { s.Retire(time.Minute); done <- struct{}{} }()
+	go func() { s.retire(time.Minute); done <- struct{}{} }()
+	go func() { s.retire(time.Minute); done <- struct{}{} }()
 	for i := 0; i < 2; i++ {
 		select {
 		case <-done:

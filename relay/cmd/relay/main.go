@@ -102,11 +102,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("own binary: %v", err)
 	}
-	roll, err := relay.NewRollover(exe)
+	roll, err := relay.NewRolloverForSelf(exe)
 	if err != nil {
 		log.Fatalf("own binary %s: %v", exe, err)
 	}
 	roll.MaxWait = *retireMax
+	roll.SelfPID = os.Getpid()
 	for _, p := range strings.Split(*peers, ",") {
 		if p = strings.TrimSpace(p); p != "" && p != *health {
 			roll.Peers = append(roll.Peers, p)
@@ -130,12 +131,10 @@ func main() {
 	// Sessions handed over by the other copy when it retires. Without this
 	// listener the other copy retires the old way (it reads "handoff" in our
 	// /healthz).
-	handoff := 0
 	if hl, err := srv.ListenHandoff(relay.HandoffSocket(*health)); err != nil {
 		log.Printf("hand-off socket %s: %v (this copy will not take sessions from the other)", relay.HandoffSocket(*health), err)
 	} else {
 		defer hl.Close()
-		handoff = relay.HandoffVersion
 	}
 
 	web := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
@@ -144,6 +143,12 @@ func main() {
 	hmux := http.NewServeMux()
 	hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// Only what the listener is doing now: a copy that stopped taking
+		// hand-offs must not be counted on for one.
+		handoff := 0
+		if srv.TakesHandoffs() {
+			handoff = relay.HandoffVersion
+		}
 		json.NewEncoder(w).Encode(relay.Health{
 			PID:             os.Getpid(),
 			Active:          srv.Active(),
@@ -156,6 +161,7 @@ func main() {
 			Build:           roll.Build(),
 			RolloverBlocked: roll.BlockedSoFar(),
 			Handoff:         handoff,
+			Harbor:          cfg.HarborAddr,
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })
@@ -192,19 +198,29 @@ func main() {
 			if s == syscall.SIGUSR1 {
 				// By hand: the same retirement as a new binary triggers,
 				// under the same rules (the other copy up, the lock), but
-				// without needing a changed binary.
-				why, ok := roll.Begin(ctx, srv, false)
-				if !ok {
-					log.Printf("SIGUSR1 refused: %s", why)
-					continue
-				}
-				if t := roll.Target(); t != nil {
-					log.Printf("SIGUSR1: handing %d session(s) to the other copy (pid %d), then exiting", srv.Active(), t.PID)
-				} else {
-					log.Printf("SIGUSR1: the other copy cannot take sessions; retiring (%d Free studio(s) told to reconnect, %d container show(s) left to end)",
-						srv.ActiveOn(relay.PathIcecast), srv.ActiveOn(relay.PathHarbor))
-				}
-				go func() { srv.RetireVia(*retireMax, roll.Target()); markRetired() }()
+				// without needing a changed binary. Off this loop: Begin
+				// asks the other copy and may test-run a binary (seconds),
+				// and a SIGTERM meanwhile must reach the drain at once, or
+				// systemd's stop window runs out and kills the studios
+				// without a 1001.
+				go func() {
+					why, ok := roll.Begin(ctx, srv, false)
+					if !ok {
+						log.Printf("SIGUSR1 refused: %s", why)
+						return
+					}
+					if ctx.Err() != nil {
+						return // a SIGTERM came meanwhile: the drain has it
+					}
+					if t := roll.Target(); t != nil {
+						log.Printf("SIGUSR1: handing %d session(s) to the other copy (pid %d), then exiting", srv.Active(), t.PID)
+					} else {
+						log.Printf("SIGUSR1: the other copy cannot take sessions; retiring (%d Free studio(s) told to reconnect, %d container show(s) left to end)",
+							srv.ActiveOn(relay.PathIcecast), srv.ActiveOn(relay.PathHarbor))
+					}
+					srv.RetireVia(*retireMax, roll.Target())
+					markRetired()
+				}()
 				continue
 			}
 			stopRoll()
