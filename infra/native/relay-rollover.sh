@@ -31,9 +31,14 @@ WAIT_SECS="${RELAY_ROLLOVER_WAIT:-180}"   # how long to watch before reporting
 DOWN_SECS="${RELAY_ROLLOVER_DOWN:-30}"    # unreachable this long = cannot start
 
 as_app() { sudo -u "$RUN_USER" "$@"; }
-health() { curl -fsS --max-time 1 "http://127.0.0.1:1$1/healthz" 2>/dev/null || true; }
+# relay_health / relay_field / relay_string
+source "$(dirname "${BASH_SOURCE[0]}")/relay-health.sh"
+health() { relay_health "$1"; }
 # field <json> <name>: a scalar from /healthz's flat JSON object.
-field() { sed -n "s/.*\"$2\":\([^,}]*\).*/\1/p" <<<"$1" | tr -d '"'; }
+field() { # a number, boolean or string field, unquoted
+  local v; v="$(relay_string "$1" "$2")"
+  [[ -n "$v" ]] && echo "$v" || relay_field "$1" "$2"
+}
 healthy() {
   local i
   for i in $(seq 1 20); do [[ -n "$(health "$1")" ]] && return 0; sleep 0.5; done
@@ -140,7 +145,7 @@ while :; do
     # The copy test-ran the new binary before stepping aside for it, and it
     # failed: no copy will ever move onto it, so put the previous one back.
     # Every copy is still serving on its own build at this point.
-    blocked="$(sed -n 's/.*"rollover_blocked":"\([^"]*\)".*/\1/p' <<<"$h")"
+    blocked="$(relay_string "$h" rollover_blocked)"
     if [[ -n "$blocked" ]]; then
       echo "  ✗ gocast-relay@${port} refuses the new binary: $blocked"
       echo "    putting the previous binary back; every copy kept serving on its own build"

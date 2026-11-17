@@ -98,6 +98,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	srv := relay.New(cfg)
 
+	started := time.Now()
 	exe, err := os.Executable()
 	if err != nil {
 		log.Fatalf("own binary: %v", err)
@@ -143,25 +144,29 @@ func main() {
 	hmux := http.NewServeMux()
 	hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// Only what the listener is doing now: a copy that stopped taking
-		// hand-offs must not be counted on for one.
+		// One read of the server's state, so its numbers agree. Hand-offs
+		// only while the listener runs: a copy that stopped taking them must
+		// not be counted on for one.
+		st := srv.State()
 		handoff := 0
-		if srv.TakesHandoffs() {
+		if st.HandoffSocket != "" {
 			handoff = relay.HandoffVersion
 		}
 		json.NewEncoder(w).Encode(relay.Health{
 			PID:             os.Getpid(),
-			Active:          srv.Active(),
-			IcecastActive:   srv.ActiveOn(relay.PathIcecast),
-			HarborActive:    srv.ActiveOn(relay.PathHarbor),
-			Draining:        srv.Draining(),
-			Retiring:        srv.Retiring(),
-			HandingOff:      srv.HandingOff(),
+			Active:          st.Active,
+			IcecastActive:   st.Icecast,
+			HarborActive:    st.Harbor,
+			Draining:        st.Draining,
+			Retiring:        st.Retiring,
+			HandingOff:      st.HandingOff,
 			Stale:           roll.Stale(),
 			Build:           roll.Build(),
 			RolloverBlocked: roll.BlockedSoFar(),
 			Handoff:         handoff,
 			Harbor:          cfg.HarborAddr,
+			HandoffSocket:   st.HandoffSocket,
+			UpMillis:        time.Since(started).Milliseconds(),
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })

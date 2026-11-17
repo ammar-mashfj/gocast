@@ -212,8 +212,9 @@ type Server struct {
 	// waiting for its last container show waits on.
 	left chan struct{}
 
-	handoffUp atomic.Bool // the hand-off socket is accepting
-	wg        sync.WaitGroup
+	handoffUp   atomic.Bool // the hand-off socket is accepting
+	handoffName string      // its abstract name
+	wg          sync.WaitGroup
 }
 
 // Which path a studio came in on; a label on the metrics.
@@ -431,6 +432,32 @@ func (s *Server) ActiveOn(path string) int {
 	return n
 }
 
+// State is the server's part of /healthz, read under one lock so the
+// numbers agree with each other (the deploy decides from them).
+type State struct {
+	Active, Icecast, Harbor        int
+	Draining, Retiring, HandingOff bool
+	// The hand-off socket while it accepts, else "".
+	HandoffSocket string
+}
+
+func (s *Server) State() State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := State{Active: len(s.conns), Draining: s.draining, Retiring: s.retiring, HandingOff: s.handingOff}
+	for _, c := range s.conns {
+		if c.path == PathHarbor {
+			st.Harbor++
+		} else {
+			st.Icecast++
+		}
+	}
+	if s.handoffUp.Load() {
+		st.HandoffSocket = s.handoffName
+	}
+	return st
+}
+
 func (s *Server) setHandingOff(v bool) {
 	s.mu.Lock()
 	s.handingOff = v
@@ -604,6 +631,7 @@ func (ss *session) runIcecast() string {
 	ss.ice = &l
 	if err := c.writeFrame(true, opText, []byte(`{"type":"ok"}`)); err != nil {
 		ss.state, ss.label = stEnding, "client_gone"
+		ss.endingFlag.Store(true)
 		ss.mu.Unlock()
 		l.closeNow()
 		c.closeNow()

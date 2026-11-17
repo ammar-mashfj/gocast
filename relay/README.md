@@ -89,8 +89,15 @@ studios, which reconnect to the other within milliseconds.
 - `-origins` must list the studio's hosts as bare hosts (e.g. `gocast.fm,www.gocast.fm`);
   without it every browser is refused, and a pattern with a scheme stops the
   binary at startup.
+  The same list now applies to container (Pro) studios too: the direct harbor path checked no Origin.
+  A studio front end on any other host (a preview deploy, another subdomain) must be added here, or
+  its Pro go-lives get 403 ("could not reach the stream server"). The mobile app sends no Origin and
+  is never refused.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor"}`.
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket"}`,
+  read under one lock. `handoff_socket` is the socket the copy takes hand-offs on: the other copy dials
+  exactly that name, so how an address is spelled in `RELAY_PEERS` never matters.
+  Scripts read it through `infra/native/relay-health.sh`.
   `build` is the program the process is running (`/proc/self/exe`), not the file now at its path.
   `harbor` is where container studios are passed to ("" = pass-through off); the deploy checks a router answers there.
   `handoff` is the hand-off version the copy takes sessions with, while its hand-off socket is listening (0: it does not); `handing_off`
@@ -148,7 +155,7 @@ a second source on a held mount).
 | relay copy rolls over (deploy) | nothing: the session moves to the other copy | one harbor connection throughout |
 | relay copy restarted (SIGTERM) | 1001, harbor let go first | reconnect through the other copy in 3 ms, station stayed `live` |
 | harbor stops reading for 10 s | 1011 "stream server stopped accepting audio" | (fake harbor only) |
-| foreign Origin | 403, harbor never dialled | |
+| foreign Origin | 403, harbor never dialled | **new**: the direct `/broadcast/` path checks no Origin |
 
 `-harbor` / `RELAY_HARBOR` defaults to `127.0.0.1:8091`; empty turns the
 pass-through off (404).

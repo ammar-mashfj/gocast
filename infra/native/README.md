@@ -363,6 +363,13 @@ order; `deploy-native.sh` warns when the URL is switched too early:
 3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in
    `api/.env`, then `php artisan config:cache`.
 
+Through the relay, Pro studios pass its Origin check (`-origins`: APP_HOST and
+www.APP_HOST), which the direct `/broadcast/` path never had: a studio front end
+on any other host must be added to the relay unit's `-origins`, or its Pro
+go-lives get 403. The deploy checks the route by asking nginx itself (a GET to
+`/relay/broadcast/…` on this host must reach the relay) and that the router the
+relay passes to answers.
+
 To undo, set it back to `/broadcast/{slug}` and run `config:cache` again.
 
 ---

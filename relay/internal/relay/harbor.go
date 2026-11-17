@@ -165,6 +165,7 @@ func (ss *session) runHarbor() string {
 func (ss *session) harborStudioReader() {
 	c, up := ss.studio, ss.up
 	upBroken := false
+	var scratch []byte
 	for {
 		f, err := c.readFrame()
 		if err != nil {
@@ -199,7 +200,7 @@ func (ss *session) harborStudioReader() {
 		if upBroken {
 			continue
 		}
-		if err := up.writeFrame(f.fin, f.op, f.payload); err != nil {
+		if err := up.forwardFrame(&scratch, f.fin, f.op, f.payload); err != nil {
 			if errors.Is(err, errStalled) {
 				ss.harborWriteFailed(err)
 				continue
@@ -221,6 +222,7 @@ func (ss *session) harborStudioReader() {
 func (ss *session) harborReader() {
 	c, up := ss.studio, ss.up
 	studioBroken := false
+	var scratch []byte
 	for {
 		f, err := up.readFrame()
 		if err != nil {
@@ -278,7 +280,7 @@ func (ss *session) harborReader() {
 		if studioBroken {
 			continue
 		}
-		if err := c.writeFrame(f.fin, f.op, f.payload); err != nil {
+		if err := c.forwardFrame(&scratch, f.fin, f.op, f.payload); err != nil {
 			if errors.Is(err, errStalled) {
 				ss.studioWriteFailed(err)
 				continue
