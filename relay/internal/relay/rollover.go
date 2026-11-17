@@ -24,10 +24,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,6 +48,10 @@ type Health struct {
 	Retiring      bool   `json:"retiring"`
 	Stale         bool   `json:"stale"`
 	Build         string `json:"build"`
+	// Why this copy will not move onto the binary on disk ("" = it would):
+	// the new binary failed its test run. The deploy reads it and puts the
+	// previous binary back.
+	RolloverBlocked string `json:"rollover_blocked"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -61,6 +68,17 @@ type Rollover struct {
 	lastMod time.Time
 	lastSz  int64
 	stale   bool
+
+	// The test run of the binary on disk, cached per file (size+mtime) so a
+	// broken build is run once, not every CheckEvery.
+	testedMod time.Time
+	testedSz  int64
+	blocked   string
+
+	// The lock, once taken. Kept on the struct, which lives as long as the
+	// process, so the garbage collector can never close it: a closed
+	// listener would let the other copy retire at the same time.
+	held net.Listener
 }
 
 // NewRollover hashes the binary this process is running. Read from the path
@@ -168,38 +186,125 @@ func (r *Rollover) TryLock() (net.Listener, bool) {
 	return ln, true
 }
 
+// TestRun is how a copy checks the binary on disk before it steps aside for
+// it: run with -help, it must exit 0 within TestRunTimeout. Every build of
+// the relay, old or new, answers -help that way without binding anything,
+// so a rollback to an older binary is checked the same way. It catches a
+// binary that cannot start at all (a bad build, wrong architecture); one
+// that starts and then fails is caught by the deploy watching /healthz.
+var TestRunTimeout = 5 * time.Second
+
+func testRun(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), TestRunTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "-help").CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("no answer to -help in %s", TestRunTimeout)
+	}
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if len(msg) > 120 {
+			msg = msg[:120]
+		}
+		return fmt.Errorf("%v: %s", err, msg)
+	}
+	return nil
+}
+
+// Blocked reports why this copy refuses the binary on disk ("" if it
+// would take it). The test run happens once per file.
+func (r *Rollover) Blocked() string {
+	if !r.Stale() {
+		return ""
+	}
+	r.mu.Lock()
+	mod, sz := r.lastMod, r.lastSz
+	if mod.Equal(r.testedMod) && sz == r.testedSz {
+		defer r.mu.Unlock()
+		return r.blocked
+	}
+	r.mu.Unlock()
+	blocked := ""
+	if err := testRun(r.ExePath); err != nil {
+		blocked = "new binary failed its test run: " + err.Error()
+	}
+	r.mu.Lock()
+	r.testedMod, r.testedSz, r.blocked = mod, sz, blocked
+	r.mu.Unlock()
+	return blocked
+}
+
+// Begin decides whether this copy may retire now and, if so, takes the lock
+// for the rest of the process's life. It returns why not otherwise. Both
+// the automatic rollover (onlyIfStale) and a manual SIGUSR1 go through it,
+// so neither can retire alongside the other copy.
+func (r *Rollover) Begin(ctx context.Context, srv *Server, onlyIfStale bool) (string, bool) {
+	r.mu.Lock()
+	taken := r.held != nil
+	r.mu.Unlock()
+	switch {
+	case taken || srv.Draining():
+		return "already retiring", false
+	case onlyIfStale && !r.Stale():
+		return "binary unchanged", false
+	}
+	if why := r.Blocked(); why != "" {
+		return why, false
+	}
+	if !r.PeerReady(ctx) {
+		return "no other copy ready to take new studios", false
+	}
+	lock, ok := r.TryLock()
+	if !ok {
+		return "the other copy is retiring", false
+	}
+	// Ask once more with the lock held: the peer may have started retiring
+	// between the first look and the lock (it cannot now).
+	if !r.PeerReady(ctx) {
+		lock.Close()
+		return "no other copy ready to take new studios", false
+	}
+	r.mu.Lock()
+	r.held = lock
+	r.mu.Unlock()
+	return "", true
+}
+
 // Run checks every CheckEvery until ctx ends or this copy retires. It
 // returns true once srv has retired (every studio gone): the caller exits.
+// The lock stays held until the process exits, so the other copy cannot
+// start retiring before this one is back.
 func (r *Rollover) Run(ctx context.Context, srv *Server, logf func(string, ...any)) bool {
 	t := time.NewTicker(r.CheckEvery)
 	defer t.Stop()
+	lastBlocked := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return false
 		case <-t.C:
 		}
-		if srv.Draining() || !r.Stale() || !r.PeerReady(ctx) {
-			continue
-		}
-		lock, ok := r.TryLock()
+		why, ok := r.Begin(ctx, srv, true)
 		if !ok {
-			continue // the other copy is retiring; wait for it
-		}
-		// Ask once more with the lock held: the peer may have started
-		// retiring between the first look and the lock (it cannot now).
-		if !r.PeerReady(ctx) {
-			lock.Close()
+			// Said once per reason, not every few seconds.
+			if strings.HasPrefix(why, "new binary failed") && why != lastBlocked {
+				logf("NOT moving to the binary on disk, keeping this build: %s", why)
+			}
+			lastBlocked = why
 			continue
 		}
 		logf("binary on disk changed: retiring (%d Free studio(s) handed over now, waiting up to %s for %d container show(s))",
 			srv.ActiveOn(PathIcecast), r.MaxWait, srv.ActiveOn(PathHarbor))
 		srv.Retire(r.MaxWait)
 		logf("retired: every studio gone, exiting for the new binary")
-		// The lock is released when the process exits, after systemd has
-		// noticed; holding it until then keeps the peer from retiring
-		// before this copy is back.
-		_ = lock
 		return true
 	}
+}
+
+// Held is the lock while this copy retires (nil before). The caller keeps
+// it reachable until exit; see the held field.
+func (r *Rollover) Held() net.Listener {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.held
 }

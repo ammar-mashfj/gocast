@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -130,14 +131,15 @@ func main() {
 	hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(relay.Health{
-			PID:           os.Getpid(),
-			Active:        srv.Active(),
-			IcecastActive: srv.ActiveOn(relay.PathIcecast),
-			HarborActive:  srv.ActiveOn(relay.PathHarbor),
-			Draining:      srv.Draining(),
-			Retiring:      srv.Retiring(),
-			Stale:         roll.Stale(),
-			Build:         roll.Build(),
+			PID:             os.Getpid(),
+			Active:          srv.Active(),
+			IcecastActive:   srv.ActiveOn(relay.PathIcecast),
+			HarborActive:    srv.ActiveOn(relay.PathHarbor),
+			Draining:        srv.Draining(),
+			Retiring:        srv.Retiring(),
+			Stale:           roll.Stale(),
+			Build:           roll.Build(),
+			RolloverBlocked: roll.Blocked(),
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })
@@ -167,14 +169,19 @@ func main() {
 			web.Close()
 			hsrv.Close()
 			log.Printf("pid %d exiting after retiring", os.Getpid())
+			// The rollover lock is released by the exit itself, never earlier.
+			runtime.KeepAlive(roll.Held())
 			return
 		case s := <-sigs:
 			if s == syscall.SIGUSR1 {
-				if srv.Draining() {
+				// By hand: the same retirement as a new binary triggers,
+				// under the same rules (the other copy up, the lock), but
+				// without needing a changed binary.
+				why, ok := roll.Begin(ctx, srv, false)
+				if !ok {
+					log.Printf("SIGUSR1 refused: %s", why)
 					continue
 				}
-				// By hand: the same retirement, without waiting for a
-				// changed binary or the peer check.
 				log.Printf("SIGUSR1: retiring (%d Free studio(s) handed over now, %d container show(s) left to end)",
 					srv.ActiveOn(relay.PathIcecast), srv.ActiveOn(relay.PathHarbor))
 				go func() { srv.Retire(*retireMax); markRetired() }()

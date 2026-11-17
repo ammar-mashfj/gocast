@@ -54,9 +54,17 @@ studios, which reconnect to the other within milliseconds.
   - Container shows are left to end on their own, up to `RELAY_RETIRE_MAX`, 12 h by default.
 
   Then the copy exits and systemd starts the new binary. Rolling back is the same move: put the previous binary back.
+- **Before stepping aside, a copy test-runs the new binary** (`-help` must exit 0 within 5 s; every relay build does). If it fails, nothing changes:
+  - The copy keeps serving on its own build.
+  - `/healthz` shows `rollover_blocked`.
+  - The deploy puts the previous binary back.
 - **SIGTERM** (`systemctl restart/stop`) is the hard stop: every studio gets
-  1001 at once. A live container show is heard as a ~5 s gap. **SIGUSR1**
-  retires by hand.
+  1001 at once. A live container show is heard as a ~5 s gap.
+- **SIGUSR1** retires by hand under the same rules: the other copy must be up and not
+  retiring, and the lock must be free. Otherwise the copy logs `SIGUSR1 refused: …` and does nothing.
+- **503 belongs to the relay.** It means "this copy is draining, try the other",
+  and nginx counts it against the copy. A 503 from a station's router or harbor
+  goes to the studio as 502 instead, or one busy station would mark both copies down for everyone.
 - Per-host settings come from the environment as well as flags, because the unit is only rendered by
   `setup-native.sh` and an older binary would refuse an unknown flag:
   - `RELAY_HARBOR`: the router, `127.0.0.1:<ROUTER_PORT>`.

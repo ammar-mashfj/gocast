@@ -638,9 +638,21 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
       location, so every Pro go-live fails. Add it from infra/native/nginx/gocast-stream.conf (nginx -t &&
       systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
   fi
-  if ! curl -fsS --max-time 1 http://127.0.0.1:18095/healthz 2>/dev/null | grep -q '"harbor_active"'; then
-    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the running relay does not
-      serve it yet. Let the relay roll over first, or point the URL back at /broadcast/{slug}.")
+  # Either copy will do, and give them time: right after the relay step a
+  # copy can be mid-restart onto the new build. Pointing the URL back is
+  # NOT the advice here: that brings the 100-minute Cloudflare cuts back.
+  relay_serves=0
+  for _ in $(seq 1 20); do
+    for hp in 18095 18096; do
+      curl -fsS --max-time 1 "http://127.0.0.1:${hp}/healthz" 2>/dev/null | grep -q '"harbor_active"' && relay_serves=1
+    done
+    [[ $relay_serves -eq 1 ]] && break
+    sleep 1
+  done
+  if [[ $relay_serves -eq 0 ]]; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but no relay copy serves it right
+      now. Check the relay: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz;
+      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50")
   fi
   echo "  · Pro studios go through the relay ($INGEST_URL)"
 else
