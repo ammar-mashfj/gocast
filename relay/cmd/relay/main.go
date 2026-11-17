@@ -6,9 +6,12 @@
 //
 // A NEW BINARY is picked up by the copies themselves (relay.Rollover): a
 // deploy renames it into place, each copy notices, and one at a time they
-// retire — new studios go to the other copy, Free studios are handed over at
-// once, container shows are left to end — then exit; systemd starts the new
-// binary. SIGUSR1 asks for the same retirement by hand.
+// retire — new studios go to the other copy, and every live session is
+// handed to the other copy, sockets and all, without its studio noticing
+// (relay/internal/relay/handoff.go) — then exit; systemd starts the new
+// binary. When the other copy cannot take sessions, Free studios are told to
+// reconnect and container shows are left to end. SIGUSR1 asks for the same
+// retirement by hand.
 //
 // SIGTERM (systemctl stop/restart) is the hard stop: every studio is closed
 // with 1001 at once and reconnects through the other copy. Free listeners
@@ -124,6 +127,17 @@ func main() {
 		os.WriteFile(*pidFile, []byte(itoa(os.Getpid())+"\n"), 0o644)
 	}
 
+	// Sessions handed over by the other copy when it retires. Without this
+	// listener the other copy retires the old way (it reads "handoff" in our
+	// /healthz).
+	handoff := 0
+	if hl, err := srv.ListenHandoff(relay.HandoffSocket(*health)); err != nil {
+		log.Printf("hand-off socket %s: %v (this copy will not take sessions from the other)", relay.HandoffSocket(*health), err)
+	} else {
+		defer hl.Close()
+		handoff = relay.HandoffVersion
+	}
+
 	web := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go web.Serve(ln)
 
@@ -140,6 +154,7 @@ func main() {
 			Stale:           roll.Stale(),
 			Build:           roll.Build(),
 			RolloverBlocked: roll.Blocked(),
+			Handoff:         handoff,
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })
@@ -182,9 +197,13 @@ func main() {
 					log.Printf("SIGUSR1 refused: %s", why)
 					continue
 				}
-				log.Printf("SIGUSR1: retiring (%d Free studio(s) handed over now, %d container show(s) left to end)",
-					srv.ActiveOn(relay.PathIcecast), srv.ActiveOn(relay.PathHarbor))
-				go func() { srv.Retire(*retireMax); markRetired() }()
+				if t := roll.Target(); t != nil {
+					log.Printf("SIGUSR1: handing %d session(s) to the other copy (pid %d), then exiting", srv.Active(), t.PID)
+				} else {
+					log.Printf("SIGUSR1: the other copy cannot take sessions; retiring (%d Free studio(s) told to reconnect, %d container show(s) left to end)",
+						srv.ActiveOn(relay.PathIcecast), srv.ActiveOn(relay.PathHarbor))
+				}
+				go func() { srv.RetireVia(*retireMax, roll.Target()); markRetired() }()
 				continue
 			}
 			stopRoll()

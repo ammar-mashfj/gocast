@@ -20,6 +20,11 @@
 //     data from the origin towards the browser; the studio's uploads and its
 //     pongs do not count. The ping is the only thing the relay sends after
 //     ok, so it is what keeps a long show's socket open.
+//
+// The WebSocket itself is the relay's own (wsframe.go, wslink.go), so that a
+// live connection can be handed to another relay process at any byte
+// (handoff.go): that is how a relay copy moves to a new binary without any
+// studio noticing.
 package relay
 
 import (
@@ -30,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -37,20 +43,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
 // Close codes sent to the studio. 4001 is what the studio already treats as
 // "rejected, don't retry"; everything else is a drop it may reconnect from.
 const (
-	CloseRejected     websocket.StatusCode = 4001 // Icecast/API refused the login
-	CloseBadHello     websocket.StatusCode = 4002 // malformed or late hello
-	CloseSourceKilled websocket.StatusCode = 4005 // Icecast ended the source (admin killsource, restart)
-	CloseBusy         websocket.StatusCode = 4009 // someone already holds the mount
-	CloseIcecastDown                       = websocket.StatusInternalError
-	CloseIdle                              = websocket.StatusPolicyViolation
-	CloseDraining                          = websocket.StatusGoingAway
+	CloseRejected     = 4001 // Icecast/API refused the login
+	CloseBadHello     = 4002 // malformed or late hello
+	CloseSourceKilled = 4005 // Icecast ended the source (admin killsource, restart)
+	CloseBusy         = 4009 // someone already holds the mount
+	CloseIcecastDown  = StatusInternalError
+	CloseIdle         = StatusPolicyViolation
+	CloseDraining     = StatusGoingAway
 )
 
 // How long a refusal's reason may trail its headers before the relay closes
@@ -78,6 +82,11 @@ type Config struct {
 	HarborAddr         string        // station router, host:port, loopback
 	HarborTimeout      time.Duration // dial + upgrade at the router
 	HarborWriteTimeout time.Duration // one frame to harbor (or the studio) may block this long
+
+	// How long a retiring copy keeps trying to hand its sessions to the
+	// other copy: sessions still logging in (a Free studio's hello and
+	// Icecast login) are handed over once they are live.
+	HandoffWindow time.Duration
 }
 
 func DefaultConfig() Config {
@@ -109,6 +118,9 @@ func DefaultConfig() Config {
 		// stall short would be the relay's doing. Harbor's own 10 s input
 		// timeout ends a really stuck show either way.
 		HarborWriteTimeout: 10 * time.Second,
+		// Over the longest a Free studio can take to go live: hello (10 s),
+		// then the Icecast login and its busy retries (10 s at most).
+		HandoffWindow: 30 * time.Second,
 		// Icecast frees a cut source a moment after the cut, and the studio's
 		// reconnect can arrive inside that moment. Asking again briefly rides
 		// it out; a station really in use still gets 4009, a second later.
@@ -177,13 +189,14 @@ func SourceRequest(cfg Config, slug, token string) string {
 		"\r\n"
 }
 
-// Server is an http.Handler for the WebSocket endpoint.
+// Server is an http.Handler for the WebSocket endpoints.
 type Server struct {
 	cfg     Config
 	Metrics *Metrics
+	Logf    func(format string, args ...any)
 
 	mu       sync.Mutex
-	conns    map[*websocket.Conn]*conn
+	conns    map[*session]*conn
 	draining bool
 	retiring bool
 	wg       sync.WaitGroup
@@ -198,26 +211,26 @@ const (
 // conn is one studio connection as Drain and Retire see it.
 type conn struct {
 	path    string
+	sess    *session
 	release func() // lets go of the Icecast source or harbor; nil until held
 
-	// Set when the relay itself closes this studio for a restart, so the
-	// close is counted as the restart's, not as the studio leaving, and the
-	// connection's own code does not race the 1001 with a close of its own.
+	// Set when the relay itself closes this studio for a restart.
 	kicked atomic.Bool
 }
 
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, Metrics: NewMetrics(), conns: map[*websocket.Conn]*conn{}}
+	return &Server{cfg: cfg, Metrics: NewMetrics(), Logf: log.Printf, conns: map[*session]*conn{}}
 }
 
-func (s *Server) track(c *websocket.Conn, path string) (*conn, bool) {
+func (s *Server) track(ss *session, path string) (*conn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draining {
 		return nil, false
 	}
-	st := &conn{path: path}
-	s.conns[c] = st
+	st := &conn{path: path, sess: ss}
+	ss.track = st
+	s.conns[ss] = st
 	s.wg.Add(1)
 	return st, true
 }
@@ -225,44 +238,53 @@ func (s *Server) track(c *websocket.Conn, path string) (*conn, bool) {
 // holdsSource records how to give up this studio's source (Icecast) or
 // harbor connection, so a drain can free the mount before it closes the
 // socket.
-func (s *Server) holdsSource(c *websocket.Conn, release func()) {
+func (s *Server) holdsSource(ss *session, release func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if st, ok := s.conns[c]; ok {
+	if st, ok := s.conns[ss]; ok {
 		st.release = release
 	}
 }
 
-// kicked is one studio a drain or retire is about to hand over.
+func (s *Server) untrack(ss *session) {
+	s.mu.Lock()
+	delete(s.conns, ss)
+	s.mu.Unlock()
+	s.wg.Done()
+}
+
+// finish accounts for a session that ended on this copy. One handed to the
+// other copy ("") was accounted for at the hand-off (handedOff).
+func (s *Server) finish(ss *session, label string) {
+	if label == "" {
+		return
+	}
+	s.untrack(ss)
+	s.Metrics.connClosed(ss.path)
+	s.Metrics.Close(label)
+}
+
+// handedOff takes a session off this copy's books the moment the other copy
+// has it, so Active, /healthz and a retirement's count never include it.
+func (s *Server) handedOff(ss *session) {
+	s.untrack(ss)
+	s.Metrics.connClosed(ss.path)
+	s.Metrics.handoffOut(ss.path)
+}
+
+// kicked is one studio a drain or retire is about to hand over, with its
+// release as it stood under s.mu.
 type kicked struct {
-	c  *websocket.Conn
-	st *conn
+	st      *conn
+	release func()
 }
 
 // kickAll hands studios over, outside s.mu: closing sockets under the lock
 // would let one slow close hold up /healthz and every other caller.
 func kickAll(list []kicked) {
 	for _, k := range list {
-		kick(k.c, k.st)
+		k.st.sess.kick(k.release)
 	}
-}
-
-// kick ends one studio for a restart: its source first, so the reconnect
-// through the other copy finds the mount free, then 1001. Close waits for
-// the studio's reply, so it runs on its own goroutine.
-func kick(c *websocket.Conn, st *conn) {
-	st.kicked.Store(true)
-	if st.release != nil {
-		st.release()
-	}
-	go c.Close(CloseDraining, "relay restarting")
-}
-
-func (s *Server) untrack(c *websocket.Conn) {
-	s.mu.Lock()
-	delete(s.conns, c)
-	s.mu.Unlock()
-	s.wg.Done()
 }
 
 // Drain refuses new connections and waits for the current ones to finish on
@@ -280,37 +302,42 @@ func (s *Server) Drain(ctx context.Context) {
 		return
 	case <-ctx.Done():
 	}
-	// Everyone at once, outside the lock. Close waits up to 5 s for the
+	// Everyone at once, outside the lock. A close waits up to 5 s for the
 	// studio's reply; one by one, two silent peers (a phone in a tunnel) used
 	// up systemd's 10 s stop budget and the studios behind them were killed
 	// without ever hearing "reconnect now". In parallel the slowest peer
 	// bounds the whole drain.
 	//
-	// Each studio's Icecast source is released first, as the idle path does:
-	// the close handshake can take seconds, and a studio reconnecting through
-	// the other copy in the meantime would find its mount still held (4009).
+	// Each studio's Icecast source or harbor is released first: the close
+	// handshake can take seconds, and a studio reconnecting through the
+	// other copy in the meantime would find its mount still held.
 	s.mu.Lock()
 	list := make([]kicked, 0, len(s.conns))
-	for c, st := range s.conns {
-		list = append(list, kicked{c, st})
+	for _, st := range s.conns {
+		list = append(list, kicked{st, st.release})
 	}
 	s.mu.Unlock()
 	kickAll(list)
 	<-done
 }
 
-// Retire hands this copy over to a new binary without cutting a live
-// container show. It refuses new studios (nginx sends them to the other
-// copy), hands the Free studios over at once (Icecast's fallback covers
-// their listeners, as on every restart), and waits for the container shows
-// to end on their own: a dropped container studio is heard as a gap, since
-// harbor has no fallback of its own to splice in. Whatever is still on after
-// maxWait is handed over too. Returns when every studio is gone; the caller
-// exits and systemd starts the new binary.
+// Retire hands this copy over without cutting a live container show, the
+// way it was done before hand-offs (and still is when the other copy cannot
+// take them): new studios are refused (nginx sends them to the other copy),
+// Free studios are handed over at once (Icecast's fallback covers their
+// listeners), container shows are left to end on their own, for up to
+// maxWait.
+func (s *Server) Retire(maxWait time.Duration) { s.RetireVia(maxWait, nil) }
+
+// RetireVia retires this copy, moving every live session to the copy at `to`
+// first (handoff.go): nobody notices anything. Whatever could not be moved
+// (no target, the target refused or failed, a session that never went live
+// in time) is retired the old way, as Retire describes. Returns when every
+// studio is gone; the caller exits and systemd starts the new binary.
 //
 // A second call (a manual SIGUSR1 racing the automatic rollover) does not
 // start a second retirement: it waits for the first to finish.
-func (s *Server) Retire(maxWait time.Duration) {
+func (s *Server) RetireVia(maxWait time.Duration, to *HandoffTarget) {
 	s.mu.Lock()
 	if s.retiring {
 		s.mu.Unlock()
@@ -319,10 +346,17 @@ func (s *Server) Retire(maxWait time.Duration) {
 	}
 	s.draining = true
 	s.retiring = true
+	s.mu.Unlock()
+
+	if to != nil {
+		s.handOffAll(*to)
+	}
+
+	s.mu.Lock()
 	var free []kicked
-	for c, st := range s.conns {
+	for _, st := range s.conns {
 		if st.path != PathHarbor {
-			free = append(free, kicked{c, st})
+			free = append(free, kicked{st, st.release})
 		}
 	}
 	s.mu.Unlock()
@@ -330,7 +364,7 @@ func (s *Server) Retire(maxWait time.Duration) {
 
 	deadline := time.Now().Add(maxWait)
 	for s.ActiveOn(PathHarbor) > 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 	expired, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
@@ -385,171 +419,303 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols:    []string{"webcast"},
-		OriginPatterns:  s.cfg.OriginPatterns,
-		CompressionMode: websocket.CompressionDisabled, // MP3 doesn't compress
-	})
+	if e := checkUpgrade(r); e != nil {
+		http.Error(w, e.msg, e.status)
+		s.Metrics.Close("refused_upgrade")
+		return
+	}
+	if !originAllowed(r, s.cfg.OriginPatterns) {
+		http.Error(w, "origin not allowed", http.StatusForbidden)
+		s.Metrics.Close("refused_upgrade")
+		return
+	}
+	proto := selectSubprotocol(r, []string{"webcast"})
+	studio, err := acceptUpgrade(w, r, proto, s.cfg.MaxMessage, s.cfg.HarborWriteTimeout)
 	if err != nil {
 		s.Metrics.Close("refused_upgrade")
 		return
 	}
-	if ws.Subprotocol() != "webcast" {
-		ws.Close(websocket.StatusPolicyViolation, "webcast subprotocol required")
+	if proto != "webcast" {
+		studio.closeAndWait(StatusPolicyViolation, "webcast subprotocol required")
 		s.Metrics.Close("no_subprotocol")
 		return
 	}
-	st, ok := s.track(ws, PathIcecast)
-	if !ok {
-		ws.Close(CloseDraining, "relay restarting")
+	ss := newSession(s, PathIcecast, studio)
+	if _, ok := s.track(ss, PathIcecast); !ok {
+		studio.closeAndWait(CloseDraining, "relay restarting")
 		s.Metrics.Close("draining")
 		return
 	}
-	defer s.untrack(ws)
-	ws.SetReadLimit(s.cfg.MaxMessage)
-
 	s.Metrics.connOpened(PathIcecast)
-	reason := s.serve(r.Context(), ws, st)
-	s.Metrics.connClosed(PathIcecast)
-	s.Metrics.Close(reason)
+	s.finish(ss, ss.runIcecast())
 }
 
-// serve runs one studio connection and returns why it ended (a metrics label).
-func (s *Server) serve(parent context.Context, ws *websocket.Conn, st *conn) string {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+var errPeerClosed = errors.New("peer closed")
+
+// readSetupMessage reads one whole message before the session is live (the
+// hello), answering pings meanwhile.
+func (ss *session) readSetupMessage() (byte, []byte, error) {
+	c := ss.studio
+	var op byte
+	var msg []byte
+	for {
+		f, err := c.readFrame()
+		if err != nil {
+			return 0, nil, err
+		}
+		switch f.op {
+		case opPing:
+			c.writeFrame(true, opPong, f.payload)
+			continue
+		case opPong:
+			continue
+		case opClose:
+			c.answerClose(f.payload) // or, after a kick, takes its answer
+			return 0, nil, errPeerClosed
+		}
+		if f.op != opContinuation {
+			op = f.op
+		}
+		msg = append(msg, f.payload...)
+		if f.fin {
+			return op, msg, nil
+		}
+	}
+}
+
+func (ss *session) endLabel() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.label
+}
+
+// runIcecast runs one Free studio: hello, Icecast login, ok, then the show.
+// Returns why it ended (a metrics label), or "" if it was handed off.
+func (ss *session) runIcecast() string {
+	s, c := ss.srv, ss.studio
 
 	// 1. The hello.
-	hctx, hcancel := context.WithTimeout(ctx, s.cfg.HelloTimeout)
-	typ, msg, err := ws.Read(hctx)
-	hcancel()
+	c.nc.SetReadDeadline(time.Now().Add(s.cfg.HelloTimeout))
+	op, msg, err := ss.readSetupMessage()
+	c.nc.SetReadDeadline(time.Time{})
+	if ss.ending() { // a drain's kick came during the hello
+		c.closeNow()
+		return ss.endLabel()
+	}
 	if err != nil {
-		ws.CloseNow()
+		if code, why := closeCodeFor(err, s.cfg.MaxMessage); code != 0 {
+			c.writeClose(code, why)
+		}
+		c.closeNow()
 		return "no_hello"
 	}
-	if typ != websocket.MessageText {
-		ws.Close(CloseBadHello, "expected hello")
+	if op != opText {
+		c.closeAndWait(CloseBadHello, "expected hello")
 		return "bad_hello"
 	}
 	slug, token, err := ParseHello(msg)
 	if err != nil {
-		ws.Close(CloseBadHello, err.Error())
+		c.closeAndWait(CloseBadHello, err.Error())
 		return "bad_hello"
 	}
+	ss.id = slug + "-" + ss.id
 
 	// 2. Icecast.
-	ice, code, why := s.openSourceWhenFree(ctx, slug, token)
+	ice, code, why := s.openSourceWhenFree(ss.ctx, slug, token)
 	if ice == nil {
-		ws.Close(code, why)
+		if ss.ending() { // kicked during the login: already told 1001
+			return ss.endLabel()
+		}
+		c.closeAndWait(code, why)
 		return labelFor(code)
 	}
-	defer ice.Close()
-	s.holdsSource(ws, func() { ice.Close() })
+	l := newLink(ice, s.cfg.WriteTimeout)
 
-	if err := ws.Write(ctx, websocket.MessageText, []byte(`{"type":"ok"}`)); err != nil {
-		ws.CloseNow()
+	// 3. ok, and live. Under ss.mu so a kick cannot slip its 1001 in
+	// between "ok" and the session going live.
+	ss.mu.Lock()
+	if ss.state != stSetup {
+		ss.mu.Unlock()
+		l.closeNow()
+		return ss.endLabel()
+	}
+	ss.ice = &l
+	if err := c.writeFrame(true, opText, []byte(`{"type":"ok"}`)); err != nil {
+		ss.state, ss.label = stEnding, "client_gone"
+		ss.mu.Unlock()
+		l.closeNow()
+		c.closeNow()
 		return "client_gone"
 	}
+	now := time.Now()
+	ss.lastAudio.Store(now.UnixNano())
+	ss.nextPing.Store(now.Add(s.cfg.PingInterval).UnixNano())
+	ss.goLiveLocked(ss.icecastStudioReader, ss.iceWatcher)
+	ss.mu.Unlock()
+	s.holdsSource(ss, l.closeNow)
 
-	// 3. Icecast never sends anything after its answer; a read returning
-	// means it closed the source (killsource, restart, source-timeout).
-	// Close the socket from here rather than cancelling the read below:
-	// websocket.Read drops the connection without a close code when its
-	// context is cancelled, and the studio needs 4005 to know why.
-	var idle atomic.Bool
-	iceClosed := make(chan struct{})
-	go func() {
-		io.Copy(io.Discard, ice)
-		close(iceClosed)
-		// Not when the relay itself let go: the idle timer and a drain each
-		// close the socket with their own code.
-		if !idle.Load() && !st.kicked.Load() {
-			ws.Close(CloseSourceKilled, "source ended by server")
-		}
-	}()
+	// 4. The show, here or (after a hand-off) on the other copy.
+	return ss.wait()
+}
 
-	// 4. Pipe. The idle limit is a timer that closes the socket, not a
-	// deadline on the read, for the same reason as above: a read whose
-	// context expires drops the connection with no close code, and the
-	// studio's drop report would read 1006 instead of 1008. The source is
-	// released at once: the close handshake can wait seconds on a studio
-	// whose network is gone, and its reconnect needs the mount free.
-	idleTimer := time.AfterFunc(s.cfg.IdleTimeout, func() {
-		idle.Store(true)
-		ice.Close()
-		ws.Close(CloseIdle, "no audio")
-	})
-	defer idleTimer.Stop()
-	if s.cfg.PingInterval > 0 {
-		go s.keepAlive(ctx, ws)
-	}
+// icecastStudioReader: the studio's binary frames go to Icecast untouched.
+// Text frames after the hello (metadata) are not Icecast's and are dropped.
+func (ss *session) icecastStudioReader() {
+	c := ss.studio
 	for {
-		typ, data, err := ws.Read(ctx)
+		f, err := c.readFrame()
 		if err != nil {
-			if idle.Load() {
-				return "idle"
+			if handled, exit := ss.park(err); handled {
+				if exit {
+					return
+				}
+				continue
 			}
-			if st.kicked.Load() {
-				return "draining"
-			}
-			select {
-			case <-iceClosed:
-				return "icecast_closed"
-			default:
-			}
-			var ce websocket.CloseError
-			if errors.As(err, &ce) && ce.Code == websocket.StatusMessageTooBig {
-				return "too_big"
-			}
-			if websocket.CloseStatus(err) == -1 && errors.Is(err, context.Canceled) {
-				// cancelled from elsewhere (drain closes the socket itself)
-				return "cancelled"
-			}
-			return "client_closed"
+			ss.studioReadFailed(err)
+			return
 		}
-		if typ != websocket.MessageBinary {
+		if ss.ending() {
+			if f.op == opClose { // the answer to the relay's own close
+				c.closeNow()
+				return
+			}
 			continue
 		}
-		// A frame that was already on its way when the idle timer fired: the
-		// source is closed, and writing to it would report the studio's stall
-		// as Icecast refusing audio.
-		if idle.Load() {
-			return "idle"
-		}
-		idleTimer.Reset(s.cfg.IdleTimeout)
-		ice.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
-		if _, err := ice.Write(data); err != nil {
-			// The idle timer closes the source before it closes the socket;
-			// a write failing in between is the idle close, not Icecast's.
-			if idle.Load() {
-				return "idle"
+		switch f.op {
+		case opPing:
+			if err := c.writeFrame(true, opPong, f.payload); err != nil {
+				ss.studioWriteFailed(err)
 			}
-			if st.kicked.Load() {
-				return "draining"
-			}
-			ws.Close(CloseSourceKilled, "stream server stopped accepting audio")
-			return "icecast_write"
+			continue
+		case opPong:
+			continue
+		case opClose:
+			ss.studioClosed(f.payload)
+			return
 		}
-		s.Metrics.bytesIn(PathIcecast, len(data))
+		if f.msgOp != opBinary {
+			continue
+		}
+		ss.lastAudio.Store(time.Now().UnixNano())
+		if err := ss.ice.write(f.payload); err != nil {
+			ss.iceWriteFailed(err)
+			continue // the studio's close reply still comes this way
+		}
+		ss.srv.Metrics.bytesIn(PathIcecast, len(f.payload))
 	}
 }
 
-// keepAlive pings the studio until ctx ends (serve returned). It only sends:
-// a missing pong never closes anything, because a studio that is really gone
-// stops sending audio and the idle timer ends it with a proper 1008. The pong
-// itself is read by serve's read loop, which coder/websocket needs running.
-func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
-	t := time.NewTicker(s.cfg.PingInterval)
-	defer t.Stop()
+// iceWatcher: Icecast sends nothing after its answer, so a read returning
+// means it closed the source (killsource, restart, source-timeout).
+func (ss *session) iceWatcher() {
+	buf := make([]byte, 512)
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			pctx, cancel := context.WithTimeout(ctx, s.cfg.PingInterval)
-			ws.Ping(pctx)
-			cancel()
+		_, err := ss.ice.nc.Read(buf)
+		if err == nil {
+			continue
 		}
+		if handled, exit := ss.park(err); handled {
+			if exit {
+				return
+			}
+			continue
+		}
+		ss.end("icecast_closed", func() {
+			ss.ice.closeNow()
+			ss.studio.closeHandshake(CloseSourceKilled, "source ended by server")
+		})
+		return
+	}
+}
+
+// iceWriteFailed: Icecast refused audio (stalled for WriteTimeout, or its
+// socket broke). The studio is told 4005 so it knows to reconnect.
+func (ss *session) iceWriteFailed(err error) {
+	ss.end("icecast_write", func() {
+		ss.ice.closeNow()
+		ss.studio.closeHandshake(CloseSourceKilled, "stream server stopped accepting audio")
+	})
+}
+
+// closeCodeFor is the close a read error is answered with: 1009 for a
+// message over the limit, 1002 for a protocol violation, 0 (just drop the
+// socket) for a connection that broke.
+func closeCodeFor(err error, maxMessage int64) (int, string) {
+	var pe *protoError
+	switch {
+	case errors.Is(err, errTooBig):
+		return StatusMessageTooBig, fmt.Sprintf("read limited at %d bytes", maxMessage)
+	case errors.As(err, &pe):
+		return StatusProtocolError, pe.why
+	}
+	return 0, ""
+}
+
+// closeUpstream lets go of Icecast or harbor at once.
+func (ss *session) closeUpstream() {
+	ss.mu.Lock()
+	ice, up := ss.ice, ss.up
+	ss.mu.Unlock()
+	if ice != nil {
+		ice.closeNow()
+	}
+	if up != nil {
+		up.closeNow()
+	}
+}
+
+// studioReadFailed: the studio's socket broke, or it sent something the
+// relay cannot take (1009 too big, 1002 protocol error).
+func (ss *session) studioReadFailed(err error) {
+	c := ss.studio
+	if ss.ending() { // the relay closed it, or it left after the relay's close
+		c.closeNow()
+		return
+	}
+	code, why := closeCodeFor(err, ss.srv.cfg.MaxMessage)
+	label := "client_closed"
+	switch code {
+	case StatusMessageTooBig:
+		label = "too_big"
+	case StatusProtocolError:
+		label = "bad_frame"
+	}
+	if ss.path == PathHarbor {
+		label = "harbor_" + label
+	}
+	if !ss.end(label, func() {
+		ss.closeUpstream()
+		if code != 0 {
+			c.writeClose(code, why)
+		}
+		c.closeNow()
+	}) {
+		c.closeNow()
+	}
+}
+
+// studioClosed: the studio sent close. It gets its close back; Icecast is
+// let go, or harbor is closed with the studio's own code.
+func (ss *session) studioClosed(payload []byte) {
+	c := ss.studio
+	code, reason, err := parseClose(payload)
+	if err != nil {
+		ss.studioReadFailed(err)
+		return
+	}
+	label := "client_closed"
+	if ss.path == PathHarbor {
+		label = "harbor_client_closed"
+	}
+	if !ss.end(label, func() {
+		c.answerClose(payload)
+		if ss.path == PathHarbor {
+			forwardClose(ss.up, code, reason)
+		} else {
+			ss.ice.closeNow()
+		}
+	}) {
+		c.closeNow()
 	}
 }
 
@@ -563,7 +729,7 @@ func (s *Server) keepAlive(ctx context.Context, ws *websocket.Conn) {
 // to admit, reported as "already live" while Icecast briefly held a source
 // the relay had already hung up on. A retry that gets no answer in that time
 // reports what happened (Icecast not answering), and the asking stops.
-func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (net.Conn, websocket.StatusCode, string) {
+func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (net.Conn, int, string) {
 	deadline := time.Now().Add(s.cfg.BusyRetryFor)
 	ice, code, why := s.openSource(ctx, slug, token, s.cfg.IcecastTimeout)
 	for code == CloseBusy {
@@ -583,7 +749,7 @@ func (s *Server) openSourceWhenFree(ctx context.Context, slug, token string) (ne
 
 // openSource dials Icecast and logs in. On failure it returns the close code
 // and reason to send the studio.
-func (s *Server) openSource(ctx context.Context, slug, token string, timeout time.Duration) (net.Conn, websocket.StatusCode, string) {
+func (s *Server) openSource(ctx context.Context, slug, token string, timeout time.Duration) (net.Conn, int, string) {
 	d := net.Dialer{Timeout: timeout}
 	ice, err := d.DialContext(ctx, "tcp", s.cfg.IcecastAddr)
 	if err != nil {
@@ -640,7 +806,7 @@ func statusCode(line string) int {
 	return code
 }
 
-func labelFor(c websocket.StatusCode) string {
+func labelFor(c int) string {
 	switch c {
 	case CloseRejected:
 		return "rejected"
