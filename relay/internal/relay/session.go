@@ -68,6 +68,12 @@ type session struct {
 	parked  int
 	done    chan struct{} // closed when the last reader returns
 
+	endingFlag atomic.Bool // state == stEnding, readable without ss.mu
+	// Writes in progress from outside the readers (pings, flushes of owed
+	// bytes). A freeze waits for them as it waits for the readers to park:
+	// nothing may write to a socket once the snapshot is taken.
+	writers int
+
 	lastAudio atomic.Int64 // unix ns: the Icecast path's idle clock
 	nextPing  atomic.Int64 // unix ns
 	pingTimer *time.Timer
@@ -107,11 +113,10 @@ func (ss *session) links() []*link {
 	return ls
 }
 
-func (ss *session) ending() bool {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	return ss.state == stEnding
-}
+// ending reports whether the session is closing. A flag, not the state
+// under ss.mu: every forwarded frame asks, and ss.mu is the lock a hand-off
+// works under. Set (under ss.mu) wherever the state becomes stEnding.
+func (ss *session) ending() bool { return ss.endingFlag.Load() }
 
 // ---- Readers -----------------------------------------------------------------
 
@@ -194,6 +199,7 @@ func (ss *session) end(label string, close func()) bool {
 	default:
 		ss.state = stEnding
 	}
+	ss.endingFlag.Store(true)
 	ss.label = label
 	ss.stopTimersLocked()
 	ss.mu.Unlock()
@@ -216,18 +222,12 @@ func (ss *session) kick(release func()) {
 		ss.mu.Unlock()
 		return
 	}
-	ice, up := ss.ice, ss.up
 	ss.mu.Unlock()
 	ss.end(ss.reason("draining"), func() {
 		if release != nil {
 			release()
 		}
-		if ice != nil {
-			ice.closeNow()
-		}
-		if up != nil {
-			up.closeNow()
-		}
+		ss.closeUpstream()
 		ss.studio.closeHandshake(CloseDraining, "relay restarting")
 	})
 }
@@ -289,10 +289,21 @@ func (ss *session) onPing() {
 	iv := ss.srv.cfg.PingInterval
 	ss.nextPing.Store(time.Now().Add(iv).UnixNano())
 	ss.pingTimer.Reset(iv)
+	ss.writers++
 	ss.mu.Unlock()
-	if err := ss.studio.writeFrame(true, opPing, pingPayload); err != nil {
+	err := ss.studio.writeFrame(true, opPing, pingPayload)
+	ss.writeDone()
+	if err != nil {
 		ss.studioWriteFailed(err)
 	}
+}
+
+// writeDone ends a write counted in ss.writers.
+func (ss *session) writeDone() {
+	ss.mu.Lock()
+	ss.writers--
+	ss.cond.Broadcast()
+	ss.mu.Unlock()
 }
 
 // onIdle ends a Free show whose studio has sent no audio for IdleTimeout:
@@ -326,16 +337,8 @@ func (ss *session) studioWriteFailed(err error) {
 	if !errors.Is(err, errStalled) {
 		return
 	}
-	ss.mu.Lock()
-	ice, up := ss.ice, ss.up
-	ss.mu.Unlock()
 	ss.end(ss.reason("studio_stalled"), func() {
-		if ice != nil {
-			ice.closeNow()
-		}
-		if up != nil {
-			up.closeNow()
-		}
+		ss.closeUpstream()
 		ss.studio.closeNow()
 	})
 }
@@ -365,13 +368,13 @@ func (ss *session) freeze(wait time.Duration) bool {
 		ss.mu.Unlock()
 	})
 	defer t.Stop()
-	for ss.state == stFreezing && ss.parked < ss.readers && !timedOut {
+	for ss.state == stFreezing && (ss.parked < ss.readers || ss.writers > 0) && !timedOut {
 		ss.cond.Wait()
 	}
 	if ss.state != stFreezing {
 		return false
 	}
-	if ss.parked < ss.readers {
+	if ss.parked < ss.readers || ss.writers > 0 {
 		ss.thawLocked(stLive)
 		return false
 	}
@@ -402,8 +405,11 @@ func (ss *session) flushPendingLocked() {
 		if !l.hasOwed() {
 			continue
 		}
+		ss.writers++
 		go func() {
-			if err := l.write(nil); err != nil {
+			err := l.write(nil)
+			ss.writeDone()
+			if err != nil {
 				ss.writeFailed(l, err)
 			}
 		}()

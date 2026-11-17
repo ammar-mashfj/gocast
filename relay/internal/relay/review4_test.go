@@ -134,11 +134,11 @@ func TestSelfIsNeverThePeer(t *testing.T) {
 	addr := fakePeer(t, &h)
 	h.Store(&Health{PID: 42, Handoff: HandoffVersion})
 	r := &Rollover{Peers: []string{addr}, SelfPID: 42}
-	if r.anyPeerReady(context.Background()) {
+	if r.readyPeerOK(context.Background()) {
 		t.Fatal("took itself for the other copy")
 	}
 	r.SelfPID = 43
-	if !r.anyPeerReady(context.Background()) {
+	if !r.readyPeerOK(context.Background()) {
 		t.Fatal("the real other copy not ready")
 	}
 }

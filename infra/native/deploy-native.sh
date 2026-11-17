@@ -631,19 +631,39 @@ fi
 
 echo "==> Checking the studio ingest route"
 # LIQUIDSOAP_INGEST_URL decides where Pro studios connect. Pointing it at the
-# relay before nginx has the /relay/broadcast/ location (setup-native.sh does
-# not run on deploys; it is added by hand) or before the relay can serve it
-# turns every Pro go-live into a 404.
+# relay before nginx routes /relay/broadcast/ to it (setup-native.sh does not
+# run on deploys; the vhost is edited by hand) or before the relay can serve
+# it turns every Pro go-live into a 404 or 502.
 INGEST_URL="$(sed -n 's/^LIQUIDSOAP_INGEST_URL=//p' "$REPO_ROOT/api/.env" | tail -1 | tr -d '"')"
 if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
-  # Either form: one location for /relay and /relay/broadcast/ (the
-  # template now), or a separate /relay/broadcast/ block (hosts edited before).
-  # grep without -q: -q stops at the first match, and under pipefail the
-  # SIGPIPE that kills a large `nginx -T` dump after it would fail the test.
-  if ! nginx -T 2>/dev/null | grep -E 'location ~ "\^/relay(/broadcast/|\(/broadcast/)' >/dev/null; then
-    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx has no such
-      location, so every Pro go-live fails. Add it from infra/native/nginx/gocast-stream.conf (nginx -t &&
-      systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
+  source "$NATIVE/relay-health.sh" # relay_health, relay_string
+  # Does nginx route /relay/broadcast/ to the relay? Asked of nginx itself,
+  # not read from its config: any valid spelling of the location passes, and
+  # it proves the request really arrives. A plain GET (no upgrade) to the
+  # stream vhost on this host (127.0.0.1 is let through the Cloudflare-only
+  # rule): the relay answers 426 "WebSocket upgrade required"; nginx without
+  # the route, 404. https first (certbot hosts), then http.
+  route_code=000
+  [[ -z "${STREAM_HOST:-}" ]] && route_code=skip # no domains.env value: nothing to ask
+  for _ in $(seq 1 10); do
+    [[ "$route_code" == skip ]] && break
+    for scheme in https http; do
+      port=443; [[ $scheme == http ]] && port=80
+      route_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
+        --resolve "${STREAM_HOST}:${port}:127.0.0.1" "${scheme}://${STREAM_HOST}/relay/broadcast/deploy-route-check" || true)"
+      [[ "$route_code" == 426 || "$route_code" == 404 ]] && break 2
+    done
+    sleep 1
+  done
+  if [[ "$route_code" == 404 ]]; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx does not route it
+      (https://${STREAM_HOST}/relay/broadcast/... answers 404), so every Pro go-live fails. In the stream vhost,
+      change \`location = /relay {\` to the regex in infra/native/nginx/gocast-stream.conf and add http_503
+      (nginx -t && systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
+  elif [[ "$route_code" != 426 && "$route_code" != skip ]]; then
+    MANUAL_STEPS+=("Could not check that nginx routes /relay/broadcast/ to the relay: https://${STREAM_HOST}/relay/broadcast/...
+      on this host answered ${route_code} (426 from the relay expected). Check by hand:
+      curl -sk --resolve ${STREAM_HOST}:443:127.0.0.1 https://${STREAM_HOST}/relay/broadcast/x")
   fi
   # A copy serves it only if its pass-through is on (/healthz "harbor": the
   # router address, "" when RELAY_HARBOR is empty) and the station router
@@ -656,9 +676,9 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
   relay_why="no relay copy answers /healthz"
   for _ in $(seq 1 20); do
     for p in "${RELAY_PORTS[@]}"; do
-      h="$(curl -fsS --max-time 1 "http://127.0.0.1:1${p}/healthz" 2>/dev/null || true)"
+      h="$(relay_health "$p")"
       [[ -z "$h" ]] && continue
-      harbor="$(sed -n 's/.*"harbor":"\([^"]*\)".*/\1/p' <<<"$h")"
+      harbor="$(relay_string "$h" harbor)"
       if [[ -z "$harbor" ]]; then
         relay_why="gocast-relay@${p} has the pass-through off (RELAY_HARBOR is empty, or the build predates this check)"
         continue
@@ -677,6 +697,8 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
       ${relay_why}. Check: curl -s 127.0.0.1:1${RELAY_PORTS[0]}/healthz; RELAY_HARBOR in
       /etc/systemd/system/gocast-relay@.service; journalctl -u gocast-relay@${RELAY_PORTS[0]} -n 50")
     echo "  ✗ Pro studios are sent to the relay ($INGEST_URL), which cannot serve them: see below"
+  elif [[ "$route_code" == 404 ]]; then
+    echo "  ✗ Pro studios are sent to /relay/broadcast/, which nginx does not route: see below"
   else
     echo "  · Pro studios go through the relay ($INGEST_URL)"
   fi

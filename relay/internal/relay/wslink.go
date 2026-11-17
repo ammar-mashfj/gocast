@@ -207,6 +207,14 @@ func (c *wsConn) writeFrame(fin bool, op byte, payload []byte) error {
 	return c.write(appendFrame(nil, fin, op, payload, c.client))
 }
 
+// forwardFrame is writeFrame encoding into the caller's own buffer, reused
+// frame after frame (a reader forwarding audio): write is done with the
+// bytes when it returns, having copied whatever it keeps owed.
+func (c *wsConn) forwardFrame(scratch *[]byte, fin bool, op byte, payload []byte) error {
+	*scratch = appendFrame((*scratch)[:0], fin, op, payload, c.client)
+	return c.write(*scratch)
+}
+
 // writeClose sends our close frame, once.
 func (c *wsConn) writeClose(code int, reason string) error {
 	if c.closeSent.Swap(true) {

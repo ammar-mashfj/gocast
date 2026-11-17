@@ -675,23 +675,15 @@ func TestRolloverHandsOffInsteadOfWaiting(t *testing.T) {
 	a, hsA := quietRelay(t, cfg)
 	b, _ := quietRelay(t, cfg)
 	toB := listenHandoff(t, b)
+	// b's /healthz as main serves it: the socket it really listens on.
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(Health{PID: os.Getpid(), Draining: b.Draining(), Retiring: b.Retiring(), Handoff: HandoffVersion})
+		st := b.State()
+		json.NewEncoder(w).Encode(Health{PID: os.Getpid(), Draining: st.Draining, Retiring: st.Retiring,
+			Handoff: HandoffVersion, HandoffSocket: st.HandoffSocket})
 	}))
 	t.Cleanup(health.Close)
-	saved := HandoffPrefix
-	HandoffPrefix = strings.TrimSuffix(toB.Socket, strings.TrimPrefix(health.URL, "http://"))
-	defer func() { HandoffPrefix = saved }()
-	if HandoffSocket(strings.TrimPrefix(health.URL, "http://")) != toB.Socket {
-		// The socket name is derived from the health address; make b's
-		// socket the one that address names.
-		HandoffPrefix = "@gocast-relay-handoff-roll-" + fmt.Sprint(time.Now().UnixNano()) + "-"
-		toB = HandoffTarget{Socket: HandoffSocket(strings.TrimPrefix(health.URL, "http://")), PID: os.Getpid()}
-		ln, err := b.ListenHandoff(toB.Socket)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { ln.Close() })
+	if b.State().HandoffSocket != toB.Socket {
+		t.Fatalf("b reports socket %q, listens on %q", b.State().HandoffSocket, toB.Socket)
 	}
 
 	c := studio(t, hsA, "a")
@@ -729,12 +721,19 @@ func TestReadyPeerNeedsTheSameHandoffVersion(t *testing.T) {
 	var h atomic.Pointer[Health]
 	addr := fakePeer(t, &h)
 	r := &Rollover{Peers: []string{addr}}
-	h.Store(&Health{PID: 42, Handoff: HandoffVersion})
-	if tgt, ok := r.readyPeer(context.Background()); !ok || tgt == nil || tgt.PID != 42 || tgt.Socket != HandoffSocket(addr) {
+	// The socket is the one the peer reports, however its address is
+	// spelled in the peer list.
+	h.Store(&Health{PID: 42, Handoff: HandoffVersion, HandoffSocket: "@its-own-name"})
+	if tgt, ok := r.readyPeer(context.Background()); !ok || tgt == nil || tgt.PID != 42 || tgt.Socket != "@its-own-name" {
 		t.Fatalf("got %+v %v", tgt, ok)
 	}
+	// No socket reported: no hand-off, rather than a guessed name.
+	h.Store(&Health{PID: 42, Handoff: HandoffVersion})
+	if tgt, ok := r.readyPeer(context.Background()); !ok || tgt != nil {
+		t.Fatalf("no socket: got %+v %v", tgt, ok)
+	}
 	for _, v := range []int{0, HandoffVersion + 1} {
-		h.Store(&Health{PID: 42, Handoff: v})
+		h.Store(&Health{PID: 42, Handoff: v, HandoffSocket: "@x"})
 		if tgt, ok := r.readyPeer(context.Background()); !ok || tgt != nil {
 			t.Fatalf("version %d: got %+v %v, want ready without hand-offs", v, tgt, ok)
 		}

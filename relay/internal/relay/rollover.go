@@ -65,6 +65,11 @@ type Health struct {
 	// Where container studios are passed through to (the station router),
 	// "" when the pass-through is off. The deploy checks it answers.
 	Harbor string `json:"harbor"`
+	// The abstract socket this copy takes hand-offs on ("" = none): the
+	// other copy dials exactly this.
+	HandoffSocket string `json:"handoff_socket"`
+	// How long this process has been up, in ms.
+	UpMillis int64 `json:"up_ms"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -74,6 +79,13 @@ type Rollover struct {
 	CheckEvery time.Duration // how often to look at the binary and the peers
 	MaxWait    time.Duration // longest a retiring copy waits for container shows
 	LockName   string        // RolloverLockName; tests use their own
+	// How long the other copy must have been up before this one steps aside
+	// for it. nginx marks a copy that refused a connection (it was
+	// restarting) down for fail_timeout (2 s): a copy that retired the
+	// moment the other came back would refuse connections while the other
+	// is still marked down, and nginx would have no copy to send a new
+	// studio to. Longer than fail_timeout. 0 = no wait (tests).
+	PeerSettle time.Duration
 	// This process's pid: a peer address that turns out to be this very
 	// copy (localhost vs 127.0.0.1, a typo in RELAY_PEERS) is never taken
 	// for the other one. 0 = no check (tests, which share one pid).
@@ -133,6 +145,7 @@ func newRollover(exePath, runningPath string) (*Rollover, error) {
 		CheckEvery: 5 * time.Second,
 		MaxWait:    12 * time.Hour,
 		LockName:   RolloverLockName,
+		PeerSettle: 5 * time.Second,
 		build:      build,
 		lastMod:    fi.ModTime(),
 		lastSz:     fi.Size(),
@@ -184,22 +197,23 @@ func hashFile(path string) (string, os.FileInfo, error) {
 	return hex.EncodeToString(h.Sum(nil)), fi, nil
 }
 
-// anyPeerReady reports whether some other copy can take the studios this one
-// would turn away: it answers /healthz and is neither draining nor retiring.
-func (r *Rollover) anyPeerReady(ctx context.Context) bool {
-	_, ok := r.readyPeer(ctx)
-	return ok
-}
-
-// readyPeer is the first ready copy, and where it takes hand-offs (nil when
-// it does not speak this copy's hand-off version).
+// readyPeer finds another copy that can take the studios this one would
+// turn away (it answers /healthz and is neither draining nor retiring), and
+// where it takes hand-offs: the socket it says it listens on, so how its
+// address is spelled in RELAY_PEERS never matters. nil target: it does not
+// take this copy's hand-offs (another version, or no socket).
 func (r *Rollover) readyPeer(ctx context.Context) (*HandoffTarget, bool) {
 	for _, p := range r.Peers {
 		if h, ok := peerReady(ctx, p); ok && (r.SelfPID == 0 || h.PID != r.SelfPID) {
-			if h.Handoff != HandoffVersion {
+			// Only builds that report up_ms (every hand-off build) are
+			// held to it; an older peer is taken as before.
+			if h.Handoff == HandoffVersion && time.Duration(h.UpMillis)*time.Millisecond < r.PeerSettle {
+				continue // just (re)started: nginx may still have it marked down
+			}
+			if h.Handoff != HandoffVersion || h.HandoffSocket == "" {
 				return nil, true
 			}
-			return &HandoffTarget{Socket: HandoffSocket(p), PID: h.PID}, true
+			return &HandoffTarget{Socket: h.HandoffSocket, PID: h.PID}, true
 		}
 	}
 	return nil, false

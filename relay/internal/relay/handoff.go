@@ -248,6 +248,9 @@ func (s *Server) ListenHandoff(name string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	s.handoffName = name
+	s.mu.Unlock()
 	s.handoffUp.Store(true)
 	go s.acceptHandoffs(ln)
 	return ln, nil

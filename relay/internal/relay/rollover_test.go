@@ -236,25 +236,25 @@ func TestPeerReady(t *testing.T) {
 	ctx := context.Background()
 
 	h.Store(&Health{})
-	if !r.anyPeerReady(ctx) {
+	if !r.readyPeerOK(ctx) {
 		t.Fatal("a healthy peer is not ready")
 	}
 	h.Store(&Health{Draining: true})
-	if r.anyPeerReady(ctx) {
+	if r.readyPeerOK(ctx) {
 		t.Fatal("a draining peer counted as ready")
 	}
 	h.Store(&Health{Draining: true, Retiring: true})
-	if r.anyPeerReady(ctx) {
+	if r.readyPeerOK(ctx) {
 		t.Fatal("a retiring peer counted as ready")
 	}
 	h.Store(nil)
-	if r.anyPeerReady(ctx) {
+	if r.readyPeerOK(ctx) {
 		t.Fatal("a peer answering 503 counted as ready")
 	}
-	if (&Rollover{Peers: []string{"127.0.0.1:1"}}).anyPeerReady(ctx) {
+	if (&Rollover{Peers: []string{"127.0.0.1:1"}}).readyPeerOK(ctx) {
 		t.Fatal("an unreachable peer counted as ready")
 	}
-	if (&Rollover{}).anyPeerReady(ctx) {
+	if (&Rollover{}).readyPeerOK(ctx) {
 		t.Fatal("no peers counted as ready")
 	}
 }
@@ -268,6 +268,7 @@ func rolloverFor(t *testing.T, exe string, peers []string, lock string) *Rollove
 	r.Peers = peers
 	r.CheckEvery = 50 * time.Millisecond
 	r.MaxWait = time.Minute
+	r.PeerSettle = 0
 	r.LockName = lock
 	return r
 }
@@ -642,4 +643,10 @@ func TestKicksRunOutsideTheLock(t *testing.T) {
 	if !lockFree.Load() {
 		t.Fatal("release ran with s.mu held")
 	}
+}
+
+// readyPeerOK is readyPeer's "ready" alone.
+func (r *Rollover) readyPeerOK(ctx context.Context) bool {
+	_, ok := r.readyPeer(ctx)
+	return ok
 }

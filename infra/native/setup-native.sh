@@ -341,21 +341,38 @@ echo "==> Relay"
 # other copy is up and takes hand-offs: otherwise SIGUSR1 would retire the
 # old way (Free studios reconnect, container shows held until they end), so
 # the command is printed for later instead.
-relay_health() { curl -fsS --max-time 1 "http://127.0.0.1:1$1/healthz" 2>/dev/null || true; }
-relay_field() { sed -n "s/.*\"$2\":\([^,}]*\).*/\1/p" <<<"$1" | tr -d '"'; }
+source "$NATIVE/relay-health.sh" # relay_health, relay_field
 roll_relay_copy() { # roll_relay_copy <port> <other port>
-  local port=$1 other=$2 h before after
+  local port=$1 other=$2 h mine before after
   h="$(relay_health "$other")"
+  mine="$(relay_health "$port")"
+  # BOTH copies must speak hand-offs. The other, to take the sessions. This
+  # one, because a build from before this PR has no SIGUSR1 handler: the
+  # signal would kill it and drop every studio on it without a close (and a
+  # build from rounds 1-2 would retire the old way, cutting Free studios).
+  if [[ -z "$mine" ]]; then
+    echo "  ! gocast-relay@${port} does not answer /healthz; not rolling it"
+    return 1
+  fi
+  if [[ "$(relay_field "$mine" handoff)" != "1" ]]; then
+    echo "  ! gocast-relay@${port} still runs the old unit: its build cannot hand its sessions over."
+    echo "    It moves onto the new unit with the next relay deploy (or: systemctl restart gocast-relay@${port}, which cuts its studios)."
+    return 1
+  fi
+  # A copy steps aside only for one that has been up a few seconds (the
+  # relay's PeerSettle, 5 s, over nginx's 2 s fail_timeout): a SIGUSR1 sent
+  # sooner, right after the other copy's own roll, would just be refused.
+  for _ in $(seq 1 30); do
+    [[ "$(relay_field "$h" up_ms)" -ge 6000 ]] 2>/dev/null && break
+    sleep 1
+    h="$(relay_health "$other")"
+  done
   if [[ "$(relay_field "$h" handoff)" != "1" || "$(relay_field "$h" draining)" == "true" ]]; then
     echo "  ! gocast-relay@${port} still runs the old unit: gocast-relay@${other} cannot take its sessions now."
     echo "    Later, with both copies up: systemctl kill -s USR1 gocast-relay@${port}"
     return 1
   fi
-  before="$(relay_field "$(relay_health "$port")" pid)"
-  if [[ -z "$before" ]]; then
-    echo "  ! gocast-relay@${port} does not answer /healthz; not rolling it"
-    return 1
-  fi
+  before="$(relay_field "$mine" pid)"
   systemctl kill -s USR1 "gocast-relay@${port}"
   for _ in $(seq 1 120); do
     after="$(relay_field "$(relay_health "$port")" pid)"
