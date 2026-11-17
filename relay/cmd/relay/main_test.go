@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -80,4 +81,89 @@ func TestSigtermIsNotHeldUpBySigusr1(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("SIGTERM waited on the SIGUSR1:\n%s", out)
 	}
+}
+
+// Signals are caught from the start: SIGUSR1 the moment the copy is up
+// (setup-native.sh sends it as soon as /healthz answers) and SIGUSR2 never
+// kill it. With no other copy both are refused, and the copy runs on.
+func TestEarlySignalsDoNotKill(t *testing.T) {
+	listen, health := freePort(t), freePort(t)
+	pidFile := t.TempDir() + "/pid"
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(),
+		"RELAY_TEST_MAIN=1",
+		"GORACE=atexit_sleep_ms=0",
+		"RELAY_HARBOR=",
+		"RELAY_PEERS=127.0.0.1:1", // nobody there
+		"RELAY_RETIRE_MAX=1m",
+		"RELAY_TEST_ARGS=-listen "+listen+" -health "+health+" -pid-file "+pidFile,
+	)
+	out := &syncBuf{}
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	for i := 0; i < 500; i++ {
+		if b, err := os.ReadFile(pidFile); err == nil && len(b) > 0 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	// The pid file is written before /healthz answers: the earliest a
+	// script could signal.
+	cmd.Process.Signal(syscall.SIGUSR1)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	deadline := time.After(5 * time.Second)
+	for !strings.Contains(out.String(), "SIGUSR1 refused") {
+		select {
+		case err := <-exited:
+			t.Fatalf("killed by an early SIGUSR1 (%v):\n%s", err, out)
+		case <-deadline:
+			t.Fatalf("SIGUSR1 not handled:\n%s", out)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	// SIGUSR2 waits for the other copy (up to 30 s): it must just not kill.
+	cmd.Process.Signal(syscall.SIGUSR2)
+	select {
+	case err := <-exited:
+		t.Fatalf("killed by SIGUSR2 (%v):\n%s", err, out)
+	case <-time.After(time.Second):
+	}
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no exit on SIGTERM")
+	}
+}
+
+// A bad RELAY_RETIRE_MAX stops the copy at startup, as a bad flag would.
+func TestBadRetireMaxRefused(t *testing.T) {
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "RELAY_TEST_MAIN=1", "GORACE=atexit_sleep_ms=0", "RELAY_RETIRE_MAX=soon",
+		"RELAY_TEST_ARGS=-listen "+freePort(t)+" -health "+freePort(t))
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "RELAY_RETIRE_MAX") {
+		t.Fatalf("started with RELAY_RETIRE_MAX=soon: %v\n%s", err, out)
+	}
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

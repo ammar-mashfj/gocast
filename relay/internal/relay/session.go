@@ -75,6 +75,7 @@ type session struct {
 	writers int
 
 	lastAudio atomic.Int64 // unix ns: the Icecast path's idle clock
+	frozenAt  time.Time    // when the current freeze began (ss.mu)
 	nextPing  atomic.Int64 // unix ns
 	pingTimer *time.Timer
 	idleTimer *time.Timer
@@ -356,6 +357,7 @@ func (ss *session) freeze(wait time.Duration) bool {
 		return false
 	}
 	ss.state = stFreezing
+	ss.frozenAt = time.Now()
 	ss.stopTimersLocked()
 	for _, l := range ss.links() {
 		l.freeze()
@@ -389,10 +391,30 @@ func (ss *session) thawLocked(to sessionState) {
 	}
 	ss.state = to
 	if to == stLive {
+		ss.discountFrozenLocked()
 		ss.armTimersLocked()
 	}
 	ss.flushPendingLocked()
 	ss.cond.Broadcast()
+}
+
+// discountFrozenLocked takes the time spent frozen off the idle clock: a
+// studio cannot send audio through a frozen socket, so a hand-off called off
+// late must not read as the studio going quiet. Never past now: a reader
+// that had not parked yet may have seen audio during the freeze.
+func (ss *session) discountFrozenLocked() {
+	now := time.Now()
+	t := time.Unix(0, ss.lastAudio.Load()).Add(now.Sub(ss.frozenAt))
+	if t.After(now) {
+		t = now
+	}
+	ss.lastAudio.Store(t.UnixNano())
+}
+
+// audioAgeLocked is how long the studio had been quiet when the freeze
+// began: what the other copy restarts the idle clock from.
+func (ss *session) audioAgeLocked() time.Duration {
+	return max(ss.frozenAt.Sub(time.Unix(0, ss.lastAudio.Load())), 0)
 }
 
 // flushPendingLocked writes out whatever a freeze left owed to each peer.
@@ -451,11 +473,11 @@ func (ss *session) snapshot() *sessionSnap {
 		return nil
 	}
 	snap := &sessionSnap{
-		V:         HandoffVersion,
-		Path:      ss.path,
-		ID:        ss.id,
-		LastAudio: ss.lastAudio.Load(),
-		NextPing:  ss.nextPing.Load(),
+		V:        HandoffVersion,
+		Path:     ss.path,
+		ID:       ss.id,
+		AudioAge: int64(ss.audioAgeLocked()),
+		NextPing: ss.nextPing.Load(),
 	}
 	snap.Studio = snapWS(ss.studio)
 	if ss.up != nil {
@@ -543,7 +565,9 @@ func adoptSession(srv *Server, snap *sessionSnap, conns []net.Conn) (*session, e
 	default:
 		return nil, fmt.Errorf("unknown path %q", snap.Path)
 	}
-	ss.lastAudio.Store(snap.LastAudio)
+	// The quiet time before the freeze, counted from now: the hand-off's
+	// own pause is not the studio's silence.
+	ss.lastAudio.Store(time.Now().Add(-time.Duration(snap.AudioAge)).UnixNano())
 	ss.nextPing.Store(snap.NextPing)
 	ss.state = stAdopted
 	return ss, nil

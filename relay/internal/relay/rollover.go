@@ -70,6 +70,9 @@ type Health struct {
 	HandoffSocket string `json:"handoff_socket"`
 	// How long this process has been up, in ms.
 	UpMillis int64 `json:"up_ms"`
+	// 1: SIGUSR2 evens the sessions out with the other copy (Balance).
+	// Older builds die of SIGUSR2: the deploy sends it only when this is 1.
+	Balance int `json:"balance"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -203,20 +206,27 @@ func hashFile(path string) (string, os.FileInfo, error) {
 // address is spelled in RELAY_PEERS never matters. nil target: it does not
 // take this copy's hand-offs (another version, or no socket).
 func (r *Rollover) readyPeer(ctx context.Context) (*HandoffTarget, bool) {
+	_, target, ok := r.peer(ctx)
+	return target, ok
+}
+
+// peer is readyPeer with the other copy's /healthz as well.
+func (r *Rollover) peer(ctx context.Context) (Health, *HandoffTarget, bool) {
 	for _, p := range r.Peers {
 		if h, ok := peerReady(ctx, p); ok && (r.SelfPID == 0 || h.PID != r.SelfPID) {
-			// Only builds that report up_ms (every hand-off build) are
-			// held to it; an older peer is taken as before.
-			if h.Handoff == HandoffVersion && time.Duration(h.UpMillis)*time.Millisecond < r.PeerSettle {
+			// Every build that reports up_ms is held to it, whether or not
+			// it takes hand-offs: nginx marks a restarted copy down either
+			// way. An older peer (no up_ms) is taken as before.
+			if h.UpMillis > 0 && time.Duration(h.UpMillis)*time.Millisecond < r.PeerSettle {
 				continue // just (re)started: nginx may still have it marked down
 			}
 			if h.Handoff != HandoffVersion || h.HandoffSocket == "" {
-				return nil, true
+				return h, nil, true
 			}
-			return &HandoffTarget{Socket: h.HandoffSocket, PID: h.PID}, true
+			return h, &HandoffTarget{Socket: h.HandoffSocket, PID: h.PID}, true
 		}
 	}
-	return nil, false
+	return Health{}, nil, false
 }
 
 func peerReady(ctx context.Context, addr string) (Health, bool) {
@@ -335,7 +345,7 @@ func (r *Rollover) Begin(ctx context.Context, srv *Server, onlyIfStale bool) (st
 	}
 	lock, ok := r.TryLock()
 	if !ok {
-		return "the other copy is retiring", false
+		return "the rollover lock is taken (the other copy retiring, or a balance running)", false
 	}
 	// The other copy is asked with the lock held: it cannot start retiring
 	// itself from here on, so what it answers now still holds while this
@@ -393,6 +403,53 @@ func (r *Rollover) Run(ctx context.Context, srv *Server, logf func(string, ...an
 		srv.RetireVia(r.MaxWait, r.Target())
 		logf("retired: every studio gone, exiting for the new binary")
 		return true
+	}
+}
+
+// Balance evens the sessions out with the other copy once both run this
+// build. A rollover leaves every session on the copy that restarted first
+// (A hands to B, then B hands back to the new A), and one crash would then
+// drop every studio on the host instead of about half. It moves half the
+// difference, live sessions only, the same way a retirement does. Asked for
+// once per deploy (SIGUSR2 from relay-rollover.sh), never on its own: the
+// copies cannot pass sessions back and forth.
+//
+// Never alongside a retirement: the rollover lock is held for the move, so
+// the other copy cannot start retiring (and hand everything back) meanwhile.
+// It waits up to `wait` for the other copy to settle after its restart.
+func (r *Rollover) Balance(ctx context.Context, srv *Server, wait time.Duration) (int, string) {
+	switch {
+	case r.Held() != nil || srv.Draining():
+		return 0, "this copy is retiring"
+	case r.Stale():
+		return 0, "the binary on disk changed: the rollover moves the sessions"
+	}
+	lock, ok := r.TryLock()
+	if !ok {
+		return 0, "the other copy is retiring"
+	}
+	defer lock.Close()
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	for {
+		h, target, ok := r.peer(ctx)
+		switch {
+		case ok && target == nil:
+			return 0, "the other copy does not take hand-offs"
+		case ok && (h.Build != r.Build() || h.Stale):
+			return 0, "the other copy is not on this build"
+		case ok:
+			n := (srv.Active() - h.Active) / 2
+			if n < 1 {
+				return 0, fmt.Sprintf("already even (%d here, %d there)", srv.Active(), h.Active)
+			}
+			return srv.handOff(*target, n), ""
+		}
+		select {
+		case <-ctx.Done():
+			return 0, "no other copy ready"
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
 

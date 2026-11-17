@@ -387,21 +387,36 @@ roll_relay_copy() { # roll_relay_copy <port> <other port>
 }
 systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
 if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
+  declare -A relay_fresh=() # started just now: already on the new unit
   for unit in gocast-relay@8095 gocast-relay@8096; do
     if systemctl is-active --quiet "$unit"; then
       echo "  · $unit running"
     else
       systemctl reset-failed "$unit" 2>/dev/null || true
-      systemctl start "$unit" && echo "  ✓ $unit started"
+      systemctl start "$unit" && echo "  ✓ $unit started" && relay_fresh[$unit]=1
     fi
   done
   if [[ $RELAY_UNIT_CHANGED -eq 1 ]]; then
-    echo "  · the relay unit changed: rolling the running copies onto it, one at a time"
-    sleep 2 # a copy just started above answers /healthz first
-    if roll_relay_copy 8095 8096; then
-      roll_relay_copy 8096 8095 || true
-    else
-      echo "    and once gocast-relay@8095 is back on the new unit: systemctl kill -s USR1 gocast-relay@8096"
+    # Only copies that were running before this run: one started above is
+    # on the new unit already (on a fresh host, both are).
+    rolled=0
+    for pair in "8095 8096" "8096 8095"; do
+      read -r port other <<<"$pair"
+      [[ -n "${relay_fresh[gocast-relay@${port}]:-}" ]] && continue
+      [[ $rolled -eq 0 ]] && echo "  · the relay unit changed: rolling the running copies onto it, one at a time"
+      sleep 2 # a copy just started or rolled answers /healthz first
+      if roll_relay_copy "$port" "$other"; then
+        rolled=1
+      else
+        [[ $port == 8095 && -z "${relay_fresh[gocast-relay@8096]:-}" ]] &&
+          echo "    and once gocast-relay@8095 is back on the new unit: systemctl kill -s USR1 gocast-relay@8096"
+        rolled=0
+        break
+      fi
+    done
+    # Every session is on one copy now: even them out.
+    if [[ $rolled -eq 1 ]]; then
+      relay_balance 8095 8096 || true
     fi
   fi
   # The standby feeder carries no studio: a restart costs nothing.

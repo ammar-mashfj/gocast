@@ -82,11 +82,11 @@ func TestHandoffListenerSurvivesAcceptErrors(t *testing.T) {
 	c.Write(context.Background(), websocket.MessageText, helloJSON("a", "t"))
 	eventually(t, "at harbor", func() bool { return h.conn("a") != nil })
 	a.handOffAll(HandoffTarget{Socket: name, PID: os.Getpid()})
-	if b.Active() != 1 || !b.TakesHandoffs() {
-		t.Fatalf("after 5 accept errors: b has %d sessions, takes hand-offs %v", b.Active(), b.TakesHandoffs())
+	if b.Active() != 1 || !b.takesHandoffs() {
+		t.Fatalf("after 5 accept errors: b has %d sessions, takes hand-offs %v", b.Active(), b.takesHandoffs())
 	}
 	ln.Close()
-	eventually(t, "listener closed: no longer advertised", func() bool { return !b.TakesHandoffs() })
+	eventually(t, "listener closed: no longer advertised", func() bool { return !b.takesHandoffs() })
 }
 
 // #4: a past write deadline that is not the freeze's own (a freeze and its
@@ -181,7 +181,7 @@ func TestRetireReturnsWhenTheLastShowEnds(t *testing.T) {
 	eventually(t, "at harbor", func() bool { return h.conn("a") != nil })
 	done := make(chan time.Time, 1)
 	go func() { s.retire(time.Hour); done <- time.Now() }()
-	eventually(t, "retiring", s.Retiring)
+	eventually(t, "retiring", s.isRetiring)
 	c.Close(websocket.StatusNormalClosure, "")
 	var ended time.Time
 	eventually(t, "the show gone", func() bool {

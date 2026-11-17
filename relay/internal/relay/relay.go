@@ -275,13 +275,20 @@ func (s *Server) untrack(ss *session) {
 func (s *Server) harborLeft() (int, <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	n := 0
-	for _, st := range s.conns {
-		if st.path == PathHarbor {
-			n++
+	_, harbor := s.countLocked()
+	return harbor, s.left
+}
+
+// countLocked is how many sessions each path has. s.mu held.
+func (s *Server) countLocked() (icecast, harbor int) {
+	for _, c := range s.conns {
+		if c.path == PathHarbor {
+			harbor++
+		} else {
+			icecast++
 		}
 	}
-	return n, s.left
+	return icecast, harbor
 }
 
 // finish accounts for a session that ended on this copy. One handed to the
@@ -423,13 +430,11 @@ wait:
 func (s *Server) ActiveOn(path string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	n := 0
-	for _, st := range s.conns {
-		if st.path == path {
-			n++
-		}
+	icecast, harbor := s.countLocked()
+	if path == PathHarbor {
+		return harbor
 	}
-	return n
+	return icecast
 }
 
 // State is the server's part of /healthz, read under one lock so the
@@ -445,13 +450,7 @@ func (s *Server) State() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := State{Active: len(s.conns), Draining: s.draining, Retiring: s.retiring, HandingOff: s.handingOff}
-	for _, c := range s.conns {
-		if c.path == PathHarbor {
-			st.Harbor++
-		} else {
-			st.Icecast++
-		}
-	}
+	st.Icecast, st.Harbor = s.countLocked()
 	if s.handoffUp.Load() {
 		st.HandoffSocket = s.handoffName
 	}
@@ -462,22 +461,6 @@ func (s *Server) setHandingOff(v bool) {
 	s.mu.Lock()
 	s.handingOff = v
 	s.mu.Unlock()
-}
-
-// HandingOff reports whether a retirement is moving sessions to the other
-// copy right now. Whatever is still here then is on its way out in seconds;
-// once it is false, what a retiring copy still carries stays until it ends.
-func (s *Server) HandingOff() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.handingOff
-}
-
-// Retiring reports whether Retire has been called.
-func (s *Server) Retiring() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.retiring
 }
 
 func (s *Server) Active() int {
@@ -492,7 +475,13 @@ func (s *Server) Draining() bool {
 	return s.draining
 }
 
+// RelayHeader is on every answer the relay itself gives (not a 101): the
+// deploy's route check tells the relay's own 404 (pass-through off) from
+// nginx's (no route).
+const RelayHeader = "X-Gocast-Relay"
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(RelayHeader, "1")
 	if s.Draining() {
 		http.Error(w, "draining", http.StatusServiceUnavailable)
 		return

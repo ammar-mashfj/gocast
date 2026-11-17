@@ -77,8 +77,8 @@ func TestRetireHandsOverFreeAndKeepsContainerShows(t *testing.T) {
 		t.Fatal("retired while a container show was still on")
 	default:
 	}
-	if !s.Retiring() || s.ActiveOn(PathHarbor) != 1 || s.ActiveOn(PathIcecast) != 0 {
-		t.Fatalf("retiring=%v harbor=%d icecast=%d", s.Retiring(), s.ActiveOn(PathHarbor), s.ActiveOn(PathIcecast))
+	if !s.isRetiring() || s.ActiveOn(PathHarbor) != 1 || s.ActiveOn(PathIcecast) != 0 {
+		t.Fatalf("retiring=%v harbor=%d icecast=%d", s.isRetiring(), s.ActiveOn(PathHarbor), s.ActiveOn(PathIcecast))
 	}
 
 	// The show ends on its own: Retire returns, and nothing was kicked.
@@ -306,7 +306,7 @@ func TestRunRetiresOnlyWhenStaleAndThePeerCanTakeOver(t *testing.T) {
 	}
 	// The peer comes back: retire, keeping the show.
 	peer.Store(&Health{})
-	eventually(t, "retiring", s.Retiring)
+	eventually(t, "retiring", s.isRetiring)
 	if err := pro.Write(ctx, websocket.MessageBinary, []byte("on air")); err != nil {
 		t.Fatalf("show cut: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestTwoStaleCopiesRetireOneAtATime(t *testing.T) {
 		exe := writeExe(t, t.TempDir(), "build-1")
 		r := rolloverFor(t, exe, nil, lock)
 		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(Health{Draining: s.Draining(), Retiring: s.Retiring(), Stale: r.Stale()})
+			json.NewEncoder(w).Encode(Health{Draining: s.Draining(), Retiring: s.isRetiring(), Stale: r.Stale()})
 		}))
 		t.Cleanup(health.Close)
 		return &copyT{s: s, hs: hs, r: r, addr: strings.TrimPrefix(health.URL, "http://")}
@@ -366,7 +366,7 @@ func TestTwoStaleCopiesRetireOneAtATime(t *testing.T) {
 	go func() { doneA <- a.r.Run(rctx, a.s, t.Logf) }()
 	go func() { doneB <- b.r.Run(rctx, b.s, t.Logf) }()
 
-	eventually(t, "one copy retiring", func() bool { return a.s.Retiring() || b.s.Retiring() })
+	eventually(t, "one copy retiring", func() bool { return a.s.isRetiring() || b.s.isRetiring() })
 	// Never both at once: one copy must stay open to new studios.
 	for i := 0; i < 20; i++ {
 		if a.s.Draining() && b.s.Draining() {
@@ -376,7 +376,7 @@ func TestTwoStaleCopiesRetireOneAtATime(t *testing.T) {
 	}
 	first, second := a, b
 	firstSt, firstDone := sa, doneA
-	if b.s.Retiring() {
+	if b.s.isRetiring() {
 		first, second = b, a
 		firstSt, firstDone = sb, doneB
 	}
@@ -536,7 +536,7 @@ func TestManualRetireRespectsTheLock(t *testing.T) {
 	s, _ := startRelay(t, harborConfig(newFakeHarbor(t).addr()))
 	r := rolloverFor(t, writeExe(t, t.TempDir(), "build-1"), []string{fakePeer(t, &peer)}, name)
 	why, ok := r.Begin(context.Background(), s, false)
-	if ok || why != "the other copy is retiring" {
+	if ok || why != "the rollover lock is taken (the other copy retiring, or a balance running)" {
 		t.Fatalf("manual retire while the other copy retires: ok=%v why=%q", ok, why)
 	}
 	if s.Draining() {
@@ -613,7 +613,7 @@ func TestBrokenBinaryBlocksTheRollover(t *testing.T) {
 	}
 	// A good new build later is taken.
 	replaceExe(t, exe, "build-2")
-	eventually(t, "retiring on a good build", s.Retiring)
+	eventually(t, "retiring on a good build", s.isRetiring)
 }
 
 // #6: studios are handed over with s.mu free, so /healthz and the peer's
@@ -650,3 +650,8 @@ func (r *Rollover) readyPeerOK(ctx context.Context) bool {
 	_, ok := r.readyPeer(ctx)
 	return ok
 }
+
+// State read one field at a time, for the tests.
+func (s *Server) isRetiring() bool    { return s.State().Retiring }
+func (s *Server) isHandingOff() bool  { return s.State().HandingOff }
+func (s *Server) takesHandoffs() bool { return s.handoffUp.Load() }
