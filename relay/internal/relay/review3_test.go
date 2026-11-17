@@ -307,12 +307,12 @@ func TestHealthSaysHandingOff(t *testing.T) {
 	defer c.CloseNow()
 	done := make(chan struct{})
 	go func() { a.RetireVia(time.Minute, &toB); close(done) }()
-	eventually(t, "retiring", a.Retiring)
-	if !a.HandingOff() {
+	eventually(t, "retiring", a.isRetiring)
+	if !a.isHandingOff() {
 		t.Fatal("retiring without handing_off while the hand-off runs")
 	}
 	<-done
-	if a.HandingOff() {
+	if a.isHandingOff() {
 		t.Fatal("still handing off after it ended")
 	}
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))

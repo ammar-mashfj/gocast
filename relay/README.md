@@ -78,6 +78,14 @@ studios, which reconnect to the other within milliseconds.
   1001 at once. A live container show is heard as a ~5 s gap.
 - **SIGUSR1** retires by hand under the same rules (hand-offs included): the other copy must be up
   and not retiring, and the lock must be free. Otherwise the copy logs `SIGUSR1 refused: …` and does nothing.
+- **SIGUSR2** evens the sessions out: the copy hands half the difference to the other copy, the same way.
+  A rollover leaves every session on one copy (A hands to B, then B hands back to the new A); the deploy
+  (and setup's unit roll) sends SIGUSR2 to the fuller copy once both are on the new build, so a crash
+  drops about half the studios, not all. Only to a build whose `/healthz` says `"balance":1`: SIGUSR2
+  kills an older one. Refused while either copy retires (it holds the rollover lock for the move) or
+  while the two copies run different builds. Signals are caught from the first line of `main`.
+- Every answer the relay gives itself (not a 101) carries `X-Gocast-Relay: 1`: the deploy's route
+  check tells the relay's own 404 (pass-through off) from nginx's (no route).
 - **503 belongs to the relay.** It means "this copy is draining, try the other",
   and nginx counts it against the copy. A 503 from a station's router or harbor
   goes to the studio as 502 instead, or one busy station would mark both copies down for everyone.
@@ -94,7 +102,7 @@ studios, which reconnect to the other within milliseconds.
   its Pro go-lives get 403 ("could not reach the stream server"). The mobile app sends no Origin and
   is never refused.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket"}`,
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket","up_ms","balance"}`,
   read under one lock. `handoff_socket` is the socket the copy takes hand-offs on: the other copy dials
   exactly that name, so how an address is spelled in `RELAY_PEERS` never matters.
   Scripts read it through `infra/native/relay-health.sh`.
@@ -169,6 +177,7 @@ Metrics:
   - `harbor_studio_stalled`: the studio stopped reading.
   - `harbor_draining`: a restart handed it over.
   - `harbor_unreachable`, `harbor_refused_origin`, `harbor_too_big`, `harbor_bad_frame` (a protocol violation, answered 1002).
+  - `harbor_refused_upgrade`: not a valid WebSocket upgrade. Each deploy's route check adds one (a plain GET).
 
 **Turning it on, in this order.** Each step is safe on its own, and the deploy
 warns if the URL is switched before the other two:

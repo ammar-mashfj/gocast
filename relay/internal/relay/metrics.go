@@ -48,7 +48,6 @@ func (m *Metrics) bytesIn(p string, n int)       { m.path(p).bytes.Add(int64(n))
 func (m *Metrics) busyRetry()                    { m.busyRetries.Add(1) }
 func (m *Metrics) BusyRetries() int64            { return m.busyRetries.Load() }
 func (m *Metrics) Bytes(p string) int64          { return m.path(p).bytes.Load() }
-func (m *Metrics) acceptedTotal(p string) int64  { return m.path(p).accepted.Load() }
 func (m *Metrics) ActiveCount(p string) int64    { return m.path(p).active.Load() }
 
 func (m *Metrics) Close(reason string) {

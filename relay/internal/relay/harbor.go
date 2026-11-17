@@ -55,7 +55,7 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 	// Not a valid upgrade: refuse before spending a dial on harbor.
 	if e := checkUpgrade(r); e != nil {
 		http.Error(w, e.msg, e.status)
-		s.Metrics.Close("refused_upgrade")
+		s.Metrics.Close("harbor_refused_upgrade")
 		return
 	}
 	if !originAllowed(r, s.cfg.OriginPatterns) {
@@ -88,7 +88,7 @@ func (s *Server) serveHarbor(w http.ResponseWriter, r *http.Request, slug string
 	studio, err := acceptUpgrade(w, r, selectSubprotocol(r, ours), s.cfg.MaxMessage, s.cfg.HarborWriteTimeout)
 	if err != nil {
 		up.closeNow()
-		s.Metrics.Close("refused_upgrade")
+		s.Metrics.Close("harbor_refused_upgrade")
 		return
 	}
 	ss := newSession(s, PathHarbor, studio)

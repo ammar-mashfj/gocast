@@ -86,14 +86,14 @@ var (
 
 // sessionSnap is a frozen session, as the receiving process needs it.
 type sessionSnap struct {
-	V         int       `json:"v"`
-	Path      string    `json:"path"`
-	ID        string    `json:"id"`
-	LastAudio int64     `json:"last_audio"` // unix ns
-	NextPing  int64     `json:"next_ping"`  // unix ns
-	Studio    linkSnap  `json:"studio"`
-	Up        *linkSnap `json:"up,omitempty"`  // harbor path
-	Ice       *linkSnap `json:"ice,omitempty"` // Icecast path
+	V        int       `json:"v"`
+	Path     string    `json:"path"`
+	ID       string    `json:"id"`
+	AudioAge int64     `json:"audio_age"` // ns of studio silence when the freeze began
+	NextPing int64     `json:"next_ping"` // unix ns
+	Studio   linkSnap  `json:"studio"`
+	Up       *linkSnap `json:"up,omitempty"`  // harbor path
+	Ice      *linkSnap `json:"ice,omitempty"` // Icecast path
 }
 
 type linkSnap struct {
@@ -284,7 +284,6 @@ func (s *Server) acceptHandoffs(ln unixAcceptor) {
 
 // TakesHandoffs reports whether this copy's hand-off socket is listening:
 // what /healthz advertises to the other copy.
-func (s *Server) TakesHandoffs() bool { return s.handoffUp.Load() }
 
 func (s *Server) receiveHandoffs(uc *net.UnixConn) {
 	defer uc.Close()
@@ -432,17 +431,26 @@ func dialHandoff(to HandoffTarget) (*net.UnixConn, error) {
 // handOffAll moves every session it can to `to`. Sessions still going live
 // (a Free studio's hello and login) are waited for, up to HandoffWindow.
 // What is left afterwards is the caller's to retire the old way.
-func (s *Server) handOffAll(to HandoffTarget) {
+func (s *Server) handOffAll(to HandoffTarget) { s.handOff(to, -1) }
+
+// handOff moves up to `limit` live sessions to `to` (limit < 0: every
+// session, waiting for those still going live, as handOffAll). It returns
+// how many moved.
+func (s *Server) handOff(to HandoffTarget, limit int) int {
 	uc, err := dialHandoff(to)
 	if err != nil {
-		s.Logf("hand-off: %v; retiring the old way", err)
-		return
+		s.Logf("hand-off: %v; nothing moved", err)
+		return 0
 	}
 	defer uc.Close()
 	tried := map[*session]bool{}
 	deadline := time.Now().Add(s.cfg.HandoffWindow)
 	moved := 0
 	for {
+		if limit >= 0 && moved >= limit {
+			s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())
+			return moved
+		}
 		var next *session
 		waiting := 0
 		// The list under s.mu, each session's state outside it: a session
@@ -468,9 +476,9 @@ func (s *Server) handOffAll(to HandoffTarget) {
 			waiting++
 		}
 		if next == nil {
-			if waiting == 0 || time.Now().After(deadline) {
+			if waiting == 0 || limit >= 0 || time.Now().After(deadline) {
 				s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())
-				return
+				return moved
 			}
 			time.Sleep(50 * time.Millisecond)
 			continue
@@ -482,7 +490,7 @@ func (s *Server) handOffAll(to HandoffTarget) {
 		}
 		if !peerOK {
 			s.Logf("hand-off: the other copy stopped answering; %d moved, %d left here", moved, s.Active())
-			return
+			return moved
 		}
 	}
 }

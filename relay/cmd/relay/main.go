@@ -55,6 +55,12 @@ func envOr(name, def string) string {
 }
 
 func main() {
+	// First of all: SIGUSR1's default action kills the process, and
+	// setup-native.sh sends it as soon as /healthz answers. Caught from the
+	// start, an early one waits in the channel for the loop below.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGUSR2)
+
 	cfg := relay.DefaultConfig()
 	listen := flag.String("listen", "127.0.0.1:8095", "WebSocket listen address (nginx proxies relay.gocast.fm here)")
 	health := flag.String("health", "127.0.0.1:8195", "health/metrics listen address (keep on loopback)")
@@ -67,15 +73,12 @@ func main() {
 		"station router host:port for the container pass-through at /relay/broadcast/{slug}; empty = off (env RELAY_HARBOR)")
 	peers := flag.String("peers", envOr("RELAY_PEERS", "127.0.0.1:18095,127.0.0.1:18096"),
 		"health addresses of every relay copy on this host, this one included; empty = never retire by itself (env RELAY_PEERS)")
-	retireMax := flag.Duration("retire-max", 12*time.Hour, "longest a retiring copy waits for container shows to end (env RELAY_RETIRE_MAX)")
-	flag.Parse()
-	if v := os.Getenv("RELAY_RETIRE_MAX"); v != "" && !flagSet("retire-max") {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			log.Fatalf("RELAY_RETIRE_MAX %q: %v", v, err)
-		}
-		*retireMax = d
+	retireDef, err := time.ParseDuration(envOr("RELAY_RETIRE_MAX", "12h"))
+	if err != nil {
+		log.Fatalf("RELAY_RETIRE_MAX: %v", err)
 	}
+	retireMax := flag.Duration("retire-max", retireDef, "longest a retiring copy waits for container shows to end (env RELAY_RETIRE_MAX)")
+	flag.Parse()
 	if cfg.HarborAddr != "" {
 		if err := relay.HarborAddrOK(cfg.HarborAddr); err != nil {
 			log.Fatalf("-harbor %q: %v", cfg.HarborAddr, err)
@@ -167,6 +170,7 @@ func main() {
 			Harbor:          cfg.HarborAddr,
 			HandoffSocket:   st.HandoffSocket,
 			UpMillis:        time.Since(started).Milliseconds(),
+			Balance:         1,
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })
@@ -188,8 +192,6 @@ func main() {
 		}()
 	}
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1)
 	for {
 		select {
 		case <-retired:
@@ -200,6 +202,19 @@ func main() {
 			runtime.KeepAlive(roll.Held())
 			return
 		case s := <-sigs:
+			if s == syscall.SIGUSR2 {
+				// Once per deploy, after the rollover: even the sessions
+				// out with the other copy (see relay.Rollover.Balance).
+				go func() {
+					moved, why := roll.Balance(ctx, srv, 30*time.Second)
+					if why != "" {
+						log.Printf("SIGUSR2: nothing to balance: %s", why)
+						return
+					}
+					log.Printf("SIGUSR2: %d session(s) moved to the other copy, %d left here", moved, srv.Active())
+				}()
+				continue
+			}
 			if s == syscall.SIGUSR1 {
 				// By hand: the same retirement as a new binary triggers,
 				// under the same rules (the other copy up, the lock), but
@@ -239,16 +254,6 @@ func main() {
 			return
 		}
 	}
-}
-
-func flagSet(name string) bool {
-	set := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			set = true
-		}
-	})
-	return set
 }
 
 func itoa(n int) string {

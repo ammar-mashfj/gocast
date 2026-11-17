@@ -20,9 +20,13 @@
 # way, one at a time. Nothing Pro is on the relay before that deploy: Pro
 # studios move to it only when LIQUIDSOAP_INGEST_URL is switched, after.
 #
+# Once every copy is on the new build, the sessions (all on one copy by then)
+# are evened out between them: relay_balance.
+#
 # Exit: 0 every copy on the new build; 10 rolling over, a copy is still
 # carrying a container show and will restart when it ends (the old way only);
-# 1 rolled back.
+# 11 stuck: after the whole watch a copy is still not on the new build and
+# no show explains it; 1 rolled back.
 set -euo pipefail
 
 BIN="$1"; RUN_USER="$2"; shift 2
@@ -167,6 +171,7 @@ while :; do
   done
   if [[ $all_new -eq 1 ]]; then
     for port in "${PORTS[@]}"; do echo "  ✓ gocast-relay@${port} on build $NEW_BUILD"; done
+    relay_balance "${PORTS[@]}" || true
     exit 0
   fi
   if [[ -n "$waiting" ]]; then
@@ -182,7 +187,7 @@ while :; do
   if (( SECONDS >= end )); then
     echo "  ! relay copies not all on build $NEW_BUILD after ${WAIT_SECS}s:"
     for port in "${PORTS[@]}"; do echo "    @${port}: $(health "$port")"; done
-    exit 10
+    exit 11
   fi
   sleep 1
 done

@@ -619,6 +619,9 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
         0) ;;
         10) MANUAL_STEPS+=("the relay is still rolling over (a copy is keeping container shows on air until they end) —
       nothing to do; check later with: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz") ;;
+        11) MANUAL_STEPS+=("✗ a relay copy is STUCK on the old build: not on the new one after the whole watch, and no
+      container show explains it. Look at: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz;
+      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50") ;;
         *) rm -f "$RELAY_STAMP"
            MANUAL_STEPS+=("the new relay binary could not start and was rolled back:
       journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50") ;;
@@ -642,24 +645,31 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
   # it proves the request really arrives. A plain GET (no upgrade) to the
   # stream vhost on this host (127.0.0.1 is let through the Cloudflare-only
   # rule): the relay answers 426 "WebSocket upgrade required"; nginx without
-  # the route, 404. https first (certbot hosts), then http.
-  route_code=000
+  # the route, 404. The relay's own 404 (pass-through off) carries
+  # X-Gocast-Relay: the route is fine then, and the check below reports the
+  # pass-through. https first (certbot hosts), then http.
+  route_code=000 route_relay=0
   [[ -z "${STREAM_HOST:-}" ]] && route_code=skip # no domains.env value: nothing to ask
   for _ in $(seq 1 10); do
     [[ "$route_code" == skip ]] && break
     for scheme in https http; do
       port=443; [[ $scheme == http ]] && port=80
-      route_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
+      route_hdrs="$(curl -sk -o /dev/null -D - --max-time 5 \
         --resolve "${STREAM_HOST}:${port}:127.0.0.1" "${scheme}://${STREAM_HOST}/relay/broadcast/deploy-route-check" || true)"
+      route_code="$(sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<<"$route_hdrs")"
+      route_code="${route_code:-000}"
+      grep -qi '^x-gocast-relay:' <<<"$route_hdrs" && route_relay=1 || route_relay=0
       [[ "$route_code" == 426 || "$route_code" == 404 ]] && break 2
     done
     sleep 1
   done
-  if [[ "$route_code" == 404 ]]; then
+  if [[ "$route_code" == 404 && $route_relay -eq 1 ]]; then
+    : # the relay's own 404: routed fine, its pass-through is off (reported below)
+  elif [[ "$route_code" == 404 ]]; then
     MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx does not route it
       (https://${STREAM_HOST}/relay/broadcast/... answers 404), so every Pro go-live fails. In the stream vhost,
-      change \`location = /relay {\` to the regex in infra/native/nginx/gocast-stream.conf and add http_503
-      (nginx -t && systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
+      change \`location = /relay {\` to the regex in infra/native/nginx/gocast-stream.conf and replace its
+      \`proxy_next_upstream\` line with \`proxy_next_upstream error timeout http_503;\` (nginx -t && systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
   elif [[ "$route_code" != 426 && "$route_code" != skip ]]; then
     MANUAL_STEPS+=("Could not check that nginx routes /relay/broadcast/ to the relay: https://${STREAM_HOST}/relay/broadcast/...
       on this host answered ${route_code} (426 from the relay expected). Check by hand:

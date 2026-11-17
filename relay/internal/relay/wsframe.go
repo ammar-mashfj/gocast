@@ -177,8 +177,16 @@ func (p *frameParser) parse(buf []byte) (f wsFrame, n int, err error) {
 	return f, end, nil
 }
 
+// maskBytes XORs b with the key, eight bytes at a time (every studio byte
+// goes through it once, unmasking, and every Pro byte twice).
 func maskBytes(key [4]byte, b []byte) {
-	for i := range b {
+	k32 := binary.LittleEndian.Uint32(key[:])
+	k64 := uint64(k32) | uint64(k32)<<32
+	i := 0
+	for ; i+8 <= len(b); i += 8 {
+		binary.LittleEndian.PutUint64(b[i:], binary.LittleEndian.Uint64(b[i:])^k64)
+	}
+	for ; i < len(b); i++ {
 		b[i] ^= key[i&3]
 	}
 }
