@@ -62,6 +62,9 @@ type Health struct {
 	// Retiring and still moving its sessions to the other copy (seconds).
 	// A copy retiring without it carries shows it waits for to end.
 	HandingOff bool `json:"handing_off"`
+	// Where container studios are passed through to (the station router),
+	// "" when the pass-through is off. The deploy checks it answers.
+	Harbor string `json:"harbor"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -71,6 +74,10 @@ type Rollover struct {
 	CheckEvery time.Duration // how often to look at the binary and the peers
 	MaxWait    time.Duration // longest a retiring copy waits for container shows
 	LockName   string        // RolloverLockName; tests use their own
+	// This process's pid: a peer address that turns out to be this very
+	// copy (localhost vs 127.0.0.1, a typo in RELAY_PEERS) is never taken
+	// for the other one. 0 = no check (tests, which share one pid).
+	SelfPID int
 
 	build string // sha256 of the binary this process started from
 
@@ -94,10 +101,30 @@ type Rollover struct {
 	target *HandoffTarget
 }
 
-// NewRollover hashes the binary this process is running. Read from the path
-// at startup, before any deploy can have replaced it.
-func NewRollover(exePath string) (*Rollover, error) {
-	h, fi, err := hashFile(exePath)
+// NewRollover is for a process running the binary at exePath: its build is
+// that file's hash. (Tests; the relay itself uses NewRolloverForSelf.)
+func NewRollover(exePath string) (*Rollover, error) { return newRollover(exePath, exePath) }
+
+// NewRolloverForSelf takes this process's build from the program it is
+// actually running (/proc/self/exe: the executed file, even after a deploy
+// has renamed another over its path), not from whatever is at exePath now.
+// A copy that restarts just as a deploy swaps the binary would otherwise
+// claim the new build while running the old code: the deploy would report
+// it rolled over, and nothing would ever move it.
+func NewRolloverForSelf(exePath string) (*Rollover, error) {
+	running := "/proc/self/exe"
+	if _, err := os.Stat(running); err != nil {
+		running = exePath // not Linux
+	}
+	return newRollover(exePath, running)
+}
+
+func newRollover(exePath, runningPath string) (*Rollover, error) {
+	build, _, err := hashFile(runningPath)
+	if err != nil {
+		return nil, err
+	}
+	onDisk, fi, err := hashFile(exePath)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +133,10 @@ func NewRollover(exePath string) (*Rollover, error) {
 		CheckEvery: 5 * time.Second,
 		MaxWait:    12 * time.Hour,
 		LockName:   RolloverLockName,
-		build:      h,
+		build:      build,
 		lastMod:    fi.ModTime(),
 		lastSz:     fi.Size(),
+		stale:      onDisk != build, // already replaced since this process started
 	}, nil
 }
 
@@ -156,9 +184,9 @@ func hashFile(path string) (string, os.FileInfo, error) {
 	return hex.EncodeToString(h.Sum(nil)), fi, nil
 }
 
-// PeerReady reports whether some other copy can take the studios this one
+// anyPeerReady reports whether some other copy can take the studios this one
 // would turn away: it answers /healthz and is neither draining nor retiring.
-func (r *Rollover) PeerReady(ctx context.Context) bool {
+func (r *Rollover) anyPeerReady(ctx context.Context) bool {
 	_, ok := r.readyPeer(ctx)
 	return ok
 }
@@ -167,7 +195,7 @@ func (r *Rollover) PeerReady(ctx context.Context) bool {
 // it does not speak this copy's hand-off version).
 func (r *Rollover) readyPeer(ctx context.Context) (*HandoffTarget, bool) {
 	for _, p := range r.Peers {
-		if h, ok := peerReady(ctx, p); ok {
+		if h, ok := peerReady(ctx, p); ok && (r.SelfPID == 0 || h.PID != r.SelfPID) {
 			if h.Handoff != HandoffVersion {
 				return nil, true
 			}
@@ -325,7 +353,7 @@ func (r *Rollover) Target() *HandoffTarget {
 func (r *Rollover) Run(ctx context.Context, srv *Server, logf func(string, ...any)) bool {
 	t := time.NewTicker(r.CheckEvery)
 	defer t.Stop()
-	lastBlocked := ""
+	lastLogged := "" // the last "not moving" reason logged: each new one is said once
 	for {
 		select {
 		case <-ctx.Done():
@@ -335,10 +363,10 @@ func (r *Rollover) Run(ctx context.Context, srv *Server, logf func(string, ...an
 		why, ok := r.Begin(ctx, srv, true)
 		if !ok {
 			// Said once per reason, not every few seconds.
-			if strings.HasPrefix(why, "new binary failed") && why != lastBlocked {
+			if strings.HasPrefix(why, "new binary failed") && why != lastLogged {
+				lastLogged = why
 				logf("NOT moving to the binary on disk, keeping this build: %s", why)
 			}
-			lastBlocked = why
 			continue
 		}
 		if t := r.Target(); t != nil {

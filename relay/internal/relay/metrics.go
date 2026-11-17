@@ -38,18 +38,18 @@ func (m *Metrics) path(p string) *pathCounters {
 	return &m.icecast
 }
 
-func (m *Metrics) connOpened(p string)        { m.path(p).active.Add(1); m.path(p).accepted.Add(1) }
-func (m *Metrics) connClosed(p string)        { m.path(p).active.Add(-1) }
-func (m *Metrics) handoffIn(p string)         { m.path(p).active.Add(1); m.path(p).handedIn.Add(1) }
-func (m *Metrics) handoffOut(p string)        { m.path(p).handedOut.Add(1) }
-func (m *Metrics) HandedIn(p string) int64    { return m.path(p).handedIn.Load() }
-func (m *Metrics) HandedOut(p string) int64   { return m.path(p).handedOut.Load() }
-func (m *Metrics) bytesIn(p string, n int)    { m.path(p).bytes.Add(int64(n)) }
-func (m *Metrics) busyRetry()                 { m.busyRetries.Add(1) }
-func (m *Metrics) BusyRetries() int64         { return m.busyRetries.Load() }
-func (m *Metrics) Bytes(p string) int64       { return m.path(p).bytes.Load() }
-func (m *Metrics) Accepted(p string) int64    { return m.path(p).accepted.Load() }
-func (m *Metrics) ActiveCount(p string) int64 { return m.path(p).active.Load() }
+func (m *Metrics) connOpened(p string)           { m.path(p).active.Add(1); m.path(p).accepted.Add(1) }
+func (m *Metrics) connClosed(p string)           { m.path(p).active.Add(-1) }
+func (m *Metrics) handoffIn(p string)            { m.path(p).active.Add(1); m.path(p).handedIn.Add(1) }
+func (m *Metrics) handoffOut(p string)           { m.path(p).handedOut.Add(1) }
+func (m *Metrics) handedInTotal(p string) int64  { return m.path(p).handedIn.Load() }
+func (m *Metrics) handedOutTotal(p string) int64 { return m.path(p).handedOut.Load() }
+func (m *Metrics) bytesIn(p string, n int)       { m.path(p).bytes.Add(int64(n)) }
+func (m *Metrics) busyRetry()                    { m.busyRetries.Add(1) }
+func (m *Metrics) BusyRetries() int64            { return m.busyRetries.Load() }
+func (m *Metrics) Bytes(p string) int64          { return m.path(p).bytes.Load() }
+func (m *Metrics) acceptedTotal(p string) int64  { return m.path(p).accepted.Load() }
+func (m *Metrics) ActiveCount(p string) int64    { return m.path(p).active.Load() }
 
 func (m *Metrics) Close(reason string) {
 	m.mu.Lock()

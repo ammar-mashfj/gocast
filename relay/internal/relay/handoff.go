@@ -248,17 +248,40 @@ func (s *Server) ListenHandoff(name string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	go func() {
-		for {
-			c, err := ln.AcceptUnix()
-			if err != nil {
-				return
-			}
-			go s.receiveHandoffs(c)
-		}
-	}()
+	s.handoffUp.Store(true)
+	go s.acceptHandoffs(ln)
 	return ln, nil
 }
+
+type unixAcceptor interface {
+	AcceptUnix() (*net.UnixConn, error)
+}
+
+// acceptHandoffs runs until the listener is closed. Any other accept error
+// (out of descriptors, ...) is waited out: giving up would leave /healthz
+// promising hand-offs this copy no longer takes.
+func (s *Server) acceptHandoffs(ln unixAcceptor) {
+	defer s.handoffUp.Store(false)
+	backoff := 5 * time.Millisecond
+	for {
+		c, err := ln.AcceptUnix()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			s.Logf("hand-off socket: accept: %v (retrying)", err)
+			time.Sleep(backoff)
+			backoff = min(2*backoff, time.Second)
+			continue
+		}
+		backoff = 5 * time.Millisecond
+		go s.receiveHandoffs(c)
+	}
+}
+
+// TakesHandoffs reports whether this copy's hand-off socket is listening:
+// what /healthz advertises to the other copy.
+func (s *Server) TakesHandoffs() bool { return s.handoffUp.Load() }
 
 func (s *Server) receiveHandoffs(uc *net.UnixConn) {
 	defer uc.Close()
@@ -419,11 +442,19 @@ func (s *Server) handOffAll(to HandoffTarget) {
 	for {
 		var next *session
 		waiting := 0
+		// The list under s.mu, each session's state outside it: a session
+		// can hold its own lock for a while (a Free studio's "ok" going to a
+		// slow studio), and s.mu held meanwhile would stall /healthz and
+		// every new studio, making this copy look down.
 		s.mu.Lock()
+		list := make([]*session, 0, len(s.conns))
 		for ss := range s.conns {
-			if tried[ss] {
-				continue
+			if !tried[ss] {
+				list = append(list, ss)
 			}
+		}
+		s.mu.Unlock()
+		for _, ss := range list {
 			ss.mu.Lock()
 			live := ss.state == stLive
 			ss.mu.Unlock()
@@ -433,7 +464,6 @@ func (s *Server) handOffAll(to HandoffTarget) {
 			}
 			waiting++
 		}
-		s.mu.Unlock()
 		if next == nil {
 			if waiting == 0 || time.Now().After(deadline) {
 				s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())

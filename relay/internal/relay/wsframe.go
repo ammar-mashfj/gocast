@@ -44,7 +44,8 @@ const (
 // maxControlPayload is RFC 6455's limit for ping, pong and close.
 const maxControlPayload = 125
 
-// wsFrame is one frame as read off the wire, payload unmasked.
+// wsFrame is one frame as read off the wire, payload unmasked. The payload
+// points into the reader's buffer: valid until the next readFrame.
 type wsFrame struct {
 	fin     bool
 	op      byte
@@ -152,8 +153,11 @@ func (p *frameParser) parse(buf []byte) (f wsFrame, n int, err error) {
 		return f, 0, nil
 	}
 	end := i + int(length)
-	f.payload = make([]byte, length)
-	copy(f.payload, buf[i:end])
+	// The payload is a view into buf, unmasked in place: no copy on the way
+	// through the relay (the frame towards the other side is the one copy).
+	// Valid until the next parse of the same buffer: callers use or copy it
+	// before reading on.
+	f.payload = buf[i:end:end]
 	if masked {
 		maskBytes(key, f.payload)
 	}

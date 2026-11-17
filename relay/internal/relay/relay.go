@@ -74,8 +74,12 @@ type Config struct {
 	BusyRetryEvery time.Duration // between those asks
 	BusyRetryLogin time.Duration // the time each of those asks gets to answer
 	WriteTimeout   time.Duration // one write to Icecast may block this long
-	MaxMessage     int64         // largest single WebSocket message accepted
-	PingInterval   time.Duration // ping the studio this often; 0 = never
+	// One write to a Free studio (its "ok", a ping, a close) may block this
+	// long before the studio counts as gone. Container studios use
+	// HarborWriteTimeout, like the harbor side of their show.
+	StudioWriteTimeout time.Duration
+	MaxMessage         int64         // largest single WebSocket message accepted
+	PingInterval       time.Duration // ping the studio this often; 0 = never
 
 	// Harbor pass-through (harbor.go). Empty HarborAddr turns it off and
 	// /broadcast/{slug} answers 404.
@@ -108,8 +112,12 @@ func DefaultConfig() Config {
 		// 1008 "no audio".
 		IdleTimeout:  8 * time.Second,
 		WriteTimeout: 5 * time.Second,
-		MaxMessage:   64 << 10,
-		PingInterval: 30 * time.Second,
+		// A studio that has read nothing for this long has stopped reading:
+		// pings are a few bytes every 30 s, so only a dead tab fills the
+		// socket.
+		StudioWriteTimeout: 10 * time.Second,
+		MaxMessage:         64 << 10,
+		PingInterval:       30 * time.Second,
 		// The router answers an upgrade in milliseconds; a station that is
 		// off is a quick 502. Under the studio's 10 s connect timeout.
 		HarborTimeout: 5 * time.Second,
@@ -200,7 +208,12 @@ type Server struct {
 	draining   bool
 	retiring   bool
 	handingOff bool // RetireVia is moving sessions to the other copy right now
-	wg         sync.WaitGroup
+	// Closed and replaced each time a session leaves: what a retirement
+	// waiting for its last container show waits on.
+	left chan struct{}
+
+	handoffUp atomic.Bool // the hand-off socket is accepting
+	wg        sync.WaitGroup
 }
 
 // Which path a studio came in on; a label on the metrics.
@@ -220,7 +233,7 @@ type conn struct {
 }
 
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, Metrics: NewMetrics(), Logf: log.Printf, conns: map[*session]*conn{}}
+	return &Server{cfg: cfg, Metrics: NewMetrics(), Logf: log.Printf, conns: map[*session]*conn{}, left: make(chan struct{})}
 }
 
 func (s *Server) track(ss *session, path string) (*conn, bool) {
@@ -250,8 +263,24 @@ func (s *Server) holdsSource(ss *session, release func()) {
 func (s *Server) untrack(ss *session) {
 	s.mu.Lock()
 	delete(s.conns, ss)
+	close(s.left)
+	s.left = make(chan struct{})
 	s.mu.Unlock()
 	s.wg.Done()
+}
+
+// harborLeft is how many container shows are on this copy, and a channel
+// closed as soon as any session leaves.
+func (s *Server) harborLeft() (int, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, st := range s.conns {
+		if st.path == PathHarbor {
+			n++
+		}
+	}
+	return n, s.left
 }
 
 // finish accounts for a session that ended on this copy. One handed to the
@@ -325,18 +354,18 @@ func (s *Server) Drain(ctx context.Context) {
 	<-done
 }
 
-// Retire hands this copy over without cutting a live container show, the
+// retire hands this copy over without cutting a live container show, the
 // way it was done before hand-offs (and still is when the other copy cannot
 // take them): new studios are refused (nginx sends them to the other copy),
 // Free studios are handed over at once (Icecast's fallback covers their
 // listeners), container shows are left to end on their own, for up to
 // maxWait.
-func (s *Server) Retire(maxWait time.Duration) { s.RetireVia(maxWait, nil) }
+func (s *Server) retire(maxWait time.Duration) { s.RetireVia(maxWait, nil) }
 
 // RetireVia retires this copy, moving every live session to the copy at `to`
 // first (handoff.go): nobody notices anything. Whatever could not be moved
 // (no target, the target refused or failed, a session that never went live
-// in time) is retired the old way, as Retire describes. Returns when every
+// in time) is retired the old way, as retire describes. Returns when every
 // studio is gone; the caller exits and systemd starts the new binary.
 //
 // A second call (a manual SIGUSR1 racing the automatic rollover) does not
@@ -370,9 +399,19 @@ func (s *Server) RetireVia(maxWait time.Duration, to *HandoffTarget) {
 	s.mu.Unlock()
 	kickAll(free)
 
-	deadline := time.Now().Add(maxWait)
-	for s.ActiveOn(PathHarbor) > 0 && time.Now().Before(deadline) {
-		time.Sleep(200 * time.Millisecond)
+	limit := time.NewTimer(maxWait)
+	defer limit.Stop()
+wait:
+	for {
+		n, left := s.harborLeft()
+		if n == 0 {
+			break
+		}
+		select {
+		case <-left:
+		case <-limit.C:
+			break wait
+		}
 	}
 	expired, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
@@ -453,7 +492,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proto := selectSubprotocol(r, []string{"webcast"})
-	studio, err := acceptUpgrade(w, r, proto, s.cfg.MaxMessage, s.cfg.HarborWriteTimeout)
+	studio, err := acceptUpgrade(w, r, proto, s.cfg.MaxMessage, s.cfg.StudioWriteTimeout)
 	if err != nil {
 		s.Metrics.Close("refused_upgrade")
 		return
