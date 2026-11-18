@@ -43,11 +43,7 @@ field() { # a number, boolean or string field, unquoted
   local v; v="$(relay_string "$1" "$2")"
   [[ -n "$v" ]] && echo "$v" || relay_field "$1" "$2"
 }
-healthy() {
-  local i
-  for i in $(seq 1 20); do [[ -n "$(health "$1")" ]] && return 0; sleep 0.5; done
-  return 1
-}
+healthy() { relay_until 10 relay_up "$1"; }
 
 NEW_BUILD="$(sha256sum "$BIN/gocast-relay" | cut -c1-12)"
 
@@ -86,11 +82,8 @@ done
 # cutting its container shows. Down copies are the watch loop's business.
 legacy=0
 for port in "${PORTS[@]}"; do
-  for _ in $(seq 1 20); do
-    h="$(health "$port")"
-    [[ -n "$h" ]] && break
-    sleep 0.5
-  done
+  relay_until 10 relay_up "$port" || true
+  h="$(health "$port")"
   [[ -n "$h" && -z "$(field "$h" build)" ]] && legacy=1
 done
 if [[ $legacy -eq 1 ]]; then
@@ -125,6 +118,13 @@ fi
 echo "  · new relay build $NEW_BUILD: the copies roll over by themselves, one at a time"
 declare -A down=()
 end=$((SECONDS + WAIT_SECS))
+# "Keeping container shows on air until they end" must hold this long
+# before the watch leaves it at that: a show that has just ended still counts
+# while its close finishes (up to 5 s), and leaving then would skip watching
+# that copy restart on the new binary, and putting the old one back if the
+# new one cannot start.
+SHOWS_SECS="${RELAY_ROLLOVER_SHOWS:-15}"
+waiting_since=-1
 while :; do
   all_new=1 waiting=""
   for port in "${PORTS[@]}"; do
@@ -174,7 +174,12 @@ while :; do
     relay_balance "${PORTS[@]}" || true
     exit 0
   fi
-  if [[ -n "$waiting" ]]; then
+  if [[ -z "$waiting" ]]; then
+    waiting_since=-1
+  elif (( waiting_since < 0 )); then
+    waiting_since=$SECONDS
+  fi
+  if [[ -n "$waiting" ]] && (( SECONDS - waiting_since >= SHOWS_SECS )); then
     # A copy is keeping container shows on air until they end; the rest
     # follows on its own. Nothing to wait for here.
     for port in "${PORTS[@]}"; do

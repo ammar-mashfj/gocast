@@ -69,8 +69,15 @@ studios, which reconnect to the other within milliseconds.
   SCM_RIGHTS) with the relay's own state for them (bytes read but not parsed, bytes owed but not
   written, a fragmented message in progress, the ping and idle clocks). Two steps (ready, commit),
   so the sockets are never run by both copies or by neither. Only to the same uid and to the pid
-  the other copy's `/healthz` named.
-- **Before stepping aside, a copy test-runs the new binary** (`-help` must exit 0 within 5 s; every relay build does). If it fails, nothing changes:
+  the other copy's `/healthz` named. A connection to the other copy that breaks (a step it missed)
+  is dialled again and the rest go on, within the 30 s window; each session is tried at most twice,
+  and a refusal (another version, draining) is final. A copy whose hand-off socket name is still held
+  when it starts (something left over) keeps trying it in the background and takes sessions as soon as
+  it frees; until then its `/healthz` says `handoff: 0`.
+- **Before stepping aside, a copy test-runs the new binary** with its own flags and environment plus `-check`,
+  which checks every setting as a start would and exits 0 within 5 s without binding anything. A binary
+  that would refuse the unit's settings is caught here, before any show is handed over. A binary from
+  before `-check` (a rollback) is asked `-help` instead. If it fails, nothing changes:
   - The copy keeps serving on its own build.
   - `/healthz` shows `rollover_blocked`.
   - The deploy puts the previous binary back.
@@ -81,9 +88,10 @@ studios, which reconnect to the other within milliseconds.
 - **SIGUSR2** evens the sessions out: the copy hands half the difference to the other copy, the same way.
   A rollover leaves every session on one copy (A hands to B, then B hands back to the new A); the deploy
   (and setup's unit roll) sends SIGUSR2 to the fuller copy once both are on the new build, so a crash
-  drops about half the studios, not all. Only to a build whose `/healthz` says `"balance":1`: SIGUSR2
-  kills an older one. Refused while either copy retires (it holds the rollover lock for the move) or
-  while the two copies run different builds. Signals are caught from the first line of `main`.
+  drops about half the studios, not all. (An older build simply ignores SIGUSR2: Go ignores
+  SIGUSR1/SIGUSR2 nothing listens for.) Refused while either copy retires (it holds the rollover lock
+  for the move) or while the two copies run different builds. Signals are caught from the first line
+  of `main`.
 - Every answer the relay gives itself (not a 101) carries `X-Gocast-Relay: 1`: the deploy's route
   check tells the relay's own 404 (pass-through off) from nginx's (no route).
 - **503 belongs to the relay.** It means "this copy is draining, try the other",
@@ -102,7 +110,7 @@ studios, which reconnect to the other within milliseconds.
   its Pro go-lives get 403 ("could not reach the stream server"). The mobile app sends no Origin and
   is never refused.
 - `curl 127.0.0.1:18095/healthz` returns:
-  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket","up_ms","balance"}`,
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket","up_ms"}`,
   read under one lock. `handoff_socket` is the socket the copy takes hand-offs on: the other copy dials
   exactly that name, so how an address is spelled in `RELAY_PEERS` never matters.
   Scripts read it through `infra/native/relay-health.sh`.

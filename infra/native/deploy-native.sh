@@ -649,9 +649,8 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
   # X-Gocast-Relay: the route is fine then, and the check below reports the
   # pass-through. https first (certbot hosts), then http.
   route_code=000 route_relay=0
-  [[ -z "${STREAM_HOST:-}" ]] && route_code=skip # no domains.env value: nothing to ask
-  for _ in $(seq 1 10); do
-    [[ "$route_code" == skip ]] && break
+  route_answered() { # sets route_code, route_relay
+    local scheme port route_hdrs
     for scheme in https http; do
       port=443; [[ $scheme == http ]] && port=80
       route_hdrs="$(curl -sk -o /dev/null -D - --max-time 5 \
@@ -659,10 +658,15 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
       route_code="$(sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<<"$route_hdrs")"
       route_code="${route_code:-000}"
       grep -qi '^x-gocast-relay:' <<<"$route_hdrs" && route_relay=1 || route_relay=0
-      [[ "$route_code" == 426 || "$route_code" == 404 ]] && break 2
+      [[ "$route_code" == 426 || "$route_code" == 404 ]] && return 0
     done
-    sleep 1
-  done
+    return 1
+  }
+  if [[ -z "${STREAM_HOST:-}" ]]; then
+    route_code=skip # no domains.env value: nothing to ask
+  else
+    relay_until 10 route_answered || true
+  fi
   if [[ "$route_code" == 404 && $route_relay -eq 1 ]]; then
     : # the relay's own 404: routed fine, its pass-through is off (reported below)
   elif [[ "$route_code" == 404 ]]; then
@@ -684,7 +688,8 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
   # NOT the advice here: that brings the 100-minute Cloudflare cuts back.
   relay_serves=0
   relay_why="no relay copy answers /healthz"
-  for _ in $(seq 1 20); do
+  relay_serves_now() { # sets relay_serves, relay_why
+    local p h harbor
     for p in "${RELAY_PORTS[@]}"; do
       h="$(relay_health "$p")"
       [[ -z "$h" ]] && continue
@@ -695,13 +700,13 @@ if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
       fi
       if [[ "$(curl -fsS --max-time 2 "http://${harbor}/healthz" 2>/dev/null || true)" == ok* ]]; then
         relay_serves=1
-        break
+        return 0
       fi
       relay_why="gocast-relay@${p} passes Pro studios to ${harbor}, where no station router answers /healthz (wrong RELAY_HARBOR port, or the router is down)"
     done
-    [[ $relay_serves -eq 1 ]] && break
-    sleep 1
-  done
+    return 1
+  }
+  relay_until 20 relay_serves_now || true
   if [[ $relay_serves -eq 0 ]]; then
     MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but no relay copy can serve it:
       ${relay_why}. Check: curl -s 127.0.0.1:1${RELAY_PORTS[0]}/healthz; RELAY_HARBOR in

@@ -48,6 +48,7 @@ func TestSigtermIsNotHeldUpBySigusr1(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"RELAY_TEST_MAIN=1",
 		"GORACE=atexit_sleep_ms=0", // under -race a process otherwise sleeps 1 s on exit
+		"RELAY_ROLLOVER_LOCK="+testLock(),
 		"RELAY_HARBOR=",
 		"RELAY_PEERS="+strings.TrimPrefix(slowPeer.URL, "http://"),
 		"RELAY_TEST_ARGS=-listen "+listen+" -health "+health+" -pid-file "+pidFile,
@@ -93,6 +94,7 @@ func TestEarlySignalsDoNotKill(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"RELAY_TEST_MAIN=1",
 		"GORACE=atexit_sleep_ms=0",
+		"RELAY_ROLLOVER_LOCK="+testLock(),
 		"RELAY_HARBOR=",
 		"RELAY_PEERS=127.0.0.1:1", // nobody there
 		"RELAY_RETIRE_MAX=1m",
@@ -166,4 +168,42 @@ func (s *syncBuf) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// testLock is a rollover lock of the test's own: never the host's, which a
+// deploy running on the same machine would be using.
+func testLock() string {
+	return "@gocast-relay-rollover-test-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+// -check: every setting checked, nothing bound (the copies hold the ports),
+// exit 0; a setting a start would refuse fails it.
+func TestCheckMode(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0") // a running copy's port
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	run := func(env ...string) (string, error) {
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(append(os.Environ(), "RELAY_TEST_MAIN=1", "GORACE=atexit_sleep_ms=0",
+			"RELAY_ROLLOVER_LOCK="+testLock()), env...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	args := "-listen " + held.Addr().String() + " -health " + freePort(t) + " -origins gocast.fm -check"
+	if out, err := run("RELAY_TEST_ARGS=" + args); err != nil || !strings.Contains(out, "ok") {
+		t.Fatalf("good settings, port in use: %v\n%s", err, out)
+	}
+	for name, env := range map[string][]string{
+		"bad harbor":  {"RELAY_HARBOR=nonsense", "RELAY_TEST_ARGS=" + args},
+		"bad origins": {"RELAY_TEST_ARGS=" + strings.Replace(args, "gocast.fm", "https://gocast.fm", 1)},
+		"bad listen":  {"RELAY_TEST_ARGS=" + strings.Replace(args, held.Addr().String(), "nowhere", 1)},
+		"bad env":     {"RELAY_RETIRE_MAX=soon", "RELAY_TEST_ARGS=" + args},
+		"bad flag":    {"RELAY_TEST_ARGS=" + args + " -no-such-flag"},
+	} {
+		if out, err := run(env...); err == nil {
+			t.Errorf("%s: -check passed\n%s", name, out)
+		}
+	}
 }

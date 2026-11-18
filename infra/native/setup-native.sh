@@ -347,9 +347,9 @@ roll_relay_copy() { # roll_relay_copy <port> <other port>
   h="$(relay_health "$other")"
   mine="$(relay_health "$port")"
   # BOTH copies must speak hand-offs. The other, to take the sessions. This
-  # one, because a build from before this PR has no SIGUSR1 handler: the
-  # signal would kill it and drop every studio on it without a close (and a
-  # build from rounds 1-2 would retire the old way, cutting Free studios).
+  # one, because a build from before this PR ignores SIGUSR1 (nothing would
+  # happen, and the wait below would time out), and a build from its first
+  # review rounds would retire the old way, cutting Free studios.
   if [[ -z "$mine" ]]; then
     echo "  ! gocast-relay@${port} does not answer /healthz; not rolling it"
     return 1
@@ -362,28 +362,30 @@ roll_relay_copy() { # roll_relay_copy <port> <other port>
   # A copy steps aside only for one that has been up a few seconds (the
   # relay's PeerSettle, 5 s, over nginx's 2 s fail_timeout): a SIGUSR1 sent
   # sooner, right after the other copy's own roll, would just be refused.
-  for _ in $(seq 1 30); do
-    [[ "$(relay_field "$h" up_ms)" -ge 6000 ]] 2>/dev/null && break
-    sleep 1
-    h="$(relay_health "$other")"
-  done
+  relay_until 30 relay_settled "$other" || true
+  h="$(relay_health "$other")"
   if [[ "$(relay_field "$h" handoff)" != "1" || "$(relay_field "$h" draining)" == "true" ]]; then
     echo "  ! gocast-relay@${port} still runs the old unit: gocast-relay@${other} cannot take its sessions now."
-    echo "    Later, with both copies up: systemctl kill -s USR1 gocast-relay@${port}"
+    echo "    Later, with both copies up: systemctl kill --kill-whom=main -s USR1 gocast-relay@${port}"
     return 1
   fi
   before="$(relay_field "$mine" pid)"
-  systemctl kill -s USR1 "gocast-relay@${port}"
-  for _ in $(seq 1 120); do
-    after="$(relay_field "$(relay_health "$port")" pid)"
-    if [[ -n "$after" && "$after" != "$before" ]]; then
-      echo "  ✓ gocast-relay@${port} restarted on the new unit, its sessions handed over"
-      return 0
-    fi
-    sleep 0.5
-  done
+  # The relay process only: the unit may also hold the copy's test run of
+  # a new binary, which a signal could kill before it is set up to ignore
+  # it (the failed test run would then block that binary).
+  systemctl kill --kill-whom=main -s USR1 "gocast-relay@${port}"
+  if relay_until 60 relay_new_pid "$port" "$before"; then
+    echo "  ✓ gocast-relay@${port} restarted on the new unit, its sessions handed over"
+    return 0
+  fi
   echo "  ! gocast-relay@${port} did not roll within 60 s: journalctl -u gocast-relay@${port} -n 30"
   return 1
+}
+relay_settled() { [[ "$(relay_field "$(relay_health "$1")" up_ms)" -ge 6000 ]] 2>/dev/null; }
+relay_new_pid() { # relay_new_pid <port> <old pid>: answering, under another pid
+  local after
+  after="$(relay_field "$(relay_health "$1")" pid)"
+  [[ -n "$after" && "$after" != "$2" ]]
 }
 systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
 if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
@@ -409,7 +411,7 @@ if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
         rolled=1
       else
         [[ $port == 8095 && -z "${relay_fresh[gocast-relay@8096]:-}" ]] &&
-          echo "    and once gocast-relay@8095 is back on the new unit: systemctl kill -s USR1 gocast-relay@8096"
+          echo "    and once gocast-relay@8095 is back on the new unit: systemctl kill --kill-whom=main -s USR1 gocast-relay@8096"
         rolled=0
         break
       fi
