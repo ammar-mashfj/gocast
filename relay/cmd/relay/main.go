@@ -33,6 +33,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -55,9 +56,10 @@ func envOr(name, def string) string {
 }
 
 func main() {
-	// First of all: SIGUSR1's default action kills the process, and
-	// setup-native.sh sends it as soon as /healthz answers. Caught from the
-	// start, an early one waits in the channel for the loop below.
+	// First of all, so a signal that comes early (setup-native.sh sends
+	// SIGUSR1 as soon as /healthz answers) waits in the channel for the loop
+	// below rather than being dropped. (Go ignores SIGUSR1/SIGUSR2 that
+	// nothing listens for; caught here, they are acted on.)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGUSR1, syscall.SIGUSR2)
 
@@ -78,7 +80,13 @@ func main() {
 		log.Fatalf("RELAY_RETIRE_MAX: %v", err)
 	}
 	retireMax := flag.Duration("retire-max", retireDef, "longest a retiring copy waits for container shows to end (env RELAY_RETIRE_MAX)")
+	check := flag.Bool("check", false, "check every setting as a start would, then exit 0 without binding anything (the rollover's test run of a new binary)")
 	flag.Parse()
+	for _, a := range []struct{ name, addr string }{{"-listen", *listen}, {"-health", *health}} {
+		if _, err := net.ResolveTCPAddr("tcp", a.addr); err != nil {
+			log.Fatalf("%s %q: %v", a.name, a.addr, err)
+		}
+	}
 	if cfg.HarborAddr != "" {
 		if err := relay.HarborAddrOK(cfg.HarborAddr); err != nil {
 			log.Fatalf("-harbor %q: %v", cfg.HarborAddr, err)
@@ -112,10 +120,22 @@ func main() {
 	}
 	roll.MaxWait = *retireMax
 	roll.SelfPID = os.Getpid()
+	// The new binary is test-run with this copy's own settings: the flags
+	// it was started with, and (inherited) its environment.
+	roll.CheckArgs = os.Args[1:]
+	// Tests running main take their own lock, never the host's.
+	if v := os.Getenv("RELAY_ROLLOVER_LOCK"); v != "" {
+		roll.LockName = v
+	}
 	for _, p := range strings.Split(*peers, ",") {
 		if p = strings.TrimSpace(p); p != "" && p != *health {
 			roll.Peers = append(roll.Peers, p)
 		}
+	}
+
+	if *check {
+		fmt.Println("ok: settings check out")
+		return
 	}
 
 	ln, err := net.Listen("tcp", *listen)
@@ -135,11 +155,8 @@ func main() {
 	// Sessions handed over by the other copy when it retires. Without this
 	// listener the other copy retires the old way (it reads "handoff" in our
 	// /healthz).
-	if hl, err := srv.ListenHandoff(relay.HandoffSocket(*health)); err != nil {
-		log.Printf("hand-off socket %s: %v (this copy will not take sessions from the other)", relay.HandoffSocket(*health), err)
-	} else {
-		defer hl.Close()
-	}
+	// A name still held by something left over is tried again until it frees.
+	srv.KeepListeningHandoff(context.Background(), relay.HandoffSocket(*health))
 
 	web := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go web.Serve(ln)
@@ -170,7 +187,6 @@ func main() {
 			Harbor:          cfg.HarborAddr,
 			HandoffSocket:   st.HandoffSocket,
 			UpMillis:        time.Since(started).Milliseconds(),
-			Balance:         1,
 		})
 	})
 	hmux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { srv.Metrics.Render(w) })

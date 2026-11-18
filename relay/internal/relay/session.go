@@ -204,8 +204,15 @@ func (ss *session) end(label string, close func()) bool {
 	ss.label = label
 	ss.stopTimersLocked()
 	ss.mu.Unlock()
-	ss.cancel()
+	// The close first, then the cancel: the cancel aborts a Free studio's
+	// Icecast login, and the session's goroutine then finishes at once. A
+	// drain waiting on it could let the process exit before a kick's 1001
+	// was written.
 	close()
+	if h := testHookCancel.Load(); h != nil {
+		(*h)(ss)
+	}
+	ss.cancel()
 	return true
 }
 
@@ -234,12 +241,13 @@ func (ss *session) kick(release func()) {
 }
 
 // forwardClose closes c the way its partner was closed. A partner that
-// dropped without a close frame, or with a code that may not be sent on the
-// wire (1005, 1006, 1015), is passed on as a drop: the studio then sees
-// exactly what it sees when harbor or the router hangs up on it directly.
+// dropped without a close frame (or with 1006/1015, which no frame may carry)
+// is passed on as a drop: the studio then sees exactly what it sees when
+// harbor or the router hangs up on it directly. An empty close frame (1005)
+// is passed on as an empty close frame: a clean close, not a drop.
 func forwardClose(c *wsConn, code int, why string) {
 	switch code {
-	case -1, StatusNoStatusRcvd, StatusAbnormalClosure, StatusTLSHandshake:
+	case -1, StatusAbnormalClosure, StatusTLSHandshake:
 		c.closeNow()
 	default:
 		c.closeHandshake(code, why)

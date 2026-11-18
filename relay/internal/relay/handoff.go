@@ -39,6 +39,7 @@ package relay
 // before giving anything away. The receiver checks the sender's uid.
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -82,6 +84,11 @@ const handoffMaxMessage = 8 << 20
 var (
 	testHookSnapshot   func(*sessionSnap)
 	testHookBeforeLive func(*session)
+	// testHookBeforeReady runs on the receiving side before it says ready.
+	testHookBeforeReady func()
+	// testHookCancel runs as a session ending is about to cancel its context
+	// (atomic: sessions of earlier tests may still be ending).
+	testHookCancel atomic.Pointer[func(*session)]
 )
 
 // sessionSnap is a frozen session, as the receiving process needs it.
@@ -256,6 +263,43 @@ func (s *Server) ListenHandoff(name string) (net.Listener, error) {
 	return ln, nil
 }
 
+// handoffRelisten is the longest wait between two tries at a hand-off
+// socket name that was taken.
+var handoffRelisten = 5 * time.Second
+
+// KeepListeningHandoff is ListenHandoff that does not give up. The first try
+// is made before it returns, so a copy that can listen says so in its first
+// /healthz. If the name is taken (something left over still holds it), the
+// copy keeps trying in the background until ctx ends: without that it would
+// never take sessions until its next restart, and the other copy would
+// retire the old way (Free studios reconnect, Pro shows kept up to 12 h).
+// /healthz reports hand-offs only while the socket listens, so nobody counts
+// on this copy before then.
+func (s *Server) KeepListeningHandoff(ctx context.Context, name string) {
+	ln, err := s.ListenHandoff(name)
+	if err == nil {
+		context.AfterFunc(ctx, func() { ln.Close() })
+		return
+	}
+	s.Logf("hand-off socket %s: %v (retrying; until then this copy will not take sessions from the other)", name, err)
+	go func() {
+		backoff := 100 * time.Millisecond
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(2*backoff, handoffRelisten)
+			if ln, err := s.ListenHandoff(name); err == nil {
+				s.Logf("hand-off socket %s: listening now; this copy takes sessions again", name)
+				context.AfterFunc(ctx, func() { ln.Close() })
+				return
+			}
+		}
+	}()
+}
+
 type unixAcceptor interface {
 	AcceptUnix() (*net.UnixConn, error)
 }
@@ -281,9 +325,6 @@ func (s *Server) acceptHandoffs(ln unixAcceptor) {
 		go s.receiveHandoffs(c)
 	}
 }
-
-// TakesHandoffs reports whether this copy's hand-off socket is listening:
-// what /healthz advertises to the other copy.
 
 func (s *Server) receiveHandoffs(uc *net.UnixConn) {
 	defer uc.Close()
@@ -331,6 +372,9 @@ func (s *Server) receiveHandoffs(uc *net.UnixConn) {
 				return
 			}
 			continue
+		}
+		if testHookBeforeReady != nil {
+			testHookBeforeReady()
 		}
 		if reply(hmsg{T: "ready"}) != nil {
 			s.dropAdopted(ss)
@@ -409,7 +453,7 @@ func dialHandoff(to HandoffTarget) (*net.UnixConn, error) {
 	}
 	if err != nil {
 		uc.Close()
-		return nil, err
+		return nil, final{err}
 	}
 	uc.SetDeadline(time.Now().Add(handoffStep))
 	if err := writeHmsg(uc, hmsg{T: "hello", V: HandoffVersion, PID: os.Getpid()}, nil); err != nil {
@@ -419,7 +463,7 @@ func dialHandoff(to HandoffTarget) (*net.UnixConn, error) {
 	m, fds, err := readHmsg(uc)
 	closeFDs(fds)
 	if err == nil && m.T != "welcome" {
-		err = fmt.Errorf("the other copy refused: %s", m.Why)
+		err = final{fmt.Errorf("the other copy refused: %s", m.Why)}
 	}
 	if err != nil {
 		uc.Close()
@@ -433,66 +477,115 @@ func dialHandoff(to HandoffTarget) (*net.UnixConn, error) {
 // What is left afterwards is the caller's to retire the old way.
 func (s *Server) handOffAll(to HandoffTarget) { s.handOff(to, -1) }
 
+// final is a hand-off error that trying again cannot fix: the socket is
+// not the other copy's, or the other copy refused (another version,
+// draining).
+type final struct{ error }
+
+func (e final) Unwrap() error { return e.error }
+
+// handOffTries is how often one session is tried: a session that breaks the
+// connection twice stays here rather than use up the window for the rest.
+const handOffTries = 2
+
 // handOff moves up to `limit` live sessions to `to` (limit < 0: every
 // session, waiting for those still going live, as handOffAll). It returns
-// how many moved.
+// how many moved. A connection to the other copy that breaks (a step that
+// timed out, the other copy busy for a moment) is dialled again and the
+// rest go on, up to HandoffWindow; giving up at the first one would leave
+// every show still here to the old way's wait of up to 12 hours.
 func (s *Server) handOff(to HandoffTarget, limit int) int {
-	uc, err := dialHandoff(to)
-	if err != nil {
-		s.Logf("hand-off: %v; nothing moved", err)
-		return 0
-	}
-	defer uc.Close()
-	tried := map[*session]bool{}
 	deadline := time.Now().Add(s.cfg.HandoffWindow)
+	tries := map[*session]int{}
 	moved := 0
-	for {
+	var uc *net.UnixConn
+	defer func() {
+		if uc != nil {
+			uc.Close()
+		}
+		s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())
+	}()
+	for backoff := 50 * time.Millisecond; ; {
 		if limit >= 0 && moved >= limit {
-			s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())
 			return moved
 		}
-		var next *session
-		waiting := 0
-		// The list under s.mu, each session's state outside it: a session
-		// can hold its own lock for a while (a Free studio's "ok" going to a
-		// slow studio), and s.mu held meanwhile would stall /healthz and
-		// every new studio, making this copy look down.
-		s.mu.Lock()
-		list := make([]*session, 0, len(s.conns))
-		for ss := range s.conns {
-			if !tried[ss] {
-				list = append(list, ss)
+		if uc == nil {
+			var err error
+			if uc, err = dialHandoff(to); err != nil {
+				var f final
+				if errors.As(err, &f) || time.Now().Add(backoff).After(deadline) {
+					s.Logf("hand-off: %v; giving up", err)
+					return moved
+				}
+				s.Logf("hand-off: %v; dialling again in %s", err, backoff)
+				time.Sleep(backoff)
+				backoff = min(2*backoff, time.Second)
+				continue
 			}
+			backoff = 50 * time.Millisecond
 		}
-		s.mu.Unlock()
-		for _, ss := range list {
-			ss.mu.Lock()
-			live := ss.state == stLive
-			ss.mu.Unlock()
-			if live {
-				next = ss
-				break
-			}
-			waiting++
-		}
+		next, pending := s.nextToHandOff(tries)
 		if next == nil {
-			if waiting == 0 || limit >= 0 || time.Now().After(deadline) {
-				s.Logf("hand-off: %d session(s) moved to pid %d, %d left here", moved, to.PID, s.Active())
+			// Nothing live to move. What is pending (going live, or busy
+			// for a moment) is waited for until the window ends; with no
+			// limit, what never goes live is retired the old way after.
+			if pending == 0 || time.Now().After(deadline) {
 				return moved
 			}
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		tried[next] = true
+		tries[next]++
 		ok, peerOK := s.handOffOne(uc, next)
 		if ok {
 			moved++
 		}
 		if !peerOK {
-			s.Logf("hand-off: the other copy stopped answering; %d moved, %d left here", moved, s.Active())
-			return moved
+			uc.Close()
+			uc = nil
+			if time.Now().After(deadline) {
+				s.Logf("hand-off: the connection to the other copy broke and the window is over")
+				return moved
+			}
+			s.Logf("hand-off: the connection to the other copy broke; dialling again")
 		}
 	}
+}
+
+// nextToHandOff is a live session not yet tried handOffTries times, and how
+// many others may still become one (going live, or holding their own lock
+// for a moment).
+//
+// The list is taken under s.mu, each session's state outside it, and with
+// TryLock: a session can hold its own lock for a while (a Free studio's "ok"
+// going to a slow studio, up to its write timeout), and waiting on it would
+// stall /healthz and every new studio (s.mu) or, one dead link after
+// another, use up the window. A busy session is looked at again next pass.
+func (s *Server) nextToHandOff(tries map[*session]int) (*session, int) {
+	s.mu.Lock()
+	list := make([]*session, 0, len(s.conns))
+	for ss := range s.conns {
+		if tries[ss] < handOffTries {
+			list = append(list, ss)
+		}
+	}
+	s.mu.Unlock()
+	pending := 0
+	for _, ss := range list {
+		if !ss.mu.TryLock() {
+			pending++
+			continue
+		}
+		st := ss.state
+		ss.mu.Unlock()
+		switch st {
+		case stLive:
+			return ss, 0
+		case stSetup:
+			pending++
+		}
+	}
+	return nil, pending
 }
 
 // handOffOne moves one session. ok: it moved. peerOK: false when the

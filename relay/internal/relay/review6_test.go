@@ -124,7 +124,7 @@ func newBalancePair(t *testing.T) *balancePair {
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		st := p.b.State()
 		json.NewEncoder(w).Encode(Health{PID: os.Getpid(), Active: st.Active, Handoff: HandoffVersion,
-			HandoffSocket: st.HandoffSocket, Build: p.peerBuild.Load().(string), UpMillis: 60000, Balance: 1})
+			HandoffSocket: st.HandoffSocket, Build: p.peerBuild.Load().(string), UpMillis: 60000})
 	}))
 	t.Cleanup(health.Close)
 	p.lock = fmt.Sprintf("@gocast-relay-balance-%d", time.Now().UnixNano())

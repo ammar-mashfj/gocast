@@ -70,9 +70,6 @@ type Health struct {
 	HandoffSocket string `json:"handoff_socket"`
 	// How long this process has been up, in ms.
 	UpMillis int64 `json:"up_ms"`
-	// 1: SIGUSR2 evens the sessions out with the other copy (Balance).
-	// Older builds die of SIGUSR2: the deploy sends it only when this is 1.
-	Balance int `json:"balance"`
 }
 
 // Rollover watches this copy's binary and decides when to retire.
@@ -82,6 +79,9 @@ type Rollover struct {
 	CheckEvery time.Duration // how often to look at the binary and the peers
 	MaxWait    time.Duration // longest a retiring copy waits for container shows
 	LockName   string        // RolloverLockName; tests use their own
+	// CheckArgs: the new binary's test run is `<exe> CheckArgs... -check`
+	// (this copy's own flags; the environment is inherited). nil: -help.
+	CheckArgs []string
 	// How long the other copy must have been up before this one steps aside
 	// for it. nginx marks a copy that refused a connection (it was
 	// restarting) down for fail_timeout (2 s): a copy that retired the
@@ -262,19 +262,34 @@ func (r *Rollover) TryLock() (net.Listener, bool) {
 }
 
 // TestRun is how a copy checks the binary on disk before it steps aside for
-// it: run with -help, it must exit 0 within TestRunTimeout. Every build of
-// the relay, old or new, answers -help that way without binding anything,
-// so a rollback to an older binary is checked the same way. It catches a
-// binary that cannot start at all (a bad build, wrong architecture); one
-// that starts and then fails is caught by the deploy watching /healthz.
+// it: run with this copy's own flags and environment plus -check, it must
+// check every setting as a start would and exit 0 within TestRunTimeout,
+// without binding anything. A binary that will refuse the unit's settings
+// (a flag it does not know, a value it rejects) is caught here, before the
+// copy hands its shows over and exits for it.
+//
+// A binary from before -check (a rollback to an older build) says "flag
+// provided but not defined: -check": it is asked -help instead, which every
+// build answers. Without CheckArgs (tests), -help alone.
 var TestRunTimeout = 5 * time.Second
 
-func testRun(path string) error {
+func testRun(path string, args []string) error {
+	if args == nil {
+		return runFor(path, "-help")
+	}
+	err := runFor(path, append(append([]string(nil), args...), "-check")...)
+	if err != nil && strings.Contains(err.Error(), "flag provided but not defined: -check") {
+		return runFor(path, "-help")
+	}
+	return err
+}
+
+func runFor(path string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TestRunTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "-help").CombinedOutput()
+	out, err := exec.CommandContext(ctx, path, args...).CombinedOutput()
 	if ctx.Err() != nil {
-		return fmt.Errorf("no answer to -help in %s", TestRunTimeout)
+		return fmt.Errorf("no answer to %s in %s", args[len(args)-1], TestRunTimeout)
 	}
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -300,7 +315,7 @@ func (r *Rollover) Blocked() string {
 	}
 	r.mu.Unlock()
 	blocked := ""
-	if err := testRun(r.ExePath); err != nil {
+	if err := testRun(r.ExePath, r.CheckArgs); err != nil {
 		blocked = "new binary failed its test run: " + err.Error()
 	}
 	r.mu.Lock()

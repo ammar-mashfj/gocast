@@ -828,6 +828,10 @@ func (s *Server) openSource(ctx context.Context, slug, token string, timeout tim
 		return nil, CloseIcecastDown, "stream server unavailable"
 	}
 	ice.SetDeadline(time.Now().Add(timeout))
+	// The session ending (a drain, the studio leaving) cuts the login short:
+	// otherwise a drain would wait out the whole IcecastTimeout for it.
+	stop := context.AfterFunc(ctx, func() { ice.SetDeadline(pastDeadline) })
+	defer stop()
 	if _, err := io.WriteString(ice, SourceRequest(s.cfg, slug, token)); err != nil {
 		ice.Close()
 		return nil, CloseIcecastDown, "stream server unavailable"
