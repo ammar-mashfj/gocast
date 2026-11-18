@@ -551,10 +551,13 @@ echo "==> Relay"
 # relay/ changed, in a throwaway golang container so the host needs no Go,
 # and as $RUN_USER so nothing in the tree ends up root-owned.
 #
-# Then a ROLLING restart: @8095, wait until it answers /healthz, settle, then
-# @8096. Each restart closes that copy's studios with 1001 and they reconnect
-# to the other copy within milliseconds (relay lab: show back in 45-173 ms,
-# listeners hear at most ~2 s of standby silence). Never both at once.
+# The deploy installs it (renamed into place); the copies then move onto it
+# by themselves, one at a time, each handing its live sessions, Free and
+# Pro, to the other copy without anyone noticing (relay/internal/relay/
+# handoff.go). relay-rollover.sh only watches, and puts the previous binary
+# back if a copy cannot start. Copies from before hand-offs move the old
+# way: Free studios reconnect to the other copy within milliseconds,
+# container shows are left to end on their own first.
 #
 # Independent of the API: a relay that fails to come up puts the previous
 # binary back and is reported below, but does not roll back this deploy.
@@ -573,14 +576,6 @@ build_relay() {
     "$RELAY_GO_IMAGE" \
     sh -c 'go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-relay ./cmd/relay &&
            go build -trimpath -ldflags="-s -w" -o bin/.new/gocast-standby ./cmd/standby'
-}
-relay_healthy() {
-  local port=$1 i
-  for i in $(seq 1 20); do
-    curl -fsS --max-time 1 "http://127.0.0.1:1${port}/healthz" >/dev/null 2>&1 && return 0
-    sleep 0.5
-  done
-  return 1
 }
 # Rebuilt when the binary on disk was not built from this tree, not when
 # relay/ changed since the last deploy: a failed build does not fail the
@@ -615,44 +610,115 @@ if [[ "${FULL_DEPLOY:-0}" == "1" || ! -x "$REPO_ROOT/relay/bin/gocast-relay" \
         systemctl restart gocast-standby || true
         echo "  ✓ gocast-standby restarted (new build)"
       fi
-      RELAY_RESTARTED=()
-      for port in "${RELAY_PORTS[@]}"; do
-        systemctl restart "gocast-relay@${port}"
-        if relay_healthy "$port"; then
-          echo "  ✓ gocast-relay@${port} restarted"
-          RELAY_RESTARTED+=("$port")
-        else
-          echo "  ✗ gocast-relay@${port} did not answer /healthz — putting the previous binary back"
-          # Copied aside, then renamed over: a plain cp onto a binary that
-          # systemd is still running fails "Text file busy", and set -e would
-          # end the deploy here with the broken binary live.
-          if [[ -f "$bin/gocast-relay.prev" ]]; then
-            as_app cp -p "$bin/gocast-relay.prev" "$bin/.new/gocast-relay" \
-              && as_app mv -f "$bin/.new/gocast-relay" "$bin/gocast-relay" \
-              || echo "  ✗ could not put the previous relay binary back"
-          fi
-          rm -f "$RELAY_STAMP"
-          systemctl restart "gocast-relay@${port}" || true
-          # The copies before this one already run the new build. Back onto
-          # the old one too, one at a time as on the way out, once the failed
-          # copy is up again to take their studios. The standby feeder is a
-          # separate program and nothing here says it is broken: it stays.
-          for done_port in "${RELAY_RESTARTED[@]}"; do
-            relay_healthy "$port" || true
-            systemctl restart "gocast-relay@${done_port}" || true
-            relay_healthy "$done_port" && echo "  ✓ gocast-relay@${done_port} back on the previous binary"
-          done
-          MANUAL_STEPS+=("the new relay binary failed its health check and was rolled back:
-      journalctl -u gocast-relay@${port} -n 50")
-          break
-        fi
-        # Let this copy's studios land on the other before restarting that one.
-        [[ "$port" != "${RELAY_PORTS[-1]}" ]] && sleep 10
-      done
+      # One at a time and without cutting a live container show: see
+      # relay-rollover.sh. Copies that predate self-rollover get the old
+      # hard rolling restart there.
+      rc=0
+      bash "$NATIVE/relay-rollover.sh" "$bin" "$RUN_USER" "${RELAY_PORTS[@]}" || rc=$?
+      case $rc in
+        0) ;;
+        10) MANUAL_STEPS+=("the relay is still rolling over (a copy is keeping container shows on air until they end) —
+      nothing to do; check later with: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz") ;;
+        11) MANUAL_STEPS+=("✗ a relay copy is STUCK on the old build: not on the new one after the whole watch, and no
+      container show explains it. Look at: curl -s 127.0.0.1:18095/healthz; curl -s 127.0.0.1:18096/healthz;
+      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50") ;;
+        *) rm -f "$RELAY_STAMP"
+           MANUAL_STEPS+=("the new relay binary could not start and was rolled back:
+      journalctl -u gocast-relay@8095 -u gocast-relay@8096 -n 50") ;;
+      esac
     fi
   fi
 else
   echo "  · unchanged"
+fi
+
+echo "==> Checking the studio ingest route"
+# LIQUIDSOAP_INGEST_URL decides where Pro studios connect. Pointing it at the
+# relay before nginx routes /relay/broadcast/ to it (setup-native.sh does not
+# run on deploys; the vhost is edited by hand) or before the relay can serve
+# it turns every Pro go-live into a 404 or 502.
+INGEST_URL="$(sed -n 's/^LIQUIDSOAP_INGEST_URL=//p' "$REPO_ROOT/api/.env" | tail -1 | tr -d '"')"
+if [[ "$INGEST_URL" == */relay/broadcast/* ]]; then
+  source "$NATIVE/relay-health.sh" # relay_health, relay_string
+  # Does nginx route /relay/broadcast/ to the relay? Asked of nginx itself,
+  # not read from its config: any valid spelling of the location passes, and
+  # it proves the request really arrives. A plain GET (no upgrade) to the
+  # stream vhost on this host (127.0.0.1 is let through the Cloudflare-only
+  # rule): the relay answers 426 "WebSocket upgrade required"; nginx without
+  # the route, 404. The relay's own 404 (pass-through off) carries
+  # X-Gocast-Relay: the route is fine then, and the check below reports the
+  # pass-through. https first (certbot hosts), then http.
+  route_code=000 route_relay=0
+  route_answered() { # sets route_code, route_relay
+    local scheme port route_hdrs
+    for scheme in https http; do
+      port=443; [[ $scheme == http ]] && port=80
+      route_hdrs="$(curl -sk -o /dev/null -D - --max-time 5 \
+        --resolve "${STREAM_HOST}:${port}:127.0.0.1" "${scheme}://${STREAM_HOST}/relay/broadcast/deploy-route-check" || true)"
+      route_code="$(sed -n '1s/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' <<<"$route_hdrs")"
+      route_code="${route_code:-000}"
+      grep -qi '^x-gocast-relay:' <<<"$route_hdrs" && route_relay=1 || route_relay=0
+      [[ "$route_code" == 426 || "$route_code" == 404 ]] && return 0
+    done
+    return 1
+  }
+  if [[ -z "${STREAM_HOST:-}" ]]; then
+    route_code=skip # no domains.env value: nothing to ask
+  else
+    relay_until 10 route_answered || true
+  fi
+  if [[ "$route_code" == 404 && $route_relay -eq 1 ]]; then
+    : # the relay's own 404: routed fine, its pass-through is off (reported below)
+  elif [[ "$route_code" == 404 ]]; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but the live nginx does not route it
+      (https://${STREAM_HOST}/relay/broadcast/... answers 404), so every Pro go-live fails. In the stream vhost,
+      change \`location = /relay {\` to the regex in infra/native/nginx/gocast-stream.conf and replace its
+      \`proxy_next_upstream\` line with \`proxy_next_upstream error timeout http_503;\` (nginx -t && systemctl reload nginx), or point the URL back at /broadcast/{slug} and run php artisan config:cache.")
+  elif [[ "$route_code" != 426 && "$route_code" != skip ]]; then
+    MANUAL_STEPS+=("Could not check that nginx routes /relay/broadcast/ to the relay: https://${STREAM_HOST}/relay/broadcast/...
+      on this host answered ${route_code} (426 from the relay expected). Check by hand:
+      curl -sk --resolve ${STREAM_HOST}:443:127.0.0.1 https://${STREAM_HOST}/relay/broadcast/x")
+  fi
+  # A copy serves it only if its pass-through is on (/healthz "harbor": the
+  # router address, "" when RELAY_HARBOR is empty) and the station router
+  # answers there: the pass-through off, or pointed at the wrong port, fails
+  # every Pro go-live with 404 or 502 while the relay itself looks healthy.
+  # Either copy will do, and give them time: right after the relay step a
+  # copy can be mid-restart onto the new build. Pointing the URL back is
+  # NOT the advice here: that brings the 100-minute Cloudflare cuts back.
+  relay_serves=0
+  relay_why="no relay copy answers /healthz"
+  relay_serves_now() { # sets relay_serves, relay_why
+    local p h harbor
+    for p in "${RELAY_PORTS[@]}"; do
+      h="$(relay_health "$p")"
+      [[ -z "$h" ]] && continue
+      harbor="$(relay_string "$h" harbor)"
+      if [[ -z "$harbor" ]]; then
+        relay_why="gocast-relay@${p} has the pass-through off (RELAY_HARBOR is empty, or the build predates this check)"
+        continue
+      fi
+      if [[ "$(curl -fsS --max-time 2 "http://${harbor}/healthz" 2>/dev/null || true)" == ok* ]]; then
+        relay_serves=1
+        return 0
+      fi
+      relay_why="gocast-relay@${p} passes Pro studios to ${harbor}, where no station router answers /healthz (wrong RELAY_HARBOR port, or the router is down)"
+    done
+    return 1
+  }
+  relay_until 20 relay_serves_now || true
+  if [[ $relay_serves -eq 0 ]]; then
+    MANUAL_STEPS+=("LIQUIDSOAP_INGEST_URL sends Pro studios to /relay/broadcast/ but no relay copy can serve it:
+      ${relay_why}. Check: curl -s 127.0.0.1:1${RELAY_PORTS[0]}/healthz; RELAY_HARBOR in
+      /etc/systemd/system/gocast-relay@.service; journalctl -u gocast-relay@${RELAY_PORTS[0]} -n 50")
+    echo "  ✗ Pro studios are sent to the relay ($INGEST_URL), which cannot serve them: see below"
+  elif [[ "$route_code" == 404 ]]; then
+    echo "  ✗ Pro studios are sent to /relay/broadcast/, which nginx does not route: see below"
+  else
+    echo "  · Pro studios go through the relay ($INGEST_URL)"
+  fi
+else
+  echo "  · Pro studios go straight to the station router (${INGEST_URL:-unset})"
 fi
 
 echo "==> Reconciling containers against the station table"

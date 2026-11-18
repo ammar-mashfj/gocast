@@ -1,5 +1,6 @@
 [Unit]
-# The Free-plan ingest: browser studio WebSocket → Icecast, byte for byte.
+# The studio ingest: Free studios → Icecast, byte for byte; container (Pro)
+# studios → station router → harbor, frame for frame, plus pings.
 # relay/ at the repo root, docs/RELAY-SERVICE-PLAN.md.
 #
 # TWO instances, named by port: gocast-relay@8095 and gocast-relay@8096, both
@@ -19,20 +20,31 @@ Group=__RUN_USER__
 # Health and /metrics on 1<port> (18095, 18096), loopback only.
 # -origins: the studio's own hosts. A browser from anywhere else is refused
 # at the upgrade; the mobile app sends no Origin and is not affected.
+# Per-host settings as environment, not flags: a deploy that rolls back to an
+# older binary must never start it with a flag that binary does not know, and
+# an unknown environment variable is just ignored.
+#   RELAY_HARBOR  the station router, for the container-studio pass-through
+#   RELAY_PEERS   both copies' health addresses: a copy retires to pick up a
+#                 new binary only while the other is up (relay-rollover.sh)
+Environment=RELAY_HARBOR=127.0.0.1:__ROUTER_PORT__
+Environment=RELAY_PEERS=127.0.0.1:18095,127.0.0.1:18096
 ExecStart=__APP_ROOT__/relay/bin/gocast-relay \
     -listen 127.0.0.1:%i \
     -health 127.0.0.1:1%i \
     -icecast 127.0.0.1:__ICECAST_PORT__ \
     -origins __APP_HOST__,www.__APP_HOST__
 
-# SIGTERM: stop accepting, close every studio with 1001 so it reconnects at
-# once (to the other instance), exit. Takes milliseconds.
+# SIGTERM (systemctl stop/restart): stop accepting, close every studio with
+# 1001 so it reconnects at once (to the other instance), exit. Takes
+# milliseconds, and a live container show is heard as a gap. Deploys don't
+# use it: a copy picks up a new binary by retiring itself and exiting, and
+# Restart=always brings it back on the new one.
 KillSignal=SIGTERM
 TimeoutStopSec=10
 Restart=always
 RestartSec=1
 
-# Two sockets per studio (browser side + Icecast side).
+# Two sockets per studio (browser side + Icecast or harbor side).
 LimitNOFILE=65536
 
 StandardOutput=journal

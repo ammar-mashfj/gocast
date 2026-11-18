@@ -339,6 +339,46 @@ sudo systemctl enable --now gocast-queue gocast-realtime gocast-analysis gocast-
 pull, install deps, build the client, migrate, cache, reload php-fpm,
 restart the workers, then relaunch and reconcile station containers.
 
+The relay is not restarted by a deploy: the deploy installs the new binary
+(renamed into place) and the two copies move onto it by themselves, one at a
+time, each handing its live sessions (Free and Pro) to the other copy without
+anyone noticing (see `relay/README.md`). It takes seconds. `relay-rollover.sh`
+only watches: it starts a copy that was not running, and puts the previous
+binary back if a copy cannot start on the new one. Copies from before
+hand-offs move the old way, keeping live container shows on until they end;
+a deploy that reports "still rolling over" needs nothing; one that reports a
+copy STUCK on the old build does (its `/healthz` and journal are printed).
+Once both copies are on the new build, the deploy sends SIGUSR2 to the one
+carrying every session, and it hands about half to the other. Re-running
+`setup-native.sh` never restarts a running copy; when it changed the relay
+unit (APP_HOST, ROUTER_PORT, peers), it rolls the copies that were already
+running onto it one at a time with SIGUSR1 (a copy it just started is on the
+new unit already), which hands their sessions over like a deploy does, then
+evens them out the same way.
+
+**Pro studios through the relay** (the 100-minute Cloudflare fix). Do these in
+order; `deploy-native.sh` warns when the URL is switched too early:
+
+1. Deploy a commit that has `relay/internal/relay/harbor.go`.
+2. In the live vhost, by hand (certbot edited it, so never re-render it):
+   change the relay block's `location = /relay {` line to
+   `location ~ "^/relay(/broadcast/[a-z0-9][a-z0-9-]{0,62})?$" {`, and in that
+   block replace the `proxy_next_upstream error timeout;` line with
+   `proxy_next_upstream error timeout http_503;` (replace, not add: nginx
+   refuses the directive twice), as in `nginx/gocast-stream.conf`. Then
+   `nginx -t && systemctl reload nginx`.
+3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in
+   `api/.env`, then `php artisan config:cache`.
+
+Through the relay, Pro studios pass its Origin check (`-origins`: APP_HOST and
+www.APP_HOST), which the direct `/broadcast/` path never had: a studio front end
+on any other host must be added to the relay unit's `-origins`, or its Pro
+go-lives get 403. The deploy checks the route by asking nginx itself (a GET to
+`/relay/broadcast/…` on this host must reach the relay) and that the router the
+relay passes to answers.
+
+To undo, set it back to `/broadcast/{slug}` and run `config:cache` again.
+
 ---
 
 ## Verification

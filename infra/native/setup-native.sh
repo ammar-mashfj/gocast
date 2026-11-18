@@ -190,11 +190,16 @@ echo "  ✓ pool + ini for php${PHP_VERSION} (fpm, cli)"
 echo "==> systemd units"
 # gocast-relay@ is a template: instances gocast-relay@8095 and @8096, enabled
 # in the Relay step below.
+RELAY_UNIT_OLD="$(sha256sum /etc/systemd/system/gocast-relay@.service 2>/dev/null || true)"
 for unit in gocast-queue gocast-realtime gocast-analysis gocast-scheduler gocast-client \
             gocast-relay@ gocast-standby; do
   render "$NATIVE/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
   echo "  ✓ ${unit}.service"
 done
+# A changed relay unit (APP_HOST, ROUTER_PORT, the peer list...) reaches the
+# running copies only when they restart; the Relay step below rolls them.
+RELAY_UNIT_CHANGED=0
+[[ "$(sha256sum /etc/systemd/system/gocast-relay@.service)" != "$RELAY_UNIT_OLD" ]] && RELAY_UNIT_CHANGED=1
 # Every Free listener now plays Icecast directly, and every relay studio holds
 # a source there: the package default of 1024 open files is far too few.
 mkdir -p /etc/systemd/system/icecast2.service.d
@@ -320,13 +325,105 @@ fi
 
 
 echo "==> Relay"
-# Enabled here; built and (re)started by deploy-native.sh, which owns the
-# binary. Started now only if a deploy has already built it.
+# Enabled here; built by deploy-native.sh, which owns the binary. Started now
+# only if a deploy has already built it.
+#
+# A copy that is already running is never restarted: it carries live
+# studios, Pro shows included, and a restart cuts every one of them (twice
+# for a studio that reconnects to the other copy just before that one
+# restarts too). The copies pick up a new binary by themselves, handing their
+# sessions over (relay/README.md). Copies that are not running start.
+#
+# When this run CHANGED the relay unit (a new APP_HOST, ROUTER_PORT, peer
+# list...), the running copies still run the old one. They are rolled one at
+# a time with SIGUSR1: the copy hands its sessions to the other and exits,
+# and systemd starts it again on the new unit; nobody is cut. Only while the
+# other copy is up and takes hand-offs: otherwise SIGUSR1 would retire the
+# old way (Free studios reconnect, container shows held until they end), so
+# the command is printed for later instead.
+source "$NATIVE/relay-health.sh" # relay_health, relay_field
+roll_relay_copy() { # roll_relay_copy <port> <other port>
+  local port=$1 other=$2 h mine before after
+  h="$(relay_health "$other")"
+  mine="$(relay_health "$port")"
+  # BOTH copies must speak hand-offs. The other, to take the sessions. This
+  # one, because a build from before this PR ignores SIGUSR1 (nothing would
+  # happen, and the wait below would time out), and a build from its first
+  # review rounds would retire the old way, cutting Free studios.
+  if [[ -z "$mine" ]]; then
+    echo "  ! gocast-relay@${port} does not answer /healthz; not rolling it"
+    return 1
+  fi
+  if [[ "$(relay_field "$mine" handoff)" != "1" ]]; then
+    echo "  ! gocast-relay@${port} still runs the old unit: its build cannot hand its sessions over."
+    echo "    It moves onto the new unit with the next relay deploy (or: systemctl restart gocast-relay@${port}, which cuts its studios)."
+    return 1
+  fi
+  # A copy steps aside only for one that has been up a few seconds (the
+  # relay's PeerSettle, 5 s, over nginx's 2 s fail_timeout): a SIGUSR1 sent
+  # sooner, right after the other copy's own roll, would just be refused.
+  relay_until 30 relay_settled "$other" || true
+  h="$(relay_health "$other")"
+  if [[ "$(relay_field "$h" handoff)" != "1" || "$(relay_field "$h" draining)" == "true" ]]; then
+    echo "  ! gocast-relay@${port} still runs the old unit: gocast-relay@${other} cannot take its sessions now."
+    echo "    Later, with both copies up: systemctl kill --kill-whom=main -s USR1 gocast-relay@${port}"
+    return 1
+  fi
+  before="$(relay_field "$mine" pid)"
+  # The relay process only: the unit may also hold the copy's test run of
+  # a new binary, which a signal could kill before it is set up to ignore
+  # it (the failed test run would then block that binary).
+  systemctl kill --kill-whom=main -s USR1 "gocast-relay@${port}"
+  if relay_until 60 relay_new_pid "$port" "$before"; then
+    echo "  ✓ gocast-relay@${port} restarted on the new unit, its sessions handed over"
+    return 0
+  fi
+  echo "  ! gocast-relay@${port} did not roll within 60 s: journalctl -u gocast-relay@${port} -n 30"
+  return 1
+}
+relay_settled() { [[ "$(relay_field "$(relay_health "$1")" up_ms)" -ge 6000 ]] 2>/dev/null; }
+relay_new_pid() { # relay_new_pid <port> <old pid>: answering, under another pid
+  local after
+  after="$(relay_field "$(relay_health "$1")" pid)"
+  [[ -n "$after" && "$after" != "$2" ]]
+}
 systemctl enable gocast-relay@8095 gocast-relay@8096 gocast-standby >/dev/null 2>&1
 if [[ -x "$REPO_ROOT/relay/bin/gocast-relay" ]]; then
-  systemctl restart gocast-relay@8095; sleep 3; systemctl restart gocast-relay@8096
+  declare -A relay_fresh=() # started just now: already on the new unit
+  for unit in gocast-relay@8095 gocast-relay@8096; do
+    if systemctl is-active --quiet "$unit"; then
+      echo "  · $unit running"
+    else
+      systemctl reset-failed "$unit" 2>/dev/null || true
+      systemctl start "$unit" && echo "  ✓ $unit started" && relay_fresh[$unit]=1
+    fi
+  done
+  if [[ $RELAY_UNIT_CHANGED -eq 1 ]]; then
+    # Only copies that were running before this run: one started above is
+    # on the new unit already (on a fresh host, both are).
+    rolled=0
+    for pair in "8095 8096" "8096 8095"; do
+      read -r port other <<<"$pair"
+      [[ -n "${relay_fresh[gocast-relay@${port}]:-}" ]] && continue
+      [[ $rolled -eq 0 ]] && echo "  · the relay unit changed: rolling the running copies onto it, one at a time"
+      sleep 2 # a copy just started or rolled answers /healthz first
+      if roll_relay_copy "$port" "$other"; then
+        rolled=1
+      else
+        [[ $port == 8095 && -z "${relay_fresh[gocast-relay@8096]:-}" ]] &&
+          echo "    and once gocast-relay@8095 is back on the new unit: systemctl kill --kill-whom=main -s USR1 gocast-relay@8096"
+        rolled=0
+        break
+      fi
+    done
+    # Every session is on one copy now: even them out.
+    if [[ $rolled -eq 1 ]]; then
+      relay_balance 8095 8096 || true
+    fi
+  fi
+  # The standby feeder carries no studio: a restart costs nothing.
   systemctl restart gocast-standby
-  echo "  ✓ gocast-relay@8095, gocast-relay@8096, gocast-standby running"
+  echo "  ✓ gocast-standby running"
 else
   echo "  · enabled; the next deploy builds and starts them"
 fi

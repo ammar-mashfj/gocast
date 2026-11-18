@@ -1,8 +1,13 @@
 # relay
 
-The Free-plan ingest: a browser studio's WebSocket audio, written to Icecast
-byte for byte. No container, no decoding, no re-encoding. Pro stations never
-touch it. Why and how it fits: `docs/RELAY-SERVICE-PLAN.md`.
+The studio ingest. Two jobs on one binary:
+
+- **Free** (`/relay`): a browser studio's WebSocket audio, written to Icecast
+  byte for byte. No container, no decoding, no re-encoding. Why and how it
+  fits: `docs/RELAY-SERVICE-PLAN.md`.
+- **Container / Pro** (`/relay/broadcast/{slug}`): a pass-through to the
+  station's harbor via the station router, plus pings. See
+  [Container pass-through](#container-pass-through) below.
 
 ```
 studio ──wss (webcast)──▶ nginx (relay.gocast.fm) ─▶ relay@1 :8095 / relay@2 :8096 ──PUT /stream/{slug}──▶ Icecast
@@ -16,7 +21,13 @@ its event bindings report connect/disconnect.
 
 | Path | What |
 |---|---|
-| `internal/relay/relay.go` | the whole protocol: hello → PUT → `{"type":"ok"}` → copy |
+| `internal/relay/relay.go` | the Icecast protocol: hello → PUT → `{"type":"ok"}` → copy |
+| `internal/relay/harbor.go` | the container pass-through: router WebSocket ↔ studio WebSocket, plus pings |
+| `internal/relay/wsframe.go`, `wslink.go` | the relay's own WebSocket: frames, handshakes, sockets that can be frozen at any byte |
+| `internal/relay/session.go` | one studio connection: live, frozen for a hand-off, ending |
+| `internal/relay/handoff.go` | moving live sessions to the other copy, sockets and all |
+| `internal/relay/rollover.go` | when a copy moves to a new binary |
+| `internal/relay/harbor_test.go` | tests against a fake router + harbor that copies the real one's behaviour |
 | `internal/relay/metrics.go` | Prometheus counters for `/metrics` |
 | `internal/relay/relay_test.go` | unit tests against a fake Icecast 2.5, plus a fuzz test of the hello parser |
 | `cmd/relay/main.go` | the binary: flags, health server, SIGTERM drain |
@@ -34,16 +45,81 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o gocast-relay ./cmd/relay
 
 ## Running
 
-Two copies, `gocast-relay@1` (:8095, health :8195) and `gocast-relay@2`
-(:8096, health :8196), behind nginx `least_conn`. A crash or a restart drops
-only that copy's studios, which reconnect to the other within milliseconds.
+Two copies, `gocast-relay@8095` (health :18095) and `gocast-relay@8096`
+(health :18096), behind nginx `least_conn`. A crash drops only that copy's
+studios, which reconnect to the other within milliseconds.
 
-- **Deploy = restart one, wait, restart the other.** SIGTERM closes every
-  studio with 1001 so it reconnects at once; never restart both together.
-- `-origins` must list the studio's hosts (e.g. `gocast.fm,www.gocast.fm`);
-  without it every browser is refused.
-- `curl 127.0.0.1:8195/healthz` → `{"active":N,"draining":false,"pid":…}`;
-  `/metrics` → active, total, bytes, closes by reason.
+- **A new binary is picked up by the copies themselves** (`internal/relay/rollover.go`).
+  The deploy only renames it into place (`infra/native/relay-rollover.sh` watches).
+  Each copy notices, and **one at a time** (a host-wide lock, and only
+  while the other copy is up) it retires:
+  - New studios get 503, and nginx (`proxy_next_upstream … http_503`) sends them to the other copy.
+  - **Every live session is handed to the other copy, sockets and all** (`handoff.go`).
+    Nobody notices: the studio, Icecast and harbor keep the same TCP connection,
+    and the audio pauses for the hand-off itself (about a tenth of a millisecond per show).
+
+  Then the copy exits and systemd starts the new binary, and the other copy does the same,
+  back onto it. A whole rollover takes seconds. Rolling back is the same move: put the previous binary back.
+- **When the other copy cannot take sessions** (a build from before hand-offs, a copy that is
+  draining, a hand-off that fails), the copy retires the old way:
+  - Free studios are handed over with 1001 and reconnect at once.
+  - Container shows are left to end on their own, up to `RELAY_RETIRE_MAX`, 12 h by default.
+- **Hand-offs, in short.** A session is frozen at whatever byte its sockets are on; the
+  descriptors go to the other copy over an abstract unix socket (`@gocast-relay-handoff-<health addr>`,
+  SCM_RIGHTS) with the relay's own state for them (bytes read but not parsed, bytes owed but not
+  written, a fragmented message in progress, the ping and idle clocks). Two steps (ready, commit),
+  so the sockets are never run by both copies or by neither. Only to the same uid and to the pid
+  the other copy's `/healthz` named. A connection to the other copy that breaks (a step it missed)
+  is dialled again and the rest go on, within the 30 s window; each session is tried at most twice,
+  and a refusal (another version, draining) is final. A copy whose hand-off socket name is still held
+  when it starts (something left over) keeps trying it in the background and takes sessions as soon as
+  it frees; until then its `/healthz` says `handoff: 0`.
+- **Before stepping aside, a copy test-runs the new binary** with its own flags and environment plus `-check`,
+  which checks every setting as a start would and exits 0 within 5 s without binding anything. A binary
+  that would refuse the unit's settings is caught here, before any show is handed over. A binary from
+  before `-check` (a rollback) is asked `-help` instead. If it fails, nothing changes:
+  - The copy keeps serving on its own build.
+  - `/healthz` shows `rollover_blocked`.
+  - The deploy puts the previous binary back.
+- **SIGTERM** (`systemctl restart/stop`) is the hard stop: every studio gets
+  1001 at once. A live container show is heard as a ~5 s gap.
+- **SIGUSR1** retires by hand under the same rules (hand-offs included): the other copy must be up
+  and not retiring, and the lock must be free. Otherwise the copy logs `SIGUSR1 refused: …` and does nothing.
+- **SIGUSR2** evens the sessions out: the copy hands half the difference to the other copy, the same way.
+  A rollover leaves every session on one copy (A hands to B, then B hands back to the new A); the deploy
+  (and setup's unit roll) sends SIGUSR2 to the fuller copy once both are on the new build, so a crash
+  drops about half the studios, not all. (An older build simply ignores SIGUSR2: Go ignores
+  SIGUSR1/SIGUSR2 nothing listens for.) Refused while either copy retires (it holds the rollover lock
+  for the move) or while the two copies run different builds. Signals are caught from the first line
+  of `main`.
+- Every answer the relay gives itself (not a 101) carries `X-Gocast-Relay: 1`: the deploy's route
+  check tells the relay's own 404 (pass-through off) from nginx's (no route).
+- **503 belongs to the relay.** It means "this copy is draining, try the other",
+  and nginx counts it against the copy. A 503 from a station's router or harbor
+  goes to the studio as 502 instead, or one busy station would mark both copies down for everyone.
+- Per-host settings come from the environment as well as flags, because the unit is only rendered by
+  `setup-native.sh` and an older binary would refuse an unknown flag:
+  - `RELAY_HARBOR`: the router, `127.0.0.1:<ROUTER_PORT>`.
+  - `RELAY_PEERS`: both health addresses.
+  - `RELAY_RETIRE_MAX`.
+- `-origins` must list the studio's hosts as bare hosts (e.g. `gocast.fm,www.gocast.fm`);
+  without it every browser is refused, and a pattern with a scheme stops the
+  binary at startup.
+  The same list now applies to container (Pro) studios too: the direct harbor path checked no Origin.
+  A studio front end on any other host (a preview deploy, another subdomain) must be added here, or
+  its Pro go-lives get 403 ("could not reach the stream server"). The mobile app sends no Origin and
+  is never refused.
+- `curl 127.0.0.1:18095/healthz` returns:
+  `{"pid","active","icecast_active","harbor_active","draining","retiring","stale","build","rollover_blocked","handoff","handing_off","harbor","handoff_socket","up_ms"}`,
+  read under one lock. `handoff_socket` is the socket the copy takes hand-offs on: the other copy dials
+  exactly that name, so how an address is spelled in `RELAY_PEERS` never matters.
+  Scripts read it through `infra/native/relay-health.sh`.
+  `build` is the program the process is running (`/proc/self/exe`), not the file now at its path.
+  `harbor` is where container studios are passed to ("" = pass-through off); the deploy checks a router answers there.
+  `handoff` is the hand-off version the copy takes sessions with, while its hand-off socket is listening (0: it does not); `handing_off`
+  is true while a retiring copy is moving its sessions over (seconds). `rollover_blocked` is the
+  last test run's verdict on the binary on disk (the test runs in the rollover loop, never in `/healthz`).
+  `/metrics` gives active, total, bytes and hand-offs in/out per `path` (`icecast`, `harbor`), plus closes by reason.
 
 ## Close codes the studio sees
 
@@ -62,3 +138,58 @@ Icecast takes to free the mount. Another device or tab cuts nothing and gets
 | 1001 | relay restarting | reconnect (lands on the other copy) |
 | 1011 | Icecast unreachable | reconnect |
 | 1008 | studio sent nothing for 8 s (under Icecast's 10 s `source-timeout`) | reconnect |
+
+## Container pass-through
+
+```
+studio ──wss──▶ nginx /relay/broadcast/{slug} ─▶ relay ──ws──▶ router 127.0.0.1:8091/broadcast/{slug} ─▶ harbor
+```
+
+Turned on by `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}`
+in api/.env; nothing in Laravel or the studio changes. Turned off (the way
+back) by pointing it at `/broadcast/{slug}` again: new connections go straight
+to the router, shows already on the relay carry on there.
+
+**Why.** Harbor sends nothing to the studio during a show, so Cloudflare
+closes the socket at 6010 s (100 min) and the studio reconnects. The relay
+pings the studio every 30 s, which is what Cloudflare needs to see.
+
+**What the relay does NOT do.** It reads nothing. The hello, the token check
+(harbor asks Laravel), audio, `metadata` frames and every close code are
+harbor's, so the studio's container mode sees the same thing it sees from
+the router directly. There is no `{"type":"ok"}`, no idle timer (harbor's
+own 10 s input timeout ends a silent show), and no busy retry (harbor drops
+a second source on a held mount).
+
+| Event | Studio sees | Measured on real harbor (2026-11-16) |
+|---|---|---|
+| station off / container gone | upgrade fails with the router's status (502) | same as direct |
+| bad token | close 1011 "Authentication failed." | same as direct |
+| second source on a held mount | TCP drop (1006), first show untouched | same as direct |
+| studio silent 10 s | harbor drops it (1006) | same as direct |
+| studio closes / vanishes | harbor is let go at once | mount free for the reconnect |
+| relay copy rolls over (deploy) | nothing: the session moves to the other copy | one harbor connection throughout |
+| relay copy restarted (SIGTERM) | 1001, harbor let go first | reconnect through the other copy in 3 ms, station stayed `live` |
+| harbor stops reading for 10 s | 1011 "stream server stopped accepting audio" | (fake harbor only) |
+| foreign Origin | 403, harbor never dialled | **new**: the direct `/broadcast/` path checks no Origin |
+
+`-harbor` / `RELAY_HARBOR` defaults to `127.0.0.1:8091`; empty turns the
+pass-through off (404).
+
+Metrics:
+- `relay_connections_active{path="harbor"}` and its siblings.
+- `relay_closes_total{reason="harbor_*"}`, where the reasons are:
+  - `harbor_client_closed`: the studio left.
+  - `harbor_closed`: harbor ended it.
+  - `harbor_write`: harbor stopped taking audio.
+  - `harbor_studio_stalled`: the studio stopped reading.
+  - `harbor_draining`: a restart handed it over.
+  - `harbor_unreachable`, `harbor_refused_origin`, `harbor_too_big`, `harbor_bad_frame` (a protocol violation, answered 1002).
+  - `harbor_refused_upgrade`: not a valid WebSocket upgrade. Each deploy's route check adds one (a plain GET).
+
+**Turning it on, in this order.** Each step is safe on its own, and the deploy
+warns if the URL is switched before the other two:
+
+1. Deploy a commit with this code. The first time, the relay copies are restarted the old way; no Pro show is on them yet.
+2. In the live `gocast-stream.conf`, by hand (never re-run `setup-native.sh` on a certbot host): change `location = /relay {` to `location ~ "^/relay(/broadcast/[a-z0-9][a-z0-9-]{0,62})?$" {` and add `proxy_next_upstream error timeout http_503;` inside it. Then `nginx -t && systemctl reload nginx`.
+3. Set `LIQUIDSOAP_INGEST_URL=wss://<stream host>/relay/broadcast/{slug}` in `api/.env`, then run `php artisan config:cache`.
