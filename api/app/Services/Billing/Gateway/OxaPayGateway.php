@@ -70,6 +70,16 @@ class OxaPayGateway implements PaymentGateway
         return $this->sandbox;
     }
 
+    public function provider(): string
+    {
+        return 'oxapay';
+    }
+
+    public function isConfigured(): bool
+    {
+        return $this->merchantKey !== '';
+    }
+
     /**
      * @param  callable(PendingRequest): Response  $send
      * @return array<string, mixed>

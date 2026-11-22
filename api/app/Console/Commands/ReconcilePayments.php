@@ -9,24 +9,25 @@ use App\Services\Billing\PaymentProcessor;
 use Illuminate\Console\Command;
 
 /**
- * Asks OxaPay about every payment that could still become paid, and applies
- * the answer exactly as the webhook would have.
+ * Asks the payment provider about every payment that could still become
+ * paid, and applies the answer exactly as the webhook would have.
  *
- * The safety net under the webhook: OxaPay gives up after five deliveries
- * over about three and a half hours, so a deploy, an outage or a Cloudflare
- * rule blocking them would otherwise leave somebody paid and on Free. Three
- * days back covers a slow chain confirmation and a weekend.
+ * The safety net under the webhook: providers give up retrying after a few
+ * hours, so a deploy, an outage or a Cloudflare rule blocking them would
+ * otherwise leave somebody paid and on Free. Three days back covers a slow
+ * chain confirmation and a weekend. Only payments made through the current
+ * provider are asked about; the others' links can't be looked up with it.
  */
 class ReconcilePayments extends Command
 {
     protected $signature = 'billing:reconcile {--days=3 : How far back to look}';
 
-    protected $description = 'Ask OxaPay about open payments and apply anything the webhook missed';
+    protected $description = 'Ask the payment provider about open payments and apply anything the webhook missed';
 
     public function handle(PaymentGateway $gateway, PaymentProcessor $processor): int
     {
-        if (blank(config('services.oxapay.merchant_key'))) {
-            $this->info('OXAPAY_MERCHANT_KEY is blank, so there is nothing to reconcile.');
+        if (! $gateway->isConfigured()) {
+            $this->info("The {$gateway->provider()} gateway has no credentials, so there is nothing to reconcile.");
 
             return self::SUCCESS;
         }
@@ -35,6 +36,7 @@ class ReconcilePayments extends Command
         $failed = 0;
 
         Payment::open()
+            ->where('provider', $gateway->provider())
             ->whereNotNull('track_id')
             ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
             ->orderBy('id')

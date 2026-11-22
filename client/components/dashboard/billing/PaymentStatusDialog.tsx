@@ -19,11 +19,12 @@ const POLL_FOR_MS = 3 * 60 * 60 * 1000
  * A payment's progress, from the moment Pay created the invoice until Pro is
  * granted. Opened two ways:
  * - from checkout (`startedUrl` set): "Your payment is ready", with a real
- *   link that opens OxaPay in a new tab, then "Waiting for your payment"
- *   here while they pay there. This tab never leaves the dashboard, so a
- *   live show keeps going.
- * - from `?payment=<uuid>`, where OxaPay sends the buyer back (in that new
- *   tab).
+ *   link that opens the payment page (Getly) in a new tab, then "Waiting
+ *   for your payment" here while they pay there. This tab never leaves the
+ *   dashboard, so a live show keeps going.
+ * - from `?payment=<uuid>`, where OxaPay sent the buyer back (in that new
+ *   tab). Getly has no return link, so only older OxaPay payments land
+ *   there.
  *
  * Polls rather than listening, because the grant is written by a webhook
  * that may arrive before or minutes after the buyer pays, and a chain
@@ -160,7 +161,7 @@ function readyCopy(status: PaymentStatus | null): Copy {
     tone: "off",
     lamp: "Ready",
     title: "Your payment is ready",
-    body: `${what}It opens on OxaPay in a new tab. Keep this tab open: it updates by itself once the payment arrives.`,
+    body: `${what}It opens on Getly in a new tab, where you can pay by card or with USDT or USDC. Keep this tab open: it updates by itself once the payment arrives.`,
   }
 }
 

@@ -46,13 +46,3 @@ export function billingError(err: unknown): string {
   return response?.data?.message ?? "Something went wrong. Please try again."
 }
 
-/** Has this account asked to hear when card payments arrive? */
-export async function fetchCardInterest(): Promise<boolean> {
-  const res = await api.get<{ data: { subscribed: boolean } }>("/billing/card-interest")
-  return res.data.data.subscribed
-}
-
-/** "Notify me" under "Card payments are coming soon". Safe to call twice. */
-export async function notifyCardPayments(): Promise<void> {
-  await api.post("/billing/card-interest")
-}

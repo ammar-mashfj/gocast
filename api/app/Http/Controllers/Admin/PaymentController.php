@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CardPaymentInterest;
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
-use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Billing\Gateway\Gateways;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -62,21 +62,27 @@ class PaymentController extends Controller
         ]);
     }
 
-    public function recheck(Payment $payment, PaymentGateway $gateway, PaymentProcessor $processor): RedirectResponse
+    public function recheck(Payment $payment, PaymentProcessor $processor): RedirectResponse
     {
         if ($payment->track_id === null) {
-            return back()->with('error', 'This payment never got an OxaPay invoice, so there is nothing to ask about.');
+            return back()->with('error', 'This payment never got a payment link, so there is nothing to ask about.');
+        }
+
+        $provider = PaymentProcessor::providerName($payment);
+
+        if (str_starts_with($payment->track_id, 'order:')) {
+            return back()->with('error', 'This sale was made on the Getly store page and came in by webhook, so there is no link to ask about.');
         }
 
         try {
-            $processor->process($gateway->paymentInfo($payment->track_id), 'admin');
+            $processor->process(Gateways::make($payment->provider)->paymentInfo($payment->track_id), 'admin');
         } catch (GatewayException $e) {
             return back()->with('error', $e->getMessage());
         }
 
         $payment->refresh();
 
-        return back()->with('status', "OxaPay says {$payment->status}.".($payment->granted_at ? ' Granted until '.$payment->granted_until?->toFormattedDateString().'.' : ''));
+        return back()->with('status', "{$provider} says {$payment->status}.".($payment->granted_at ? ' Granted until '.$payment->granted_until?->toFormattedDateString().'.' : ''));
     }
 
     public function clearReview(Payment $payment): RedirectResponse

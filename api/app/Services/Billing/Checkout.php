@@ -10,7 +10,8 @@ use App\Services\Billing\Gateway\PaymentGateway;
 use App\Services\Billing\Grants\Grants;
 
 /**
- * Starts a purchase: price it, record it, and get OxaPay's payment page.
+ * Starts a purchase: price it, record it, and get the provider's payment
+ * page (a Getly checkout link, or an OxaPay invoice).
  *
  * The client sends only a product slug and maybe a coupon. The price, the
  * discount and what it grants are worked out here and copied onto the
@@ -29,7 +30,7 @@ class Checkout
      */
     public function start(User $user, string $productSlug, ?string $code): Payment
     {
-        if (blank(config('services.oxapay.merchant_key'))) {
+        if (! $this->gateway->isConfigured()) {
             throw new CheckoutRefused('Payments are not switched on yet. Please try again later.', 503);
         }
 
@@ -59,6 +60,7 @@ class Checkout
         // again, reopens the invoice already waiting rather than stacking a
         // second one for the same thing.
         $open = Payment::where('user_id', $user->id)
+            ->where('provider', $this->gateway->provider())
             ->where('product_id', $product->id)
             ->where('discount_id', $quote->discount?->id)
             ->where('amount_usd', Quote::money($quote->amountCents()))
@@ -85,6 +87,7 @@ class Checkout
             'discount_code' => $quote->discount?->code,
             'discount_usd' => Quote::money($quote->offCents),
             'amount_usd' => Quote::money($quote->amountCents()),
+            'provider' => $this->gateway->provider(),
             'sandbox' => $this->gateway->isSandbox(),
             'status' => Payment::STATUS_NEW,
         ]);
@@ -95,7 +98,9 @@ class Checkout
             report($e);
             $payment->forceFill(['status' => Payment::STATUS_FAILED, 'review_reason' => $e->getMessage()])->save();
 
-            throw new CheckoutRefused("We couldn't reach the payment provider. Please try again in a minute.", 502);
+            throw $e->buyerMessage !== null
+                ? new CheckoutRefused($e->buyerMessage)
+                : new CheckoutRefused("We couldn't reach the payment provider. Please try again in a minute.", 502);
         }
 
         $payment->forceFill([

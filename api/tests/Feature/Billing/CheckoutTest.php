@@ -19,6 +19,7 @@ use function Pest\Laravel\postJson;
  */
 beforeEach(function () {
     config([
+        'services.billing.gateway' => 'oxapay',
         'services.oxapay.driver' => 'oxapay',
         'services.oxapay.merchant_key' => 'test-merchant-key',
         'services.oxapay.sandbox' => false,

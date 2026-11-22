@@ -12,13 +12,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Applies what OxaPay says about an invoice to our payment row — from the
- * webhook, from billing:reconcile, and from billing:simulate. One code path,
- * so a missed webhook caught by reconcile grants exactly like the webhook
- * would have.
+ * Applies what the provider says about a payment to our payment row — from
+ * the OxaPay and Getly webhooks, from billing:reconcile, and from
+ * billing:simulate. One code path, so a missed webhook caught by reconcile
+ * grants exactly like the webhook would have.
  *
- * Idempotent: OxaPay redelivers up to five times and reconcile may ask about
- * a payment the webhook already settled. The grant happens under the
+ * `$data` is OxaPay's shape (`track_id`, `order_id`, `status`);
+ * GetlyWebhookController and GetlyGateway translate Getly's into it.
+ *
+ * Idempotent: providers redeliver and reconcile may ask about a payment the
+ * webhook already settled. The grant happens under the
  * payment's row lock and only while `granted_at` is null.
  *
  * Nothing here takes Pro away. A refund after a grant, an underpaid invoice
@@ -50,7 +53,7 @@ class PaymentProcessor
         if ($payment === null) {
             // Another environment's sandbox invoice, or a payment link made by
             // hand in the OxaPay panel. Acknowledged, never acted on.
-            Log::info('OxaPay update for an unknown track id', ['track_id' => $trackId, 'source' => $source]);
+            Log::info('Payment update for an unknown track id', ['track_id' => $trackId, 'source' => $source]);
 
             return null;
         }
@@ -65,13 +68,13 @@ class PaymentProcessor
             // The order id is ours (the uuid). A different one means this
             // track id is not the invoice we think it is; touch nothing else.
             if ($orderId !== '' && $orderId !== $locked->uuid) {
-                return $this->flag($locked, "OxaPay sent order id {$orderId} for this payment's track id. Nothing was granted.");
+                return $this->flag($locked, self::providerName($locked)." sent order id {$orderId} for this payment's track id. Nothing was granted.");
             }
 
             if (! in_array($status, Payment::STATUSES, true) || $status === Payment::STATUS_FAILED) {
                 $locked->payload = $data;
 
-                return $this->flag($locked, "OxaPay sent an unknown status \"{$status}\". Nothing was changed.");
+                return $this->flag($locked, self::providerName($locked)." sent an unknown status \"{$status}\". Nothing was changed.");
             }
 
             if ($locked->granted_at !== null) {
@@ -84,7 +87,7 @@ class PaymentProcessor
                 $locked->status = $status;
                 $locked->payload = $data;
 
-                return $this->flag($locked, 'Refunded on OxaPay after the plan was granted. Revoke it by hand if they should lose it.');
+                return $this->flag($locked, 'Refunded on '.self::providerName($locked).' after the plan was granted. Revoke it by hand if they should lose it.');
             }
 
             $locked->status = $status;
@@ -107,7 +110,7 @@ class PaymentProcessor
             $user = $locked->user_id ? User::whereKey($locked->user_id)->lockForUpdate()->first() : null;
 
             if ($user === null) {
-                return $this->flag($locked, 'Paid, but the account has been deleted. Refund it from the OxaPay panel.');
+                return $this->flag($locked, 'Paid, but the account has been deleted. Refund it on '.self::providerName($locked).'.');
             }
 
             $grant = Grants::for($locked->grant_type);
@@ -141,6 +144,15 @@ class PaymentProcessor
         }
 
         return $fresh;
+    }
+
+    public static function providerName(Payment $payment): string
+    {
+        return match ($payment->provider) {
+            'getly' => 'Getly',
+            'oxapay' => 'OxaPay',
+            default => ucfirst($payment->provider),
+        };
     }
 
     /**
