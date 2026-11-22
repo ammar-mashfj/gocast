@@ -221,7 +221,7 @@ it('refuses everything while the secret is unset', function () {
 it('grants nothing for a link it never made', function () {
     $payment = getlyPayment();
 
-    getlyWebhook('sale.completed', linkSale($payment, ['checkoutLinkId' => 'someone-elses-link']))->assertOk();
+    getlyWebhook('sale.completed', linkSale($payment, ['checkoutLinkId' => 'someone-elses-link', 'reference' => 'someone-elses-reference']))->assertOk();
 
     expect($payment->fresh()->granted_at)->toBeNull();
 });
@@ -812,4 +812,38 @@ it('treats a sale naming our payment as its link sale even without checkoutLinkI
     expect($payment->fresh()->granted_at)->not->toBeNull()
         ->and(Payment::where('track_id', 'like', 'order:%')->count())->toBe(0)
         ->and($buyerEmail->fresh()->plan_expires_at)->toBeNull();
+});
+
+it('never matches a sale with a reference that is not ours by email', function () {
+    $user = User::factory()->create(['email' => 'staging-buyer@example.com']);
+
+    getlyWebhook('sale.completed', [
+        'orderId' => 'order-60',
+        'buyerEmail' => 'staging-buyer@example.com',
+        'items' => [['orderItemId' => 'item-60', 'productId' => GETLY_3M, 'price' => 5200]],
+        'reference' => 'a-staging-payment-uuid',
+    ])->assertOk();
+
+    expect(Payment::count())->toBe(0)
+        ->and($user->fresh()->plan_expires_at)->toBeNull();
+    Http::assertSent(fn (Request $request) => str_contains((string) $request['text'], 'unknown checkout link'));
+});
+
+it('grants a link sale by its reference even when the link id is not the one we stored', function () {
+    $payment = getlyPayment();
+
+    getlyWebhook('sale.completed', linkSale($payment, ['checkoutLinkId' => 'short-code']))->assertOk();
+
+    expect($payment->fresh()->granted_at)->not->toBeNull();
+});
+
+it('alerts on a store-page sale for a Getly product we do not map', function () {
+    getlyWebhook('sale.completed', [
+        'orderId' => 'order-61',
+        'buyerEmail' => 'someone@example.com',
+        'items' => [['orderItemId' => 'item-61', 'productId' => 'not-mapped', 'price' => 5200]],
+    ])->assertOk();
+
+    expect(Payment::count())->toBe(0);
+    Http::assertSent(fn (Request $request) => str_contains((string) $request['text'], "product we don't map"));
 });

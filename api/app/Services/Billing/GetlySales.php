@@ -45,24 +45,22 @@ class GetlySales
         $linkId = (string) ($data['checkoutLinkId'] ?? '');
         $reference = (string) ($data['reference'] ?? '');
 
-        // Our reference is a payment uuid: if it names one of our Getly
-        // payments, this is that link's sale even without checkoutLinkId,
-        // and must never also be matched by email as a store-page sale.
-        if ($linkId === '' && $reference !== '') {
-            $linkId = (string) Payment::where('provider', 'getly')->where('uuid', $reference)->value('track_id');
-        }
-
-        if ($linkId !== '') {
-            $payment = Payment::where('provider', 'getly')->where('track_id', $linkId)->first();
+        // A link sale names our payment uuid as its reference; that is
+        // looked up first, then the link id. Either one present makes it a
+        // link sale, never a store-page sale matched by email.
+        if ($linkId !== '' || $reference !== '') {
+            $payment = ($reference === '' ? null : Payment::where('provider', 'getly')->where('uuid', $reference)->first())
+                ?? ($linkId === '' ? null : Payment::where('provider', 'getly')->where('track_id', $linkId)->first());
 
             if ($payment === null) {
                 // A link minted somewhere else (staging, by hand in Getly).
                 // Real money, so a human looks; matching by email here could
                 // grant the wrong environment's account.
-                Log::warning('Getly sale for a checkout link we never made', ['link' => $linkId, 'order' => $data['orderId'] ?? null]);
+                $label = $linkId !== '' ? $linkId : 'ref '.$reference;
+                Log::warning('Getly sale for a checkout link we never made', ['link' => $linkId, 'reference' => $reference, 'order' => $data['orderId'] ?? null]);
                 $this->telegram->opsAlert(
-                    'getly-unknown-link:'.$linkId,
-                    "⚠️ <b>Getly sale for an unknown checkout link</b>\nLink {$this->e($linkId)}, order {$this->e((string) ($data['orderId'] ?? '?'))}\n"
+                    'getly-unknown-link:'.$label,
+                    "⚠️ <b>Getly sale for an unknown checkout link</b>\nLink {$this->e($label)}, order {$this->e((string) ($data['orderId'] ?? '?'))}\n"
                     .$this->e((string) ($data['buyerEmail'] ?? 'no email')).'. Nothing was granted.',
                     quietMinutes: 60 * 24,
                 );
@@ -287,8 +285,15 @@ class GetlySales
         $product = is_string($slug) ? Product::with('plan')->where('slug', $slug)->first() : null;
 
         if ($product === null) {
-            // Something else in the store, or a product not mapped yet.
-            Log::info('Getly sale for a product we do not grant', ['product' => $getlyProduct, 'order' => $orderId]);
+            // The store sells only the mapped Pro terms, so this is a mapping
+            // mistake (services.getly.products) and somebody paid for nothing.
+            Log::warning('Getly sale for a product we do not grant', ['product' => $getlyProduct, 'order' => $orderId]);
+            $this->telegram->opsAlert(
+                'getly-unmapped-product:'.$getlyProduct,
+                "⚠️ <b>Getly sale for a product we don't map</b>\nProduct {$this->e($getlyProduct)}, order {$this->e($orderId)}, "
+                .$this->e((string) ($sale['buyerEmail'] ?? 'no email')).'. Nothing was granted. Check services.getly.products, then grant by hand.',
+                quietMinutes: 60,
+            );
 
             return;
         }
