@@ -793,3 +793,23 @@ it('warns on the admin Payments page when the Getly key is blank', function () {
         ->assertSee('Getly · live')
         ->assertDontSee('OxaPay');
 });
+
+it('alerts when Getly deliveries are refused, at most once an hour', function () {
+    getlyWebhook('sale.completed', ['orderId' => 'order-50'], secret: 'wrong-secret')->assertUnauthorized();
+    getlyWebhook('sale.completed', ['orderId' => 'order-50'], secret: 'wrong-secret')->assertUnauthorized();
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn (Request $request) => str_contains((string) $request['text'], 'failed the signature check'));
+});
+
+it('treats a sale naming our payment as its link sale even without checkoutLinkId', function () {
+    $owner = User::factory()->create();
+    $buyerEmail = User::factory()->create(['email' => 'other@example.com']);
+    $payment = getlyPayment(['user_id' => $owner->id]);
+
+    getlyWebhook('sale.completed', array_merge(linkSale($payment, ['buyerEmail' => 'other@example.com']), ['checkoutLinkId' => null]))->assertOk();
+
+    expect($payment->fresh()->granted_at)->not->toBeNull()
+        ->and(Payment::where('track_id', 'like', 'order:%')->count())->toBe(0)
+        ->and($buyerEmail->fresh()->plan_expires_at)->toBeNull();
+});

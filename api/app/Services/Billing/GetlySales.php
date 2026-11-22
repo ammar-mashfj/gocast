@@ -43,6 +43,14 @@ class GetlySales
     public function completed(array $data): void
     {
         $linkId = (string) ($data['checkoutLinkId'] ?? '');
+        $reference = (string) ($data['reference'] ?? '');
+
+        // Our reference is a payment uuid: if it names one of our Getly
+        // payments, this is that link's sale even without checkoutLinkId,
+        // and must never also be matched by email as a store-page sale.
+        if ($linkId === '' && $reference !== '') {
+            $linkId = (string) Payment::where('provider', 'getly')->where('uuid', $reference)->value('track_id');
+        }
 
         if ($linkId !== '') {
             $payment = Payment::where('provider', 'getly')->where('track_id', $linkId)->first();

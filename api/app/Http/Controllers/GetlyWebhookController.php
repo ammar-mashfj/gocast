@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AdminTelegram;
 use App\Services\Billing\GetlySales;
 use App\Services\Billing\GetlySignature;
 use Illuminate\Http\JsonResponse;
@@ -19,17 +20,22 @@ use Illuminate\Http\Request;
  */
 class GetlyWebhookController extends Controller
 {
-    public function __invoke(Request $request, GetlySales $sales): JsonResponse
+    public function __invoke(Request $request, GetlySales $sales, AdminTelegram $telegram): JsonResponse
     {
         $secret = (string) config('services.getly.webhook_secret');
 
-        // Unconfigured: refuse rather than accept unsigned payloads. Getly
-        // retries, so nothing is lost while the secret is being set.
+        // Refused deliveries alert: Getly retries for about 2h40, and a
+        // store-page sale has no other way in (reconcile only polls our own
+        // links), so a missing or wrong secret must be noticed, not waited out.
         if ($secret === '') {
+            $telegram->opsAlert('getly-webhook-rejected:unset', "⚠️ <b>Getly webhook refused</b>\nGETLY_WEBHOOK_SECRET is not set, so Getly's sales are being turned away. Set it before Getly stops retrying (about 2h40).", quietMinutes: 60);
+
             return response()->json(['error' => 'not configured'], 503);
         }
 
         if (! GetlySignature::verify($request->getContent(), $request->header('X-Getly-Signature-V2'), $secret)) {
+            $telegram->opsAlert('getly-webhook-rejected:signature', "⚠️ <b>Getly webhook refused</b>\nA delivery failed the signature check. If it was Getly, GETLY_WEBHOOK_SECRET doesn't match the endpoint's secret and sales are being turned away.", quietMinutes: 60);
+
             return response()->json(['error' => 'invalid signature'], 401);
         }
 
