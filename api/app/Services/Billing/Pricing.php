@@ -156,9 +156,11 @@ class Pricing
 
         $isPercent = ($found['type'] ?? '') === 'percentage';
 
+        // Getly's own spelling is what goes back to Getly on the checkout link,
+        // in case it matches codes exactly.
         $coupon = (new Discount)->forceFill([
             'name' => 'Getly coupon',
-            'code' => $code,
+            'code' => (string) ($found['code'] ?? $code),
             'percent_off' => $isPercent ? (float) ($found['value'] ?? 0) : null,
             'amount_off_usd' => $isPercent ? null : ((int) ($found['valueCents'] ?? $found['value'] ?? 0)) / 100,
             'ends_at' => $expires,

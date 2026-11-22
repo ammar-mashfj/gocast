@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -20,6 +21,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Notes longer than the old column are cut, or the change fails.
+        DB::table('payments')->whereRaw('CHAR_LENGTH(review_reason) > 255')
+            ->update(['review_reason' => DB::raw('LEFT(review_reason, 255)')]);
+
         Schema::table('payments', function (Blueprint $table) {
             $table->string('review_reason', 255)->nullable()->change();
         });

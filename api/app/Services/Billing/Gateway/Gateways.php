@@ -54,8 +54,20 @@ final class Gateways
         );
     }
 
+    /**
+     * A misspelt BILLING_GATEWAY must not take the public pricing down with
+     * checkout: it reports, and checkout refuses as "not switched on".
+     */
     public static function current(): PaymentGateway
     {
-        return self::make((string) config('services.billing.gateway', 'getly'));
+        $name = (string) config('services.billing.gateway', 'getly');
+
+        try {
+            return self::make($name);
+        } catch (InvalidArgumentException $e) {
+            report($e);
+
+            return new UnknownGateway($name);
+        }
     }
 }

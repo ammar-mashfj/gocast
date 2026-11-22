@@ -39,7 +39,9 @@ class GetlyWebhookController extends Controller
             return response()->json(['error' => 'invalid body'], 400);
         }
 
-        match ((string) ($body['event'] ?? $request->header('X-Getly-Event'))) {
+        // From the signed body only: the X-Getly-Event header isn't covered
+        // by the signature, so it can't decide what a delivery means.
+        match ((string) ($body['event'] ?? '')) {
             'sale.completed', 'checkout_link.completed' => $sales->completed($body['data']),
             'order.refunded' => $sales->refunded($body['data'], isset($body['deliveryId']) ? (string) $body['deliveryId'] : null),
             'dispute.created' => $sales->disputed($body['data']),

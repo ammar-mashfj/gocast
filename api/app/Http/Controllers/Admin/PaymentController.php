@@ -7,6 +7,9 @@ use App\Models\CardPaymentInterest;
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
 use App\Services\Billing\Gateway\Gateways;
+use App\Services\Billing\Gateway\GetlyGateway;
+use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Billing\Gateway\UnknownGateway;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -59,9 +62,31 @@ class PaymentController extends Controller
             'revenueUsd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->sum('amount_usd'),
             'last30Usd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->where('paid_at', '>=', now()->subDays(30))->sum('amount_usd'),
             'cardInterest' => CardPaymentInterest::latest('id')->get(['email', 'created_at', 'notified_at']),
-            'gatewayReady' => filled(config('services.oxapay.merchant_key')),
-            'gatewayMode' => config('services.oxapay.driver') === 'fake' ? 'fake' : (config('services.oxapay.sandbox') ? 'sandbox' : 'live'),
+            'gateway' => $gateway = $this->currentGateway(),
+            'gatewayName' => PaymentProcessor::nameOf($gateway->provider()),
+            'gatewayMode' => match (true) {
+                $gateway instanceof UnknownGateway => 'unknown',
+                $gateway->provider() === 'fake' => 'fake',
+                $gateway->isSandbox() => 'sandbox',
+                default => 'live',
+            },
+            'gatewayFix' => match (true) {
+                $gateway instanceof UnknownGateway && $gateway->provider() === 'fake' => 'The fake gateway is set, and it is not allowed in production',
+                $gateway instanceof UnknownGateway => 'BILLING_GATEWAY is "'.$gateway->provider().'", which is not a payment gateway (getly or oxapay)',
+                $gateway instanceof GetlyGateway => 'GETLY_API_KEY is blank',
+                default => 'OXAPAY_MERCHANT_KEY is blank',
+            },
         ]);
+    }
+
+    /** The checkout's gateway; the fake one refused in production shows as unknown. */
+    private function currentGateway(): PaymentGateway
+    {
+        try {
+            return Gateways::current();
+        } catch (RuntimeException) {
+            return new UnknownGateway('fake');
+        }
     }
 
     public function recheck(Payment $payment, PaymentProcessor $processor): RedirectResponse

@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\GatewayException;
+use App\Services\Billing\Gateway\GetlyGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
 use App\Services\Billing\Grants\Grants;
 use Illuminate\Support\Str;
@@ -46,6 +47,12 @@ class Checkout
         // Read fresh: the plan decides what may be sold, and the session's
         // copy can predate an admin change or a payment made in another tab.
         $user->refresh();
+
+        // Getly sells only what has a Getly product (services.getly.products);
+        // anything else is refused here, before a payment row or an alert.
+        if ($this->gateway instanceof GetlyGateway && ! $this->gateway->sells($product)) {
+            throw new CheckoutRefused("This plan can't be bought online yet. Reply to our email and we'll sort it out.", 409);
+        }
 
         $refusal = Grants::for($product->grant_type)->refusal($product, $user);
 

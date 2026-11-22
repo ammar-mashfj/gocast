@@ -73,6 +73,28 @@ class ReconcilePayments extends Command
             }
         }
 
+        // A Getly store-page sale is recorded from a signed webhook before its
+        // grant; one still `new` means every delivery failed after the insert
+        // (say, the database went away mid-way). The sale is real, so finish it.
+        $stuck = Payment::where('provider', 'getly')
+            ->where('track_id', 'like', 'order:%')
+            ->where('status', Payment::STATUS_NEW)
+            ->where('created_at', '<=', now()->subMinutes(15))
+            ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
+            ->get();
+
+        foreach ($stuck as $payment) {
+            $processor->process([
+                'track_id' => $payment->track_id,
+                'order_id' => $payment->uuid,
+                'status' => Payment::STATUS_PAID,
+            ], 'reconcile');
+        }
+
+        if ($stuck->isNotEmpty()) {
+            $this->info("Finished {$stuck->count()} Getly store-page sale(s) left at new.");
+        }
+
         $this->info("Checked {$checked} open payment(s)".($failed ? ", {$failed} could not be checked" : '').'.');
 
         return self::SUCCESS;

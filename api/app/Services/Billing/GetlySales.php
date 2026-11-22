@@ -92,19 +92,33 @@ class GetlySales
             return;
         }
 
+        // Getly refunds per order. Each payment's share is plain when one of
+        // ours was refunded, or when all of them were refunded in full; a
+        // partial refund across several items can't be split, so each gets
+        // a note and keeps its status.
+        $refunded = isset($data['amountCents']) ? (int) $data['amountCents'] : null;
+        $cents = fn (Payment $payment) => (int) round(((float) $payment->amount_usd) * 100);
+        $ofAll = $payments->sum($cents);
+
         foreach ($payments as $payment) {
-            $this->processor->process([
+            [$share, $note] = match (true) {
+                $refunded === null => [null, null],
+                $payments->count() === 1 => [min($refunded, $cents($payment)), 'Refunded $'.PaymentProcessor::money($refunded).' of $'.$payment->amount_usd.'.'],
+                $refunded >= $ofAll => [$cents($payment), 'Refunded in full, with the rest of order '.$orderId.'.'],
+                default => [0, 'Getly refunded $'.PaymentProcessor::money($refunded).' of order '.$orderId.' ($'.PaymentProcessor::money($ofAll).' across '.$payments->count().' items); check on Getly which.'],
+            };
+
+            $this->processor->process(array_filter([
                 'track_id' => $payment->track_id,
                 'order_id' => $payment->uuid,
                 'status' => Payment::STATUS_REFUNDED,
                 // Each refund of an order arrives as its own delivery; a
                 // retry of one reuses its id, a second partial refund doesn't.
                 'refund_key' => $deliveryId ?? md5((string) json_encode($data)),
-                'note' => isset($data['amountCents'])
-                    ? 'Refunded $'.PaymentProcessor::money((int) $data['amountCents']).' of $'.$payment->amount_usd.'.'
-                    : null,
+                'refunded_cents' => $share,
+                'note' => $note,
                 'getly' => $data,
-            ], 'webhook');
+            ], fn ($value) => $value !== null), 'webhook');
         }
     }
 
@@ -121,13 +135,19 @@ class GetlySales
         $itemId = $data['orderItemId'] ?? null;
         $payments = $this->paymentsFor($orderId, $itemId === null ? [] : [$itemId]);
 
+        $reason = trim((string) ($data['reason'] ?? ''));
+
         if ($payments->isEmpty()) {
-            $this->unknownOrder('dispute', $orderId);
+            $extra = $this->paymentWithExtraOrder($orderId);
+
+            if ($extra === null) {
+                $this->unknownOrder('dispute', $orderId);
+            } else {
+                $this->processor->review($extra, "Dispute opened on Getly for the extra order {$orderId}".($reason !== '' ? " ({$reason})" : '').'. Nothing was granted for that order; answer it on Getly.');
+            }
 
             return;
         }
-
-        $reason = trim((string) ($data['reason'] ?? ''));
 
         foreach ($payments as $payment) {
             $this->processor->review($payment, fn (Payment $locked) => 'Dispute opened on Getly'.($reason !== '' ? " ({$reason})" : '').'. '.(
@@ -217,9 +237,7 @@ class GetlySales
      */
     private function extraOrderRefunded(string $orderId): bool
     {
-        $payment = $orderId === '' ? null : Payment::where('provider', 'getly')
-            ->whereJsonContains('payload->extra_orders', $orderId)
-            ->first();
+        $payment = $this->paymentWithExtraOrder($orderId);
 
         if ($payment === null) {
             return false;
@@ -228,6 +246,16 @@ class GetlySales
         $this->processor->review($payment, "The extra Getly order {$orderId} was refunded.", alert: false);
 
         return true;
+    }
+
+    /**
+     * The payment whose link a second order ($orderId) was paid on.
+     */
+    private function paymentWithExtraOrder(string $orderId): ?Payment
+    {
+        return $orderId === '' ? null : Payment::where('provider', 'getly')
+            ->whereJsonContains('payload->extra_orders', $orderId)
+            ->first();
     }
 
     private function unknownOrder(string $what, string $orderId): void

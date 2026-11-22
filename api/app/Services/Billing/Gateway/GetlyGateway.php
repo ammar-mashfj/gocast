@@ -3,6 +3,7 @@
 namespace App\Services\Billing\Gateway;
 
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -39,6 +40,12 @@ class GetlyGateway implements PaymentGateway
         private readonly array $products,
         private readonly int $lifetimeHours,
     ) {}
+
+    /** Whether $product has a Getly product to sell it through. */
+    public function sells(Product $product): bool
+    {
+        return isset($this->products[$product->slug]);
+    }
 
     public function createInvoice(Payment $payment, string $callbackUrl, string $returnUrl): Invoice
     {

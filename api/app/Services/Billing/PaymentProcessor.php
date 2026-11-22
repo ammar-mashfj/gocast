@@ -157,12 +157,13 @@ class PaymentProcessor
 
         // A refund is news once. Getly sends every refund of an order as
         // "refunded", so a second partial refund is told apart by its delivery.
-        $refundKeys = (array) data_get($locked->payload, 'refund_keys', []);
+        $old = (array) $locked->payload;
+        $refundKeys = (array) ($old['refund_keys'] ?? []);
 
         if ($isRefund) {
             $key = isset($data['refund_key']) ? (string) $data['refund_key'] : null;
 
-            if ($status === $locked->status && ($key === null || in_array($key, $refundKeys, true))) {
+            if ($key !== null ? in_array($key, $refundKeys, true) : $status === $locked->status) {
                 return $none;
             }
 
@@ -173,25 +174,53 @@ class PaymentProcessor
 
         $this->keepPayload($locked, $data, $refundKeys);
 
+        if ($isRefund && isset($data['refunded_cents'])) {
+            // Getly says how much went back. Less than was paid is a partial
+            // refund: noted, but the payment stays paid (revenue, renewal
+            // reminders), and a held sale keeps its "grant it by hand".
+            $total = (int) ($old['refunded_cents'] ?? 0) + (int) $data['refunded_cents'];
+            $locked->payload = [...(array) $locked->payload, 'refunded_cents' => $total];
+
+            if ($total < (int) round(((float) $locked->amount_usd) * 100) && ! $wasRefunded) {
+                return $flagged($this->flag($locked, "Partly refunded on {$provider}.{$note}".($locked->granted_at !== null ? ' Pro was kept.' : '')));
+            }
+        }
+
         if ($locked->granted_at !== null) {
-            // Already granted. Only a refund is news; a late "paying" or a
-            // redelivered "paid" must not move the status backwards.
-            if (! $isRefund) {
+            if ($isRefund) {
+                $locked->status = $status;
+
+                return $flagged($this->flag($locked, "Refunded on {$provider} after the plan was granted.{$note} Revoke it by hand if they should lose it."));
+            }
+
+            // Already granted (reconcile or Recheck can get there before the
+            // sale webhook). A late "paying" or a redelivered "paid" must not
+            // move the status backwards, but the first word of what the buyer
+            // was actually charged is still checked, and kept.
+            if (! isset($data['charged_cents']) || isset($old['charged_cents'])) {
                 return $none;
             }
 
-            $locked->status = $status;
+            $priceNote = $this->takeChargedAmount($locked, $data);
 
-            return $flagged($this->flag($locked, "Refunded on {$provider} after the plan was granted.{$note} Revoke it by hand if they should lose it."));
+            if ($priceNote === null) {
+                $locked->save();
+
+                return $none;
+            }
+
+            return $flagged($this->flag($locked, $priceNote.' Pro was granted; check the price or coupon on Getly.'));
         }
 
-        // A payment held for a human (no account, a gift…) whose money went
-        // back: the old "grant it by hand" must not survive it.
+        // A refund means money had come in, but the plan was never granted
+        // here: it may have been granted by hand, which leaves no trace on
+        // the payment, so it always needs a human. A held note ("grant it by
+        // hand") is replaced, since it is now wrong.
         $wasHeld = $locked->review_reason !== null;
         $locked->status = $status;
 
-        if ($isRefund && ($wasHeld || $wasRefunded)) {
-            return $flagged($this->flag($locked, "Refunded on {$provider} before it was granted.{$note} Don't grant it.", replace: ! $wasRefunded));
+        if ($isRefund) {
+            return $flagged($this->flag($locked, "Refunded on {$provider} before it was granted.{$note} Don't grant it, and if you already granted Pro by hand, revoke it.", replace: $wasHeld && ! $wasRefunded));
         }
 
         if ($status === Payment::STATUS_UNDERPAID) {
@@ -268,7 +297,9 @@ class PaymentProcessor
 
     /**
      * The provider's latest word becomes the payload, keeping what we
-     * remember across deliveries (extra orders, refunds already seen).
+     * remember across deliveries: Getly's sale details (items and order,
+     * which refunds and disputes are matched on) are merged rather than
+     * replaced by a later link lookup, and our own bookkeeping carries over.
      *
      * @param  array<string, mixed>  $data
      * @param  list<string>  $refundKeys
@@ -276,10 +307,16 @@ class PaymentProcessor
     private function keepPayload(Payment $locked, array $data, array $refundKeys): void
     {
         $old = (array) $locked->payload;
-        unset($data['refund_key'], $data['note'], $data['charged_cents']);
+        unset($data['refund_key'], $data['note'], $data['refunded_cents']);
 
-        if (isset($old['extra_orders'])) {
-            $data['extra_orders'] = $old['extra_orders'];
+        if (isset($old['getly']) && isset($data['getly'])) {
+            $data['getly'] = array_merge((array) $old['getly'], (array) $data['getly']);
+        }
+
+        foreach (['getly', 'extra_orders', 'refunded_cents', 'charged_cents'] as $kept) {
+            if (isset($old[$kept]) && ! isset($data[$kept])) {
+                $data[$kept] = $old[$kept];
+            }
         }
 
         if ($refundKeys !== []) {
@@ -296,10 +333,15 @@ class PaymentProcessor
 
     public static function providerName(Payment $payment): string
     {
-        return match ($payment->provider) {
+        return self::nameOf((string) $payment->provider);
+    }
+
+    public static function nameOf(string $provider): string
+    {
+        return match ($provider) {
             'getly' => 'Getly',
             'oxapay' => 'OxaPay',
-            default => ucfirst($payment->provider),
+            default => ucfirst($provider),
         };
     }
 
