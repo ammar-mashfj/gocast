@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -79,6 +80,8 @@ class PaymentController extends Controller
             $gateway = Gateways::make($payment->provider);
         } catch (RuntimeException) {
             return back()->with('error', 'This was a test payment from the fake gateway, so there is nothing to ask about.');
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
         }
 
         try {

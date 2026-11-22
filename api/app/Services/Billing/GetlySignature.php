@@ -7,10 +7,11 @@ namespace App\Services\Billing;
  * where v1 is the HMAC-SHA256 of "<t>.<raw body>" keyed with the endpoint
  * secret.
  *
- * The timestamp window is three days, not the five minutes Getly suggests:
- * it's undocumented whether a retry (1 min, 5 min, 30 min, 2 h) is signed
- * afresh, and a refused retry of a store-page sale, refund or dispute has no
- * other way in. A replay of a genuine delivery can't do anything new — every
+ * The timestamp window is four hours, not the five minutes Getly suggests:
+ * it's undocumented whether a retry (1 min, 5 min, 30 min, 2 h — about
+ * 2 h 40 min in all) is signed afresh, and a refused retry of a store-page
+ * sale, refund or dispute has no other way in. Four hours covers the whole
+ * retry run and no more. A replay inside it can't do anything new — every
  * handler is once-only (GetlySales) — and a forged one still fails the HMAC.
  *
  * Over the raw bytes, never re-encoded JSON. sign() is what the tests use to
@@ -18,7 +19,7 @@ namespace App\Services\Billing;
  */
 final class GetlySignature
 {
-    public const TOLERANCE_SECONDS = 3 * 24 * 60 * 60;
+    public const TOLERANCE_SECONDS = 4 * 60 * 60;
 
     public static function sign(string $rawBody, string $secret, int $timestamp): string
     {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Admin;
 use App\Models\Discount;
 use App\Models\Payment;
 use App\Models\Plan;
@@ -54,9 +55,9 @@ function fakeGetlyLink(?int $chargesCents = null): void
 /**
  * @param  array<string, mixed>  $data
  */
-function getlyWebhook(string $event, array $data, ?string $secret = GETLY_TEST_SECRET, ?int $at = null): TestResponse
+function getlyWebhook(string $event, array $data, ?string $secret = GETLY_TEST_SECRET, ?int $at = null, ?string $deliveryId = null): TestResponse
 {
-    $body = json_encode(['deliveryId' => 'd-'.fake()->uuid(), 'event' => $event, 'data' => $data, 'timestamp' => now()->toIso8601String()]);
+    $body = json_encode(['deliveryId' => $deliveryId ?? 'd-'.fake()->uuid(), 'event' => $event, 'data' => $data, 'timestamp' => now()->toIso8601String()]);
     $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_X_GETLY_EVENT' => $event];
 
     if ($secret !== null) {
@@ -488,4 +489,133 @@ it('never asks Getly about a store-page sale during reconcile', function () {
     artisan('billing:reconcile')->assertSuccessful();
 
     Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'checkout-links'));
+});
+
+it('says nothing was granted when Getly charged a different price and the grant failed', function () {
+    $payment = getlyPayment();
+    $payment->user->delete();
+
+    getlyWebhook('sale.completed', linkSale($payment, ['total' => 4000]))->assertOk();
+
+    $payment->refresh();
+
+    expect($payment->granted_at)->toBeNull()
+        ->and($payment->amount_usd)->toBe('40.00')
+        ->and($payment->review_reason)->toContain('account has been deleted. Refund it on Getly')
+        ->and($payment->review_reason)->toContain('Getly charged $40.00 but checkout quoted $52.00. Nothing was granted.')
+        ->and($payment->review_reason)->not->toContain('Pro was granted');
+});
+
+it('keeps "don\'t grant it" when a dispute follows a refund, and never says Pro was taken away', function () {
+    getlyWebhook('sale.completed', [
+        'orderId' => 'order-30',
+        'buyerEmail' => 'nobody@example.com',
+        'items' => [['orderItemId' => 'item-30', 'productId' => GETLY_3M, 'price' => 5200]],
+    ])->assertOk();
+    getlyWebhook('order.refunded', ['orderId' => 'order-30', 'orderItemIds' => ['item-30'], 'amountCents' => 5200])->assertOk();
+
+    getlyWebhook('dispute.created', ['disputeId' => 'dp-1', 'orderId' => 'order-30', 'orderItemId' => 'item-30', 'reason' => 'fraud'])->assertOk();
+
+    $reason = Payment::where('track_id', 'order:item-30')->value('review_reason');
+
+    expect($reason)->toContain("Don't grant it")
+        ->and($reason)->toContain('Dispute opened on Getly (fraud)')
+        ->and($reason)->toContain('Pro was never granted')
+        ->and($reason)->not->toContain('not taken away');
+});
+
+it('never grants a held store-page sale on a redelivery after its review is cleared', function () {
+    $user = User::factory()->unverified()->create(['email' => 'held@example.com']);
+    $sale = [
+        'orderId' => 'order-31',
+        'buyerEmail' => 'held@example.com',
+        'items' => [['orderItemId' => 'item-31', 'productId' => GETLY_3M, 'price' => 5200]],
+    ];
+    getlyWebhook('sale.completed', $sale, deliveryId: 'd-31')->assertOk();
+
+    actingAs(Admin::factory()->create(), 'admin')
+        ->post(route('admin.payments.clear-review', Payment::where('track_id', 'order:item-31')->first()))
+        ->assertRedirect();
+    expect(Payment::where('track_id', 'order:item-31')->value('review_reason'))->toBeNull();
+
+    getlyWebhook('sale.completed', $sale, deliveryId: 'd-31')->assertOk();
+
+    expect(Payment::where('track_id', 'order:item-31')->value('granted_at'))->toBeNull()
+        ->and($user->fresh()->plan_expires_at)->toBeNull();
+});
+
+it('still grants a store-page sale whose first delivery stopped before the grant', function () {
+    $user = User::factory()->create(['email' => 'crashed@example.com']);
+    $payment = getlyPayment(['user_id' => $user->id, 'track_id' => 'order:item-32', 'payment_url' => null]);
+
+    getlyWebhook('sale.completed', [
+        'orderId' => 'order-32',
+        'buyerEmail' => 'crashed@example.com',
+        'items' => [['orderItemId' => 'item-32', 'productId' => GETLY_3M, 'price' => 5200]],
+    ])->assertOk();
+
+    expect($payment->fresh()->granted_at)->not->toBeNull();
+});
+
+it('refuses a delivery signed more than four hours ago', function () {
+    $payment = getlyPayment();
+
+    getlyWebhook('sale.completed', linkSale($payment), at: time() - 5 * 3600)->assertUnauthorized();
+});
+
+it('does not bring a refunded payment back to paid on Recheck', function () {
+    // Getly's link still reads "completed" after the refund.
+    $payment = getlyPayment(['status' => Payment::STATUS_REFUNDED, 'review_reason' => "Refunded on Getly before it was granted. Don't grant it."]);
+    Http::fake(['getly.test/api/v1/checkout-links/link-1' => Http::response(['success' => true, 'data' => [
+        'id' => 'link-1', 'status' => 'completed', 'reference' => $payment->uuid, 'orderId' => 'order-1',
+    ]])]);
+
+    actingAs(Admin::factory()->create(), 'admin')->post(route('admin.payments.recheck', $payment))->assertSessionHas('status');
+    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/checkout-links/link-1'));
+
+    $payment->refresh();
+
+    expect($payment->status)->toBe('refunded')
+        ->and($payment->granted_at)->toBeNull();
+});
+
+it('notes a second partial refund, but not a retry of the same one', function () {
+    $payment = getlyPayment();
+    getlyWebhook('sale.completed', linkSale($payment))->assertOk();
+
+    getlyWebhook('order.refunded', ['orderId' => 'order-1', 'orderItemIds' => ['item-1'], 'amountCents' => 1000], deliveryId: 'r-1')->assertOk();
+    getlyWebhook('order.refunded', ['orderId' => 'order-1', 'orderItemIds' => ['item-1'], 'amountCents' => 1000], deliveryId: 'r-1')->assertOk();
+    getlyWebhook('order.refunded', ['orderId' => 'order-1', 'orderItemIds' => ['item-1'], 'amountCents' => 1500], deliveryId: 'r-2')->assertOk();
+
+    $reason = $payment->fresh()->review_reason;
+
+    expect(substr_count($reason, 'Refunded $10.00 of $52.00'))->toBe(1)
+        ->and($reason)->toContain('Refunded $15.00 of $52.00');
+});
+
+it('notes the refund of an extra order on its payment instead of calling it unknown', function () {
+    $payment = getlyPayment();
+    getlyWebhook('sale.completed', linkSale($payment))->assertOk();
+    getlyWebhook('sale.completed', linkSale($payment, ['orderId' => 'order-2']))->assertOk();
+
+    getlyWebhook('order.refunded', ['orderId' => 'order-2', 'orderItemIds' => ['item-9'], 'amountCents' => 5200])->assertOk();
+
+    $payment->refresh();
+
+    expect($payment->review_reason)->toContain('The extra Getly order order-2 was refunded.')
+        ->and($payment->status)->toBe('paid');
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'telegram') && str_contains((string) $request['text'], 'no payment for'));
+});
+
+it('tells the buyer about the coupon when Getly ignores it on the link', function () {
+    fakeGetlyCoupons();
+    Http::fake(['getly.test/api/v1/checkout-links' => Http::response(['success' => true, 'data' => [
+        'id' => 'link-1', 'url' => 'https://www.getly.store/go/link-1', 'status' => 'open',
+        'priceCents' => 16000, 'discountedPriceCents' => null, 'couponApplied' => false,
+    ]], 201)]);
+    actingAs(User::factory()->create());
+
+    postJson('/api/billing/checkout', ['product' => 'pro-12-months', 'code' => 'FOUNDER'])
+        ->assertStatus(422)
+        ->assertJsonPath('message', "That coupon can't be used right now. Remove it to pay the full price, or try again later.");
 });

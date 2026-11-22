@@ -81,13 +81,13 @@ class GetlySales
      *
      * @param  array<string, mixed>  $data
      */
-    public function refunded(array $data): void
+    public function refunded(array $data, ?string $deliveryId = null): void
     {
         $orderId = (string) ($data['orderId'] ?? '');
         $payments = $this->paymentsFor($orderId, (array) ($data['orderItemIds'] ?? []));
 
         if ($payments->isEmpty()) {
-            $this->unknownOrder('refund', $orderId);
+            $this->extraOrderRefunded($orderId) || $this->unknownOrder('refund', $orderId);
 
             return;
         }
@@ -97,8 +97,11 @@ class GetlySales
                 'track_id' => $payment->track_id,
                 'order_id' => $payment->uuid,
                 'status' => Payment::STATUS_REFUNDED,
+                // Each refund of an order arrives as its own delivery; a
+                // retry of one reuses its id, a second partial refund doesn't.
+                'refund_key' => $deliveryId ?? md5((string) json_encode($data)),
                 'note' => isset($data['amountCents'])
-                    ? 'Refunded $'.self::money((int) $data['amountCents']).' of $'.$payment->amount_usd.'.'
+                    ? 'Refunded $'.PaymentProcessor::money((int) $data['amountCents']).' of $'.$payment->amount_usd.'.'
                     : null,
                 'getly' => $data,
             ], 'webhook');
@@ -127,52 +130,32 @@ class GetlySales
         $reason = trim((string) ($data['reason'] ?? ''));
 
         foreach ($payments as $payment) {
-            $this->processor->review($payment, 'Dispute opened on Getly'.($reason !== '' ? " ({$reason})" : '').'. Pro was not taken away; answer it on Getly and revoke by hand if it is lost.');
+            $this->processor->review($payment, fn (Payment $locked) => 'Dispute opened on Getly'.($reason !== '' ? " ({$reason})" : '').'. '.(
+                $locked->granted_at !== null
+                    ? 'Pro was not taken away; answer it on Getly and revoke by hand if it is lost.'
+                    : "Pro was never granted for it; answer it on Getly and don't grant it while it is open."
+            ));
         }
     }
 
     /**
-     * A sale from one of our links. Getly creates the payment session only
-     * when the link is opened, so a link opened in two tabs can be paid
-     * twice: the second order is flagged, never silently kept. What Getly
-     * actually charged replaces our quote, since that is what a prorated
-     * refund is worked out from; a difference still grants, and is flagged.
+     * A sale from one of our links. The checks that need the payment's lock
+     * (a second order on the same link, a charge that differs from our
+     * quote) happen in PaymentProcessor.
      *
      * @param  array<string, mixed>  $data
      */
     private function linkSale(Payment $payment, array $data): void
     {
-        $orderId = (string) ($data['orderId'] ?? '');
-        $knownOrder = (string) data_get($payment->payload, 'getly.orderId', '');
+        $charged = $data['total'] ?? $data['amountCents'] ?? null;
 
-        if ($orderId !== '' && $knownOrder !== '' && $orderId !== $knownOrder) {
-            $this->processor->review($payment, "A second Getly order ({$orderId}) was paid on this payment's link after order {$knownOrder}. Only one was granted; refund the extra one on Getly.");
-
-            return;
-        }
-
-        $charged = isset($data['total']) ? (int) $data['total'] : (isset($data['amountCents']) ? (int) $data['amountCents'] : null);
-        $quoted = (int) round(((float) $payment->amount_usd) * 100);
-        $differs = $charged !== null && $payment->granted_at === null && $charged !== $quoted;
-
-        if ($differs) {
-            $list = (int) round(((float) $payment->list_price_usd) * 100);
-            $payment->forceFill([
-                'amount_usd' => self::money($charged),
-                'discount_usd' => self::money(max(0, $list - $charged)),
-            ])->save();
-        }
-
-        $this->processor->process([
+        $this->processor->process(array_filter([
             'track_id' => $payment->track_id,
             'order_id' => $data['reference'] ?? $payment->uuid,
             'status' => Payment::STATUS_PAID,
+            'charged_cents' => $charged === null ? null : (int) $charged,
             'getly' => $data,
-        ], 'webhook');
-
-        if ($differs) {
-            $this->processor->review($payment, 'Getly charged $'.self::money($charged).' but checkout quoted $'.self::money($quoted).'. Pro was granted; check the price or coupon on Getly.');
-        }
+        ], fn ($value) => $value !== null), 'webhook');
     }
 
     /**
@@ -227,6 +210,26 @@ class GetlySales
         return array_values(array_unique(array_map('strval', $ids)));
     }
 
+    /**
+     * The refund of a second order paid on one of our links, which the
+     * payment's note told the admin to make. Noted on that payment, quietly:
+     * it is the expected end of that story, not a fault.
+     */
+    private function extraOrderRefunded(string $orderId): bool
+    {
+        $payment = $orderId === '' ? null : Payment::where('provider', 'getly')
+            ->whereJsonContains('payload->extra_orders', $orderId)
+            ->first();
+
+        if ($payment === null) {
+            return false;
+        }
+
+        $this->processor->review($payment, "The extra Getly order {$orderId} was refunded.", alert: false);
+
+        return true;
+    }
+
     private function unknownOrder(string $what, string $orderId): void
     {
         $this->telegram->opsAlert(
@@ -234,11 +237,6 @@ class GetlySales
             "⚠️ <b>Getly {$what} for an order we have no payment for</b>\nOrder {$this->e($orderId)}. Check it in Getly.",
             quietMinutes: 60 * 24,
         );
-    }
-
-    private static function money(int $cents): string
-    {
-        return number_format($cents / 100, 2, '.', '');
     }
 
     /**
@@ -295,9 +293,9 @@ class GetlySales
                 'plan_id' => $product->plan_id,
                 'duration_unit' => $product->duration_unit,
                 'duration_count' => $product->duration_count,
-                'list_price_usd' => self::money($listCents),
-                'discount_usd' => self::money(max(0, $listCents - $paidCents)),
-                'amount_usd' => self::money($paidCents),
+                'list_price_usd' => PaymentProcessor::money($listCents),
+                'discount_usd' => PaymentProcessor::money(max(0, $listCents - $paidCents)),
+                'amount_usd' => PaymentProcessor::money($paidCents),
                 'provider' => 'getly',
                 'sandbox' => false,
                 'track_id' => $trackId,
@@ -308,10 +306,16 @@ class GetlySales
             ]), true];
         });
 
-        if ($payment->review_reason !== null && $payment->granted_at === null) {
-            if ($created) {
-                $this->telegram->paymentNeedsReview($payment);
-            }
+        // A sale seen before is only picked up again if it never got past
+        // `new` (we crashed between the insert and the grant). Anything else
+        // is a retry: a held sale whose review was cleared, or one already
+        // granted by hand, must not be granted by Getly redelivering it.
+        if (! $created && $payment->status !== Payment::STATUS_NEW) {
+            return;
+        }
+
+        if ($payment->review_reason !== null) {
+            $this->telegram->paymentNeedsReview($payment);
 
             return;
         }

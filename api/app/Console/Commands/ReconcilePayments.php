@@ -7,6 +7,7 @@ use App\Services\Billing\Gateway\GatewayException;
 use App\Services\Billing\Gateway\Gateways;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -46,6 +47,10 @@ class ReconcilePayments extends Command
                 $gateway = Gateways::make((string) $provider);
             } catch (RuntimeException) {
                 // The fake gateway in production: nothing real to ask.
+                continue;
+            } catch (InvalidArgumentException $e) {
+                $this->warn($e->getMessage().' '.count($payments).' open payment(s) were skipped.');
+
                 continue;
             }
 

@@ -2,6 +2,7 @@
 
 namespace App\Services\Billing\Gateway;
 
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -39,6 +40,10 @@ final class Gateways
                 products: (array) ($getly['products'] ?? []),
                 lifetimeHours: (int) ($getly['link_lifetime_hours'] ?? 24),
             );
+        }
+
+        if ($provider !== 'oxapay') {
+            throw new InvalidArgumentException("There is no payment gateway called \"{$provider}\".");
         }
 
         return new OxaPayGateway(

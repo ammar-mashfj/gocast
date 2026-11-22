@@ -113,7 +113,7 @@
                                         'badge-ghost' => ! $payment->granted_at && $payment->review_reason === null,
                                     ])>{{ str_replace('_', ' ', $payment->status) }}</span>
                                     @if ($payment->review_reason)
-                                        <div class="mt-1 max-w-xs text-xs text-warning">{{ $payment->review_reason }}</div>
+                                        <div class="mt-1 max-w-xs whitespace-pre-line text-xs text-warning">{{ $payment->review_reason }}</div>
                                     @endif
                                     @if ($payment->track_id)
                                         <div class="mt-1 font-mono text-xs opacity-50" title="OxaPay track id">{{ $payment->track_id }}</div>

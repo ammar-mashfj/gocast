@@ -76,13 +76,24 @@ class GetlyGateway implements PaymentGateway
         $quoted = (int) round(((float) $payment->amount_usd) * 100);
 
         if ($charges !== null && (int) $charges !== $quoted) {
-            throw new GatewayException(sprintf(
-                'Getly would charge $%s for %s but checkout quoted $%s%s. Make the prices match on both sides.',
-                number_format(((int) $charges) / 100, 2),
-                $payment->product_name,
-                number_format($quoted / 100, 2),
-                $payment->discount_code ? " (coupon {$payment->discount_code})" : '',
-            ));
+            // With a coupon, the likely cause is Getly not taking it (used up
+            // there, or read differently): say so, and the buyer can go on
+            // without it.
+            $couponNotTaken = $payment->discount_code !== null
+                && (($data['couponApplied'] ?? null) === false || (int) $charges === (int) ($data['priceCents'] ?? -1));
+
+            throw new GatewayException(
+                sprintf(
+                    'Getly would charge $%s for %s but checkout quoted $%s%s. Make the prices match on both sides.',
+                    number_format(((int) $charges) / 100, 2),
+                    $payment->product_name,
+                    number_format($quoted / 100, 2),
+                    $payment->discount_code ? " (coupon {$payment->discount_code})" : '',
+                ),
+                buyerMessage: $couponNotTaken
+                    ? "That coupon can't be used right now. Remove it to pay the full price, or try again later."
+                    : null,
+            );
         }
 
         return new Invoice(

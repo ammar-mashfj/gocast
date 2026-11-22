@@ -41,7 +41,7 @@ class GetlyWebhookController extends Controller
 
         match ((string) ($body['event'] ?? $request->header('X-Getly-Event'))) {
             'sale.completed', 'checkout_link.completed' => $sales->completed($body['data']),
-            'order.refunded' => $sales->refunded($body['data']),
+            'order.refunded' => $sales->refunded($body['data'], isset($body['deliveryId']) ? (string) $body['deliveryId'] : null),
             'dispute.created' => $sales->disputed($body['data']),
             default => null,
         };
