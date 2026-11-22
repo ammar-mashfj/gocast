@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Notification;
  */
 beforeEach(function () {
     test()->actingAs(Admin::factory()->create(), 'admin');
-    config(['services.oxapay.driver' => 'oxapay', 'services.oxapay.merchant_key' => 'test-merchant-key']);
+    config(['services.billing.gateway' => 'oxapay', 'services.oxapay.driver' => 'oxapay', 'services.oxapay.merchant_key' => 'test-merchant-key']);
     Notification::fake();
 });
 

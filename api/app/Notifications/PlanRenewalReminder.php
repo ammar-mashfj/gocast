@@ -75,7 +75,7 @@ class PlanRenewalReminder extends BellNotification implements ShouldQueue
             ->subject($this->lastDay ? "Your GoCast {$plan} ends tomorrow" : "Your GoCast {$plan} ends on {$this->endsOn()}")
             ->greeting("Hey {$notifiable->name},")
             ->line("Your GoCast {$plan} runs until **{$this->endsOn()}**. After that your account goes back to Free on its own, and AutoDJ stops when you're not live.")
-            ->line('Once it has ended you can get Pro again from your dashboard, paying with USDT, USDC or another digital currency.')
+            ->line('Once it has ended you can get Pro again from your dashboard, paying by card, or with USDT or USDC.')
             ->action('See your plan', $frontendUrl.'/dashboard/settings')
             ->line('Reply to this email if anything looks wrong — it comes straight to us.')
             ->salutation('— The GoCast team');

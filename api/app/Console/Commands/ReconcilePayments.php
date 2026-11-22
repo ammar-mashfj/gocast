@@ -4,9 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
-use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Billing\Gateway\Gateways;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /**
  * Asks the payment provider about every payment that could still become
@@ -15,8 +16,9 @@ use Illuminate\Console\Command;
  * The safety net under the webhook: providers give up retrying after a few
  * hours, so a deploy, an outage or a Cloudflare rule blocking them would
  * otherwise leave somebody paid and on Free. Three days back covers a slow
- * chain confirmation and a weekend. Only payments made through the current
- * provider are asked about; the others' links can't be looked up with it.
+ * chain confirmation and a weekend. Each payment is asked about on the
+ * provider it was made with, so OxaPay invoices still open when checkout
+ * moved to Getly are granted too (while OXAPAY_MERCHANT_KEY is set).
  */
 class ReconcilePayments extends Command
 {
@@ -24,23 +26,33 @@ class ReconcilePayments extends Command
 
     protected $description = 'Ask the payment provider about open payments and apply anything the webhook missed';
 
-    public function handle(PaymentGateway $gateway, PaymentProcessor $processor): int
+    public function handle(PaymentProcessor $processor): int
     {
-        if (! $gateway->isConfigured()) {
-            $this->info("The {$gateway->provider()} gateway has no credentials, so there is nothing to reconcile.");
-
-            return self::SUCCESS;
-        }
-
         $checked = 0;
         $failed = 0;
 
-        Payment::open()
-            ->where('provider', $gateway->provider())
+        $open = Payment::open()
             ->whereNotNull('track_id')
             ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
             ->orderBy('id')
-            ->each(function (Payment $payment) use ($gateway, $processor, &$checked, &$failed) {
+            ->get()
+            ->groupBy('provider');
+
+        foreach ($open as $provider => $payments) {
+            try {
+                $gateway = Gateways::make((string) $provider);
+            } catch (RuntimeException) {
+                // The fake gateway in production: nothing real to ask.
+                continue;
+            }
+
+            if (! $gateway->isConfigured()) {
+                $this->info("The {$provider} gateway has no credentials, so its ".count($payments).' open payment(s) were skipped.');
+
+                continue;
+            }
+
+            foreach ($payments as $payment) {
                 try {
                     $processor->process($gateway->paymentInfo($payment->track_id), 'reconcile');
                     $checked++;
@@ -50,7 +62,8 @@ class ReconcilePayments extends Command
                     report($e);
                     $failed++;
                 }
-            });
+            }
+        }
 
         $this->info("Checked {$checked} open payment(s)".($failed ? ", {$failed} could not be checked" : '').'.');
 

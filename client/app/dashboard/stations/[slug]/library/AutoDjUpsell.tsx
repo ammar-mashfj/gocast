@@ -56,7 +56,7 @@ export function AutoDjUpsell({ stationName }: { stationName: string }) {
         <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
           <ProPrice />
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
-            Pay once with USDT, USDC or another digital currency. Nothing renews by itself. Your uploads stay yours either way.
+            Pay once by card, or with USDT or USDC. Nothing renews by itself. Your uploads stay yours either way.
           </p>
 
           {/* The page's one filled button (the H1 keeps just the amber Pro

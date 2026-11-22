@@ -74,7 +74,7 @@ export function AudienceUpsell({ stationName }: { stationName: string }) {
         <div className="shrink-0 md:w-56 md:border-l md:border-line md:pl-8">
           <ProPrice />
           <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
-            Pay once with USDT, USDC or another digital currency. Nothing renews by itself. Your history keeps building either way.
+            Pay once by card, or with USDT or USDC. Nothing renews by itself. Your history keeps building either way.
           </p>
           <Button variant="pro" full className="mt-4" onClick={() => checkout.open()}>
             Get Pro

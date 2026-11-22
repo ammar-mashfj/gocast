@@ -63,6 +63,7 @@ class Checkout
             ->where('provider', $this->gateway->provider())
             ->where('product_id', $product->id)
             ->where('discount_id', $quote->discount?->id)
+            ->where('discount_code', $quote->discount?->code)
             ->where('amount_usd', Quote::money($quote->amountCents()))
             ->whereIn('status', [Payment::STATUS_NEW, Payment::STATUS_WAITING])
             ->whereNotNull('payment_url')

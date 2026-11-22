@@ -8,9 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Where Getly reports sales and refunds (registered in Getly for
- * `sale.completed` and `order.refunded`; `checkout_link.completed` is
- * handled too if it is ever added).
+ * Where Getly reports sales, refunds and disputes (registered in Getly for
+ * `sale.completed`, `order.refunded` and `dispute.created`;
+ * `checkout_link.completed` is handled too if it is ever added).
  *
  * Signed with the endpoint secret (GetlySignature). Processed inline, like
  * the OxaPay webhook: the work is a couple of row locks, the grant should
@@ -42,6 +42,7 @@ class GetlyWebhookController extends Controller
         match ((string) ($body['event'] ?? $request->header('X-Getly-Event'))) {
             'sale.completed', 'checkout_link.completed' => $sales->completed($body['data']),
             'order.refunded' => $sales->refunded($body['data']),
+            'dispute.created' => $sales->disputed($body['data']),
             default => null,
         };
 

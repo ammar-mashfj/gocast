@@ -10,6 +10,7 @@ use App\Services\Billing\Grants\GrantResult;
 use App\Services\Billing\Grants\Grants;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Applies what the provider says about a payment to our payment row — from
@@ -144,6 +145,26 @@ class PaymentProcessor
         }
 
         return $fresh;
+    }
+
+    /**
+     * Flag $payment for a human without changing anything else about it, and
+     * alert once per new reason. For what the provider tells us outside the
+     * status flow: a second order on one link, a charge that differs from
+     * the quote, a dispute.
+     */
+    public function review(Payment $payment, string $reason): void
+    {
+        $outcome = DB::transaction(function () use ($payment, $reason) {
+            /** @var Payment $locked */
+            $locked = Payment::whereKey($payment->id)->lockForUpdate()->first();
+
+            return $this->flag($locked, Str::limit($reason, 250));
+        });
+
+        if ($outcome === 'flagged') {
+            $this->telegram->paymentNeedsReview($payment->fresh());
+        }
     }
 
     public static function providerName(Payment $payment): string

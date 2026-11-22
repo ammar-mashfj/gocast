@@ -21,8 +21,9 @@ use Illuminate\Support\Collection;
  *
  * Coupons come from wherever checkout takes payment. With Getly, a code is
  * looked up in the store's Getly coupons, since Getly applies it again on its
- * own page and is the one place they are made; our discounts table then only
- * holds automatic sales. With OxaPay, coupons are rows in that table.
+ * own page and is the one place they are made, and automatic sales from our
+ * table are not applied at all (Getly would never charge them). With OxaPay,
+ * coupons and sales are rows in that table.
  *
  * Nothing here writes. A coupon's use is counted when its payment is
  * confirmed (PaymentProcessor), so these checks are repeated at checkout and
@@ -175,6 +176,12 @@ class Pricing
     /** The running automatic sale that takes the most off $product, if any. */
     private function bestSale(Product $product, int $listCents): ?Discount
     {
+        // Getly charges its own product price and only carries a coupon code,
+        // so a sale from our table would be shown but never charged.
+        if ($this->gateway instanceof GetlyGateway) {
+            return null;
+        }
+
         $this->sales ??= Discount::automatic()->where('active', true)->with('products')->get();
 
         return $this->sales
