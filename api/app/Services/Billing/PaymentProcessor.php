@@ -61,8 +61,11 @@ class PaymentProcessor
 
         $status = self::normalizeStatus($data['status'] ?? '');
         $orderId = (string) ($data['order_id'] ?? '');
+        // Extra words for a refund's flag, e.g. how much went back.
+        $note = isset($data['note']) ? ' '.trim((string) $data['note']) : '';
+        $isRefund = in_array($status, [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED], true);
 
-        $outcome = DB::transaction(function () use ($payment, $data, $status, $orderId) {
+        $outcome = DB::transaction(function () use ($payment, $data, $status, $orderId, $note, $isRefund) {
             /** @var Payment $locked */
             $locked = Payment::whereKey($payment->id)->lockForUpdate()->first();
 
@@ -81,18 +84,26 @@ class PaymentProcessor
             if ($locked->granted_at !== null) {
                 // Already granted. Only a refund is news; a late "paying" or a
                 // redelivered "paid" must not move the status backwards.
-                if (! in_array($status, [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED], true) || $status === $locked->status) {
+                if (! $isRefund || $status === $locked->status) {
                     return null;
                 }
 
                 $locked->status = $status;
                 $locked->payload = $data;
 
-                return $this->flag($locked, 'Refunded on '.self::providerName($locked).' after the plan was granted. Revoke it by hand if they should lose it.');
+                return $this->flag($locked, 'Refunded on '.self::providerName($locked).' after the plan was granted.'.$note.' Revoke it by hand if they should lose it.');
             }
+
+            // A payment held for a human (no account, a gift…) whose money
+            // went back: the old "grant it by hand" must not survive it.
+            $wasHeld = $locked->review_reason !== null;
 
             $locked->status = $status;
             $locked->payload = $data;
+
+            if ($isRefund && $wasHeld) {
+                return $this->flag($locked, 'Refunded on '.self::providerName($locked).' before it was granted.'.$note." Don't grant it.");
+            }
 
             if ($status === Payment::STATUS_UNDERPAID) {
                 return $this->flag($locked, 'Underpaid. Accept it in the OxaPay panel to grant the plan automatically, or refund it.');
@@ -182,6 +193,7 @@ class PaymentProcessor
      */
     private function flag(Payment $payment, string $reason): ?string
     {
+        $reason = Str::limit($reason, 250);
         $isNew = $payment->review_reason !== $reason;
         $payment->review_reason = $reason;
         $payment->save();

@@ -5,9 +5,11 @@ namespace App\Services\Billing;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\GatewayException;
 use App\Services\Billing\Gateway\PaymentGateway;
 use App\Services\Billing\Grants\Grants;
+use Illuminate\Support\Str;
 
 /**
  * Starts a purchase: price it, record it, and get the provider's payment
@@ -23,6 +25,7 @@ class Checkout
     public function __construct(
         private readonly Pricing $pricing,
         private readonly PaymentGateway $gateway,
+        private readonly AdminTelegram $telegram,
     ) {}
 
     /**
@@ -97,7 +100,15 @@ class Checkout
             $invoice = $this->gateway->createInvoice($payment, self::callbackUrl(), self::returnUrl($payment));
         } catch (GatewayException $e) {
             report($e);
-            $payment->forceFill(['status' => Payment::STATUS_FAILED, 'review_reason' => $e->getMessage()])->save();
+            $payment->forceFill(['status' => Payment::STATUS_FAILED, 'review_reason' => Str::limit($e->getMessage(), 250)])->save();
+
+            // A buyer was turned away: worth knowing, once per kind of failure
+            // rather than once per click.
+            $this->telegram->opsAlert(
+                'checkout-failed:'.md5($e->getMessage()),
+                "⚠️ <b>Get Pro checkout failed</b>\n".e($e->getMessage()),
+                quietMinutes: 60,
+            );
 
             throw $e->buyerMessage !== null
                 ? new CheckoutRefused($e->buyerMessage)

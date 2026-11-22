@@ -9,6 +9,7 @@ use App\Services\AdminTelegram;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * What Getly's webhooks mean for our payments.
@@ -96,6 +97,9 @@ class GetlySales
                 'track_id' => $payment->track_id,
                 'order_id' => $payment->uuid,
                 'status' => Payment::STATUS_REFUNDED,
+                'note' => isset($data['amountCents'])
+                    ? 'Refunded $'.self::money((int) $data['amountCents']).' of $'.$payment->amount_usd.'.'
+                    : null,
                 'getly' => $data,
             ], 'webhook');
         }
@@ -270,7 +274,11 @@ class GetlySales
         $paidCents = (int) ($item['price'] ?? $product->priceCents());
         $trackId = 'order:'.($item['orderItemId'] ?? $orderId);
 
-        [$payment, $created] = DB::transaction(function () use ($trackId, $product, $user, $paidCents, $sale, $item) {
+        // Written with the payment row in one insert, so a crash can't leave
+        // a held sale looking like an ordinary unprocessed one.
+        $reason = $reason === null ? null : Str::limit($reason, 250);
+
+        [$payment, $created] = DB::transaction(function () use ($trackId, $product, $user, $paidCents, $sale, $item, $reason) {
             $existing = Payment::where('track_id', $trackId)->lockForUpdate()->first();
 
             if ($existing !== null) {
@@ -293,18 +301,15 @@ class GetlySales
                 'provider' => 'getly',
                 'sandbox' => false,
                 'track_id' => $trackId,
-                'status' => Payment::STATUS_NEW,
+                'status' => $reason === null ? Payment::STATUS_NEW : Payment::STATUS_PAID,
+                'paid_at' => $reason === null ? null : now(),
+                'review_reason' => $reason,
                 'payload' => ['getly' => $sale],
             ]), true];
         });
 
-        if ($reason !== null) {
+        if ($payment->review_reason !== null && $payment->granted_at === null) {
             if ($created) {
-                $payment->forceFill([
-                    'status' => Payment::STATUS_PAID,
-                    'paid_at' => now(),
-                    'review_reason' => $reason,
-                ])->save();
                 $this->telegram->paymentNeedsReview($payment);
             }
 

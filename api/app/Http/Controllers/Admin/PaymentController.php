@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use RuntimeException;
 
 /**
  * Every checkout, newest first, with the ones that need a human on top of
@@ -75,7 +76,13 @@ class PaymentController extends Controller
         }
 
         try {
-            $processor->process(Gateways::make($payment->provider)->paymentInfo($payment->track_id), 'admin');
+            $gateway = Gateways::make($payment->provider);
+        } catch (RuntimeException) {
+            return back()->with('error', 'This was a test payment from the fake gateway, so there is nothing to ask about.');
+        }
+
+        try {
+            $processor->process($gateway->paymentInfo($payment->track_id), 'admin');
         } catch (GatewayException $e) {
             return back()->with('error', $e->getMessage());
         }

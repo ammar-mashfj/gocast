@@ -68,6 +68,23 @@ class GetlyGateway implements PaymentGateway
             throw new GatewayException('Getly created a checkout link without an id or url.');
         }
 
+        // Getly charges its own price, so the link is only handed out when it
+        // is the price the dialog showed. A drift (a price edited on one side
+        // only, a coupon Getly reads differently) stops here, before any
+        // money moves, rather than being found after the sale.
+        $charges = $data['discountedPriceCents'] ?? $data['priceCents'] ?? null;
+        $quoted = (int) round(((float) $payment->amount_usd) * 100);
+
+        if ($charges !== null && (int) $charges !== $quoted) {
+            throw new GatewayException(sprintf(
+                'Getly would charge $%s for %s but checkout quoted $%s%s. Make the prices match on both sides.',
+                number_format(((int) $charges) / 100, 2),
+                $payment->product_name,
+                number_format($quoted / 100, 2),
+                $payment->discount_code ? " (coupon {$payment->discount_code})" : '',
+            ));
+        }
+
         return new Invoice(
             trackId: $id,
             paymentUrl: $url,

@@ -150,7 +150,7 @@ class Pricing
             return [null, 'That coupon has already been used.'];
         }
 
-        if ($listCents < (int) ($found['minOrderAmountCents'] ?? $found['minOrderAmount'] ?? 0)) {
+        if ($listCents < (int) ($found['minOrderAmountCents'] ?? 0)) {
             return [null, 'That coupon only works on a longer plan.'];
         }
 

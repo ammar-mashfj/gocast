@@ -31,8 +31,11 @@ class ReconcilePayments extends Command
         $checked = 0;
         $failed = 0;
 
+        // `order:` ids are Getly store-page sales: they came in by webhook and
+        // have no link to ask about.
         $open = Payment::open()
             ->whereNotNull('track_id')
+            ->where('track_id', 'not like', 'order:%')
             ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
             ->orderBy('id')
             ->get()
