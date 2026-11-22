@@ -6,12 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\CardPaymentInterest;
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
+use App\Services\Billing\Gateway\Gateways;
+use App\Services\Billing\Gateway\GetlyGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Billing\Gateway\UnknownGateway;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Every checkout, newest first, with the ones that need a human on top of
@@ -57,15 +62,51 @@ class PaymentController extends Controller
             'revenueUsd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->sum('amount_usd'),
             'last30Usd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->where('paid_at', '>=', now()->subDays(30))->sum('amount_usd'),
             'cardInterest' => CardPaymentInterest::latest('id')->get(['email', 'created_at', 'notified_at']),
-            'gatewayReady' => filled(config('services.oxapay.merchant_key')),
-            'gatewayMode' => config('services.oxapay.driver') === 'fake' ? 'fake' : (config('services.oxapay.sandbox') ? 'sandbox' : 'live'),
+            'gateway' => $gateway = $this->currentGateway(),
+            'gatewayName' => PaymentProcessor::nameOf($gateway->provider()),
+            'gatewayMode' => match (true) {
+                $gateway instanceof UnknownGateway => 'unknown',
+                $gateway->provider() === 'fake' => 'fake',
+                $gateway->isSandbox() => 'sandbox',
+                default => 'live',
+            },
+            'gatewayFix' => match (true) {
+                $gateway instanceof UnknownGateway && $gateway->provider() === 'fake' => 'The fake gateway is set, and it is not allowed in production',
+                $gateway instanceof UnknownGateway => 'BILLING_GATEWAY is "'.$gateway->provider().'", which is not a payment gateway (getly or oxapay)',
+                $gateway instanceof GetlyGateway => 'GETLY_API_KEY is blank',
+                default => 'OXAPAY_MERCHANT_KEY is blank',
+            },
         ]);
     }
 
-    public function recheck(Payment $payment, PaymentGateway $gateway, PaymentProcessor $processor): RedirectResponse
+    /** The checkout's gateway; the fake one refused in production shows as unknown. */
+    private function currentGateway(): PaymentGateway
+    {
+        try {
+            return Gateways::current();
+        } catch (RuntimeException) {
+            return new UnknownGateway('fake');
+        }
+    }
+
+    public function recheck(Payment $payment, PaymentProcessor $processor): RedirectResponse
     {
         if ($payment->track_id === null) {
-            return back()->with('error', 'This payment never got an OxaPay invoice, so there is nothing to ask about.');
+            return back()->with('error', 'This payment never got a payment link, so there is nothing to ask about.');
+        }
+
+        $provider = PaymentProcessor::providerName($payment);
+
+        if (str_starts_with($payment->track_id, 'order:')) {
+            return back()->with('error', 'This sale was made on the Getly store page and came in by webhook, so there is no link to ask about.');
+        }
+
+        try {
+            $gateway = Gateways::make($payment->provider);
+        } catch (RuntimeException) {
+            return back()->with('error', 'This was a test payment from the fake gateway, so there is nothing to ask about.');
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
         }
 
         try {
@@ -76,7 +117,7 @@ class PaymentController extends Controller
 
         $payment->refresh();
 
-        return back()->with('status', "OxaPay says {$payment->status}.".($payment->granted_at ? ' Granted until '.$payment->granted_until?->toFormattedDateString().'.' : ''));
+        return back()->with('status', "{$provider} says {$payment->status}.".($payment->granted_at ? ' Granted until '.$payment->granted_until?->toFormattedDateString().'.' : ''));
     }
 
     public function clearReview(Payment $payment): RedirectResponse

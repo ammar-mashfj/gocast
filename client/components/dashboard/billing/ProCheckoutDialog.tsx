@@ -11,21 +11,21 @@ import { cn } from "@/lib/utils"
 import { useCatalog } from "@/hooks/useCatalog"
 import {
   billingError,
-  fetchCardInterest,
   formatUsd,
   isLifetime,
-  notifyCardPayments,
   quoteProduct,
   startCheckout,
   type CatalogProduct,
 } from "@/lib/billing"
 
 /**
- * Get Pro: pick a term, optionally a coupon, and pay on OxaPay's page.
+ * Get Pro: pick a term, optionally a coupon, and pay on Getly's page, by
+ * card or with USDT/USDC.
  *
- * Pay only creates the invoice and hands it to `onStarted`; the payment page
- * itself opens from a real link in the status dialog, in a new tab. The
- * invoice URL doesn't exist until checkout answers, so Pay can't be that link,
+ * Pay only creates the payment (a Getly checkout link made for this account
+ * and term) and hands it to `onStarted`; the payment page itself opens from
+ * a real link in the status dialog, in a new tab. The link doesn't exist
+ * until checkout answers, so Pay can't be that link,
  * and opening a tab after the request (window.open) is what popup blockers
  * stop. Never this tab: leaving /dashboard would end a live show.
  *
@@ -59,31 +59,6 @@ export function ProCheckoutDialog({
   const [couponError, setCouponError] = useState<string | null>(null)
   const [busy, setBusy] = useState<"quote" | "pay" | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [cards, setCards] = useState<"unknown" | "idle" | "saving" | "subscribed">("unknown")
-
-  // Whether they already asked to hear about cards, so the line doesn't
-  // offer "Notify me" twice.
-  useEffect(() => {
-    if (!open || cards !== "unknown") return
-    let live = true
-    fetchCardInterest()
-      .then((subscribed) => live && setCards(subscribed ? "subscribed" : "idle"))
-      .catch(() => live && setCards("idle"))
-    return () => {
-      live = false
-    }
-  }, [open, cards])
-
-  async function notifyCards() {
-    setCards("saving")
-    try {
-      await notifyCardPayments()
-      setCards("subscribed")
-    } catch {
-      setCards("idle")
-    }
-  }
-
   // A link-only product, or one the catalog doesn't list any more.
   useEffect(() => {
     if (!open || !initialProduct || !catalog || catalog.some((p) => p.slug === initialProduct)) return
@@ -196,7 +171,7 @@ export function ProCheckoutDialog({
           <DialogTitle>Get Pro</DialogTitle>
           {/* text-body, not the shared 14px/400 subtitle: this one has to be read before paying. */}
           <DialogDescription className="text-body text-muted-foreground">
-            Pay once with <span className="font-semibold text-pro-text">USDT, USDC or another digital currency</span>. Nothing renews by itself, and we’ll email you before it ends.
+            Pay once <span className="font-semibold text-pro-text">by card, or with USDT or USDC</span>. Nothing renews by itself, and we’ll email you before it ends.
           </DialogDescription>
         </DialogHeader>
 
@@ -210,8 +185,6 @@ export function ProCheckoutDialog({
           </p>
         ) : (
           <>
-            <CardPaymentsSoon state={cards} onNotify={notifyCards} />
-
             <TermPicker
               products={products}
               applied={applied}
@@ -258,7 +231,7 @@ export function ProCheckoutDialog({
             )}
 
             <p className="text-body text-muted-foreground">
-              You’ll pay on OxaPay, our payment provider. Pro switches on by itself as soon as the payment confirms, usually within a few minutes.
+              You’ll pay on Getly, our payment partner, in a new tab. Pro switches on for this account by itself once the payment goes through, whichever email you use there.
             </p>
           </>
         )}
@@ -298,33 +271,6 @@ function saleLine(p: CatalogProduct): string {
   if (!p.discount.ends_at) return p.discount.label
   const ends = new Date(p.discount.ends_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
   return `${p.discount.label} until ${ends}`
-}
-
-/**
- * "Card payments are coming soon" — first in the dialog, because a card is
- * what most people reach for, and they should learn it isn't here yet before
- * picking a term rather than after.
- */
-function CardPaymentsSoon({
-  state,
-  onNotify,
-}: {
-  state: "unknown" | "idle" | "saving" | "subscribed"
-  onNotify: () => void
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-well bg-surface-raised px-4 py-2.5">
-      <span className="text-body">
-        <span className="font-semibold">Paying by card? Card payments are coming soon.</span>
-        {state === "subscribed" && <span className="text-muted-foreground"> We’ll email you when they’re here.</span>}
-      </span>
-      {state !== "subscribed" && (
-        <Button variant="subtle" size="sm" onClick={onNotify} disabled={state === "saving" || state === "unknown"}>
-          {state === "saving" ? "Saving…" : "Notify me"}
-        </Button>
-      )}
-    </div>
-  )
 }
 
 /**

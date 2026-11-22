@@ -72,12 +72,17 @@
                             Products &amp; prices
                         </a>
                     </li>
-                    <li>
-                        <a href="{{ route('admin.discounts.index') }}"
-                           @class(['menu-active' => request()->routeIs('admin.discounts.*')])>
-                            Coupons &amp; sales
-                        </a>
-                    </li>
+                    {{-- Coupons & sales: hidden while Getly is the checkout. Getly
+                         coupons are made on Getly; this page (still at
+                         /admin/billing/discounts) only affects OxaPay. --}}
+                    @if (config('services.billing.gateway') !== 'getly')
+                        <li>
+                            <a href="{{ route('admin.discounts.index') }}"
+                               @class(['menu-active' => request()->routeIs('admin.discounts.*')])>
+                                Coupons &amp; sales
+                            </a>
+                        </li>
+                    @endif
                     <li>
                         <a href="{{ route('admin.accounts.create') }}"
                            @class(['menu-active' => request()->routeIs('admin.accounts.*')])>

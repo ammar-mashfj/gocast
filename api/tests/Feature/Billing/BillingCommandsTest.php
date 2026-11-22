@@ -17,7 +17,7 @@ use function Pest\Laravel\artisan;
  * webhook testing) and billing:remind-renewals (paid terms only).
  */
 beforeEach(function () {
-    config(['services.oxapay.driver' => 'oxapay', 'services.oxapay.merchant_key' => 'test-merchant-key']);
+    config(['services.billing.gateway' => 'oxapay', 'services.oxapay.driver' => 'oxapay', 'services.oxapay.merchant_key' => 'test-merchant-key']);
     Notification::fake();
 });
 

@@ -4,41 +4,63 @@ namespace App\Console\Commands;
 
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
-use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Billing\Gateway\Gateways;
 use App\Services\Billing\PaymentProcessor;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
+use RuntimeException;
 
 /**
- * Asks OxaPay about every payment that could still become paid, and applies
- * the answer exactly as the webhook would have.
+ * Asks the payment provider about every payment that could still become
+ * paid, and applies the answer exactly as the webhook would have.
  *
- * The safety net under the webhook: OxaPay gives up after five deliveries
- * over about three and a half hours, so a deploy, an outage or a Cloudflare
- * rule blocking them would otherwise leave somebody paid and on Free. Three
- * days back covers a slow chain confirmation and a weekend.
+ * The safety net under the webhook: providers give up retrying after a few
+ * hours, so a deploy, an outage or a Cloudflare rule blocking them would
+ * otherwise leave somebody paid and on Free. Three days back covers a slow
+ * chain confirmation and a weekend. Each payment is asked about on the
+ * provider it was made with, so OxaPay invoices still open when checkout
+ * moved to Getly are granted too (while OXAPAY_MERCHANT_KEY is set).
  */
 class ReconcilePayments extends Command
 {
     protected $signature = 'billing:reconcile {--days=3 : How far back to look}';
 
-    protected $description = 'Ask OxaPay about open payments and apply anything the webhook missed';
+    protected $description = 'Ask the payment provider about open payments and apply anything the webhook missed';
 
-    public function handle(PaymentGateway $gateway, PaymentProcessor $processor): int
+    public function handle(PaymentProcessor $processor): int
     {
-        if (blank(config('services.oxapay.merchant_key'))) {
-            $this->info('OXAPAY_MERCHANT_KEY is blank, so there is nothing to reconcile.');
-
-            return self::SUCCESS;
-        }
-
         $checked = 0;
         $failed = 0;
 
-        Payment::open()
+        // `order:` ids are Getly store-page sales: they came in by webhook and
+        // have no link to ask about.
+        $open = Payment::open()
             ->whereNotNull('track_id')
+            ->where('track_id', 'not like', 'order:%')
             ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
             ->orderBy('id')
-            ->each(function (Payment $payment) use ($gateway, $processor, &$checked, &$failed) {
+            ->get()
+            ->groupBy('provider');
+
+        foreach ($open as $provider => $payments) {
+            try {
+                $gateway = Gateways::make((string) $provider);
+            } catch (RuntimeException) {
+                // The fake gateway in production: nothing real to ask.
+                continue;
+            } catch (InvalidArgumentException $e) {
+                $this->warn($e->getMessage().' '.count($payments).' open payment(s) were skipped.');
+
+                continue;
+            }
+
+            if (! $gateway->isConfigured()) {
+                $this->info("The {$provider} gateway has no credentials, so its ".count($payments).' open payment(s) were skipped.');
+
+                continue;
+            }
+
+            foreach ($payments as $payment) {
                 try {
                     $processor->process($gateway->paymentInfo($payment->track_id), 'reconcile');
                     $checked++;
@@ -48,7 +70,30 @@ class ReconcilePayments extends Command
                     report($e);
                     $failed++;
                 }
-            });
+            }
+        }
+
+        // A Getly store-page sale is recorded from a signed webhook before its
+        // grant; one still `new` means every delivery failed after the insert
+        // (say, the database went away mid-way). The sale is real, so finish it.
+        $stuck = Payment::where('provider', 'getly')
+            ->where('track_id', 'like', 'order:%')
+            ->where('status', Payment::STATUS_NEW)
+            ->where('created_at', '<=', now()->subMinutes(15))
+            ->where('created_at', '>=', now()->subDays((int) $this->option('days')))
+            ->get();
+
+        foreach ($stuck as $payment) {
+            $processor->process([
+                'track_id' => $payment->track_id,
+                'order_id' => $payment->uuid,
+                'status' => Payment::STATUS_PAID,
+            ], 'reconcile');
+        }
+
+        if ($stuck->isNotEmpty()) {
+            $this->info("Finished {$stuck->count()} Getly store-page sale(s) left at new.");
+        }
 
         $this->info("Checked {$checked} open payment(s)".($failed ? ", {$failed} could not be checked" : '').'.');
 

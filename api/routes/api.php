@@ -7,6 +7,7 @@ use App\Http\Controllers\AutodjSlotController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BroadcastTokenController;
 use App\Http\Controllers\EmailVerificationController;
+use App\Http\Controllers\GetlyWebhookController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\IcecastCallbackController;
@@ -396,3 +397,9 @@ Route::post('/webhooks/resend', ResendWebhookController::class)
 Route::post('/webhooks/oxapay', OxaPayWebhookController::class)
     ->middleware('throttle:120,1,oxapay-webhook')
     ->name('webhooks.oxapay');
+
+// Getly sales and refunds. Public, but every request must carry a fresh
+// X-Getly-Signature-V2 for GETLY_WEBHOOK_SECRET; see GetlyWebhookController.
+Route::post('/webhooks/getly', GetlyWebhookController::class)
+    ->middleware('throttle:120,1,getly-webhook')
+    ->name('webhooks.getly');

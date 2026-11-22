@@ -16,8 +16,7 @@ use App\Notifications\WelcomeNotification;
 use App\Observers\StationObserver;
 use App\Observers\UserObserver;
 use App\Services\AdminTelegram;
-use App\Services\Billing\Gateway\FakeGateway;
-use App\Services\Billing\Gateway\OxaPayGateway;
+use App\Services\Billing\Gateway\Gateways;
 use App\Services\Billing\Gateway\PaymentGateway;
 use App\Services\LiquidsoapString;
 use App\Services\SecuritySignals;
@@ -29,7 +28,6 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -38,27 +36,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // The fake gateway grants plans without money moving, so it must
-        // never answer a real buyer: refuse to boot checkout with it in
-        // production rather than trust .env to be right.
-        $this->app->bind(PaymentGateway::class, function () {
-            $config = (array) config('services.oxapay');
-
-            if (($config['driver'] ?? 'oxapay') === 'fake') {
-                if ($this->app->isProduction()) {
-                    throw new RuntimeException('OXAPAY_DRIVER=fake is not allowed in production.');
-                }
-
-                return new FakeGateway;
-            }
-
-            return new OxaPayGateway(
-                merchantKey: (string) ($config['merchant_key'] ?? ''),
-                baseUrl: (string) ($config['base_url'] ?? 'https://api.oxapay.com/v1'),
-                sandbox: (bool) ($config['sandbox'] ?? false),
-                lifetimeMinutes: (int) ($config['invoice_lifetime_minutes'] ?? 60),
-            );
-        });
+        // Which provider checkout uses; see Gateways (the fake one is
+        // refused in production there).
+        $this->app->bind(PaymentGateway::class, fn () => Gateways::current());
     }
 
     /**

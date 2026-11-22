@@ -43,4 +43,18 @@ class FakeGateway implements PaymentGateway
     {
         return true;
     }
+
+    public function provider(): string
+    {
+        return 'fake';
+    }
+
+    /**
+     * Same gate as before Getly: billing:simulate signs with the merchant
+     * key, so a laptop without one could start checkout but never finish it.
+     */
+    public function isConfigured(): bool
+    {
+        return filled(config('services.oxapay.merchant_key'));
+    }
 }

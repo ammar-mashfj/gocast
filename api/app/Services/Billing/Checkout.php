@@ -5,12 +5,16 @@ namespace App\Services\Billing;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\GatewayException;
+use App\Services\Billing\Gateway\GetlyGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
 use App\Services\Billing\Grants\Grants;
+use Illuminate\Support\Str;
 
 /**
- * Starts a purchase: price it, record it, and get OxaPay's payment page.
+ * Starts a purchase: price it, record it, and get the provider's payment
+ * page (a Getly checkout link, or an OxaPay invoice).
  *
  * The client sends only a product slug and maybe a coupon. The price, the
  * discount and what it grants are worked out here and copied onto the
@@ -22,6 +26,7 @@ class Checkout
     public function __construct(
         private readonly Pricing $pricing,
         private readonly PaymentGateway $gateway,
+        private readonly AdminTelegram $telegram,
     ) {}
 
     /**
@@ -29,7 +34,7 @@ class Checkout
      */
     public function start(User $user, string $productSlug, ?string $code): Payment
     {
-        if (blank(config('services.oxapay.merchant_key'))) {
+        if (! $this->gateway->isConfigured()) {
             throw new CheckoutRefused('Payments are not switched on yet. Please try again later.', 503);
         }
 
@@ -42,6 +47,12 @@ class Checkout
         // Read fresh: the plan decides what may be sold, and the session's
         // copy can predate an admin change or a payment made in another tab.
         $user->refresh();
+
+        // Getly sells only what has a Getly product (services.getly.products);
+        // anything else is refused here, before a payment row or an alert.
+        if ($this->gateway instanceof GetlyGateway && ! $this->gateway->sells($product)) {
+            throw new CheckoutRefused("This plan can't be bought online yet. Reply to our email and we'll sort it out.", 409);
+        }
 
         $refusal = Grants::for($product->grant_type)->refusal($product, $user);
 
@@ -59,8 +70,10 @@ class Checkout
         // again, reopens the invoice already waiting rather than stacking a
         // second one for the same thing.
         $open = Payment::where('user_id', $user->id)
+            ->where('provider', $this->gateway->provider())
             ->where('product_id', $product->id)
             ->where('discount_id', $quote->discount?->id)
+            ->where('discount_code', $quote->discount?->code)
             ->where('amount_usd', Quote::money($quote->amountCents()))
             ->whereIn('status', [Payment::STATUS_NEW, Payment::STATUS_WAITING])
             ->whereNotNull('payment_url')
@@ -85,6 +98,7 @@ class Checkout
             'discount_code' => $quote->discount?->code,
             'discount_usd' => Quote::money($quote->offCents),
             'amount_usd' => Quote::money($quote->amountCents()),
+            'provider' => $this->gateway->provider(),
             'sandbox' => $this->gateway->isSandbox(),
             'status' => Payment::STATUS_NEW,
         ]);
@@ -93,9 +107,19 @@ class Checkout
             $invoice = $this->gateway->createInvoice($payment, self::callbackUrl(), self::returnUrl($payment));
         } catch (GatewayException $e) {
             report($e);
-            $payment->forceFill(['status' => Payment::STATUS_FAILED, 'review_reason' => $e->getMessage()])->save();
+            $payment->forceFill(['status' => Payment::STATUS_FAILED, 'review_reason' => Str::limit($e->getMessage(), 250)])->save();
 
-            throw new CheckoutRefused("We couldn't reach the payment provider. Please try again in a minute.", 502);
+            // A buyer was turned away: worth knowing, once per kind of failure
+            // rather than once per click.
+            $this->telegram->opsAlert(
+                'checkout-failed:'.md5($e->getMessage()),
+                "⚠️ <b>Get Pro checkout failed</b>\n".e($e->getMessage()),
+                quietMinutes: 60,
+            );
+
+            throw $e->buyerMessage !== null
+                ? new CheckoutRefused($e->buyerMessage)
+                : new CheckoutRefused("We couldn't reach the payment provider. Please try again in a minute.", 502);
         }
 
         $payment->forceFill([

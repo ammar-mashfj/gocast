@@ -5,11 +5,11 @@ namespace App\Services\Billing\Gateway;
 use App\Models\Payment;
 
 /**
- * The digital-currency payment provider (OxaPay), as checkout and reconcile need it.
+ * The payment provider, as checkout and reconcile need it.
  *
- * Bound in AppServiceProvider from `services.oxapay.driver`: OxaPayGateway
- * for the real API (live or sandbox), FakeGateway for a laptop with no
- * OxaPay at all.
+ * Bound in AppServiceProvider from `services.billing.gateway`: GetlyGateway
+ * (card or USDT/USDC), OxaPayGateway (digital currency, live or sandbox), or
+ * FakeGateway for a laptop with no provider at all.
  */
 interface PaymentGateway
 {
@@ -33,4 +33,10 @@ interface PaymentGateway
 
     /** Whether invoices this gateway creates are test money. */
     public function isSandbox(): bool;
+
+    /** What goes in `payments.provider`: getly, oxapay or fake. */
+    public function provider(): string;
+
+    /** Whether it has the credentials to create invoices at all. */
+    public function isConfigured(): bool;
 }

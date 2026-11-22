@@ -3,9 +3,9 @@
 @section('title', 'Payments')
 
 @section('content')
-    @unless ($gatewayReady)
+    @unless ($gateway->isConfigured())
         <div role="alert" class="alert alert-warning alert-soft mb-6">
-            <span>OXAPAY_MERCHANT_KEY is blank, so checkout and the webhook are both refusing. Nobody can pay until it is set.</span>
+            <span>{{ $gatewayFix }}, so Get Pro checkout is refusing. Nobody can pay until it is set.</span>
         </div>
     @endunless
 
@@ -23,7 +23,7 @@
         <div class="stat">
             <div class="stat-title">Revenue</div>
             <div class="stat-value">${{ number_format((float) $revenueUsd, 2) }}</div>
-            <div class="stat-desc">${{ number_format((float) $last30Usd, 2) }} in the last 30 days, before OxaPay's fee</div>
+            <div class="stat-desc">${{ number_format((float) $last30Usd, 2) }} in the last 30 days, before the provider's fee</div>
         </div>
         <div class="stat">
             <div class="stat-title">Want card payments</div>
@@ -32,8 +32,8 @@
         </div>
         <div class="stat">
             <div class="stat-title">Gateway</div>
-            <div class="stat-value text-2xl">{{ $gatewayMode }}</div>
-            <div class="stat-desc">from OXAPAY_DRIVER / OXAPAY_SANDBOX</div>
+            <div class="stat-value text-2xl">{{ $gatewayName }} · {{ $gatewayMode }}</div>
+            <div class="stat-desc">from BILLING_GATEWAY</div>
         </div>
     </div>
 
@@ -78,7 +78,7 @@
                             <tr class="hover:bg-base-200 align-top">
                                 <td class="whitespace-nowrap text-sm">
                                     <div title="{{ $payment->created_at }}">{{ $payment->created_at->diffForHumans() }}</div>
-                                    <div class="font-mono text-xs opacity-50" title="Payment id (OxaPay order id)">{{ Str::limit($payment->uuid, 8, '') }}</div>
+                                    <div class="font-mono text-xs opacity-50" title="Payment id (our reference on the provider)">{{ Str::limit($payment->uuid, 8, '') }}</div>
                                 </td>
                                 <td class="text-sm">
                                     @if ($payment->user)
@@ -113,10 +113,10 @@
                                         'badge-ghost' => ! $payment->granted_at && $payment->review_reason === null,
                                     ])>{{ str_replace('_', ' ', $payment->status) }}</span>
                                     @if ($payment->review_reason)
-                                        <div class="mt-1 max-w-xs text-xs text-warning">{{ $payment->review_reason }}</div>
+                                        <div class="mt-1 max-w-xs whitespace-pre-line text-xs text-warning">{{ $payment->review_reason }}</div>
                                     @endif
                                     @if ($payment->track_id)
-                                        <div class="mt-1 font-mono text-xs opacity-50" title="OxaPay track id">{{ $payment->track_id }}</div>
+                                        <div class="mt-1 font-mono text-xs opacity-50" title="The provider’s id: link, invoice, or order:item for a Getly store-page sale">{{ $payment->track_id }}</div>
                                     @endif
                                 </td>
                                 <td class="whitespace-nowrap text-sm">
@@ -127,7 +127,7 @@
                                         @if ($payment->track_id)
                                             <form method="POST" action="{{ route('admin.payments.recheck', $payment) }}">
                                                 @csrf
-                                                <button type="submit" class="btn btn-ghost btn-xs" title="Ask OxaPay for this invoice's status and apply it, exactly as the webhook would.">Recheck</button>
+                                                <button type="submit" class="btn btn-ghost btn-xs" title="Ask {{ \App\Services\Billing\PaymentProcessor::providerName($payment) }} for this payment's status and apply it, exactly as the webhook would.">Recheck</button>
                                             </form>
                                         @endif
                                         @if ($payment->review_reason)

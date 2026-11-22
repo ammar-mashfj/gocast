@@ -62,6 +62,43 @@ return [
         'invoice_lifetime_minutes' => (int) env('OXAPAY_INVOICE_LIFETIME', 60),
     ],
 
+    // Which payment provider Get Pro's checkout uses: `getly` (card or
+    // USDT/USDC, the live one), `oxapay` (digital currency only, kept for
+    // the payments it already holds) or `fake` (local only). Unset falls back
+    // to `fake` when OXAPAY_DRIVER=fake, so an existing laptop .env keeps
+    // working, and to `getly` everywhere else.
+    'billing' => [
+        'gateway' => env('BILLING_GATEWAY', env('OXAPAY_DRIVER') === 'fake' ? 'fake' : 'getly'),
+    ],
+
+    // Getly (App\Services\Billing\Gateway\GetlyGateway). The API key mints a
+    // checkout link per payment; the webhook secret verifies what Getly
+    // sends to /api/webhooks/getly. Blank key = checkout refuses; blank
+    // secret = the webhook refuses (Getly retries, so nothing is lost).
+    //
+    // `products` maps our product slugs to Getly product ids. Getly can only
+    // sell one term per product, so each of our terms is its own Getly
+    // product. Override with GETLY_PRODUCTS="slug=id,slug=id".
+    'getly' => [
+        'api_key' => env('GETLY_API_KEY'),
+        'webhook_secret' => env('GETLY_WEBHOOK_SECRET'),
+        'base_url' => env('GETLY_BASE_URL', 'https://www.getly.store/api/v1'),
+        'link_lifetime_hours' => (int) env('GETLY_LINK_LIFETIME_HOURS', 24),
+        'products' => env('GETLY_PRODUCTS')
+            ? collect(explode(',', (string) env('GETLY_PRODUCTS')))
+                ->mapWithKeys(function (string $pair) {
+                    [$slug, $id] = array_pad(explode('=', trim($pair), 2), 2, '');
+
+                    return [trim($slug) => trim($id)];
+                })->filter()->all()
+            : [
+                'pro-1-month' => 'f199f7eb-0f21-4c6a-bab1-5d0ff40d928b',
+                'pro-3-months' => '99d78a52-055d-41c5-96b0-41e35db858e1',
+                'pro-6-months' => '9497eda5-445c-4ed2-815d-105d2b8425a5',
+                'pro-12-months' => 'c21dc3df-4986-4516-9994-565cbc173c29',
+            ],
+    ],
+
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),
