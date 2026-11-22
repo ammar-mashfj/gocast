@@ -143,11 +143,14 @@ class PaymentProcessor
         }
 
         // Getly makes the payment session when the link is opened, so a link
-        // open in two tabs can be paid twice. Only the first order is ours.
+        // open in two tabs can be paid twice. Only the first order is ours,
+        // and only once one was accepted: an order id seen while the link
+        // was still open (a reconcile poll) may be an abandoned session.
         $knownOrder = (string) data_get($locked->payload, 'getly.orderId', '');
         $thisOrder = (string) data_get($data, 'getly.orderId', '');
+        $hasOrder = $locked->granted_at !== null || $locked->isSettled();
 
-        if (! $isRefund && $knownOrder !== '' && $thisOrder !== '' && $thisOrder !== $knownOrder) {
+        if (! $isRefund && $hasOrder && $knownOrder !== '' && $thisOrder !== '' && $thisOrder !== $knownOrder) {
             $payload = (array) $locked->payload;
             $payload['extra_orders'] = array_values(array_unique([...(array) ($payload['extra_orders'] ?? []), $thisOrder]));
             $locked->payload = $payload;

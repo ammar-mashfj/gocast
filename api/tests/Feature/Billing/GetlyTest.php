@@ -847,3 +847,19 @@ it('alerts on a store-page sale for a Getly product we do not map', function () 
     expect(Payment::count())->toBe(0);
     Http::assertSent(fn (Request $request) => str_contains((string) $request['text'], "product we don't map"));
 });
+
+it('grants the real sale when reconcile saw an abandoned order on the still-open link', function () {
+    $payment = getlyPayment();
+    Http::fake(['getly.test/api/v1/checkout-links/link-1' => Http::response(['success' => true, 'data' => [
+        'id' => 'link-1', 'status' => 'open', 'reference' => $payment->uuid, 'orderId' => 'order-abandoned',
+    ]])]);
+    artisan('billing:reconcile')->assertSuccessful();
+
+    getlyWebhook('sale.completed', linkSale($payment))->assertOk();
+
+    $payment->refresh();
+
+    expect($payment->granted_at)->not->toBeNull()
+        ->and($payment->review_reason)->toBeNull()
+        ->and($payment->payload['getly']['orderId'])->toBe('order-1');
+});
