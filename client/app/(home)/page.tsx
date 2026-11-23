@@ -5,6 +5,7 @@ import HearOneNow from "@/components/homepage/heroSection/HearOneNow";
 import HowItWorks from "@/components/homepage/HowItWorks";
 import StudioSection from "@/components/homepage/StudioSection";
 import ProgrammeSection from "@/components/homepage/ProgrammeSection";
+import UseCases from "@/components/homepage/UseCases";
 import ListenerLibrary from "@/components/homepage/ListenerLibrary";
 import PricingSection from "@/components/homepage/PricingSection";
 import CtaSection from "@/components/homepage/CtaSection";
@@ -32,6 +33,7 @@ export default async function Home() {
       <HowItWorks />
       <StudioSection />
       <ProgrammeSection />
+      <UseCases />
       <ListenerLibrary />
       <PricingSection isAuthed={isAuthed} />
       <CtaSection isAuthed={isAuthed} />
