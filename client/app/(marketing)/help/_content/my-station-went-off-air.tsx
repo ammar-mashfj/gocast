@@ -38,13 +38,6 @@ export default function Body() {
           <Link href="/help/free-and-pro">free plan</Link>{" "}works.
         </li>
         <li>
-          <strong>Nobody at the studio on the free plan.</strong>{" "}A free live
-          show needs someone at the desk. If nothing in the dashboard is touched
-          for an hour, the studio asks whether you are still there, and if
-          nobody answers within ten minutes the show ends. Moving the mouse,
-          pressing a key or tapping the screen counts as being there.
-        </li>
-        <li>
           <strong>An empty or broken rotation.</strong>{" "}AutoDJ with nothing in
           it produces silence, and silence with nothing to play is an idle
           station.

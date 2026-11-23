@@ -151,7 +151,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Every limit that differs between the two plans, and how to get Pro.",
     category: "getting-started",
-    updated: "2026-11-16",
+    updated: "2026-11-23",
     Body: FreeAndProBody,
     related: ["upload-your-music", "broadcast-from-butt-or-mixxx"],
   },
@@ -296,7 +296,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Stations stop themselves after ten minutes of silence. What counts as silence, and what does not.",
     category: "troubleshooting",
-    updated: "2026-11-16",
+    updated: "2026-11-23",
     Body: WentOffAirBody,
     related: ["turning-your-station-on-and-off", "playlists-and-the-rotation"],
   },
