@@ -25,11 +25,10 @@ export function DeleteAccount({ email }: { email: string }) {
     try {
       await api.delete("/account", { data: { confirmation: email } })
       clearAuth()
-      toast.success("Account deleted — sorry to see you go.")
       // One full-page load, as sign-out does. The deleted account's token is
       // gone, so the dashboard's own requests now 401; their "expired"
       // redirect landing on top of a router.push crashes the App Router.
-      leaveSignedOut("/")
+      leaveSignedOut("/", "account-deleted")
     } catch (err) {
       toast.error(
         (err instanceof AxiosError && (err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message)) ||

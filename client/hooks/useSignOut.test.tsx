@@ -13,7 +13,6 @@ const h = vi.hoisted(() => ({
 vi.mock("@/contexts/BroadcastContext", () => ({ useBroadcastOptional: () => h.broadcast }))
 vi.mock("@/contexts/AccountContext", () => ({ useAutoDjLocked: () => true }))
 vi.mock("@/actions/auth", () => ({ clearAuth: () => h.steps.push("clearAuth") }))
-vi.mock("sonner", () => ({ toast: { success: () => {} } }))
 vi.mock("@/lib/axios", () => ({
   default: {
     post: async (url: string) => {
@@ -26,7 +25,7 @@ vi.mock("@/lib/axios", () => ({
 vi.mock("@/lib/signOutState", async (orig) => {
   const real = await orig<typeof import("@/lib/signOutState")>()
   real.subscribeSigningOut((v) => { h.signingOut = v })
-  return { ...real, leaveSignedOut: (href: string) => { real.setSigningOut(true); h.steps.push(`leave ${href}`) } }
+  return { ...real, leaveSignedOut: (href: string, notice: string) => { real.setSigningOut(true); h.steps.push(`leave ${href} (${notice})`) } }
 })
 
 import { useSignOut } from "./useSignOut"
@@ -48,7 +47,7 @@ describe("useSignOut", () => {
   it("logs out and leaves with one full-page load, no router calls", async () => {
     const { result } = renderHook(() => useSignOut())
     await act(() => result.current.signOut())
-    expect(h.steps).toEqual(["post /logout (signingOut=true)", "clearAuth", "leave /"])
+    expect(h.steps).toEqual(["post /logout (signingOut=true)", "clearAuth", "leave / (signed-out)"])
     // Up until the page unloads, so the studio and the 401 redirect stay out.
     expect(isSigningOut()).toBe(true)
   })
@@ -57,27 +56,27 @@ describe("useSignOut", () => {
     onAir()
     const { result } = renderHook(() => useSignOut())
     await act(() => result.current.signOut("/", { confirmed: true }))
-    expect(h.steps).toEqual(["stop (signingOut=true)", "post /logout (signingOut=true)", "clearAuth", "leave /"])
+    expect(h.steps).toEqual(["stop (signingOut=true)", "post /logout (signingOut=true)", "clearAuth", "leave / (signed-out)"])
   })
 
   it("still leaves when the stop throws", async () => {
     onAir(async () => { throw new Error("socket gone") })
     const { result } = renderHook(() => useSignOut())
     await act(() => result.current.signOut("/", { confirmed: true }))
-    expect(h.steps).toEqual(["post /logout (signingOut=true)", "clearAuth", "leave /"])
+    expect(h.steps).toEqual(["post /logout (signingOut=true)", "clearAuth", "leave / (signed-out)"])
   })
 
   it("still leaves when /logout fails", async () => {
     h.logoutFails = true
     const { result } = renderHook(() => useSignOut())
     await act(() => result.current.signOut("/auth/login"))
-    expect(h.steps.at(-1)).toBe("leave /auth/login")
+    expect(h.steps.at(-1)).toBe("leave /auth/login (signed-out)")
   })
 
   it("a second press while signing out does nothing", async () => {
     const { result } = renderHook(() => useSignOut())
     await act(async () => { await Promise.all([result.current.signOut(), result.current.signOut()]) })
-    expect(h.steps.filter((s) => s.startsWith("leave"))).toEqual(["leave /"])
+    expect(h.steps.filter((s) => s.startsWith("leave"))).toEqual(["leave / (signed-out)"])
   })
 
   it("on air without a confirm: Cancel on the native prompt leaves everything as it was", async () => {

@@ -106,7 +106,7 @@ export function ProfileForm({ user, onUpdated }: { user: User; onUpdated: (user:
         email={user.email}
         onCancel={() => {
           setVerifyOpen(false)
-          leaveSignedOut("/auth/login")
+          leaveSignedOut("/auth/login", "signed-out")
         }}
         onVerified={(verified) => {
           setVerifyOpen(false)

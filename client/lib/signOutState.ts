@@ -26,12 +26,28 @@ export function subscribeSigningOut(fn: (value: boolean) => void): () => void {
 }
 
 /**
+ * What the next page tells the visitor after the full-page load. A key, not
+ * the text: a crafted link can only show one of these messages.
+ */
+export const LEAVE_NOTICES = {
+  "signed-out": "Signed out",
+  "account-deleted": "Account deleted — sorry to see you go.",
+} as const
+export type LeaveNotice = keyof typeof LEAVE_NOTICES
+
+/** Query param that carries the notice across the reload (components/common/LeaveNoticeToast). */
+export const LEAVE_PARAM = "left"
+
+/**
  * The one way out of a signed-in page once its token is gone (sign-out,
  * "Use a different account", account deletion): raise the flag so nothing
  * else navigates, then a full-page load. The flag stays up until the page
- * unloads.
+ * unloads. A toast fired here would die with the page, so the notice rides
+ * along in the URL and the next page shows it.
  */
-export function leaveSignedOut(href: string): void {
+export function leaveSignedOut(href: string, notice: LeaveNotice): void {
   setSigningOut(true)
-  window.location.assign(href)
+  const url = new URL(href, window.location.origin)
+  url.searchParams.set(LEAVE_PARAM, notice)
+  window.location.assign(url.pathname + url.search + url.hash)
 }

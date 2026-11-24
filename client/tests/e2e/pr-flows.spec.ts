@@ -233,6 +233,9 @@ test.describe("sign out while live @flows", () => {
     expect.soft(visited.filter((u) => u.includes("expired=1")), "sign-out was read as an expired session").toEqual([])
     expect.soft(crashes, "the page crashed while signing out").toEqual([])
     expect.soft(new URL(page.url()).pathname).toBe("/")
+    // The notice survives the reload, then leaves the address bar.
+    await expect.soft(page.getByText("Signed out")).toBeVisible()
+    expect.soft(new URL(page.url()).search, "the notice param stayed in the URL").toBe("")
     // Give the server's own detection (harbor timeout, sweep) a fair chance.
     await page.waitForTimeout(25_000)
     const openAfter = artisanTinker(`echo App\\Models\\StreamSession::whereHas('station', fn($q)=>$q->where('slug','${PRO.station}'))->whereNull('ended_at')->count();`).trim()

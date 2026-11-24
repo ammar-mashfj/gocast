@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { toast } from "sonner"
 import { useBroadcastOptional } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import api from "@/lib/axios"
@@ -15,7 +14,7 @@ import { isSigningOut, leaveSignedOut, setSigningOut, subscribeSigningOut } from
  *  - the broadcast guard (don't silently kill an active broadcast)
  *  - the API call (best-effort — we always clear local auth even if the
  *    server can't be reached)
- *  - the toast + redirect
+ *  - the redirect, and the "Signed out" notice the next page shows
  *  - the shared pending-state flag (lib/signOutState) so all sign-out
  *    buttons disable, and so the studio and the axios 401 redirect stand
  *    back instead of navigating at the same time
@@ -76,12 +75,11 @@ export function useSignOut() {
       // Best-effort — token will be invalid server-side eventually anyway.
     }
     clearAuth()
-    toast.success("Signed out")
     // One full-page load, never push + refresh: overlapping App Router
     // navigations crash it, and the reload also drops the broadcast and
     // account contexts and the router cache of the signed-in pages. The flag
     // stays up until the page unloads, so nothing else navigates meanwhile.
-    leaveSignedOut(redirectTo)
+    leaveSignedOut(redirectTo, "signed-out")
   }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked])
 
   return { signOut, signingOut, isBroadcasting }

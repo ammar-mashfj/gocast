@@ -167,6 +167,7 @@ test.describe("auth e2e", () => {
     // used to trigger on the way out.
     await expect(page).toHaveURL(/\/auth\/login$/, { timeout: 20_000 })
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
+    await expect(page.getByText("Signed out")).toBeVisible()
     expect(crashes).toEqual([])
   })
 
@@ -210,6 +211,7 @@ test.describe("auth e2e", () => {
     // One full-page load home, not the "session expired" redirect the
     // deleted token's 401s would trigger.
     await expect(page).toHaveURL("/", { timeout: 20_000 })
+    await expect(page.getByText("Account deleted — sorry to see you go.")).toBeVisible()
     expect(crashes).toEqual([])
 
     await signIn(page, email)

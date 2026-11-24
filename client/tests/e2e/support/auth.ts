@@ -80,6 +80,7 @@ export async function signOutFromDashboard(page: Page, name = "E2E User"): Promi
   await page.getByRole("button", { name: new RegExp(name, "i") }).click()
   await page.getByRole("menuitem", { name: "Sign out" }).click()
   await expect(page).toHaveURL("/", { timeout: 20_000 })
+  await expect(page.getByText("Signed out")).toBeVisible()
 }
 
 function artisan(args: string[]): string {
