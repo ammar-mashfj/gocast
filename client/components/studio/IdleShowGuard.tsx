@@ -10,6 +10,7 @@ import { endShow, endShowFailed } from "@/components/studio/EndBroadcast"
 import { Button } from "@/components/ds/Button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { IDLE_MS, WARN_MS, describeDuration, formatCountdown, idleEndedKey, idleTimings, reportIdleCheck } from "@/lib/idleShow"
+import { isSigningOut } from "@/lib/signOutState"
 
 /**
  * What counts as someone at the desk: any pointer, key, wheel or touch
@@ -194,7 +195,8 @@ export function IdleShowGuard() {
    */
   async function finish(byHost: boolean) {
     const { stationSlug: slug, liveSince: since, getTransportStats: stats, engine: eng, stop: stopShow } = latest.current
-    if (!slug || ending.current) return
+    // A sign-out mid-countdown is ending the show and leaving already.
+    if (!slug || ending.current || isSigningOut()) return
     ending.current = true
     setAsking(false)
     reportIdleCheck(slug, byHost ? "ended_by_host" : "ended", { onAirSeconds: onAirSeconds(), hidden: document.hidden })
@@ -218,7 +220,7 @@ export function IdleShowGuard() {
     // host who wandered to another dashboard page gets taken there too, or
     // they'd never learn why the show stopped.
     const studio = `/dashboard/stations/${slug}/studio`
-    if (!latest.current.pathname?.startsWith(studio)) router.push(`${studio}/wrap`)
+    if (!latest.current.pathname?.startsWith(studio) && !isSigningOut()) router.push(`${studio}/wrap`)
   }
 
   return (

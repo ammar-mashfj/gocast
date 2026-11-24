@@ -40,6 +40,7 @@ import {
   snapshot,
   type Block,
 } from "./weekModel"
+import { isSigningOut } from "@/lib/signOutState"
 
 interface Props {
   station: Station
@@ -184,7 +185,9 @@ export function SchedulePlanner({ station, playlists }: Props) {
   // A reload or closed tab would drop whatever hasn't saved yet.
   useEffect(() => {
     if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    // Not on the way out of a sign-out: its full-page load would ask, and
+    // Cancel would leave a signed-out tab on this page.
+    const warn = (e: BeforeUnloadEvent) => { if (!isSigningOut()) e.preventDefault() }
     window.addEventListener("beforeunload", warn)
     return () => window.removeEventListener("beforeunload", warn)
   }, [dirty])

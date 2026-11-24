@@ -4,6 +4,7 @@ import { getCookie } from "./cookies"
 import { clearAuth } from "@/actions/auth"
 import { env } from "./env"
 import { navigate } from "./navigation"
+import { isSigningOut } from "./signOutState"
 
 /** Axios instance preconfigured with API base URL and auth token interceptor. */
 const api = axios.create({
@@ -35,6 +36,10 @@ api.interceptors.response.use(
       error.response?.status === 401 &&
       !error.config?.url?.includes("/login") &&
       !error.config?.url?.includes("/register") &&
+      // Requests still running when /logout revoked the token come back 401.
+      // That is the sign-out, not an expiry, and sign-out does its own
+      // navigation; a second one at the same moment crashes the router.
+      !isSigningOut() &&
       !expiredRedirectInFlight
     ) {
       expiredRedirectInFlight = true

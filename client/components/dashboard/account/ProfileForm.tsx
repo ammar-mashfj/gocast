@@ -6,6 +6,7 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { saveAuth } from "@/actions/auth"
+import { leaveSignedOut } from "@/lib/signOutState"
 import type { User } from "@/interfaces/User"
 import { VerifyEmailDialog } from "./VerifyEmailDialog"
 import { Button } from "@/components/ds/Button"
@@ -97,13 +98,15 @@ export function ProfileForm({ user, onUpdated }: { user: User; onUpdated: (user:
           inside the dialog would otherwise reach this form's onSubmit. */}
       {/* "Use a different account" has signed out by the time onCancel runs,
           so leave the Account page for sign-in. A verified code stays here:
-          this is where the email was being changed. */}
+          this is where the email was being changed. A full-page load, as
+          sign-out does: the page's own requests now 401, and their expiry
+          redirect racing a router.replace crashes the App Router. */}
       <VerifyEmailDialog
         open={verifyOpen}
         email={user.email}
         onCancel={() => {
           setVerifyOpen(false)
-          router.replace("/auth/login")
+          leaveSignedOut("/auth/login")
         }}
         onVerified={(verified) => {
           setVerifyOpen(false)

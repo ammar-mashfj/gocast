@@ -1,26 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useBroadcastOptional } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import api from "@/lib/axios"
 import { clearAuth } from "@/actions/auth"
-
-/**
- * Module-level flag + subscriber set so every `useSignOut()` consumer (sidebar
- * dropdown + homepage user menu, etc.) sees the same pending state. Without
- * this, only the button you clicked shows a spinner — the other affordances
- * stay idle even though the sign-out is in flight.
- */
-let isSigningOutGlobal = false
-const subscribers = new Set<(value: boolean) => void>()
-
-function setSigningOut(value: boolean) {
-  isSigningOutGlobal = value
-  for (const s of subscribers) s(value)
-}
+import { isSigningOut, leaveSignedOut, setSigningOut, subscribeSigningOut } from "@/lib/signOutState"
 
 /**
  * Single sign-out path used by every "sign out" affordance.
@@ -30,10 +16,11 @@ function setSigningOut(value: boolean) {
  *  - the API call (best-effort — we always clear local auth even if the
  *    server can't be reached)
  *  - the toast + redirect
- *  - the shared pending-state flag so all sign-out buttons can disable
+ *  - the shared pending-state flag (lib/signOutState) so all sign-out
+ *    buttons disable, and so the studio and the axios 401 redirect stand
+ *    back instead of navigating at the same time
  */
 export function useSignOut() {
-  const router = useRouter()
   // Optional — UserMenu renders on the marketing nav, outside the provider.
   const broadcast = useBroadcastOptional()
   const state = broadcast?.state
@@ -44,10 +31,14 @@ export function useSignOut() {
   // As End show does: a station without AutoDJ has nothing to fall back to.
   const autoDjLocked = useAutoDjLocked()
 
-  const [signingOut, setLocal] = useState(isSigningOutGlobal)
+  const [signingOut, setLocal] = useState(isSigningOut)
+  useEffect(() => subscribeSigningOut(setLocal), [])
+  // Back from the homepage can restore this page from the back/forward cache
+  // with the flag still up from the sign-out that left it.
   useEffect(() => {
-    subscribers.add(setLocal)
-    return () => { subscribers.delete(setLocal) }
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setSigningOut(false) }
+    window.addEventListener("pageshow", onShow)
+    return () => window.removeEventListener("pageshow", onShow)
   }, [])
 
   /**
@@ -55,13 +46,15 @@ export function useSignOut() {
    * native confirm below is only the fallback for ones that didn't.
    */
   const signOut = useCallback(async (redirectTo: string = "/", options?: { confirmed?: boolean }) => {
-    if (isSigningOutGlobal) return
+    if (isSigningOut()) return
     if (isBroadcasting && !options?.confirmed) {
       const confirmed = window.confirm(
         "You're broadcasting right now. Sign out will end your broadcast. Continue?",
       )
       if (!confirmed) return
     }
+    // Up before the show stops: the studio's end-of-show redirect to the wrap
+    // screen reads it and stays put.
     setSigningOut(true)
     // End the show while the token still works. Leaving it to the redirect
     // kept the socket, the mic and the engine alive on the homepage with no
@@ -84,14 +77,12 @@ export function useSignOut() {
     }
     clearAuth()
     toast.success("Signed out")
-    router.push(redirectTo)
-    router.refresh()
-    // Reset the shared flag so a returning user (signs out → signs back in →
-    // tries to sign out again in the same SPA session) doesn't see a
-    // permanently-disabled button. The brief flash before the redirect
-    // unmounts the button is invisible in practice.
-    setSigningOut(false)
-  }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked, router])
+    // One full-page load, never push + refresh: overlapping App Router
+    // navigations crash it, and the reload also drops the broadcast and
+    // account contexts and the router cache of the signed-in pages. The flag
+    // stays up until the page unloads, so nothing else navigates meanwhile.
+    leaveSignedOut(redirectTo)
+  }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked])
 
   return { signOut, signingOut, isBroadcasting }
 }

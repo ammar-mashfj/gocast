@@ -6,6 +6,7 @@ import { BroadcastManager, type BroadcastStartOptions, type BroadcastState, type
 import type { AudioEngine, TrackDrop } from '@/lib/audioEngine'
 import { fireOnce } from '@/lib/milestones'
 import api from '@/lib/axios'
+import { isSigningOut } from '@/lib/signOutState'
 
 /** What the host is told when the engine takes tracks out of the running order itself. */
 function dropMessage({ reason, titles }: TrackDrop): string {
@@ -311,6 +312,9 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!onAir) return
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Sign-out already asked ("End and sign out") and tried to stop the
+      // show; if that stop failed, the page load still has to go through.
+      if (isSigningOut()) return
       e.preventDefault()
     }
     window.addEventListener('beforeunload', handleBeforeUnload)

@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { clearAuth } from "@/actions/auth"
+import { leaveSignedOut } from "@/lib/signOutState"
 import { Button } from "@/components/ds/Button"
 import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
 
@@ -17,7 +17,6 @@ import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
  * more than the API does.
  */
 export function DeleteAccount({ email }: { email: string }) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -27,7 +26,10 @@ export function DeleteAccount({ email }: { email: string }) {
       await api.delete("/account", { data: { confirmation: email } })
       clearAuth()
       toast.success("Account deleted — sorry to see you go.")
-      router.push("/")
+      // One full-page load, as sign-out does. The deleted account's token is
+      // gone, so the dashboard's own requests now 401; their "expired"
+      // redirect landing on top of a router.push crashes the App Router.
+      leaveSignedOut("/")
     } catch (err) {
       toast.error(
         (err instanceof AxiosError && (err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message)) ||
