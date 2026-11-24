@@ -147,6 +147,29 @@ test.describe("auth e2e", () => {
     await expectDashboard(page)
   })
 
+  test("'Use a different account' from the email change signs out to sign-in in one load", async ({ page }) => {
+    const email = uniqueEmail("profile-leave")
+    createE2EUser({ email, name: "E2E Leave" })
+    const crashes: string[] = []
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
+
+    await signIn(page, email)
+    await expectDashboard(page)
+
+    await page.goto("/dashboard/settings")
+    await page.getByRole("textbox", { name: "Email" }).fill(uniqueEmail("profile-leave-new"))
+    await page.getByRole("textbox", { name: "Current password" }).first().fill(E2E_PASSWORD)
+    await page.getByRole("button", { name: "Save changes" }).click()
+    await expect(page.getByRole("dialog", { name: "Verify your email" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Use a different account" }).click()
+    // Plain sign-in, not the "session expired" one the revoked token's 401s
+    // used to trigger on the way out.
+    await expect(page).toHaveURL(/\/auth\/login$/, { timeout: 20_000 })
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
+    expect(crashes).toEqual([])
+  })
+
   test("settings can change password and the new password works on the next login", async ({ page }) => {
     const email = uniqueEmail("change-password")
     const newPassword = "ChangedPassword123!"
@@ -175,13 +198,19 @@ test.describe("auth e2e", () => {
     await signIn(page, email)
     await expectDashboard(page)
 
+    const crashes: string[] = []
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
     await page.goto("/dashboard/settings")
-    await page.getByRole("button", { name: "Delete account" }).click()
-    await expect(page.getByRole("dialog", { name: "Delete your account?" })).toBeVisible()
-    await page.locator("#delete-password").fill(E2E_PASSWORD)
-    await page.getByRole("button", { name: "Delete forever" }).click()
+    await page.getByRole("button", { name: /Delete account/ }).click()
+    const dialog = page.getByRole("dialog", { name: "Delete your account?" })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole("textbox").fill(email)
+    await dialog.getByRole("button", { name: "Delete forever" }).click()
 
-    await expect(page).toHaveURL("/")
+    // One full-page load home, not the "session expired" redirect the
+    // deleted token's 401s would trigger.
+    await expect(page).toHaveURL("/", { timeout: 20_000 })
+    expect(crashes).toEqual([])
 
     await signIn(page, email)
     await expect(page.getByText(/Invalid credentials/i)).toBeVisible()
