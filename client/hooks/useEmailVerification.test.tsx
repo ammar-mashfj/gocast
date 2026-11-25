@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 
-const h = vi.hoisted(() => ({ steps: [] as string[] }))
+const h = vi.hoisted(() => ({
+  steps: [] as string[],
+  verifyAnswer: {} as unknown,
+  saved: 0,
+}))
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, replace: () => {} }) }))
 vi.mock("sonner", () => ({ toast: { success: () => {}, error: () => {} } }))
-vi.mock("@/actions/auth", () => ({ clearAuth: () => h.steps.push("clearAuth"), saveAuth: () => {} }))
+vi.mock("@/actions/auth", () => ({ clearAuth: () => h.steps.push("clearAuth"), saveAuth: () => { h.saved++ } }))
 vi.mock("@/lib/axios", () => ({
   default: {
-    post: async (url: string) => { h.steps.push(`post ${url}`); return {} },
+    post: async (url: string) => {
+      h.steps.push(`post ${url}`)
+      if (url === "/email/verify") return h.verifyAnswer
+      return {}
+    },
     get: async () => ({ data: {} }),
   },
 }))
@@ -16,7 +24,11 @@ vi.mock("@/lib/axios", () => ({
 import { useEmailVerification } from "./useEmailVerification"
 import { setSigningOut } from "@/lib/signOutState"
 
-beforeEach(() => { h.steps = [] })
+beforeEach(() => {
+  h.steps = []
+  h.verifyAnswer = {}
+  h.saved = 0
+})
 
 describe("Use a different account", () => {
   it("on login/register: logs out itself, then cancels", async () => {
@@ -55,5 +67,21 @@ describe("Use a different account", () => {
     })
     expect(h.steps).toEqual([])
     setSigningOut(false)
+  })
+
+  it("a verify answer landing after the press doesn't sign the user back in", async () => {
+    let answer!: (v: unknown) => void
+    h.verifyAnswer = new Promise((r) => { answer = r })
+    const onVerified = vi.fn()
+    const { result } = renderHook(() =>
+      useEmailVerification({ open: false, onCancel: () => {}, onVerified }),
+    )
+    await act(async () => {
+      result.current.onCodeChange({ target: { value: "123456" } } as React.ChangeEvent<HTMLInputElement>)
+    })
+    await act(() => result.current.dismiss())
+    await act(async () => { answer({ data: { data: { email_verified_at: "2026-11-25" } } }) })
+    expect(h.saved).toBe(0)
+    expect(onVerified).not.toHaveBeenCalled()
   })
 })

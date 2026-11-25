@@ -168,6 +168,13 @@ test.describe("auth e2e", () => {
     await page.waitForTimeout(1500)
     await expect(page.getByText("Signed out")).toHaveCount(0)
     expect(new URL(page.url()).search).toBe("")
+
+    // One more Back: the dashboard the sign-out left was replaced, not kept,
+    // so the next person at this computer can't bring it back.
+    await page.goBack()
+    await page.waitForLoadState()
+    expect(new URL(page.url()).pathname).not.toMatch(/^\/dashboard/)
+    await expect(page.getByText(email)).toHaveCount(0)
   })
 
   test("'Use a different account' from the email change signs out to sign-in in one load", async ({ page }) => {

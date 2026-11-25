@@ -57,6 +57,7 @@ export function useEmailVerification({
   // the show first, which takes a moment. A code verified meanwhile would
   // navigate on top of the sign-out, so the dialog goes quiet until it's gone.
   const [signingOut, setSigningOutHere] = useState(false)
+  const dismissedRef = useRef(false)
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Read through a ref so a caller's inline callback doesn't re-run the
@@ -107,6 +108,11 @@ export function useEmailVerification({
   }, [open])
 
   function handleVerifiedResponse(data: VerifyResponse): boolean {
+    // A verify or resend that lands after "Use a different account" was
+    // pressed: saving it would write the user cookie back over the sign-out
+    // (a site that looks signed in with no session), and onVerified would
+    // navigate on top of the leave.
+    if (dismissedRef.current || isSigningOut()) return true
     if (!data.data?.email_verified_at) return false
 
     saveAuth(null, data.data)
@@ -177,10 +183,14 @@ export function useEmailVerification({
   }
 
   async function dismiss() {
+    dismissedRef.current = true
     if (signOut) {
       setSigningOutHere(true)
       // Cancel on the on-air prompt: still here, still signed in.
-      if (!(await signOut())) setSigningOutHere(false)
+      if (!(await signOut())) {
+        dismissedRef.current = false
+        setSigningOutHere(false)
+      }
       return
     }
     try {
