@@ -147,6 +147,29 @@ test.describe("auth e2e", () => {
     await expectDashboard(page)
   })
 
+  test("after signing out, Back returns to the homepage and a refresh doesn't repeat the notice", async ({ page }) => {
+    const email = uniqueEmail("back")
+    createE2EUser({ email, name: "E2E Back" })
+    await signIn(page, email)
+    await expectDashboard(page)
+    await signOutFromDashboard(page, "E2E Back")
+    await expect(page).toHaveURL("/")
+
+    // In-app forward, then Back: the entry the notice strip rewrote must still
+    // be Next's, or the address bar says / while /help stays on screen.
+    await page.getByRole("link", { name: "Help", exact: true }).first().click()
+    await expect(page).toHaveURL(/\/help$/)
+    await page.goBack()
+    await expect(page).toHaveURL("/")
+    await expect(page.getByRole("heading", { level: 1, name: "Your voice. On air in 60 seconds." })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+    await page.waitForTimeout(1500)
+    await expect(page.getByText("Signed out")).toHaveCount(0)
+    expect(new URL(page.url()).search).toBe("")
+  })
+
   test("'Use a different account' from the email change signs out to sign-in in one load", async ({ page }) => {
     const email = uniqueEmail("profile-leave")
     createE2EUser({ email, name: "E2E Leave" })

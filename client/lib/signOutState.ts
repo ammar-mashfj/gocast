@@ -25,6 +25,14 @@ export function subscribeSigningOut(fn: (value: boolean) => void): () => void {
   return () => { subscribers.delete(fn) }
 }
 
+// Back from the next page can restore this one from the back/forward cache
+// with the flag still up from the sign-out that left it. Module level, not in
+// a component: whichever exit raised the flag, the page it left may have no
+// sign-out button mounted to drop it.
+if (typeof window !== "undefined") {
+  window.addEventListener("pageshow", (e) => { if (e.persisted) setSigningOut(false) })
+}
+
 /**
  * What the next page tells the visitor after the full-page load. A key, not
  * the text: a crafted link can only show one of these messages.

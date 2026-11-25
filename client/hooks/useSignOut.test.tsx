@@ -96,4 +96,52 @@ describe("useSignOut", () => {
     expect(isSigningOut()).toBe(false)
     expect(result.current.signingOut).toBe(false)
   })
+
+  it("drops the flag on a bfcache restore with no sign-out button mounted", () => {
+    // Delete account and "Use a different account" may leave from a page
+    // that has none; the listener lives in signOutState, not the hook.
+    setSigningOut(true)
+    window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }))
+    expect(isSigningOut()).toBe(false)
+  })
+
+  it("an ordinary pageshow leaves the flag alone", () => {
+    setSigningOut(true)
+    window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }))
+    expect(isSigningOut()).toBe(true)
+  })
+
+  describe("account deletion (revoke)", () => {
+    function revoker(fails = false) {
+      return async () => {
+        h.steps.push(`revoke (signingOut=${h.signingOut})`)
+        if (fails) throw new Error("422")
+      }
+    }
+
+    it("raises the flag before the token goes, skips /logout, leaves with its notice", async () => {
+      const { result } = renderHook(() => useSignOut())
+      await act(() => result.current.signOut("/", { confirmed: true, notice: "account-deleted", revoke: revoker() }))
+      expect(h.steps).toEqual(["revoke (signingOut=true)", "clearAuth", "leave / (account-deleted)"])
+    })
+
+    it("on air: ends the show first, while the token still works", async () => {
+      onAir()
+      const { result } = renderHook(() => useSignOut())
+      await act(() => result.current.signOut("/", { confirmed: true, notice: "account-deleted", revoke: revoker() }))
+      expect(h.steps).toEqual(["stop (signingOut=true)", "revoke (signingOut=true)", "clearAuth", "leave / (account-deleted)"])
+    })
+
+    it("a failed DELETE drops the flag, keeps the auth, and reaches the caller", async () => {
+      const { result } = renderHook(() => useSignOut())
+      let caught: unknown
+      await act(async () => {
+        try { await result.current.signOut("/", { confirmed: true, revoke: revoker(true) }) } catch (e) { caught = e }
+      })
+      expect((caught as Error).message).toBe("422")
+      expect(h.steps).toEqual(["revoke (signingOut=true)"])
+      expect(isSigningOut()).toBe(false)
+      expect(result.current.signingOut).toBe(false)
+    })
+  })
 })

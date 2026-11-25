@@ -18,14 +18,23 @@ export function VerifyEmailDialog({
   email,
   onCancel,
   onVerified,
+  signOut,
 }: {
   open: boolean
   email: string
-  onCancel: () => void
+  /** After "Use a different account" has logged out (login and register). */
+  onCancel?: () => void
   /** Where a verified code goes instead of the dashboard (see useEmailVerification). */
   onVerified?: (user: User) => void
+  /** Replaces the whole "Use a different account" exit (the Account page: useSignOut). */
+  signOut?: () => Promise<void>
 }) {
-  const { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit, resend, dismiss } = useEmailVerification({ open, onCancel, onVerified })
+  const { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit, resend, dismiss } = useEmailVerification({
+    open,
+    onCancel: onCancel ?? (() => {}),
+    onVerified,
+    signOut,
+  })
 
   return (
     <Dialog open={open}>

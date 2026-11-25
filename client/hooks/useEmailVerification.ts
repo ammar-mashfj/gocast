@@ -19,7 +19,10 @@ type VerifyResponse = { data?: User; message?: string }
  * On open it refreshes `/user`, so a verification the cookie hasn't heard of
  * (admin flag, another tab) goes straight to the dashboard. The sixth digit
  * submits; a code typed while a check is in flight is queued, not dropped.
- * "Use a different account" signs out, then calls `onCancel`.
+ * "Use a different account" signs out, then calls `onCancel`. Inside the
+ * dashboard the caller passes `signOut` instead (useSignOut's): pages there
+ * have requests in flight and maybe a show on air, and that path raises the
+ * sign-out flag before the token goes and stops the show first.
  *
  * A verified address goes to the dashboard (the sign-up and sign-in case)
  * unless the caller passes `onVerified`: the Account page does, so a changed
@@ -34,10 +37,12 @@ export function useEmailVerification({
   open,
   onCancel,
   onVerified,
+  signOut,
 }: {
   open: boolean
   onCancel: () => void
   onVerified?: (user: User) => void
+  signOut?: () => Promise<void>
 }) {
   const router = useRouter()
   const [code, setCode] = useState("")
@@ -166,6 +171,10 @@ export function useEmailVerification({
   }
 
   async function dismiss() {
+    if (signOut) {
+      await signOut()
+      return
+    }
     try {
       await api.post("/logout")
     } catch {

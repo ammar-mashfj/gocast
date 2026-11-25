@@ -5,10 +5,19 @@ import { useBroadcastOptional } from "@/contexts/BroadcastContext"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
 import api from "@/lib/axios"
 import { clearAuth } from "@/actions/auth"
-import { isSigningOut, leaveSignedOut, setSigningOut, subscribeSigningOut } from "@/lib/signOutState"
+import { isSigningOut, leaveSignedOut, setSigningOut, subscribeSigningOut, type LeaveNotice } from "@/lib/signOutState"
+
+export type SignOutOptions = {
+  confirmed?: boolean
+  /** What the next page says (see LEAVE_NOTICES). */
+  notice?: LeaveNotice
+  revoke?: () => Promise<unknown>
+}
 
 /**
- * Single sign-out path used by every "sign out" affordance.
+ * Single sign-out path used by every way out of a signed-in page: the
+ * sign-out buttons, "Use a different account" on the Account page, and
+ * account deletion (through `revoke`).
  *
  * Centralizes:
  *  - the broadcast guard (don't silently kill an active broadcast)
@@ -32,19 +41,17 @@ export function useSignOut() {
 
   const [signingOut, setLocal] = useState(isSigningOut)
   useEffect(() => subscribeSigningOut(setLocal), [])
-  // Back from the homepage can restore this page from the back/forward cache
-  // with the flag still up from the sign-out that left it.
-  useEffect(() => {
-    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setSigningOut(false) }
-    window.addEventListener("pageshow", onShow)
-    return () => window.removeEventListener("pageshow", onShow)
-  }, [])
 
   /**
    * `confirmed` is for callers that asked with their own dialog first; the
    * native confirm below is only the fallback for ones that didn't.
+   *
+   * `revoke` replaces /logout for an exit that ends the token another way
+   * (account deletion). Unlike /logout its failure counts: the flag drops,
+   * nothing is cleared, and the error is rethrown for the caller to show.
+   * A show on air has ended by then; the caller's confirm says so.
    */
-  const signOut = useCallback(async (redirectTo: string = "/", options?: { confirmed?: boolean }) => {
+  const signOut = useCallback(async (redirectTo: string = "/", options?: SignOutOptions) => {
     if (isSigningOut()) return
     if (isBroadcasting && !options?.confirmed) {
       const confirmed = window.confirm(
@@ -69,17 +76,26 @@ export function useSignOut() {
         // Signing out goes ahead; the provider's unmount stops what's left.
       }
     }
-    try {
-      await api.post("/logout")
-    } catch {
-      // Best-effort — token will be invalid server-side eventually anyway.
+    if (options?.revoke) {
+      try {
+        await options.revoke()
+      } catch (err) {
+        setSigningOut(false)
+        throw err
+      }
+    } else {
+      try {
+        await api.post("/logout")
+      } catch {
+        // Best-effort — token will be invalid server-side eventually anyway.
+      }
     }
     clearAuth()
     // One full-page load, never push + refresh: overlapping App Router
     // navigations crash it, and the reload also drops the broadcast and
     // account contexts and the router cache of the signed-in pages. The flag
     // stays up until the page unloads, so nothing else navigates meanwhile.
-    leaveSignedOut(redirectTo, "signed-out")
+    leaveSignedOut(redirectTo, options?.notice ?? "signed-out")
   }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked])
 
   return { signOut, signingOut, isBroadcasting }
