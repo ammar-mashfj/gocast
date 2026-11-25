@@ -6,6 +6,7 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { clearAuth, saveAuth } from "@/actions/auth"
+import { isSigningOut } from "@/lib/signOutState"
 import type { User } from "@/interfaces/User"
 
 type VerifyResponse = { data?: User; message?: string }
@@ -42,7 +43,7 @@ export function useEmailVerification({
   open: boolean
   onCancel: () => void
   onVerified?: (user: User) => void
-  signOut?: () => Promise<void>
+  signOut?: () => Promise<boolean>
 }) {
   const router = useRouter()
   const [code, setCode] = useState("")
@@ -52,6 +53,10 @@ export function useEmailVerification({
   const queuedCodeRef = useRef<string | null>(null)
   const [resending, setResending] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  // "Use a different account" through the caller's signOut: on air it stops
+  // the show first, which takes a moment. A code verified meanwhile would
+  // navigate on top of the sign-out, so the dialog goes quiet until it's gone.
+  const [signingOut, setSigningOutHere] = useState(false)
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Read through a ref so a caller's inline callback doesn't re-run the
@@ -122,6 +127,7 @@ export function useEmailVerification({
   }
 
   async function verify(value: string) {
+    if (isSigningOut()) return
     // A code typed while a check is in flight (a corrected sixth digit) is
     // queued, not dropped, and the in-flight check's error is discarded so it
     // never lands under the corrected code.
@@ -172,7 +178,9 @@ export function useEmailVerification({
 
   async function dismiss() {
     if (signOut) {
-      await signOut()
+      setSigningOutHere(true)
+      // Cancel on the on-air prompt: still here, still signed in.
+      if (!(await signOut())) setSigningOutHere(false)
       return
     }
     try {
@@ -196,5 +204,5 @@ export function useEmailVerification({
     if (digits.length === 6 && digits !== code) void verify(digits)
   }
 
-  return { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit: handleSubmit, resend, dismiss }
+  return { code, onCodeChange, error, submitting, leaving, signingOut, resending, inputRef, submit: handleSubmit, resend, dismiss }
 }

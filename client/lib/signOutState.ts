@@ -9,6 +9,7 @@
  * the only thing that navigates, and it does one full-page load.
  */
 let signingOut = false
+let leaveTimer: ReturnType<typeof setTimeout> | null = null
 const subscribers = new Set<(value: boolean) => void>()
 
 export function isSigningOut(): boolean {
@@ -16,6 +17,10 @@ export function isSigningOut(): boolean {
 }
 
 export function setSigningOut(value: boolean): void {
+  if (leaveTimer) {
+    clearTimeout(leaveTimer)
+    leaveTimer = null
+  }
   signingOut = value
   for (const s of subscribers) s(value)
 }
@@ -50,7 +55,7 @@ export const LEAVE_PARAM = "left"
  * The one way out of a signed-in page once its token is gone (sign-out,
  * "Use a different account", account deletion): raise the flag so nothing
  * else navigates, then a full-page load. The flag stays up until the page
- * unloads. A toast fired here would die with the page, so the notice rides
+ * unloads (or LEAVE_FALLBACK_MS, if it never does). A toast fired here would die with the page, so the notice rides
  * along in the URL and the next page shows it.
  */
 export function leaveSignedOut(href: string, notice: LeaveNotice): void {
@@ -58,4 +63,11 @@ export function leaveSignedOut(href: string, notice: LeaveNotice): void {
   const url = new URL(href, window.location.origin)
   url.searchParams.set(LEAVE_PARAM, notice)
   window.location.assign(url.pathname + url.search + url.hash)
+  // A page load starts unloading within a second. If this page is still here
+  // much later, something held the load back (an extension, a leave-page
+  // prompt): drop the flag so sign-out works again and an expired session
+  // still goes to sign-in, instead of both staying off for the tab's life.
+  leaveTimer = setTimeout(() => setSigningOut(false), LEAVE_FALLBACK_MS)
 }
+
+export const LEAVE_FALLBACK_MS = 10_000

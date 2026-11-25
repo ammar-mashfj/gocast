@@ -7,6 +7,7 @@ import { useBroadcast } from "@/contexts/BroadcastContext"
 import { usePreflightQueue } from "@/hooks/usePreflightQueue"
 import { useMicPreview } from "@/hooks/useMicPreview"
 import api from "@/lib/axios"
+import { isSigningOut } from "@/lib/signOutState"
 import type { Station } from "@/interfaces/Station"
 import type { StationStatus } from "@/interfaces/StationStatus"
 import { Button } from "@/components/ds/Button"
@@ -66,7 +67,9 @@ export default function GoLivePage() {
   useEffect(() => {
     api.get(`/stations/${slug}`)
       .then((res) => setStation(res.data.data))
-      .catch(() => router.push("/dashboard"))
+      // Not during a sign-out: the 401 is the revoked token, and a push on top
+      // of its full-page load is the overlap that crashes the App Router.
+      .catch(() => { if (!isSigningOut()) router.push("/dashboard") })
     api.get(`/stations/${slug}/status`)
       .then((res) => setLiveSource(res.data.data.live_source ?? null))
       .catch(() => {})

@@ -73,17 +73,21 @@ describe("useSignOut", () => {
     expect(h.steps.at(-1)).toBe("leave /auth/login (signed-out)")
   })
 
-  it("a second press while signing out does nothing", async () => {
+  it("a second press while signing out does nothing, and says so", async () => {
     const { result } = renderHook(() => useSignOut())
-    await act(async () => { await Promise.all([result.current.signOut(), result.current.signOut()]) })
+    let results: boolean[] = []
+    await act(async () => { results = await Promise.all([result.current.signOut(), result.current.signOut()]) })
     expect(h.steps.filter((s) => s.startsWith("leave"))).toEqual(["leave / (signed-out)"])
+    expect(results).toEqual([true, false])
   })
 
   it("on air without a confirm: Cancel on the native prompt leaves everything as it was", async () => {
     onAir()
     vi.spyOn(window, "confirm").mockReturnValueOnce(false)
     const { result } = renderHook(() => useSignOut())
-    await act(() => result.current.signOut())
+    let leaving: boolean | undefined
+    await act(async () => { leaving = await result.current.signOut() })
+    expect(leaving).toBe(false)
     expect(h.steps).toEqual([])
     expect(isSigningOut()).toBe(false)
   })

@@ -27,9 +27,9 @@ export function VerifyEmailDialog({
   /** Where a verified code goes instead of the dashboard (see useEmailVerification). */
   onVerified?: (user: User) => void
   /** Replaces the whole "Use a different account" exit (the Account page: useSignOut). */
-  signOut?: () => Promise<void>
+  signOut?: () => Promise<boolean>
 }) {
-  const { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit, resend, dismiss } = useEmailVerification({
+  const { code, onCodeChange, error, submitting, leaving, signingOut, resending, inputRef, submit, resend, dismiss } = useEmailVerification({
     open,
     onCancel: onCancel ?? (() => {}),
     onVerified,
@@ -61,7 +61,7 @@ export function VerifyEmailDialog({
               placeholder="123456"
               value={code}
               onChange={onCodeChange}
-              readOnly={leaving}
+              readOnly={leaving || signingOut}
               className="h-13 text-center font-mono text-meter-sm tabular-nums code-spaced"
               aria-invalid={!!error}
               aria-describedby={error ? "verify-code-error" : undefined}
@@ -74,15 +74,15 @@ export function VerifyEmailDialog({
           </div>
 
           <DialogFooter className="sm:flex-col sm:*:flex-none">
-            <Button size="lg" type="submit" disabled={submitting || leaving}>
+            <Button size="lg" type="submit" disabled={submitting || leaving || signingOut}>
               {leaving ? "Opening your dashboard…" : submitting ? "Verifying…" : "Verify email"}
             </Button>
             <div className="flex items-center justify-between gap-2">
-              <Button type="button" variant="quiet" onClick={resend} disabled={resending || leaving}>
+              <Button type="button" variant="quiet" onClick={resend} disabled={resending || leaving || signingOut}>
                 {resending ? "Sending a new code…" : "Resend code"}
               </Button>
-              <Button type="button" variant="quiet" onClick={dismiss} disabled={leaving}>
-                Use a different account
+              <Button type="button" variant="quiet" onClick={dismiss} disabled={leaving || signingOut}>
+                {signingOut ? "Signing out…" : "Use a different account"}
               </Button>
             </div>
           </DialogFooter>

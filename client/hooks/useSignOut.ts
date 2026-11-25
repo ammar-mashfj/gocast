@@ -50,14 +50,18 @@ export function useSignOut() {
    * (account deletion). Unlike /logout its failure counts: the flag drops,
    * nothing is cleared, and the error is rethrown for the caller to show.
    * A show on air has ended by then; the caller's confirm says so.
+   *
+   * Resolves true once the page is on its way out, false if nothing started
+   * (another sign-out already running, or Cancel on the on-air prompt), so a
+   * caller showing a busy state knows to drop it.
    */
-  const signOut = useCallback(async (redirectTo: string = "/", options?: SignOutOptions) => {
-    if (isSigningOut()) return
+  const signOut = useCallback(async (redirectTo: string = "/", options?: SignOutOptions): Promise<boolean> => {
+    if (isSigningOut()) return false
     if (isBroadcasting && !options?.confirmed) {
       const confirmed = window.confirm(
         "You're broadcasting right now. Sign out will end your broadcast. Continue?",
       )
-      if (!confirmed) return
+      if (!confirmed) return false
     }
     // Up before the show stops: the studio's end-of-show redirect to the wrap
     // screen reads it and stays put.
@@ -96,6 +100,7 @@ export function useSignOut() {
     // account contexts and the router cache of the signed-in pages. The flag
     // stays up until the page unloads, so nothing else navigates meanwhile.
     leaveSignedOut(redirectTo, options?.notice ?? "signed-out")
+    return true
   }, [isBroadcasting, hasBroadcast, stopBroadcast, state, liveSince, autoDjLocked])
 
   return { signOut, signingOut, isBroadcasting }
