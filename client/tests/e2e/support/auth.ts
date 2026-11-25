@@ -64,14 +64,15 @@ export async function isolateAuthRateLimit(context: BrowserContext, testInfo: Te
 export async function signIn(page: Page, email: string, password = E2E_PASSWORD): Promise<void> {
   await page.goto("/auth/login")
   await page.getByLabel("Email").fill(email)
-  await page.getByLabel("Password").fill(password)
+  await page.getByRole("textbox", { name: "Password" }).fill(password)
   await page.getByRole("button", { name: "Sign in" }).click()
 }
 
 export async function expectDashboard(page: Page): Promise<void> {
-  await expect(page).toHaveURL(/\/dashboard\/stations/, { timeout: 20_000 })
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20_000 })
+  // A new account lands on the set-up page; one with stations on its list.
   await expect(
-    page.getByText("Create your first station").or(page.getByRole("heading", { name: "Your stations" })),
+    page.getByRole("heading", { name: /set up your station/i }).or(page.getByRole("heading", { name: "Your stations" })),
   ).toBeVisible({ timeout: 20_000 })
 }
 
@@ -79,6 +80,7 @@ export async function signOutFromDashboard(page: Page, name = "E2E User"): Promi
   await page.getByRole("button", { name: new RegExp(name, "i") }).click()
   await page.getByRole("menuitem", { name: "Sign out" }).click()
   await expect(page).toHaveURL("/", { timeout: 20_000 })
+  await expect(page.getByText("Signed out")).toBeVisible()
 }
 
 function artisan(args: string[]): string {

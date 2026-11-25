@@ -27,6 +27,7 @@ import { GoLiveChecks } from "@/components/studio/GoLiveChecks"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Notice } from "@/components/ds/Notice"
 import { useAutoDjLocked } from "@/contexts/AccountContext"
+import { isSigningOut } from "@/lib/signOutState"
 
 /** history.state key on the extra entry the live back-guard keeps on top. */
 const LIVE_GUARD = "__gocastLiveGuard"
@@ -124,6 +125,10 @@ export default function StudioPage() {
   // that bounces to Go Live. So step off the guard first, then replace.
   useEffect(() => {
     if (state !== "idle") return
+    // Signing out on air ends the show too, then loads the homepage itself.
+    // Going to the wrap screen as well stacked navigations and crashed the
+    // router.
+    if (isSigningOut()) return
     // The only navigation off the studio when a show ends: End show leaves it
     // to this effect. Its own replace raced the step off the guard below and,
     // landing first, left Back to reach a studio that bounced to Go Live.

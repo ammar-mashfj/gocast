@@ -147,6 +147,60 @@ test.describe("auth e2e", () => {
     await expectDashboard(page)
   })
 
+  test("after signing out, Back returns to the homepage and a refresh doesn't repeat the notice", async ({ page }) => {
+    const email = uniqueEmail("back")
+    createE2EUser({ email, name: "E2E Back" })
+    await signIn(page, email)
+    await expectDashboard(page)
+    await signOutFromDashboard(page, "E2E Back")
+    await expect(page).toHaveURL("/")
+
+    // In-app forward, then Back: the entry the notice strip rewrote must still
+    // be Next's, or the address bar says / while /help stays on screen.
+    await page.getByRole("link", { name: "Help", exact: true }).first().click()
+    await expect(page).toHaveURL(/\/help$/)
+    await page.goBack()
+    await expect(page).toHaveURL("/")
+    await expect(page.getByRole("heading", { level: 1, name: "Your voice. On air in 60 seconds." })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+    await page.waitForTimeout(1500)
+    await expect(page.getByText("Signed out")).toHaveCount(0)
+    expect(new URL(page.url()).search).toBe("")
+
+    // One more Back: the dashboard the sign-out left was replaced, not kept,
+    // so the next person at this computer can't bring it back.
+    await page.goBack()
+    await page.waitForLoadState()
+    expect(new URL(page.url()).pathname).not.toMatch(/^\/dashboard/)
+    await expect(page.getByText(email)).toHaveCount(0)
+  })
+
+  test("'Use a different account' from the email change signs out to sign-in in one load", async ({ page }) => {
+    const email = uniqueEmail("profile-leave")
+    createE2EUser({ email, name: "E2E Leave" })
+    const crashes: string[] = []
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
+
+    await signIn(page, email)
+    await expectDashboard(page)
+
+    await page.goto("/dashboard/settings")
+    await page.getByRole("textbox", { name: "Email" }).fill(uniqueEmail("profile-leave-new"))
+    await page.getByRole("textbox", { name: "Current password" }).first().fill(E2E_PASSWORD)
+    await page.getByRole("button", { name: "Save changes" }).click()
+    await expect(page.getByRole("dialog", { name: "Verify your email" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Use a different account" }).click()
+    // Plain sign-in, not the "session expired" one the revoked token's 401s
+    // used to trigger on the way out.
+    await expect(page).toHaveURL(/\/auth\/login$/, { timeout: 20_000 })
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
+    await expect(page.getByText("Signed out")).toBeVisible()
+    expect(crashes).toEqual([])
+  })
+
   test("settings can change password and the new password works on the next login", async ({ page }) => {
     const email = uniqueEmail("change-password")
     const newPassword = "ChangedPassword123!"
@@ -175,13 +229,20 @@ test.describe("auth e2e", () => {
     await signIn(page, email)
     await expectDashboard(page)
 
+    const crashes: string[] = []
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
     await page.goto("/dashboard/settings")
-    await page.getByRole("button", { name: "Delete account" }).click()
-    await expect(page.getByRole("dialog", { name: "Delete your account?" })).toBeVisible()
-    await page.locator("#delete-password").fill(E2E_PASSWORD)
-    await page.getByRole("button", { name: "Delete forever" }).click()
+    await page.getByRole("button", { name: /Delete account/ }).click()
+    const dialog = page.getByRole("dialog", { name: "Delete your account?" })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole("textbox").fill(email)
+    await dialog.getByRole("button", { name: "Delete forever" }).click()
 
-    await expect(page).toHaveURL("/")
+    // One full-page load home, not the "session expired" redirect the
+    // deleted token's 401s would trigger.
+    await expect(page).toHaveURL("/", { timeout: 20_000 })
+    await expect(page.getByText("Account deleted — sorry to see you go.")).toBeVisible()
+    expect(crashes).toEqual([])
 
     await signIn(page, email)
     await expect(page.getByText(/Invalid credentials/i)).toBeVisible()

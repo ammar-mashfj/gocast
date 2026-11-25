@@ -213,20 +213,97 @@ test.describe("sign out while live @flows", () => {
     await page.waitForTimeout(5000)
     const openBefore = artisanTinker(`echo App\\Models\\StreamSession::whereHas('station', fn($q)=>$q->where('slug','${PRO.station}'))->whereNull('ended_at')->count();`).trim()
 
+    // Every URL the tab lands on from here, SPA or full load, and any crash.
+    // Signing out on air used to stack the studio's wrap redirect, the
+    // wrap's bounce, the 401 "expired" redirect and push + refresh, and the
+    // App Router threw "Rendered more hooks than during the previous render".
+    const visited: string[] = []
+    const crashes: string[] = []
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) visited.push(new URL(f.url()).pathname + new URL(f.url()).search) })
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
+
     await page.getByRole("button", { name: /Night Shift Shell|shell@gocast\.test/ }).filter({ visible: true }).last().click()
     await page.getByRole("menuitem", { name: "Sign out" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog).toBeVisible()
     await dialog.getByRole("button", { name: "End and sign out" }).click()
-    await expect(page).toHaveURL(/\/$|\/auth\/login/, { timeout: 20_000 })
+    await expect(page).toHaveURL(/\/$/, { timeout: 20_000 })
+    await page.waitForTimeout(2000)
+    expect.soft(visited.filter((u) => u.includes("/studio/wrap")), "sign-out went through the wrap screen").toEqual([])
+    expect.soft(visited.filter((u) => u.includes("expired=1")), "sign-out was read as an expired session").toEqual([])
+    expect.soft(crashes, "the page crashed while signing out").toEqual([])
+    expect.soft(new URL(page.url()).pathname).toBe("/")
+    // The notice survives the reload, then leaves the address bar.
+    await expect.soft(page.getByText("Signed out")).toBeVisible()
+    expect.soft(new URL(page.url()).search, "the notice param stayed in the URL").toBe("")
     // Give the server's own detection (harbor timeout, sweep) a fair chance.
     await page.waitForTimeout(25_000)
     const openAfter = artisanTinker(`echo App\\Models\\StreamSession::whereHas('station', fn($q)=>$q->where('slug','${PRO.station}'))->whereNull('ended_at')->count();`).trim()
     const mediaTracks = await page.evaluate(() => (window as unknown as { __gocastMicLive?: boolean }).__gocastMicLive ?? null)
-    log({ device: testInfo.project.name, flow: "signout-while-live", openBefore, openAfter, mediaTracks })
+    log({ device: testInfo.project.name, flow: "signout-while-live", openBefore, openAfter, mediaTracks, visited, crashes })
     await shot(page, testInfo, "signout-while-live-after", false)
     await context.close()
     expect.soft(openAfter, "a show is still open 25s after End and sign out").toBe("0")
+  })
+})
+
+test.describe("delete account while live @flows", () => {
+  test.beforeEach(({}, testInfo) => test.skip(testInfo.project.name !== "desktop", "once, on desktop"))
+
+  // Settings sits inside the dashboard layout, so the show is still on air
+  // there. Deleting used to revoke the token under it with no word and no
+  // proper stop, the leave-page warning silenced by the sign-out flag.
+  test("Delete account on air says so, ends the show, then leaves", async ({ browser }, testInfo) => {
+    test.setTimeout(300_000)
+    const email = uniqueEmail("live-delete")
+    createE2EUser({ email, name: "Live Delete" })
+    artisanTinker(`$u=App\\Models\\User::where('email','${email}')->first(); $u->plan_id=App\\Models\\Plan::where('slug','pro')->value('id'); $u->save(); echo 'ok';`)
+    const context = await newContext(browser, testInfo)
+    const page = await context.newPage()
+    await signIn(page, email)
+
+    await page.goto("/dashboard")
+    await page.getByLabel("Station name").fill(`Live Delete ${Date.now() % 100000}`)
+    await page.getByRole("button", { name: "Jazz" }).click()
+    await page.getByRole("button", { name: /Create station|Create my station|Create/ }).last().click()
+    await expect(page).toHaveURL(/\/dashboard\/stations\/[a-z0-9-]+$/, { timeout: 30_000 })
+    const slug = page.url().split("/").pop()!
+
+    await page.goto(`/dashboard/stations/${slug}/live`)
+    await expect(page.getByRole("heading", { name: "Ready when you are." })).toBeVisible({ timeout: 20_000 })
+    await page.locator('input[type="file"]').first().setInputFiles([path.join(MEDIA, "track-a.mp3")])
+    await visible(page, "button", "Go live").click()
+    await expect(page.getByRole("button", { name: "End show" }).filter({ visible: true }).first()).toBeVisible({ timeout: 180_000 })
+    await page.waitForTimeout(5000)
+    const openSessions = () => artisanTinker(`echo App\\Models\\StreamSession::whereHas('station', fn($q)=>$q->withTrashed()->where('slug','${slug}'))->whereNull('ended_at')->count();`).trim()
+    const openBefore = openSessions()
+
+    const visited: string[] = []
+    const crashes: string[] = []
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) visited.push(new URL(f.url()).pathname + new URL(f.url()).search) })
+    page.on("pageerror", (e) => crashes.push(e.message.slice(0, 200)))
+
+    // In-app, so the show stays on air.
+    await page.getByRole("button", { name: /Live Delete/ }).filter({ visible: true }).last().click()
+    await page.getByRole("menuitem", { name: "Account and plan" }).click()
+    await expect(page).toHaveURL(/\/dashboard\/settings$/)
+    await page.getByRole("button", { name: /Delete account/ }).click()
+    const dialog = page.getByRole("dialog", { name: "Delete your account?" })
+    await expect(dialog.getByText("Ends the show you’re broadcasting now")).toBeVisible()
+    await dialog.getByRole("textbox").fill(email)
+    await dialog.getByRole("button", { name: "Delete forever" }).click()
+
+    await expect(page).toHaveURL("/", { timeout: 30_000 })
+    await expect.soft(page.getByText("Account deleted — sorry to see you go.")).toBeVisible()
+    await page.waitForTimeout(2000)
+    // Stopped by the dashboard before the DELETE, not left to the sweep.
+    const openAfter = openSessions()
+    log({ device: testInfo.project.name, flow: "delete-while-live", slug, openBefore, openAfter, visited, crashes })
+    await context.close()
+    expect.soft(visited.filter((u) => u.includes("/studio/wrap") || u.includes("expired=1")), "a second navigation").toEqual([])
+    expect.soft(crashes, "the page crashed while deleting").toEqual([])
+    expect.soft(openBefore).toBe("1")
+    expect.soft(openAfter, "the show was still open after the delete").toBe("0")
   })
 })
 

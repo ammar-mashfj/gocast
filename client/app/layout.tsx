@@ -5,6 +5,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { RouterBridge } from "@/components/common/RouterBridge";
+import { LeaveNoticeToast } from "@/components/common/LeaveNoticeToast";
 import { env } from "@/lib/env";
 import { DEFAULT_OG_IMAGE } from "@/lib/seo";
 
@@ -242,6 +243,7 @@ y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
           mobileOffset={{ bottom: "var(--toast-offset-bottom, 16px)" }}
         />
         <RouterBridge />
+        <LeaveNoticeToast />
       </body>
     </html>
   );

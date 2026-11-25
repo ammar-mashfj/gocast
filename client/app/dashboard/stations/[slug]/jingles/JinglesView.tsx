@@ -29,6 +29,7 @@ import { AUDIO_ACCEPT } from "../library/upload"
 import { useTrackUpload } from "../library/useTrackUpload"
 import { UploadProgressBar } from "../library/UploadProgressBar"
 import { CUSTOM, JINGLE_PRESETS, presetFor } from "./jinglePresets"
+import { isSigningOut } from "@/lib/signOutState"
 
 /**
  * Intervals we offer, in minutes. Deliberately a fixed list rather than a
@@ -160,7 +161,9 @@ export function JinglesView({
 
   useEffect(() => {
     if (!settingsChanged) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    // Not on the way out of a sign-out: its full-page load would ask, and
+    // Cancel would leave a signed-out tab on this page.
+    const warn = (e: BeforeUnloadEvent) => { if (!isSigningOut()) e.preventDefault() }
     window.addEventListener("beforeunload", warn)
     return () => window.removeEventListener("beforeunload", warn)
   }, [settingsChanged])

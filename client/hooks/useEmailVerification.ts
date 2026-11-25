@@ -6,6 +6,7 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { clearAuth, saveAuth } from "@/actions/auth"
+import { isSigningOut } from "@/lib/signOutState"
 import type { User } from "@/interfaces/User"
 
 type VerifyResponse = { data?: User; message?: string }
@@ -19,7 +20,10 @@ type VerifyResponse = { data?: User; message?: string }
  * On open it refreshes `/user`, so a verification the cookie hasn't heard of
  * (admin flag, another tab) goes straight to the dashboard. The sixth digit
  * submits; a code typed while a check is in flight is queued, not dropped.
- * "Use a different account" signs out, then calls `onCancel`.
+ * "Use a different account" signs out, then calls `onCancel`. Inside the
+ * dashboard the caller passes `signOut` instead (useSignOut's): pages there
+ * have requests in flight and maybe a show on air, and that path raises the
+ * sign-out flag before the token goes and stops the show first.
  *
  * A verified address goes to the dashboard (the sign-up and sign-in case)
  * unless the caller passes `onVerified`: the Account page does, so a changed
@@ -34,10 +38,12 @@ export function useEmailVerification({
   open,
   onCancel,
   onVerified,
+  signOut,
 }: {
   open: boolean
   onCancel: () => void
   onVerified?: (user: User) => void
+  signOut?: () => Promise<boolean>
 }) {
   const router = useRouter()
   const [code, setCode] = useState("")
@@ -47,6 +53,11 @@ export function useEmailVerification({
   const queuedCodeRef = useRef<string | null>(null)
   const [resending, setResending] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  // "Use a different account" through the caller's signOut: on air it stops
+  // the show first, which takes a moment. A code verified meanwhile would
+  // navigate on top of the sign-out, so the dialog goes quiet until it's gone.
+  const [signingOut, setSigningOutHere] = useState(false)
+  const dismissedRef = useRef(false)
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Read through a ref so a caller's inline callback doesn't re-run the
@@ -75,8 +86,14 @@ export function useEmailVerification({
   // of showing a form they can't meaningfully submit.
   useEffect(() => {
     if (!open) return
+    // A new opening, maybe for a new person on the login page: an earlier
+    // "Use a different account" mustn't make this one ignore its codes.
+    dismissedRef.current = false
 
     api.get<{ data: User }>("/user").then((res) => {
+      // Landed after "Use a different account": saving would write the user
+      // cookie back over the sign-out.
+      if (dismissedRef.current || isSigningOut()) return
       const fresh = res.data.data
       saveAuth(null, fresh)
       if (fresh.email_verified_at) {
@@ -97,6 +114,11 @@ export function useEmailVerification({
   }, [open])
 
   function handleVerifiedResponse(data: VerifyResponse): boolean {
+    // A verify or resend that lands after "Use a different account" was
+    // pressed: saving it would write the user cookie back over the sign-out
+    // (a site that looks signed in with no session), and onVerified would
+    // navigate on top of the leave.
+    if (dismissedRef.current || isSigningOut()) return true
     if (!data.data?.email_verified_at) return false
 
     saveAuth(null, data.data)
@@ -117,6 +139,9 @@ export function useEmailVerification({
   }
 
   async function verify(value: string) {
+    // After "Use a different account": the session is on its way out, and an
+    // "Invalid code" would only flash as the dialog closes.
+    if (dismissedRef.current || isSigningOut()) return
     // A code typed while a check is in flight (a corrected sixth digit) is
     // queued, not dropped, and the in-flight check's error is discarded so it
     // never lands under the corrected code.
@@ -166,6 +191,16 @@ export function useEmailVerification({
   }
 
   async function dismiss() {
+    dismissedRef.current = true
+    if (signOut) {
+      setSigningOutHere(true)
+      // Cancel on the on-air prompt: still here, still signed in.
+      if (!(await signOut())) {
+        dismissedRef.current = false
+        setSigningOutHere(false)
+      }
+      return
+    }
     try {
       await api.post("/logout")
     } catch {
@@ -187,5 +222,5 @@ export function useEmailVerification({
     if (digits.length === 6 && digits !== code) void verify(digits)
   }
 
-  return { code, onCodeChange, error, submitting, leaving, resending, inputRef, submit: handleSubmit, resend, dismiss }
+  return { code, onCodeChange, error, submitting, leaving, signingOut, resending, inputRef, submit: handleSubmit, resend, dismiss }
 }

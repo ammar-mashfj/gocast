@@ -21,6 +21,7 @@ import { DialogFooter } from "@/components/ds/Dialog"
 import { Input } from "@/components/ds/Field"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ds/Menu"
 import { SettingsTile } from "./SettingsTile"
+import { isSigningOut } from "@/lib/signOutState"
 
 /**
  * Where listeners can find the station off GoCast, shown as icons on the
@@ -99,7 +100,9 @@ export function LinksCard({ station }: { station: Station }) {
 
   useEffect(() => {
     if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    // Not on the way out of a sign-out: its full-page load would ask, and
+    // Cancel would leave a signed-out tab on this page.
+    const warn = (e: BeforeUnloadEvent) => { if (!isSigningOut()) e.preventDefault() }
     window.addEventListener("beforeunload", warn)
     return () => window.removeEventListener("beforeunload", warn)
   }, [dirty])

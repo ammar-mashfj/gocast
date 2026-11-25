@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { IDLE_MS, WARN_MS, idleEndedKey } from "@/lib/idleShow"
+import { setSigningOut } from "@/lib/signOutState"
 
 /**
  * The idle check on Free live shows: an hour with no activity asks, ten
@@ -96,6 +97,7 @@ describe("IdleShowGuard", () => {
   afterEach(() => {
     vi.clearAllMocks()
     vi.clearAllTimers()
+    setSigningOut(false)
   })
 
   it("asks after an hour with nobody at the desk", async () => {
@@ -134,6 +136,18 @@ describe("IdleShowGuard", () => {
     expect(reportIdleCheck).toHaveBeenCalledWith("jazz", "ended", expect.objectContaining({ hidden: false }))
     expect(sessionStorage.getItem(idleEndedKey("jazz"))).not.toBeNull()
     expect(document.title).toBe("● LIVE · Jazz | GoCast")
+  })
+
+  it("stands back when the countdown runs out during a sign-out", async () => {
+    render(<IdleShowGuard />)
+    await wait(IDLE_MS + 1000)
+    expect(question()).toBeInTheDocument()
+    // Sign-out is ending the show and loading the homepage itself; a second
+    // stop and a push to the wrap screen would stack navigations.
+    setSigningOut(true)
+    await wait(WARN_MS)
+    expect(endShow).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
   })
 
   it("keeps the show when the host answers", async () => {

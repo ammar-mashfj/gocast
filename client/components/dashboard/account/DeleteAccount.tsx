@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
+import { useSignOut } from "@/hooks/useSignOut"
 import { clearAuth } from "@/actions/auth"
+import { leaveExpired } from "@/lib/signOutState"
 import { Button } from "@/components/ds/Button"
 import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
 
@@ -17,21 +18,39 @@ import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
  * more than the API does.
  */
 export function DeleteAccount({ email }: { email: string }) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const { signOut, isBroadcasting } = useSignOut()
 
   async function remove() {
     setDeleting(true)
+    // Read now: useSignOut ends the show before the DELETE, so a failure
+    // after that has to say so.
+    const wasOnAir = isBroadcasting
     try {
-      await api.delete("/account", { data: { confirmation: email } })
-      clearAuth()
-      toast.success("Account deleted — sorry to see you go.")
-      router.push("/")
+      // The sign-out path with the DELETE as its revoke: the flag goes up
+      // before the token does, so this page's requests 401 without an
+      // "expired" redirect racing the page load, and a show on air ends
+      // properly first (this dialog's consequences said so).
+      const leaving = await signOut("/", {
+        confirmed: true,
+        notice: "account-deleted",
+        revoke: () => api.delete("/account", { data: { confirmation: email } }),
+      })
+      // Another sign-out already running: that one is leaving, not this.
+      if (!leaving) setDeleting(false)
     } catch (err) {
+      // The session had already expired: no retry can work, so go to
+      // sign-in as any other expired page does.
+      if (err instanceof AxiosError && err.response?.status === 401) {
+        clearAuth()
+        leaveExpired()
+        return
+      }
+      const reason = (err instanceof AxiosError && (err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message)) || null
       toast.error(
-        (err instanceof AxiosError && (err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message)) ||
-          "Couldn’t delete your account. Nothing was removed.",
+        reason ?? "Couldn’t delete your account.",
+        { description: wasOnAir ? "Your show was ended, but nothing else was removed." : "Nothing was removed." },
       )
       setDeleting(false)
     }
@@ -57,6 +76,7 @@ export function DeleteAccount({ email }: { email: string }) {
         title="Delete your account?"
         description="This is permanent and can’t be undone."
         consequences={[
+          ...(isBroadcasting ? ["Ends the show you’re broadcasting now"] : []),
           "Takes every station you own off air, for good",
           "Breaks every link and embed you’ve shared",
           "Ends your access to your show history and listener stats",

@@ -6,6 +6,7 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { saveAuth } from "@/actions/auth"
+import { useSignOut } from "@/hooks/useSignOut"
 import type { User } from "@/interfaces/User"
 import { VerifyEmailDialog } from "./VerifyEmailDialog"
 import { Button } from "@/components/ds/Button"
@@ -20,6 +21,7 @@ import { PasswordField, TextField } from "@/components/ds/Field"
  */
 export function ProfileForm({ user, onUpdated }: { user: User; onUpdated: (user: User) => void }) {
   const router = useRouter()
+  const { signOut } = useSignOut()
   const [name, setName] = useState(user.name)
   const [email, setEmail] = useState(user.email)
   const [password, setPassword] = useState("")
@@ -95,16 +97,14 @@ export function ProfileForm({ user, onUpdated }: { user: User; onUpdated: (user:
       </Card>
       {/* Outside the form: React events bubble through portals, so a submit
           inside the dialog would otherwise reach this form's onSubmit. */}
-      {/* "Use a different account" has signed out by the time onCancel runs,
-          so leave the Account page for sign-in. A verified code stays here:
-          this is where the email was being changed. */}
+      {/* "Use a different account" leaves as the sign-out buttons do: flag
+          up before /logout, so this page's requests 401 without an "expired"
+          redirect racing the page load, and a show on air confirmed and
+          ended first. A verified code stays here, where the email changed. */}
       <VerifyEmailDialog
         open={verifyOpen}
         email={user.email}
-        onCancel={() => {
-          setVerifyOpen(false)
-          router.replace("/auth/login")
-        }}
+        signOut={() => signOut("/auth/login")}
         onVerified={(verified) => {
           setVerifyOpen(false)
           onUpdated(verified)
