@@ -11,6 +11,7 @@ import { StatTile } from "@/components/ds/Stat"
 import { useProCheckout } from "@/contexts/ProCheckoutContext"
 import { IDLE_MS, WARN_MS, describeDuration, idleEndedKey, idleTimings } from "@/lib/idleShow"
 import { usePlan } from "@/contexts/AccountContext"
+import { isSigningOut } from "@/lib/signOutState"
 
 /** A summary older than this is from another visit, not the show just ended. */
 const FRESH_MS = 30 * 60 * 1000
@@ -75,7 +76,7 @@ export default function WrapPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reading browser storage once, after hydration
       setEndedIdle(idle)
       setSummary(found)
-    } else {
+    } else if (!isSigningOut()) {
       router.replace(`/dashboard/stations/${slug}`)
     }
   }, [slug, router])

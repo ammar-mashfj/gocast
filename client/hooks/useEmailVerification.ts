@@ -139,7 +139,9 @@ export function useEmailVerification({
   }
 
   async function verify(value: string) {
-    if (isSigningOut()) return
+    // After "Use a different account": the session is on its way out, and an
+    // "Invalid code" would only flash as the dialog closes.
+    if (dismissedRef.current || isSigningOut()) return
     // A code typed while a check is in flight (a corrected sixth digit) is
     // queued, not dropped, and the in-flight check's error is discarded so it
     // never lands under the corrected code.

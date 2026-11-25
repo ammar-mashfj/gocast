@@ -115,4 +115,14 @@ describe("Use a different account", () => {
     await act(async () => { answer({ data: { data: { email: "x@y.z", email_verified_at: null } } }) })
     expect(h.saved).toBe(0)
   })
+
+  it("a code typed after the press isn't sent", async () => {
+    const { result } = renderHook(() => useEmailVerification({ open: false, onCancel: () => {} }))
+    await act(() => result.current.dismiss())
+    h.steps = []
+    await act(async () => {
+      result.current.onCodeChange({ target: { value: "123456" } } as React.ChangeEvent<HTMLInputElement>)
+    })
+    expect(h.steps).toEqual([])
+  })
 })
