@@ -32,20 +32,26 @@ const hasUserCookie = () => typeof document !== "undefined" && getCookie("user")
 /**
  * Back can restore a page from the back/forward cache exactly as it was left.
  * Two things to undo:
- *  - a page loaded signed in, now signed out (a sign-out, or one in another
- *    tab): it would show the last user's email, stations and plan without a
- *    request, to whoever has the computer next. Reload it; the server sends
- *    a signed-out visitor to sign-in.
+ *  - a page that was signed in, now signed out (a sign-out here, or one in
+ *    another tab): it would show the last user's email, stations and plan
+ *    without a request, to whoever has the computer next. Reload it; the
+ *    server sends a signed-out visitor to sign-in. "Was signed in" is any of:
+ *    signed in when it loaded, signed out from here (most people sign in on
+ *    the login page and reach the dashboard without a reload), or a
+ *    dashboard URL.
  *  - the flag, still up from the sign-out that left this page. Module level,
  *    not in a component: whichever exit raised it, the page may have no
  *    sign-out button mounted to drop it.
  */
 const signedInAtLoad = hasUserCookie()
+let signedOutHere = false
+const SIGNED_IN_PATHS = ["/dashboard"]
 
 /** What a pageshow calls for; exported for tests. */
 export function onPageShow(persisted: boolean): "reload" | "reset" | null {
   if (!persisted) return null
-  if (signedInAtLoad && !hasUserCookie()) return "reload"
+  const wasSignedIn = signedInAtLoad || signedOutHere || SIGNED_IN_PATHS.some((p) => window.location.pathname.startsWith(p))
+  if (wasSignedIn && !hasUserCookie()) return "reload"
   setSigningOut(false)
   return "reset"
 }
@@ -79,12 +85,27 @@ export const LEAVE_PARAM = "left"
  * die with the page, so the notice rides along in the URL and the next page
  * shows it.
  *
- * replace, not assign: the signed-in page leaves history, so Back can't bring
- * it (and the last user's data) back.
+ * replace, not assign: the page signing out leaves history. Earlier entries
+ * from the same visit (other dashboard pages) stay; Back to them loads them
+ * fresh, which the server sends to sign-in, or restores them from the
+ * back/forward cache, which onPageShow reloads.
  */
 export function leaveSignedOut(href: string, notice: LeaveNotice): void {
   setSigningOut(true)
+  signedOutHere = true
   const url = new URL(href, window.location.origin)
   url.searchParams.set(LEAVE_PARAM, notice)
   window.location.replace(url.pathname + url.search + url.hash)
+}
+
+/**
+ * The session was already gone when an exit that needs it ran (Delete account
+ * with an expired token): its 401 stayed out of the expiry redirect because
+ * the flag was up, so send the visitor to sign-in here, the way that redirect
+ * would have.
+ */
+export function leaveExpired(): void {
+  setSigningOut(true)
+  signedOutHere = true
+  window.location.replace("/auth/login?expired=1")
 }

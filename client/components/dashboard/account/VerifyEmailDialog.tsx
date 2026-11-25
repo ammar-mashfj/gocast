@@ -81,9 +81,9 @@ export function VerifyEmailDialog({
               <Button type="button" variant="quiet" onClick={resend} disabled={resending || leaving || signingOut}>
                 {resending ? "Sending a new code…" : "Resend code"}
               </Button>
-              {/* Not while a code or resend is in flight: its answer would land
-                  in the middle of the sign-out. */}
-              <Button type="button" variant="quiet" onClick={dismiss} disabled={leaving || signingOut || submitting || resending}>
+              {/* Live while a code or resend is in flight (one that hangs must
+                  not trap the dialog); a late answer is ignored by the hook. */}
+              <Button type="button" variant="quiet" onClick={dismiss} disabled={leaving || signingOut}>
                 {signingOut ? "Signing out…" : "Use a different account"}
               </Button>
             </div>

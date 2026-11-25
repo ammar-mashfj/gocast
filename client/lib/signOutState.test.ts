@@ -29,7 +29,22 @@ describe("a page restored from the back/forward cache", () => {
     expect(m.isSigningOut()).toBe(false)
   })
 
+  it("signed in after it loaded (login page → dashboard, no reload), then signed out here: reloads", async () => {
+    const m = await load("signed-out")
+    window.history.replaceState(null, "", "/")
+    m.leaveSignedOut("/", "signed-out")
+    expect(m.onPageShow(true)).toBe("reload")
+  })
+
+  it("a dashboard URL with no session: reloads, whoever signed it out", async () => {
+    const m = await load("signed-out")
+    window.history.replaceState(null, "", "/dashboard/stations/x")
+    expect(m.onPageShow(true)).toBe("reload")
+    window.history.replaceState(null, "", "/")
+  })
+
   it("a page that was signed out all along (the homepage) isn't reloaded", async () => {
+    window.history.replaceState(null, "", "/")
     const m = await load("signed-out")
     expect(m.onPageShow(true)).toBe("reset")
   })

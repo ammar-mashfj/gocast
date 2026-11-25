@@ -4,8 +4,9 @@ import { AxiosError } from "axios"
 
 const h = vi.hoisted(() => ({
   onAir: false,
-  outcome: "leave" as "leave" | "skip" | "fail",
+  outcome: "leave" as "leave" | "skip" | "fail" | "expired",
   toast: vi.fn(),
+  steps: [] as string[],
 }))
 
 vi.mock("sonner", () => ({ toast: { error: h.toast, success: () => {} } }))
@@ -15,10 +16,16 @@ vi.mock("@/hooks/useSignOut", () => ({
     signingOut: false,
     signOut: async () => {
       if (h.outcome === "fail") throw new AxiosError("Server Error")
+      if (h.outcome === "expired") {
+        throw Object.assign(new AxiosError("Unauthenticated"), { response: { status: 401, data: {} } })
+      }
       return h.outcome === "leave"
     },
   }),
 }))
+
+vi.mock("@/actions/auth", () => ({ clearAuth: () => h.steps.push("clearAuth") }))
+vi.mock("@/lib/signOutState", () => ({ leaveExpired: () => h.steps.push("leaveExpired") }))
 
 import { DeleteAccount } from "./DeleteAccount"
 
@@ -35,6 +42,7 @@ beforeEach(() => {
   h.onAir = false
   h.outcome = "leave"
   h.toast.mockClear()
+  h.steps = []
 })
 
 describe("DeleteAccount", () => {
@@ -69,5 +77,12 @@ describe("DeleteAccount", () => {
   it("leaving: stays on Deleting… while the page goes", async () => {
     await deleteIt()
     expect(screen.getByRole("button", { name: "Deleting…" })).toBeTruthy()
+  })
+
+  it("an expired session goes to sign-in instead of failing on every try", async () => {
+    h.outcome = "expired"
+    await deleteIt()
+    expect(h.steps).toEqual(["clearAuth", "leaveExpired"])
+    expect(h.toast).not.toHaveBeenCalled()
   })
 })

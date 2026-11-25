@@ -86,8 +86,14 @@ export function useEmailVerification({
   // of showing a form they can't meaningfully submit.
   useEffect(() => {
     if (!open) return
+    // A new opening, maybe for a new person on the login page: an earlier
+    // "Use a different account" mustn't make this one ignore its codes.
+    dismissedRef.current = false
 
     api.get<{ data: User }>("/user").then((res) => {
+      // Landed after "Use a different account": saving would write the user
+      // cookie back over the sign-out.
+      if (dismissedRef.current || isSigningOut()) return
       const fresh = res.data.data
       saveAuth(null, fresh)
       if (fresh.email_verified_at) {

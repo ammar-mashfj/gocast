@@ -5,6 +5,8 @@ import { AxiosError } from "axios"
 import { toast } from "sonner"
 import api from "@/lib/axios"
 import { useSignOut } from "@/hooks/useSignOut"
+import { clearAuth } from "@/actions/auth"
+import { leaveExpired } from "@/lib/signOutState"
 import { Button } from "@/components/ds/Button"
 import { ConfirmDialog } from "@/components/ds/ConfirmDialog"
 
@@ -38,6 +40,13 @@ export function DeleteAccount({ email }: { email: string }) {
       // Another sign-out already running: that one is leaving, not this.
       if (!leaving) setDeleting(false)
     } catch (err) {
+      // The session had already expired: no retry can work, so go to
+      // sign-in as any other expired page does.
+      if (err instanceof AxiosError && err.response?.status === 401) {
+        clearAuth()
+        leaveExpired()
+        return
+      }
       const reason = (err instanceof AxiosError && (err.response?.data?.errors?.confirmation?.[0] ?? err.response?.data?.message)) || null
       toast.error(
         reason ?? "Couldn’t delete your account.",

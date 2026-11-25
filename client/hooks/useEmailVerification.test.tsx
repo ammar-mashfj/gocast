@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react"
 const h = vi.hoisted(() => ({
   steps: [] as string[],
   verifyAnswer: {} as unknown,
+  userAnswer: { data: {} } as unknown,
   saved: 0,
 }))
 
@@ -17,7 +18,7 @@ vi.mock("@/lib/axios", () => ({
       if (url === "/email/verify") return h.verifyAnswer
       return {}
     },
-    get: async () => ({ data: {} }),
+    get: async () => h.userAnswer,
   },
 }))
 
@@ -27,6 +28,7 @@ import { setSigningOut } from "@/lib/signOutState"
 beforeEach(() => {
   h.steps = []
   h.verifyAnswer = {}
+  h.userAnswer = { data: {} }
   h.saved = 0
 })
 
@@ -83,5 +85,34 @@ describe("Use a different account", () => {
     await act(async () => { answer({ data: { data: { email_verified_at: "2026-11-25" } } }) })
     expect(h.saved).toBe(0)
     expect(onVerified).not.toHaveBeenCalled()
+  })
+
+  it("a second opening (the next person on the login page) accepts its code", async () => {
+    h.verifyAnswer = { data: { data: { email_verified_at: "2026-11-25" } } }
+    // Only the code's answer counts here; the on-open /user check stays pending.
+    h.userAnswer = new Promise(() => {})
+    const onVerified = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ open }) => useEmailVerification({ open, onCancel: () => {}, onVerified }),
+      { initialProps: { open: true } },
+    )
+    await act(() => result.current.dismiss())
+    rerender({ open: false })
+    rerender({ open: true })
+    h.saved = 0
+    await act(async () => {
+      result.current.onCodeChange({ target: { value: "123456" } } as React.ChangeEvent<HTMLInputElement>)
+    })
+    expect(h.saved).toBe(1)
+    expect(onVerified).toHaveBeenCalledOnce()
+  })
+
+  it("the on-open /user answer landing after the press doesn't write the cookie back", async () => {
+    let answer!: (v: unknown) => void
+    h.userAnswer = new Promise((r) => { answer = r })
+    const { result } = renderHook(() => useEmailVerification({ open: true, onCancel: () => {} }))
+    await act(() => result.current.dismiss())
+    await act(async () => { answer({ data: { data: { email: "x@y.z", email_verified_at: null } } }) })
+    expect(h.saved).toBe(0)
   })
 })
