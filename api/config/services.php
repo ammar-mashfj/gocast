@@ -62,6 +62,35 @@ return [
         'invoice_lifetime_minutes' => (int) env('OXAPAY_INVOICE_LIFETIME', 60),
     ],
 
+    // lava.top: card and PayPal checkout for Pro (App\Services\Lava).
+    //
+    // Two things exist in the lava.top dashboard:
+    // - `membership_offer_id`: the $20/month membership. lava.top charges it
+    //   every month and owns its price; our `membership_product` row must
+    //   carry the same price or checkout refuses it.
+    // - `pack_offer_id`: one digital product in "price through the API" mode.
+    //   Every other Pro term (3, 6, 12 months…) is sold through it, with the
+    //   price from our own `products` table sent on each payment.
+    //
+    // `webhook_secret` is the password set on lava.top's webhook; it arrives
+    // as Basic auth or X-Api-Key. Blank = checkout and the webhook refuse.
+    //
+    // `driver`: `lava` talks to gate.lava.top; `fake` never leaves this
+    // machine (checkout returns straight to the account page and
+    // `php artisan lava:simulate` plays the webhooks). Refused in production.
+    'lava' => [
+        'driver' => env('LAVA_DRIVER', 'lava'),
+        'api_key' => env('LAVA_API_KEY'),
+        'webhook_secret' => env('LAVA_WEBHOOK_SECRET'),
+        'base_url' => env('LAVA_BASE_URL', 'https://gate.lava.top'),
+        'membership_offer_id' => env('LAVA_MEMBERSHIP_OFFER_ID'),
+        'pack_offer_id' => env('LAVA_PACK_OFFER_ID'),
+        'membership_product' => env('LAVA_MEMBERSHIP_PRODUCT', 'pro-1-month'),
+        // Days added once, on the first membership payment, so a renewal
+        // that lava.top retries (8h, then 24h later) lands before Pro ends.
+        'membership_grace_days' => (int) env('LAVA_MEMBERSHIP_GRACE_DAYS', 2),
+    ],
+
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),

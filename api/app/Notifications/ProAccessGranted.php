@@ -87,6 +87,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
      *                         spell on Free. Never with `$extended`. Swaps
      *                         "your request is approved" — a decision made
      *                         weeks ago — for "it's back on".
+     * @param  bool  $autoRenews  A monthly card membership (lava.top) that is
+     *                            charged again on its own. With `$paid`. Swaps
+     *                            "if you don't renew by then" for "it renews
+     *                            every month", which is what actually happens.
      */
     public function __construct(
         private readonly Plan $plan,
@@ -96,6 +100,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         private readonly bool $paid = false,
         private readonly bool $extended = false,
         private readonly bool $renewed = false,
+        private readonly bool $autoRenews = false,
     ) {}
 
     /**
@@ -164,6 +169,10 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             $this->paid && $this->until === null => [
                 "{$this->plan->name} for good, paid — thank you.",
                 'It has no end date, so there is nothing to renew and nothing more to pay.',
+            ],
+            $this->paid && $this->autoRenews => [
+                "{$this->plan->name} monthly, paid — thank you.",
+                'It renews every month on its own. Turn auto-renew off any time on your Account page, and Pro stays on until the end of the month you paid for.',
             ],
             $this->paid => [
                 $this->extended
@@ -261,6 +270,9 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
         if ($this->paid && $this->until === null) {
             $message->line("Thanks for your payment. Your station is now on {$this->plan->name} for good.");
             $message->line('It has no end date, so there is nothing to renew and nothing more to pay.');
+        } elseif ($this->paid && $this->autoRenews) {
+            $message->line("Thanks for your payment. Your station is now on {$this->plan->name}, billed monthly.");
+            $message->line("It renews every month on its own, so there is nothing to remember. Turn auto-renew off any time on your Account page, and {$this->plan->name} stays on until the end of the month you paid for.");
         } elseif ($this->paid) {
             $message->line(match (true) {
                 $this->extended => "Thanks for your payment. We've added {$this->term} of {$this->plan->name} to your account.",

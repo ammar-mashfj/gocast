@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { usePathname, useRouter } from "next/navigation"
 import { ProCheckoutDialog } from "@/components/dashboard/billing/ProCheckoutDialog"
 import { PaymentStatusDialog } from "@/components/dashboard/billing/PaymentStatusDialog"
+import type { PaymentProvider } from "@/lib/billing"
 
 /**
  * The Get Pro checkout, mounted once for the whole dashboard.
@@ -17,6 +18,7 @@ import { PaymentStatusDialog } from "@/components/dashboard/billing/PaymentStatu
  * dashboard route:
  * - `?payment=<uuid>` — OxaPay sending the buyer back (in the tab the payment
  *   page opened in); shows the payment's progress until Pro is granted.
+ * - `?lava=<uuid>` — the same, from lava.top (card and PayPal).
  * - `?product=<slug>` — a renewal reminder or an admin's product link; opens
  *   checkout with that term picked (hidden, link-only products included).
  * - `?coupon=<CODE>` — a founder's coupon link; opens checkout with it filled.
@@ -31,7 +33,7 @@ interface ProCheckoutValue {
 
 const ProCheckoutContext = createContext<ProCheckoutValue>({ open: () => {} })
 
-const LINK_PARAMS = ["payment", "product", "coupon", "checkout"] as const
+const LINK_PARAMS = ["payment", "lava", "product", "coupon", "checkout"] as const
 
 export function ProCheckoutProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -40,6 +42,7 @@ export function ProCheckoutProvider({ children }: { children: React.ReactNode })
   const [product, setProduct] = useState<string | null>(null)
   const [coupon, setCoupon] = useState<string | null>(null)
   const [payment, setPayment] = useState<string | null>(null)
+  const [provider, setProvider] = useState<PaymentProvider>("oxapay")
   // Set only for a payment just started here: its link is already in hand,
   // and the dialog opens on "Your payment is ready" rather than "Waiting".
   const [startedUrl, setStartedUrl] = useState<string | null>(null)
@@ -55,9 +58,11 @@ export function ProCheckoutProvider({ children }: { children: React.ReactNode })
     if (!LINK_PARAMS.some((key) => params.has(key))) return
 
     const paymentId = params.get("payment")
-    if (paymentId) {
+    const lavaId = params.get("lava")
+    if (paymentId || lavaId) {
       setStartedUrl(null)
-      setPayment(paymentId)
+      setProvider(lavaId ? "lava" : "oxapay")
+      setPayment(lavaId ?? paymentId)
     } else if (params.has("product") || params.has("coupon") || params.has("checkout")) {
       open({ product: params.get("product") ?? undefined, coupon: params.get("coupon") ?? undefined })
     }
@@ -79,14 +84,16 @@ export function ProCheckoutProvider({ children }: { children: React.ReactNode })
         onOpenChange={setIsOpen}
         initialProduct={product}
         initialCoupon={coupon}
-        onStarted={({ uuid, paymentUrl }) => {
+        onStarted={({ uuid, paymentUrl, provider: via }) => {
           setStartedUrl(paymentUrl)
+          setProvider(via)
           setPayment(uuid)
         }}
       />
       <PaymentStatusDialog
         key={payment ?? "none"}
         uuid={payment}
+        provider={provider}
         startedUrl={startedUrl}
         onClose={() => {
           setPayment(null)
