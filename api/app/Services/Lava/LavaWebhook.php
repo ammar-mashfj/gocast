@@ -137,13 +137,16 @@ class LavaWebhook
             [$until, $extended] = $applied;
 
             if ($locked->kind === LavaPayment::KIND_MEMBERSHIP) {
-                // Once, on the first charge of a fresh term: lava.top retries a
-                // failed renewal after 8h and 24h, and Pro should still be on
-                // when it lands. Every renewal then adds a month to this, so it
-                // never drifts. Not when the month extends time they already
-                // had: the renewal then lands weeks before Pro ends anyway.
-                if (! $extended) {
-                    $until = $until->copy()->addDays((int) config('services.lava.membership_grace_days', 2));
+                // lava.top charges again a month from now, and retries a
+                // failed renewal after 8h and 24h: Pro must still be on when
+                // the last retry lands. So the term runs at least a month plus
+                // the grace days from now. Time they already had on top only
+                // pushes it further (then the renewal lands well before the
+                // end anyway). Every renewal adds a month, so it never drifts.
+                $floor = now()->addMonthNoOverflow()->addDays((int) config('services.lava.membership_grace_days', 2));
+
+                if ($until->lt($floor)) {
+                    $until = $floor;
                     $user->forceFill(['plan_expires_at' => $until])->save();
                 }
 
@@ -199,7 +202,35 @@ class LavaWebhook
                 );
             }
         } elseif ($outcome === 'flagged') {
-            $this->telegram->lavaNeedsReview('Payment needs review', (string) $fresh->review_reason, $fresh->email);
+            $note = '';
+
+            if ($fresh->kind === LavaPayment::KIND_MEMBERSHIP) {
+                // Not granted means no membership row, so nothing here (Account
+                // page, account deletion) could ever stop lava.top charging
+                // every month. Stop it now.
+                $note = $this->stopCharges($fresh->contract_id, (string) ($data['buyer']['email'] ?? $fresh->email))
+                    ? ' We cancelled the monthly charge with lava.top; refund the first payment.'
+                    : ' lava.top could not be reached: cancel the monthly charge AND refund it in lava.top by hand.';
+            }
+
+            $this->telegram->lavaNeedsReview('Payment needs review', $fresh->review_reason.$note, $fresh->email);
+        }
+    }
+
+    /**
+     * Cancel a membership with lava.top. False when lava.top could not be
+     * reached or refused: the caller tells the admin to do it by hand.
+     */
+    private function stopCharges(string $contractId, string $email): bool
+    {
+        try {
+            $this->lava->cancelMembership($contractId, $email);
+
+            return true;
+        } catch (LavaException $e) {
+            report($e);
+
+            return false;
         }
     }
 
@@ -289,6 +320,15 @@ class LavaWebhook
 
             if ($problem !== null) {
                 return $this->flag($locked, $problem);
+            }
+
+            // We stopped this membership over a refund or chargeback; a charge
+            // that slipped through before lava.top took the cancel is not
+            // more Pro for a disputed account.
+            $stoppedReason = LavaMembership::whereKey($membership->id)->value('stopped_reason');
+
+            if ($stoppedReason !== null) {
+                return $this->flag($locked, "Charged after we stopped this monthly plan ({$stoppedReason}). Nothing was granted; refund it in lava.top.");
             }
 
             $locked->status = LavaPayment::STATUS_PAID;
@@ -446,7 +486,49 @@ class LavaWebhook
             $this->membershipCancelled(['contractId' => $contractId]);
         }
 
-        $this->telegram->lavaNeedsReview("{$what}: {$payment->product_name}", (string) $payment->review_reason, $payment->email);
+        $note = $this->stopAfterReversal($payment, $status, $what, (string) ($body['refund_type'] ?? 'full'));
+
+        $this->telegram->lavaNeedsReview("{$what}: {$payment->product_name}", $payment->review_reason.$note, $payment->email);
+    }
+
+    /**
+     * A charge of a monthly plan was charged back or fully refunded: stop the
+     * plan, or lava.top bills the account again next month and the renewal
+     * hands Pro back. A partial refund (goodwill for an outage) leaves it
+     * running. Returns the line the admin alert ends with.
+     */
+    private function stopAfterReversal(LavaPayment $payment, string $status, string $what, string $refundType): string
+    {
+        $membership = $payment->membership;
+
+        if ($membership === null) {
+            return '';
+        }
+
+        if ($status === LavaPayment::STATUS_REFUNDED && $refundType !== 'full') {
+            return $membership->isActive() ? ' Partial refund: the monthly plan keeps renewing.' : '';
+        }
+
+        if ($membership->stopped_reason !== null) {
+            return '';
+        }
+
+        $wasActive = $membership->isActive();
+        $stopped = ! $wasActive || $this->stopCharges($membership->contract_id, $membership->email);
+
+        // Marked even when lava.top could not be reached: a renewal that
+        // still lands is then held for review, not granted.
+        $membership->forceFill(array_filter([
+            'stopped_reason' => strtolower($what)." of charge {$payment->contract_id}",
+            'status' => $stopped ? LavaMembership::STATUS_CANCELLED : null,
+            'cancelled_at' => $stopped ? ($membership->cancelled_at ?? now()) : null,
+        ]))->save();
+
+        return match (true) {
+            ! $wasActive => '',
+            $stopped => ' We cancelled the monthly plan with lava.top.',
+            default => ' lava.top could not be reached: cancel the monthly plan in lava.top by hand.',
+        };
     }
 
     /**

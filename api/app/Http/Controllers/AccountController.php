@@ -98,13 +98,14 @@ class AccountController extends Controller
             ]);
         }
 
+        // Stop lava.top's monthly charges first, while the memberships still
+        // name the account; an unreachable lava.top alerts the admin.
+        $memberships->cancelForDeletedAccount($user);
+
         // Soft-delete (User uses SoftDeletes). Tokens revoked so the current
         // session can't continue acting on a "deleted" account. Release unique
         // identifiers first so the owner can re-register with the same email
         // and Google account later.
-        // Stop lava.top's monthly charges first, while the memberships still
-        // name the account; an unreachable lava.top alerts the admin.
-        $memberships->cancelForDeletedAccount($user);
 
         $user->tokens()->delete();
         $user->forceFill([

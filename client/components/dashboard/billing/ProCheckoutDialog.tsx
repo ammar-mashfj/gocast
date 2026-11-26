@@ -110,6 +110,9 @@ export function ProCheckoutDialog({
   const viaCard = cardOn && method !== "crypto"
   // The term lava.top sells as a monthly membership, when paying by card.
   const membershipSlug = viaCard ? (lava?.membership_product ?? null) : null
+  // Already paying monthly: checkout would refuse a second one, so say so on
+  // the option instead of after Pay.
+  const subscribed = viaCard && lava?.membership?.renews === true
 
   // Whether they already asked to hear about cards, so the line doesn't
   // offer "Notify me" twice. Only asked while cards aren't on.
@@ -159,6 +162,13 @@ export function ProCheckoutDialog({
         current ?? defaultSlug(products, initialProduct),
     )
   }, [open, products, initialProduct])
+
+  // Moved off the monthly option once we learn they already have it.
+  useEffect(() => {
+    if (!subscribed || !products || selected !== membershipSlug) return
+    const next = products.find((p) => p.slug !== membershipSlug && !isLifetime(p)) ?? products.find((p) => p.slug !== membershipSlug)
+    if (next) setSelected(next.slug)
+  }, [subscribed, products, selected, membershipSlug])
 
   useEffect(() => {
     if (open && initialCoupon) {
@@ -299,6 +309,7 @@ export function ProCheckoutDialog({
               products={products}
               applied={applied}
               membershipSlug={membershipSlug}
+              subscribed={subscribed}
               value={selected ?? defaultSlug(products, initialProduct)}
               onChange={setSelected}
             />
@@ -365,7 +376,7 @@ export function ProCheckoutDialog({
           <Button size="lg" variant="ghost" onClick={() => handleOpenChange(false)}>
             Not now
           </Button>
-          <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null || !lavaLoaded}>
+          <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null || !lavaLoaded || (isMembership && subscribed)}>
             {busy === "pay"
               ? "Preparing payment…"
               : chosen
@@ -450,6 +461,7 @@ function TermPicker({
   products,
   applied,
   membershipSlug,
+  subscribed,
   value,
   onChange,
 }: {
@@ -457,6 +469,8 @@ function TermPicker({
   applied: CatalogProduct | null
   /** The term sold as a monthly membership (card checkout), or null. */
   membershipSlug: string | null
+  /** They already have that membership: shown, but not selectable. */
+  subscribed: boolean
   value: string
   onChange: (slug: string) => void
 }) {
@@ -480,14 +494,17 @@ function TermPicker({
         const saving = monthlyRate && !isMonthly && !lifetime ? Math.round((1 - perMonth / monthlyRate) * 100) : 0
         const onSale = Number(shown.discount_usd) > 0
         const featured = Boolean(p.badge) && !lifetime
+        const current = renews && subscribed
 
         return (
           <RadioGroup.Item
             key={p.slug}
             value={p.slug}
+            disabled={current}
             className={cn(
               "group relative flex flex-col gap-0.5 rounded-well px-4 py-2.5 text-left outline-none transition-colors",
               "ring-2 ring-transparent focus-visible:ring-ring data-[state=checked]:ring-pro",
+              "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-60",
               lifetime
                 ? "col-span-2 bg-pro text-pro-ink ring-offset-background hover:bg-pro/90 data-[state=checked]:bg-pro data-[state=checked]:ring-foreground data-[state=checked]:ring-offset-2"
                 : featured
@@ -549,7 +566,7 @@ function TermPicker({
                   {onSale && <s className="text-body text-muted-foreground">{formatUsd(shown.list_price_usd)}</s>}
                 </span>
                 <span className="text-body text-muted-foreground">
-                  {renews ? "Every month, until you turn it off" : isMonthly ? "Paid once" : `${formatUsd(perMonth)} / month, paid once`}
+                  {current ? "You’re on it" : renews ? "Every month, until you turn it off" : isMonthly ? "Paid once" : `${formatUsd(perMonth)} / month, paid once`}
                 </span>
               </>
             )}

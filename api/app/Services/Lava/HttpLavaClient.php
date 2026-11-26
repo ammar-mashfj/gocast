@@ -167,7 +167,12 @@ class HttpLavaClient implements LavaClient
         }
 
         if ($response->failed()) {
-            $message = (string) ($response->json('error') ?? 'no message');
+            // `error` is text in every answer seen so far, but a structured
+            // one must still become a LavaException, not a PHP error that
+            // callers (account deletion) don't catch.
+            $error = $response->json('error') ?? $response->body();
+            $message = is_string($error) ? $error : (string) json_encode($error);
+            $message = mb_substr($message !== '' ? $message : 'no message', 0, 500);
 
             throw new LavaException("lava.top refused the request (HTTP {$response->status()}): {$message}");
         }

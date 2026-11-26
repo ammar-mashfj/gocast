@@ -804,3 +804,110 @@ it('does not promise another renewal for a charge that lands after auto-renew wa
         return str_contains($mail, 'just before you turned auto-renew off') && ! str_contains($mail, 'renews every month');
     });
 });
+
+// ── Review round 4 ────────────────────────────────────────────────────
+
+it('cancels the monthly charge when the first payment cannot be granted', function () {
+    $payment = LavaPayment::factory()->membership()->create();
+    fakeLava([$payment->contract_id => lavaInvoice($payment->contract_id, 20)]);
+    $payment->user->delete();
+
+    lavaWebhook(paidBody($payment, 'subscription-active'))->assertOk();
+
+    expect($payment->fresh()->granted_at)->toBeNull();
+    Http::assertSent(fn (Request $request) => $request->method() === 'DELETE'
+        && str_contains($request->url(), 'contractId='.$payment->contract_id));
+    Http::assertSent(fn (Request $request) => str_contains($request->url(), 'api.telegram.org')
+        && str_contains((string) $request['text'], 'We cancelled the monthly charge'));
+});
+
+it('stops the monthly plan after a full refund, and holds a renewal that still lands', function () {
+    $first = LavaPayment::factory()->membership()->create();
+    $renewalId = (string) Str::uuid();
+    fakeLava([
+        $first->contract_id => lavaInvoice($first->contract_id, 20),
+        $renewalId => lavaInvoice($renewalId, 20, parent: $first->contract_id),
+    ]);
+    lavaWebhook(paidBody($first, 'subscription-active'))->assertOk();
+    $until = $first->user->fresh()->plan_expires_at;
+
+    lavaWebhook(['event_type' => 'refund.success', 'data' => [
+        'parent_invoice_id' => $first->contract_id, 'refund_type' => 'full', 'amount' => 20, 'customer_email' => $first->email,
+    ]])->assertOk();
+
+    $membership = LavaMembership::sole();
+    expect($membership->status)->toBe(LavaMembership::STATUS_CANCELLED)
+        ->and($membership->stopped_reason)->toContain('refund');
+    Http::assertSent(fn (Request $request) => $request->method() === 'DELETE'
+        && str_contains($request->url(), 'contractId='.$first->contract_id));
+
+    lavaWebhook([
+        'eventType' => 'subscription.recurring.payment.success',
+        'contractId' => $renewalId,
+        'parentContractId' => $first->contract_id,
+        'amount' => 20,
+        'currency' => 'USD',
+    ])->assertOk();
+
+    $renewal = LavaPayment::where('contract_id', $renewalId)->sole();
+    expect($renewal->granted_at)->toBeNull()
+        ->and($renewal->review_reason)->toContain('Charged after we stopped')
+        ->and($first->user->fresh()->plan_expires_at->equalTo($until))->toBeTrue();
+});
+
+it('stops the monthly plan after a chargeback on a renewal', function () {
+    $first = LavaPayment::factory()->membership()->create();
+    $renewalId = (string) Str::uuid();
+    fakeLava([
+        $first->contract_id => lavaInvoice($first->contract_id, 20),
+        $renewalId => lavaInvoice($renewalId, 20, parent: $first->contract_id),
+    ]);
+    lavaWebhook(paidBody($first, 'subscription-active'))->assertOk();
+    lavaWebhook([
+        'eventType' => 'subscription.recurring.payment.success',
+        'contractId' => $renewalId,
+        'parentContractId' => $first->contract_id,
+        'amount' => 20,
+        'currency' => 'USD',
+    ])->assertOk();
+
+    lavaWebhook(['event_type' => 'chargeback.initiated', 'data' => ['parent_invoice_id' => $renewalId, 'amount' => 20]])->assertOk();
+
+    expect(LavaMembership::sole()->status)->toBe(LavaMembership::STATUS_CANCELLED);
+});
+
+it('keeps the monthly plan running after a partial refund', function () {
+    $first = LavaPayment::factory()->membership()->create();
+    fakeLava([$first->contract_id => lavaInvoice($first->contract_id, 20)]);
+    lavaWebhook(paidBody($first, 'subscription-active'))->assertOk();
+
+    lavaWebhook(['event_type' => 'refund.success', 'data' => [
+        'parent_invoice_id' => $first->contract_id, 'refund_type' => 'partial', 'amount' => 5,
+    ]])->assertOk();
+
+    $membership = LavaMembership::sole();
+    expect($membership->isActive())->toBeTrue()
+        ->and($membership->stopped_reason)->toBeNull();
+    Http::assertNotSent(fn (Request $request) => $request->method() === 'DELETE');
+});
+
+it('still deletes the account when lava.top answers with a structured error', function () {
+    $user = User::factory()->create();
+    LavaMembership::factory()->create(['user_id' => $user->id]);
+    Http::fake(['gate.lava.top/*' => Http::response(['error' => ['code' => 'X', 'details' => ['bad']]], 400)]);
+
+    actingAs($user)->deleteJson('/api/account', ['confirmation' => $user->email])->assertOk();
+
+    expect($user->fresh()->trashed())->toBeTrue();
+});
+
+it('keeps Pro on past the last renewal retry when the first month extends a nearly-ended term', function () {
+    $user = User::factory()->create(['plan_id' => proPlan()->id, 'plan_expires_at' => now()->addHours(6)]);
+    $payment = LavaPayment::factory()->membership()->create(['user_id' => $user->id]);
+    fakeLava([$payment->contract_id => lavaInvoice($payment->contract_id, 20)]);
+
+    lavaWebhook(paidBody($payment, 'subscription-active'))->assertOk();
+
+    expect($user->fresh()->plan_expires_at->toDateString())
+        ->toBe(now()->addMonthNoOverflow()->addDays(2)->toDateString());
+});

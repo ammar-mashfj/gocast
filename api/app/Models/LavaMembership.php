@@ -24,6 +24,7 @@ use Illuminate\Support\Str;
  * @property string $status
  * @property Carbon|null $cancelled_at
  * @property Carbon|null $ends_at
+ * @property string|null $stopped_reason
  * @property array<string, mixed>|null $payload
  * @property Carbon $created_at
  * @property Carbon $updated_at
