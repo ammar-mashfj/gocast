@@ -545,3 +545,72 @@ it('does not remind while the monthly membership still renews', function () {
 
     Notification::assertNothingSentTo($user);
 });
+
+// ── Review fixes ──────────────────────────────────────────────────────
+
+it('grants a second paid membership but alerts that the account now has two', function () {
+    $user = User::factory()->create();
+    $first = LavaPayment::factory()->membership()->create(['user_id' => $user->id]);
+    $second = LavaPayment::factory()->membership()->create(['user_id' => $user->id]);
+    fakeLava([
+        $first->contract_id => lavaInvoice($first->contract_id, 20),
+        $second->contract_id => lavaInvoice($second->contract_id, 20),
+    ]);
+
+    lavaWebhook(paidBody($first, 'subscription-active'))->assertOk();
+    lavaWebhook(paidBody($second, 'subscription-active'))->assertOk();
+
+    expect($second->fresh()->granted_at)->not->toBeNull()
+        ->and(LavaMembership::where('user_id', $user->id)->where('status', LavaMembership::STATUS_ACTIVE)->count())->toBe(2);
+
+    Http::assertSent(fn (Request $request) => str_contains($request->url(), 'api.telegram.org')
+        && str_contains((string) $request['text'], 'Two monthly plans'));
+});
+
+it('keeps a refund when lava.top later repeats the payment-success notice', function () {
+    $payment = LavaPayment::factory()->create();
+    fakeLava([$payment->contract_id => lavaInvoice($payment->contract_id, 1)]);
+
+    // Flagged: the amount did not match, so nothing was granted.
+    lavaWebhook(paidBody($payment))->assertOk();
+    expect($payment->fresh()->status)->toBe(LavaPayment::STATUS_REVIEW);
+
+    lavaWebhook(['event_type' => 'refund.success', 'data' => ['parent_invoice_id' => $payment->contract_id, 'amount' => 52]])->assertOk();
+
+    // Even with lava.top now reporting the charge as paid in full.
+    fakeLava([$payment->contract_id => lavaInvoice($payment->contract_id, 52)]);
+    lavaWebhook(paidBody($payment))->assertOk();
+
+    expect($payment->fresh()->status)->toBe(LavaPayment::STATUS_REFUNDED)
+        ->and($payment->fresh()->granted_at)->toBeNull()
+        ->and($payment->user->fresh()->plan_expires_at)->toBeNull();
+});
+
+it('adds no grace days when the membership extends time already paid for', function () {
+    $user = User::factory()->create(['plan_id' => proPlan()->id, 'plan_expires_at' => now()->addDays(60)]);
+    $payment = LavaPayment::factory()->membership()->create(['user_id' => $user->id]);
+    fakeLava([$payment->contract_id => lavaInvoice($payment->contract_id, 20)]);
+
+    lavaWebhook(paidBody($payment, 'subscription-active'))->assertOk();
+
+    expect($user->fresh()->plan_expires_at->toDateString())
+        ->toBe(now()->addDays(60)->addMonthsNoOverflow(1)->toDateString());
+});
+
+it('records the end date when lava.top confirms a cancellation made on the Account page', function () {
+    fakeLava();
+    $user = User::factory()->create(['plan_id' => proPlan()->id, 'plan_expires_at' => now()->addDays(20)]);
+    $membership = LavaMembership::factory()->create(['user_id' => $user->id]);
+
+    actingAs($user)->postJson('/api/billing/lava/membership/cancel')->assertOk();
+
+    lavaWebhook([
+        'eventType' => 'subscription.cancelled',
+        'contractId' => $membership->contract_id,
+        'cancelledAt' => now()->toIso8601String(),
+        'willExpireAt' => now()->addDays(18)->toIso8601String(),
+    ])->assertOk();
+
+    expect($membership->fresh()->status)->toBe(LavaMembership::STATUS_CANCELLED)
+        ->and($membership->fresh()->ends_at?->toDateString())->toBe(now()->addDays(18)->toDateString());
+});

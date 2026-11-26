@@ -84,7 +84,7 @@ class LavaWebhook
             return;
         }
 
-        if ($payment->granted_at !== null) {
+        if ($payment->granted_at !== null || self::isReversed($payment)) {
             return;
         }
 
@@ -94,7 +94,9 @@ class LavaWebhook
             /** @var LavaPayment $locked */
             $locked = LavaPayment::whereKey($payment->id)->lockForUpdate()->first();
 
-            if ($locked->granted_at !== null) {
+            // A refund or chargeback that landed while lava.top was being
+            // asked is final: a late "paid" must not undo it.
+            if ($locked->granted_at !== null || self::isReversed($locked)) {
                 return null;
             }
 
@@ -113,6 +115,11 @@ class LavaWebhook
                 return $this->flag($locked, 'Paid, but the account has been deleted. Refund it in lava.top.');
             }
 
+            // Checkout refuses a second membership, but two payment pages can
+            // both be paid (a declined one retried after a new one was made).
+            // Read under the user's lock, so two payments can't both miss it.
+            $existing = $locked->kind === LavaPayment::KIND_MEMBERSHIP ? LavaMembership::activeFor($user) : null;
+
             $plan = $locked->plan_id ? Plan::find($locked->plan_id) : null;
 
             if ($plan === null || ($locked->term() === null && ! $locked->isLifetime())) {
@@ -130,11 +137,15 @@ class LavaWebhook
             [$until, $extended] = $applied;
 
             if ($locked->kind === LavaPayment::KIND_MEMBERSHIP) {
-                // Once, on the first charge: lava.top retries a failed renewal
-                // after 8h and 24h, and Pro should still be on when it lands.
-                // Every renewal then adds a month to this, so it never drifts.
-                $until = $until->copy()->addDays((int) config('services.lava.membership_grace_days', 2));
-                $user->forceFill(['plan_expires_at' => $until])->save();
+                // Once, on the first charge of a fresh term: lava.top retries a
+                // failed renewal after 8h and 24h, and Pro should still be on
+                // when it lands. Every renewal then adds a month to this, so it
+                // never drifts. Not when the month extends time they already
+                // had: the renewal then lands weeks before Pro ends anyway.
+                if (! $extended) {
+                    $until = $until->copy()->addDays((int) config('services.lava.membership_grace_days', 2));
+                    $user->forceFill(['plan_expires_at' => $until])->save();
+                }
 
                 $membership = LavaMembership::firstOrCreate(
                     ['contract_id' => $locked->contract_id],
@@ -158,14 +169,14 @@ class LavaWebhook
                 Discount::whereKey($locked->discount_id)->increment('redemptions_count');
             }
 
-            return [$user, $plan, $until, $extended];
+            return [$user, $plan, $until, $extended, $existing];
         });
 
         $fresh = $payment->fresh();
 
         if (is_array($outcome)) {
-            /** @var array{0: User, 1: Plan, 2: Carbon|null, 3: bool} $outcome */
-            [$user, $plan, $until, $extended] = $outcome;
+            /** @var array{0: User, 1: Plan, 2: Carbon|null, 3: bool, 4: LavaMembership|null} $outcome */
+            [$user, $plan, $until, $extended, $existing] = $outcome;
             $membership = $fresh->kind === LavaPayment::KIND_MEMBERSHIP;
 
             $user->notify(new ProAccessGranted(
@@ -177,6 +188,16 @@ class LavaWebhook
                 autoRenews: $membership,
             ));
             $this->telegram->lavaPaymentGranted($fresh);
+
+            if ($existing !== null) {
+                // Granted (they paid for the month), and left running: which
+                // one to cancel and refund is a human's call.
+                $this->telegram->lavaNeedsReview(
+                    'Two monthly plans on one account',
+                    "This account now has two lava.top memberships charging every month: {$existing->contract_id} and {$fresh->contract_id}. Cancel one in lava.top and refund its charge.",
+                    $fresh->email,
+                );
+            }
         } elseif ($outcome === 'flagged') {
             $this->telegram->lavaNeedsReview('Payment needs review', (string) $fresh->review_reason, $fresh->email);
         }
@@ -332,6 +353,14 @@ class LavaWebhook
         }
 
         if (! $membership->isActive()) {
+            // Cancelled from our Account page first: keep that, but record the
+            // end date lava.top now reports, which only this notice carries.
+            $endsAt = self::date($data['willExpireAt'] ?? null);
+
+            if ($membership->ends_at === null && $endsAt !== null) {
+                $membership->forceFill(['ends_at' => $endsAt, 'payload' => $data])->save();
+            }
+
             return;
         }
 
@@ -367,14 +396,29 @@ class LavaWebhook
             return;
         }
 
-        if ($payment->status === $status) {
+        $changed = DB::transaction(function () use ($payment, $status, $what) {
+            /** @var LavaPayment $locked */
+            $locked = LavaPayment::whereKey($payment->id)->lockForUpdate()->first();
+
+            if ($locked->status === $status) {
+                return false;
+            }
+
+            $locked->forceFill([
+                'status' => $status,
+                'review_reason' => $locked->granted_at !== null
+                    ? "{$what} on lava.top. Pro was left on; take it away by hand if they should lose it."
+                    : "{$what} on lava.top. Pro was never granted for this payment.",
+            ])->save();
+
+            return true;
+        });
+
+        if (! $changed) {
             return;
         }
 
-        $payment->forceFill([
-            'status' => $status,
-            'review_reason' => "{$what} on lava.top. Pro was left on; take it away by hand if they should lose it.",
-        ])->save();
+        $payment->refresh();
 
         if (($body['subscription_cancelled'] ?? false) === true) {
             $this->membershipCancelled(['contractId' => $contractId]);
@@ -428,6 +472,11 @@ class LavaWebhook
         }
 
         return null;
+    }
+
+    private static function isReversed(LavaPayment $payment): bool
+    {
+        return in_array($payment->status, [LavaPayment::STATUS_REFUNDED, LavaPayment::STATUS_CHARGEBACK], true);
     }
 
     /** The membership a charge id names: its first charge, or any charge of it. */
