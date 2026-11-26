@@ -2,6 +2,7 @@
 
 use App\Models\LavaMembership;
 use App\Models\LavaPayment;
+use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\User;
 use App\Notifications\LavaMembershipRenewed;
@@ -726,4 +727,80 @@ it('reports the next charge from the last charge, not from a pack on top', funct
     actingAs($user)->getJson('/api/billing/lava')
         ->assertJsonPath('data.membership.renews', true)
         ->assertJsonPath('data.membership.next_charge_at', $payment->fresh()->paid_at->copy()->addMonthNoOverflow()->toIso8601String());
+});
+
+// ── Review round 3 ────────────────────────────────────────────────────
+
+it('does not remind a member whose time on top was paid in digital currency', function () {
+    $until = now()->addDays(5)->startOfSecond();
+    $user = User::factory()->create(['plan_id' => proPlan()->id, 'plan_expires_at' => $until]);
+    LavaMembership::factory()->create(['user_id' => $user->id]);
+    Payment::factory()->granted($until)->create(['user_id' => $user->id, 'granted_at' => now()->subDays(80)]);
+
+    $this->artisan('billing:remind-renewals')->assertSuccessful();
+
+    Notification::assertNothingSentTo($user);
+});
+
+it('keeps a declined card out of the review list', function () {
+    $payment = LavaPayment::factory()->create();
+
+    lavaWebhook(['eventType' => 'payment.failed', 'contractId' => $payment->contract_id, 'errorMessage' => 'Not sufficient funds'])->assertOk();
+
+    $payment->refresh();
+    expect($payment->status)->toBe(LavaPayment::STATUS_FAILED)
+        ->and($payment->review_reason)->toBeNull()
+        ->and($payment->failureReason())->toBe('Not sufficient funds');
+});
+
+it('keeps an unreachable lava.top out of the review list', function () {
+    Http::fake(['gate.lava.top/*' => Http::response(['error' => 'down'], 500)]);
+
+    actingAs(User::factory()->create())->postJson('/api/billing/lava/checkout', ['product' => 'pro-3-months'])->assertStatus(502);
+
+    $payment = LavaPayment::sole();
+    expect($payment->status)->toBe(LavaPayment::STATUS_FAILED)
+        ->and($payment->review_reason)->toBeNull()
+        ->and($payment->failureReason())->not->toBeNull();
+});
+
+it('records a refund for an unseen charge even when lava.top sends a long product title', function () {
+    $renewalId = (string) Str::uuid();
+
+    lavaWebhook(['event_type' => 'refund.success', 'data' => [
+        'parent_invoice_id' => $renewalId,
+        'amount' => 20,
+        'customer_email' => 'someone@example.com',
+        'product' => ['product_name' => str_repeat('GoCast Pro monthly membership ', 6)],
+    ]])->assertOk();
+
+    $row = LavaPayment::where('contract_id', $renewalId)->sole();
+    expect($row->status)->toBe(LavaPayment::STATUS_REFUNDED)
+        ->and(mb_strlen($row->product_name))->toBe(80);
+});
+
+it('does not promise another renewal for a charge that lands after auto-renew was turned off', function () {
+    $first = LavaPayment::factory()->membership()->create();
+    $renewalId = (string) Str::uuid();
+    fakeLava([
+        $first->contract_id => lavaInvoice($first->contract_id, 20),
+        $renewalId => lavaInvoice($renewalId, 20, parent: $first->contract_id),
+    ]);
+    lavaWebhook(paidBody($first, 'subscription-active'))->assertOk();
+    LavaMembership::sole()->update(['status' => LavaMembership::STATUS_CANCELLED, 'cancelled_at' => now()]);
+
+    lavaWebhook([
+        'eventType' => 'subscription.recurring.payment.success',
+        'contractId' => $renewalId,
+        'parentContractId' => $first->contract_id,
+        'amount' => 20,
+        'currency' => 'USD',
+    ])->assertOk();
+
+    $user = $first->user->fresh();
+    Notification::assertSentTo($user, LavaMembershipRenewed::class, function (LavaMembershipRenewed $n) use ($user) {
+        $mail = implode(' ', $n->toMail($user)->introLines);
+
+        return str_contains($mail, 'just before you turned auto-renew off') && ! str_contains($mail, 'renews every month');
+    });
 });

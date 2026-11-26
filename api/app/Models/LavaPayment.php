@@ -131,6 +131,21 @@ class LavaPayment extends Model
         return $this->belongsTo(LavaMembership::class, 'lava_membership_id');
     }
 
+    /**
+     * Why a failed payment failed (a declined card, lava.top unreachable),
+     * for the admin table. Kept out of review_reason: routine, not a task.
+     */
+    public function failureReason(): ?string
+    {
+        if ($this->status !== self::STATUS_FAILED) {
+            return null;
+        }
+
+        $reason = $this->payload['errorMessage'] ?? $this->payload['error'] ?? null;
+
+        return is_string($reason) && $reason !== '' ? $reason : null;
+    }
+
     public function durationLabel(): ?string
     {
         return Product::labelFor($this->duration_unit, $this->duration_count);

@@ -172,7 +172,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             ],
             $this->paid && $this->autoRenews => [
                 "{$this->plan->name} monthly, paid — thank you.",
-                'It renews every month on its own. Turn auto-renew off any time on your Account page, and Pro stays on until the end of the month you paid for.',
+                'It renews every month on its own. Turn auto-renew off any time on your Account page, and Pro stays on until the end of the time you\'ve paid for; your Account page shows the date.',
             ],
             $this->paid => [
                 $this->extended
@@ -272,7 +272,7 @@ class ProAccessGranted extends BellNotification implements ShouldQueue
             $message->line('It has no end date, so there is nothing to renew and nothing more to pay.');
         } elseif ($this->paid && $this->autoRenews) {
             $message->line("Thanks for your payment. Your station is now on {$this->plan->name}, billed monthly.");
-            $message->line("It renews every month on its own, so there is nothing to remember. Turn auto-renew off any time on your Account page, and {$this->plan->name} stays on until the end of the month you paid for.");
+            $message->line("It renews every month on its own, so there is nothing to remember. Turn auto-renew off any time on your Account page, and {$this->plan->name} stays on until the end of the time you've paid for; your Account page shows the date.");
             $message->line('lava.top, our payment provider, also emails you a receipt for each payment. You can manage or cancel the subscription from that email too.');
         } elseif ($this->paid) {
             $message->line(match (true) {

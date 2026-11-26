@@ -21,8 +21,9 @@ use Illuminate\Console\Command;
  * with a new end date, so every term gets its own two reminders and never a
  * repeat.
  *
- * Card payments (lava.top) count the same way, except while a monthly
- * membership still renews: that term is about to be extended, not to end.
+ * Card payments (lava.top) count the same way. Nobody is reminded while a
+ * monthly membership still renews: their term is about to be extended, not
+ * to end, whichever payment bought the time on top.
  */
 class RemindRenewals extends Command
 {
@@ -41,6 +42,13 @@ class RemindRenewals extends Command
             ->get();
 
         foreach ($users as $user) {
+            // A monthly membership that still renews extends the account
+            // before this date, whatever paid for the time on top of it (a
+            // USDT pack as much as a card pack).
+            if (LavaMembership::activeFor($user) !== null) {
+                continue;
+            }
+
             $payment = Payment::where('user_id', $user->id)
                 ->whereNotNull('granted_at')
                 ->where('plan_id', $user->plan_id)
@@ -76,13 +84,9 @@ class RemindRenewals extends Command
         return self::SUCCESS;
     }
 
-    /** The card payment whose term ends on the account's end date, unless a membership will renew it. */
+    /** The card payment whose term ends on the account's end date. */
     private function cardPayment(User $user): ?LavaPayment
     {
-        if (LavaMembership::activeFor($user) !== null) {
-            return null;
-        }
-
         return LavaPayment::where('user_id', $user->id)
             ->whereNotNull('granted_at')
             ->where('plan_id', $user->plan_id)

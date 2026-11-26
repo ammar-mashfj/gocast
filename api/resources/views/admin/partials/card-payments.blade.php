@@ -64,6 +64,8 @@
                                 ])>{{ $payment->status }}</span>
                                 @if ($payment->review_reason)
                                     <div class="mt-1 max-w-xs text-xs text-warning">{{ $payment->review_reason }}</div>
+                                @elseif ($payment->failureReason())
+                                    <div class="mt-1 max-w-xs text-xs opacity-60">{{ $payment->failureReason() }}</div>
                                 @endif
                                 @if ($payment->contract_id)
                                     <div class="mt-1 font-mono text-xs opacity-50" title="lava.top contract id">{{ $payment->contract_id }}</div>

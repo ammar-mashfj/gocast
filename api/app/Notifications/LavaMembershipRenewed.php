@@ -12,12 +12,19 @@ use Illuminate\Notifications\Messages\MailMessage;
 /**
  * A monthly membership charge lava.top made on its own: a short receipt, not
  * the onboarding email ProAccessGranted sends for the first payment.
+ *
+ * `$renews` is false when the user turned auto-renew off and this charge
+ * still went through (lava.top had already started it): the copy must not
+ * say it renews again.
  */
 class LavaMembershipRenewed extends BellNotification implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(private readonly LavaPayment $payment) {}
+    public function __construct(
+        private readonly LavaPayment $payment,
+        private readonly bool $renews = true,
+    ) {}
 
     protected function alsoVia(object $notifiable): array
     {
@@ -38,7 +45,9 @@ class LavaMembershipRenewed extends BellNotification implements ShouldQueue
     {
         return new BellPayload(
             title: "Your {$this->planName()} renewed",
-            body: "Thanks — \${$this->payment->amount_usd} paid. It now runs until {$this->until()} and renews again on its own.",
+            body: $this->renews
+                ? "Thanks — \${$this->payment->amount_usd} paid. It now runs until {$this->until()} and renews again on its own."
+                : "Thanks — \${$this->payment->amount_usd} paid, just before you turned auto-renew off. It runs until {$this->until()}, then moves to Free.",
             icon: 'plan-upgraded',
             level: BellPayload::LEVEL_SUCCESS,
             category: BellPayload::CATEGORY_PLAN,
@@ -60,7 +69,9 @@ class LavaMembershipRenewed extends BellNotification implements ShouldQueue
             ->subject("Your GoCast {$plan} renewed")
             ->greeting("Hey {$notifiable->name},")
             ->line("Thanks for another month. We received \${$this->payment->amount_usd}, and your GoCast {$plan} now runs until **{$this->until()}**.")
-            ->line('It renews every month on its own. You can turn auto-renew off any time on your Account page.')
+            ->line($this->renews
+                ? 'It renews every month on its own. You can turn auto-renew off any time on your Account page.'
+                : "This charge went through just before you turned auto-renew off, so there won't be another one. Your account moves to Free on that date.")
             ->action('See your plan', $frontendUrl.'/dashboard/settings')
             ->line('Reply to this email if anything looks wrong — it comes straight to us.');
     }

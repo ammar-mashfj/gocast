@@ -213,9 +213,11 @@ class LavaWebhook
     {
         $contractId = (string) ($data['contractId'] ?? '');
 
+        // Not review_reason: a declined card is routine, and the review list
+        // is for what a human must act on. The reason stays in the payload.
         LavaPayment::where('contract_id', $contractId)
             ->where('status', LavaPayment::STATUS_NEW)
-            ->update(['status' => LavaPayment::STATUS_FAILED, 'review_reason' => mb_substr((string) ($data['errorMessage'] ?? ''), 0, 255) ?: null]);
+            ->update(['status' => LavaPayment::STATUS_FAILED, 'payload' => json_encode($data)]);
     }
 
     /**
@@ -316,7 +318,7 @@ class LavaWebhook
         $payment = LavaPayment::where('contract_id', $contractId)->first();
 
         if ($outcome instanceof User) {
-            $outcome->notify(new LavaMembershipRenewed($payment));
+            $outcome->notify(new LavaMembershipRenewed($payment, $membership->fresh()->isActive()));
             $this->telegram->lavaPaymentGranted($payment);
         } elseif ($outcome === 'flagged') {
             $this->telegram->lavaNeedsReview('Renewal needs review', (string) $payment->review_reason, $payment->email);
@@ -397,7 +399,7 @@ class LavaWebhook
                 // when it does arrive it finds this row and grants nothing.
                 LavaPayment::createOrFirst(['contract_id' => $contractId], [
                     'kind' => LavaPayment::KIND_RENEWAL,
-                    'product_name' => (string) ($body['product']['product_name'] ?? 'Unknown lava.top charge'),
+                    'product_name' => mb_substr((string) ($body['product']['product_name'] ?? 'Unknown lava.top charge'), 0, 80),
                     'list_price_usd' => (float) ($body['amount'] ?? 0),
                     'amount_usd' => (float) ($body['amount'] ?? 0),
                     'email' => (string) ($body['customer_email'] ?? ''),

@@ -132,7 +132,9 @@ class LavaCheckout
             );
         } catch (LavaException $e) {
             report($e);
-            $payment->forceFill(['status' => LavaPayment::STATUS_FAILED, 'review_reason' => mb_substr($e->getMessage(), 0, 255)])->save();
+            // The buyer was told to retry; nothing for the review list. The
+            // exception is already reported, and kept on the row as well.
+            $payment->forceFill(['status' => LavaPayment::STATUS_FAILED, 'payload' => ['error' => $e->getMessage()]])->save();
 
             throw new CheckoutRefused("We couldn't reach the payment provider. Please try again in a minute.", 502);
         }

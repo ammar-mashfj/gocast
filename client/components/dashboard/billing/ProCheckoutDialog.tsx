@@ -303,7 +303,15 @@ export function ProCheckoutDialog({
               onChange={setSelected}
             />
 
-            {isMembership ? null : couponOpen ? (
+            {isMembership ? (
+              // The code stays in state and comes back on a pack; say so
+              // rather than charge full price without a word.
+              code.trim() ? (
+                <p className="text-body-sm text-muted-foreground">
+                  Coupons don’t apply to the monthly plan. Pick a longer plan to use {code.trim().toUpperCase()}.
+                </p>
+              ) : null
+            ) : couponOpen ? (
               <form
                 className="flex items-start gap-2"
                 onSubmit={(e) => {
