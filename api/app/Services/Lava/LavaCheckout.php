@@ -40,8 +40,12 @@ class LavaCheckout
             return false;
         }
 
-        return ($config['driver'] ?? 'lava') === 'fake'
-            || (filled($config['api_key'] ?? null) && filled($config['membership_offer_id'] ?? null) && filled($config['pack_offer_id'] ?? null));
+        if (($config['driver'] ?? 'lava') === 'fake') {
+            // The fake client grants Pro with no money moving: never live.
+            return ! app()->isProduction();
+        }
+
+        return filled($config['api_key'] ?? null) && filled($config['membership_offer_id'] ?? null) && filled($config['pack_offer_id'] ?? null);
     }
 
     public static function isMembershipProduct(Product $product): bool
@@ -87,19 +91,28 @@ class LavaCheckout
 
         $amount = Quote::money($quote->amountCents());
 
-        // Pressing Pay twice reopens the payment already waiting.
+        // Pressing Pay twice reopens the payment already waiting. A declined
+        // one too: lava.top's page takes another card on the same charge, and
+        // a second page would be a second membership if both got paid.
         $open = LavaPayment::where('user_id', $user->id)
             ->where('product_id', $product->id)
             ->where('discount_id', $quote->discount?->id)
             ->where('amount_usd', $amount)
             ->where('method', $method)
-            ->where('status', LavaPayment::STATUS_NEW)
+            ->whereIn('status', [LavaPayment::STATUS_NEW, LavaPayment::STATUS_FAILED])
+            ->whereNotNull('contract_id')
             ->whereNotNull('payment_url')
             ->where('created_at', '>', now()->subMinutes(50))
             ->latest('id')
             ->first();
 
         if ($open !== null) {
+            // Back to waiting, so the status dialog polls it rather than
+            // showing the old decline.
+            if ($open->status === LavaPayment::STATUS_FAILED) {
+                $open->forceFill(['status' => LavaPayment::STATUS_NEW])->save();
+            }
+
             return $open;
         }
 

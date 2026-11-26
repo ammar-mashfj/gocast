@@ -72,6 +72,8 @@ class PaymentController extends Controller
         $cardLive = LavaPayment::whereNotNull('granted_at')
             ->whereNotIn('status', [LavaPayment::STATUS_REFUNDED, LavaPayment::STATUS_CHARGEBACK]);
         $since = now()->subDays(30);
+        // Card revenue net of partial refunds (a full one drops the row above).
+        $cardNet = fn (Builder $query): float => (float) (clone $query)->sum('amount_usd') - (float) (clone $query)->sum('refunded_usd');
 
         return view('admin.payments', [
             'payments' => $payments,
@@ -80,9 +82,9 @@ class PaymentController extends Controller
             'filter' => $filter,
             'needsReview' => Payment::whereNotNull('review_reason')->count() + LavaPayment::whereNotNull('review_reason')->count(),
             'grantedCount' => Payment::where('sandbox', false)->whereNotNull('granted_at')->count() + LavaPayment::whereNotNull('granted_at')->count(),
-            'revenueUsd' => (float) (clone $live)->sum('amount_usd') + (float) (clone $cardLive)->sum('amount_usd'),
-            'last30Usd' => (float) (clone $live)->where('paid_at', '>=', $since)->sum('amount_usd') + (float) (clone $cardLive)->where('paid_at', '>=', $since)->sum('amount_usd'),
-            'cardRevenueUsd' => (float) (clone $cardLive)->sum('amount_usd'),
+            'revenueUsd' => (float) (clone $live)->sum('amount_usd') + $cardNet($cardLive),
+            'last30Usd' => (float) (clone $live)->where('paid_at', '>=', $since)->sum('amount_usd') + $cardNet((clone $cardLive)->where('paid_at', '>=', $since)),
+            'cardRevenueUsd' => $cardNet($cardLive),
             'cardInterest' => CardPaymentInterest::latest('id')->get(['email', 'created_at', 'notified_at']),
             'gatewayReady' => filled(config('services.oxapay.merchant_key')),
             'gatewayMode' => config('services.oxapay.driver') === 'fake' ? 'fake' : (config('services.oxapay.sandbox') ? 'sandbox' : 'live'),

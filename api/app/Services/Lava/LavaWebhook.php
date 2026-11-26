@@ -188,7 +188,8 @@ class LavaWebhook
                 $fresh->durationLabel(),
                 paid: true,
                 extended: $extended && ! $membership,
-                autoRenews: $membership,
+                // Not when lava.top's cancel beat the first charge here.
+                autoRenews: $membership && $fresh->membership?->isActive() === true,
             ));
             $this->telegram->lavaPaymentGranted($fresh);
 
@@ -274,6 +275,21 @@ class LavaWebhook
 
         $known = LavaPayment::where('contract_id', $contractId)->first();
 
+        if ($known !== null && self::isReversed($known) && $known->lava_membership_id === null) {
+            // Refunded or charged back before this notice arrived (the row is
+            // the placeholder reversed() left): now we know its membership,
+            // stop that too, as reversed() would have.
+            $known->forceFill(['lava_membership_id' => $membership->id, 'user_id' => $known->user_id ?? $membership->user_id])->save();
+            $what = $known->status === LavaPayment::STATUS_CHARGEBACK ? 'Chargeback' : 'Refund';
+            $note = $this->stopAfterReversal($known->fresh(), $what);
+
+            if ($note !== '') {
+                $this->telegram->lavaNeedsReview("{$what} of a renewal", "Renewal {$contractId} was reversed before it reached us; nothing was granted.{$note}", $membership->email);
+            }
+
+            return;
+        }
+
         if ($known !== null && ($known->granted_at !== null || self::isReversed($known))) {
             return;
         }
@@ -287,7 +303,11 @@ class LavaWebhook
 
         $product = Product::where('slug', config('services.lava.membership_product'))->first();
 
-        $outcome = DB::transaction(function () use ($membership, $contractId, $data, $amount, $problem, $product) {
+        // Set when the renewal is refused for a reason every later renewal
+        // would hit too: then lava.top must stop charging, not just be told.
+        $stop = false;
+
+        $outcome = DB::transaction(function () use ($membership, $contractId, $data, $amount, $problem, $product, &$stop) {
             // createOrFirst: the same renewal delivered twice at once must
             // not hit the unique contract id and fail one of them.
             $payment = LavaPayment::createOrFirst(
@@ -328,6 +348,8 @@ class LavaWebhook
             $stoppedReason = LavaMembership::whereKey($membership->id)->value('stopped_reason');
 
             if ($stoppedReason !== null) {
+                $stop = true;
+
                 return $this->flag($locked, "Charged after we stopped this monthly plan ({$stoppedReason}). Nothing was granted; refund it in lava.top.");
             }
 
@@ -338,12 +360,16 @@ class LavaWebhook
             $plan = $locked->plan_id ? Plan::find($locked->plan_id) : null;
 
             if ($user === null || $plan === null) {
-                return $this->flag($locked, 'Renewal paid, but the account or plan no longer exists. Cancel the membership and refund it in lava.top.');
+                $stop = true;
+
+                return $this->flag($locked, 'Renewal paid, but the account or plan no longer exists. Refund it in lava.top.');
             }
 
             $applied = PlanTerm::apply($user, $plan, $locked->term());
 
             if (is_string($applied)) {
+                $stop = true;
+
                 return $this->flag($locked, "Renewal paid, but not granted: {$applied} Grant or refund by hand.");
             }
 
@@ -361,7 +387,19 @@ class LavaWebhook
             $outcome->notify(new LavaMembershipRenewed($payment, $membership->fresh()->isActive()));
             $this->telegram->lavaPaymentGranted($payment);
         } elseif ($outcome === 'flagged') {
-            $this->telegram->lavaNeedsReview('Renewal needs review', (string) $payment->review_reason, $payment->email);
+            $note = '';
+
+            if ($stop) {
+                $note = $this->stopCharges($membership->contract_id, $membership->email)
+                    ? ' We cancelled the monthly plan with lava.top.'
+                    : ' lava.top could not be reached: cancel the monthly plan in lava.top by hand, or it keeps charging.';
+
+                if ($membership->fresh()->isActive()) {
+                    $membership->forceFill(['status' => LavaMembership::STATUS_CANCELLED, 'cancelled_at' => now()])->save();
+                }
+            }
+
+            $this->telegram->lavaNeedsReview('Renewal needs review', $payment->review_reason.$note, $payment->email);
         }
     }
 
@@ -393,7 +431,29 @@ class LavaWebhook
         $membership = $this->membershipFor($contractId);
 
         if ($membership === null) {
-            Log::info('lava.top cancelled a membership we do not know', ['contract_id' => $contractId]);
+            // Cancelled (from lava.top's email) before its first charge reached
+            // us: record it cancelled now, so the grant that follows doesn't
+            // start it as renewing.
+            $first = $contractId === '' ? null : LavaPayment::where('contract_id', $contractId)
+                ->where('kind', LavaPayment::KIND_MEMBERSHIP)
+                ->whereNotNull('user_id')
+                ->first();
+
+            if ($first === null) {
+                Log::info('lava.top cancelled a membership we do not know', ['contract_id' => $contractId]);
+
+                return;
+            }
+
+            LavaMembership::firstOrCreate(['contract_id' => $contractId], [
+                'user_id' => $first->user_id,
+                'plan_id' => $first->plan_id,
+                'email' => $first->email,
+                'status' => LavaMembership::STATUS_CANCELLED,
+                'cancelled_at' => self::date($data['cancelledAt'] ?? null) ?? now(),
+                'ends_at' => self::date($data['willExpireAt'] ?? null),
+                'payload' => $data,
+            ]);
 
             return;
         }
@@ -432,8 +492,15 @@ class LavaWebhook
         $payment = $contractId === '' ? null : LavaPayment::where('contract_id', $contractId)->first();
         $what = $status === LavaPayment::STATUS_REFUNDED ? 'Refund' : 'Chargeback';
 
+        $chargeback = $status === LavaPayment::STATUS_CHARGEBACK;
+        $refundId = (string) ($body['refund_id'] ?? $data['event_id'] ?? '');
+        $amount = round((float) ($body['amount'] ?? 0), 2);
+        $fullRefund = ($body['refund_type'] ?? 'full') === 'full';
+
         if ($payment === null) {
-            if ($contractId !== '') {
+            // A partial refund leaves the charge standing: no placeholder that
+            // would make its late renewal notice grant nothing.
+            if ($contractId !== '' && ($chargeback || $fullRefund)) {
                 // Most likely a renewal whose own webhook hasn't arrived yet
                 // (lava.top is still retrying it). Recorded as reversed, so
                 // when it does arrive it finds this row and grants nothing.
@@ -450,7 +517,7 @@ class LavaWebhook
             }
 
             $this->telegram->lavaNeedsReview(
-                "{$what} for a payment we do not know",
+                ($chargeback || $fullRefund ? $what : 'Partial refund').' for a payment we do not know',
                 "lava.top charge {$contractId}, \$".($body['amount'] ?? '?').'.',
                 $body['customer_email'] ?? null,
             );
@@ -458,76 +525,115 @@ class LavaWebhook
             return;
         }
 
-        $changed = DB::transaction(function () use ($payment, $status, $what) {
+        $outcome = DB::transaction(function () use ($payment, $chargeback, $refundId, $amount, $fullRefund, $what) {
             /** @var LavaPayment $locked */
             $locked = LavaPayment::whereKey($payment->id)->lockForUpdate()->first();
 
-            if ($locked->status === $status) {
-                return false;
+            if ($chargeback) {
+                if ($locked->status === LavaPayment::STATUS_CHARGEBACK) {
+                    return null;
+                }
+
+                $locked->status = LavaPayment::STATUS_CHARGEBACK;
+            } else {
+                // Each refund once, by lava.top's id: a partial refund and a
+                // later full one are two events, a redelivery is not.
+                $refunds = $locked->refunds ?? [];
+
+                if ($refundId === '' ? $locked->status === LavaPayment::STATUS_REFUNDED : in_array($refundId, array_column($refunds, 'id'), true)) {
+                    return null;
+                }
+
+                $charged = (float) $locked->amount_usd;
+                $total = $fullRefund ? $charged : min($charged, (float) $locked->refunded_usd + $amount);
+                $refunds[] = ['id' => $refundId, 'type' => $fullRefund ? 'full' : 'partial', 'amount' => $amount, 'at' => now()->toIso8601String()];
+
+                $locked->refunds = $refunds;
+                $locked->refunded_usd = number_format($total, 2, '.', '');
+
+                // A partial refund leaves the charge paid: its term, its
+                // reminders and the rest of its revenue still stand.
+                if ($total < $charged - 0.009) {
+                    $locked->save();
+
+                    return 'partial';
+                }
+
+                if ($locked->status !== LavaPayment::STATUS_CHARGEBACK) {
+                    $locked->status = LavaPayment::STATUS_REFUNDED;
+                }
             }
 
-            $locked->forceFill([
-                'status' => $status,
-                'review_reason' => $locked->granted_at !== null
-                    ? "{$what} on lava.top. Pro was left on; take it away by hand if they should lose it."
-                    : "{$what} on lava.top. Pro was never granted for this payment.",
-            ])->save();
+            $locked->review_reason = $locked->granted_at !== null
+                ? "{$what} on lava.top. Pro was left on; take it away by hand if they should lose it."
+                : "{$what} on lava.top. Pro was never granted for this payment.";
+            $locked->save();
 
-            return true;
+            return 'reversed';
         });
 
-        if (! $changed) {
+        if ($outcome === null) {
             return;
         }
 
         $payment->refresh();
 
+        if ($outcome === 'partial') {
+            $this->telegram->lavaNeedsReview(
+                "Partial refund: {$payment->product_name}",
+                "\${$amount} refunded of \${$payment->amount_usd} (\${$payment->refunded_usd} in all). Pro and any monthly plan were left as they are.",
+                $payment->email,
+            );
+
+            return;
+        }
+
         if (($body['subscription_cancelled'] ?? false) === true) {
             $this->membershipCancelled(['contractId' => $contractId]);
         }
 
-        $note = $this->stopAfterReversal($payment, $status, $what, (string) ($body['refund_type'] ?? 'full'));
+        $note = $this->stopAfterReversal($payment, $what);
 
         $this->telegram->lavaNeedsReview("{$what}: {$payment->product_name}", $payment->review_reason.$note, $payment->email);
     }
 
     /**
-     * A charge of a monthly plan was charged back or fully refunded: stop the
-     * plan, or lava.top bills the account again next month and the renewal
-     * hands Pro back. A partial refund (goodwill for an outage) leaves it
-     * running. Returns the line the admin alert ends with.
+     * A charge of a monthly plan was charged back or refunded in full: stop
+     * the plan, or lava.top bills the account again next month and the
+     * renewal hands Pro back. Returns the line the admin alert ends with.
      */
-    private function stopAfterReversal(LavaPayment $payment, string $status, string $what, string $refundType): string
+    private function stopAfterReversal(LavaPayment $payment, string $what): string
     {
         $membership = $payment->membership;
 
-        if ($membership === null) {
-            return '';
+        if ($membership === null && $payment->kind === LavaPayment::KIND_MEMBERSHIP) {
+            // The first charge was never granted (its notice never got through),
+            // so no membership row exists, but lava.top still bills monthly.
+            return $this->stopCharges($payment->contract_id, $payment->email)
+                ? ' We cancelled the monthly plan with lava.top.'
+                : ' lava.top could not be reached: cancel the monthly plan in lava.top by hand, or it keeps charging.';
         }
 
-        if ($status === LavaPayment::STATUS_REFUNDED && $refundType !== 'full') {
-            return $membership->isActive() ? ' Partial refund: the monthly plan keeps renewing.' : '';
-        }
-
-        if ($membership->stopped_reason !== null) {
+        if ($membership === null || $membership->stopped_reason !== null) {
             return '';
         }
 
         $wasActive = $membership->isActive();
         $stopped = ! $wasActive || $this->stopCharges($membership->contract_id, $membership->email);
 
-        // Marked even when lava.top could not be reached: a renewal that
-        // still lands is then held for review, not granted.
-        $membership->forceFill(array_filter([
+        // Cancelled here even when lava.top could not be reached: we don't
+        // want the plan, so the account must not show it as renewing. A
+        // renewal that still lands is held for review by stopped_reason.
+        $membership->forceFill([
             'stopped_reason' => strtolower($what)." of charge {$payment->contract_id}",
-            'status' => $stopped ? LavaMembership::STATUS_CANCELLED : null,
-            'cancelled_at' => $stopped ? ($membership->cancelled_at ?? now()) : null,
-        ]))->save();
+            'status' => LavaMembership::STATUS_CANCELLED,
+            'cancelled_at' => $membership->cancelled_at ?? now(),
+        ])->save();
 
         return match (true) {
             ! $wasActive => '',
             $stopped => ' We cancelled the monthly plan with lava.top.',
-            default => ' lava.top could not be reached: cancel the monthly plan in lava.top by hand.',
+            default => ' lava.top could not be reached: cancel the monthly plan in lava.top by hand, or it keeps charging.',
         };
     }
 

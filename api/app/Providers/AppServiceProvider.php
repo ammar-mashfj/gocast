@@ -64,15 +64,14 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Same rule for lava.top: the fake client grants Pro with no money
-        // moving, so production refuses to build it.
+        // moving, so production never gets it. Not an exception, though:
+        // account deletion and the webhook resolve this client too, and a bad
+        // setting must not break them. Production with LAVA_DRIVER=fake gets
+        // the real client, and LavaCheckout::enabled() keeps card checkout off.
         $this->app->bind(LavaClient::class, function () {
             $config = (array) config('services.lava');
 
-            if (($config['driver'] ?? 'lava') === 'fake') {
-                if ($this->app->isProduction()) {
-                    throw new RuntimeException('LAVA_DRIVER=fake is not allowed in production.');
-                }
-
+            if (($config['driver'] ?? 'lava') === 'fake' && ! $this->app->isProduction()) {
                 return new FakeLavaClient;
             }
 

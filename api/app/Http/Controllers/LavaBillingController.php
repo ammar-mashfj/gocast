@@ -92,12 +92,21 @@ class LavaBillingController extends Controller
     {
         $user = $request->user();
 
-        if (LavaMembership::activeFor($user) === null) {
+        $active = LavaMembership::where('user_id', $user->id)->where('status', LavaMembership::STATUS_ACTIVE)->count();
+
+        if ($active === 0) {
             return response()->json(['message' => "You don't have a monthly plan that renews."], 404);
         }
 
-        if ($memberships->cancelAll($user) !== []) {
-            return response()->json(['message' => "We couldn't reach the payment provider. Please try again in a minute."], 502);
+        $failed = count($memberships->cancelAll($user));
+
+        if ($failed > 0) {
+            // The page reloads the plan's status after this either way, so a
+            // half-done cancel shows as what it is.
+            return response()->json(['message' => $failed < $active
+                ? "We stopped one of your monthly plans but couldn't reach the payment provider for the other. Please try again in a minute."
+                : "We couldn't reach the payment provider. Please try again in a minute.",
+            ], 502);
         }
 
         return response()->json(['data' => ['renews' => false]]);

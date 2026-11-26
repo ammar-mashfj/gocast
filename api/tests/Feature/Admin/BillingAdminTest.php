@@ -163,3 +163,12 @@ it('lists card payments, counts their reviews, and clears them', function () {
     $this->post(route('admin.card-payments.clear-review', $flagged))->assertSessionHas('status');
     expect($flagged->fresh()->review_reason)->toBeNull();
 });
+
+it('counts card revenue net of partial refunds', function () {
+    LavaPayment::factory()->create(['status' => LavaPayment::STATUS_PAID, 'paid_at' => now(), 'granted_at' => now(), 'amount_usd' => 52, 'refunded_usd' => 5]);
+
+    $this->get(route('admin.payments.index'))
+        ->assertOk()
+        ->assertViewHas('cardRevenueUsd', 47.0)
+        ->assertSee('−$5.00 refunded', false);
+});

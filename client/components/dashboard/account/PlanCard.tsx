@@ -42,7 +42,10 @@ export function PlanCard() {
   const [error, setError] = useState<string | null>(null)
 
   const pro = plan !== null && plan.slug !== "free"
+  const expiresAt = plan?.expires_at ?? null
 
+  // Again whenever the end date moves: buying the monthly plan on top of a
+  // pack keeps them on Pro but starts a membership this card must show.
   useEffect(() => {
     if (!pro) return
     let live = true
@@ -52,7 +55,7 @@ export function PlanCard() {
     return () => {
       live = false
     }
-  }, [pro])
+  }, [pro, expiresAt])
 
   async function turnOffAutoRenew() {
     setBusy(true)
@@ -63,6 +66,10 @@ export function PlanCard() {
       setConfirming(false)
     } catch (err) {
       setError(billingError(err))
+      // One of two may have stopped: show what is really left renewing.
+      fetchLavaStatus()
+        .then((status) => setMembership(status.membership))
+        .catch(() => {})
     } finally {
       setBusy(false)
     }

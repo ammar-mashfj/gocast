@@ -40,6 +40,8 @@ use Illuminate\Support\Str;
  * @property Carbon|null $granted_at
  * @property Carbon|null $granted_until
  * @property string|null $review_reason
+ * @property string $refunded_usd
+ * @property list<array{id: string, type: string, amount: float, at: string}>|null $refunds
  * @property array<string, mixed>|null $payload
  * @property Carbon|null $reminded_7d_at
  * @property Carbon|null $reminded_1d_at
@@ -97,6 +99,8 @@ class LavaPayment extends Model
             'list_price_usd' => 'decimal:2',
             'discount_usd' => 'decimal:2',
             'amount_usd' => 'decimal:2',
+            'refunded_usd' => 'decimal:2',
+            'refunds' => 'array',
             'paid_at' => 'datetime',
             'granted_at' => 'datetime',
             'granted_until' => 'datetime',

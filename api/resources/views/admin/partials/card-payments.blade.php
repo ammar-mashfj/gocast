@@ -48,6 +48,9 @@
                             </td>
                             <td class="whitespace-nowrap text-sm">
                                 <div class="font-medium">${{ $payment->amount_usd }}</div>
+                                @if ((float) $payment->refunded_usd > 0 && $payment->status !== 'refunded')
+                                    <div class="text-xs opacity-60">−${{ $payment->refunded_usd }} refunded</div>
+                                @endif
                                 @if ((float) $payment->discount_usd > 0)
                                     <div class="text-xs opacity-60">
                                         <s>${{ $payment->list_price_usd }}</s>
