@@ -13,17 +13,17 @@
         <div class="stat">
             <div class="stat-title">Needs review</div>
             <div class="stat-value {{ $needsReview > 0 ? 'text-warning' : '' }}">{{ $needsReview }}</div>
-            <div class="stat-desc">underpaid, refunded, or paid but not granted</div>
+            <div class="stat-desc">underpaid, refunded, or paid but not granted (both providers)</div>
         </div>
         <div class="stat">
             <div class="stat-title">Paid &amp; granted</div>
             <div class="stat-value">{{ $grantedCount }}</div>
-            <div class="stat-desc">real money only</div>
+            <div class="stat-desc">real money only, both providers</div>
         </div>
         <div class="stat">
             <div class="stat-title">Revenue</div>
             <div class="stat-value">${{ number_format((float) $revenueUsd, 2) }}</div>
-            <div class="stat-desc">${{ number_format((float) $last30Usd, 2) }} in the last 30 days, before OxaPay's fee</div>
+            <div class="stat-desc">${{ number_format((float) $last30Usd, 2) }} in the last 30 days · ${{ number_format((float) $cardRevenueUsd, 2) }} by card/PayPal · before fees</div>
         </div>
         <div class="stat">
             <div class="stat-title">Want card payments</div>
@@ -58,6 +58,7 @@
         @endif
     </form>
 
+    <h2 class="mb-2 text-lg font-semibold">Digital currency (OxaPay)</h2>
     <div class="card border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body p-0">
             <div class="overflow-x-auto">
@@ -155,6 +156,8 @@
     @if ($payments->hasPages())
         <div class="mt-4">{{ $payments->links() }}</div>
     @endif
+
+    @include('admin.partials.card-payments')
 
     @if ($cardInterest->isNotEmpty())
         <details class="collapse-arrow collapse mt-6 border border-base-300 bg-base-100">

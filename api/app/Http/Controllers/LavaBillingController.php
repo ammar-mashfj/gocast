@@ -6,8 +6,7 @@ use App\Models\LavaMembership;
 use App\Models\LavaPayment;
 use App\Services\Billing\CheckoutRefused;
 use App\Services\Lava\LavaCheckout;
-use App\Services\Lava\LavaClient;
-use App\Services\Lava\LavaException;
+use App\Services\Lava\LavaMemberships;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -20,26 +19,28 @@ use Illuminate\Validation\Rule;
  * - checkout(): starts a purchase and returns lava.top's payment page.
  * - show(): how far one of the buyer's charges has got, polled by the
  *   dialog while lava.top's page is open in another tab.
- * - cancelMembership(): turns auto-renew off. Pro stays to the end of the
- *   month already paid for.
+ * - cancelMembership(): turns auto-renew off, for every membership the
+ *   account has. Pro stays to the end of the time already paid for.
  */
 class LavaBillingController extends Controller
 {
     public function status(Request $request): JsonResponse
     {
-        $membership = LavaMembership::where('user_id', $request->user()->id)->latest('id')->first();
+        $user = $request->user();
+        $active = LavaMembership::where('user_id', $user->id)->where('status', LavaMembership::STATUS_ACTIVE)->get();
+        $latest = $active->sortByDesc('id')->first() ?? LavaMembership::where('user_id', $user->id)->latest('id')->first();
 
         return response()->json(['data' => [
             'enabled' => LavaCheckout::enabled(),
             'membership_product' => (string) config('services.lava.membership_product'),
-            'membership' => $membership ? [
-                'status' => $membership->status,
-                'renews' => $membership->isActive(),
-                'started_at' => $membership->created_at->toIso8601String(),
-                'cancelled_at' => $membership->cancelled_at?->toIso8601String(),
-                // While it renews, the next charge is roughly when Pro would
-                // otherwise end, less the grace days.
-                'paid_until' => $request->user()->plan_expires_at?->toIso8601String(),
+            'membership' => $latest ? [
+                'status' => $latest->status,
+                // True while ANY membership still charges: an account can
+                // have two, and one cancelled must not hide the other.
+                'renews' => $active->isNotEmpty(),
+                'started_at' => $latest->created_at->toIso8601String(),
+                'cancelled_at' => $latest->cancelled_at?->toIso8601String(),
+                'next_charge_at' => $active->map(fn (LavaMembership $m) => $m->nextChargeAt())->filter()->sort()->first()?->toIso8601String(),
             ] : null,
         ]]);
     }
@@ -87,28 +88,17 @@ class LavaBillingController extends Controller
         ]]);
     }
 
-    public function cancelMembership(Request $request, LavaClient $lava): JsonResponse
+    public function cancelMembership(Request $request, LavaMemberships $memberships): JsonResponse
     {
-        $membership = LavaMembership::activeFor($request->user());
+        $user = $request->user();
 
-        if ($membership === null) {
+        if (LavaMembership::activeFor($user) === null) {
             return response()->json(['message' => "You don't have a monthly plan that renews."], 404);
         }
 
-        try {
-            $lava->cancelMembership($membership->contract_id, $membership->email);
-        } catch (LavaException $e) {
-            report($e);
-
+        if ($memberships->cancelAll($user) !== []) {
             return response()->json(['message' => "We couldn't reach the payment provider. Please try again in a minute."], 502);
         }
-
-        // Marked now rather than waiting for lava.top's webhook, so the page
-        // reloads into the right state; the webhook then finds it done.
-        $membership->forceFill([
-            'status' => LavaMembership::STATUS_CANCELLED,
-            'cancelled_at' => now(),
-        ])->save();
 
         return response()->json(['data' => ['renews' => false]]);
     }

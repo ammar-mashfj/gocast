@@ -80,6 +80,9 @@ export function ProCheckoutDialog({
   const [error, setError] = useState<string | null>(null)
   const [cards, setCards] = useState<"unknown" | "idle" | "saving" | "subscribed">("unknown")
   const [lava, setLava] = useState<LavaStatus | null>(null)
+  // Pay waits for this: until it answers, "card is on" is unknown, and a card
+  // buyer must not fall through to digital-currency checkout.
+  const [lavaLoaded, setLavaLoaded] = useState(false)
   const [method, setMethod] = useState<Method>("card")
 
   // Whether card checkout is on, asked on every open: it is a server switch,
@@ -88,8 +91,16 @@ export function ProCheckoutDialog({
     if (!open) return
     let live = true
     fetchLavaStatus()
-      .then((status) => live && setLava(status))
-      .catch(() => live && setLava(null))
+      .then((status) => {
+        if (!live) return
+        setLava(status)
+        setLavaLoaded(true)
+      })
+      .catch(() => {
+        if (!live) return
+        setLava(null)
+        setLavaLoaded(true)
+      })
     return () => {
       live = false
     }
@@ -205,6 +216,7 @@ export function ProCheckoutDialog({
     setBusy(null)
     setError(null)
     setMethod("card")
+    setLavaLoaded(false)
   }
 
   function handleOpenChange(next: boolean) {
@@ -331,7 +343,11 @@ export function ProCheckoutDialog({
 
             <p className="text-body text-muted-foreground">
               {viaCard
-                ? `You’ll pay ${method === "paypal" ? "with PayPal" : "by card"} on lava.top, our payment provider. Pro switches on by itself as soon as the payment goes through.`
+                ? `You’ll pay ${method === "paypal" ? "with PayPal" : "by card"} on lava.top, our payment provider, and they’ll email you a receipt. Pro switches on by itself as soon as the payment goes through.${
+                    isMembership
+                      ? " You can turn auto-renew off any time, from lava.top’s email or on your Account page here."
+                      : ""
+                  }`
                 : "You’ll pay on OxaPay, our payment provider. Pro switches on by itself as soon as the payment confirms, usually within a few minutes."}
             </p>
           </>
@@ -341,7 +357,7 @@ export function ProCheckoutDialog({
           <Button size="lg" variant="ghost" onClick={() => handleOpenChange(false)}>
             Not now
           </Button>
-          <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null}>
+          <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null || !lavaLoaded}>
             {busy === "pay"
               ? "Preparing payment…"
               : chosen

@@ -3,6 +3,7 @@
 use App\Models\Admin;
 use App\Models\CardPaymentInterest;
 use App\Models\Discount;
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Product;
@@ -146,4 +147,19 @@ it('lists the card payments waitlist on the payments page', function () {
     CardPaymentInterest::create(['user_id' => $user->id, 'email' => $user->email]);
 
     $this->get(route('admin.payments.index'))->assertOk()->assertSee('Card payments waitlist (1)')->assertSee('wants-cards@example.com');
+});
+
+it('lists card payments, counts their reviews, and clears them', function () {
+    $flagged = LavaPayment::factory()->create(['status' => LavaPayment::STATUS_REVIEW, 'review_reason' => 'Amount did not match.']);
+
+    $this->get(route('admin.payments.index'))
+        ->assertOk()
+        ->assertSee('Card &amp; PayPal (lava.top)', false)
+        ->assertSee($flagged->user->email)
+        ->assertSee('Amount did not match.');
+
+    $this->get(route('admin.payments.index', ['filter' => 'review']))->assertSee($flagged->user->email);
+
+    $this->post(route('admin.card-payments.clear-review', $flagged))->assertSessionHas('status');
+    expect($flagged->fresh()->review_reason)->toBeNull();
 });

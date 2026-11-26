@@ -6,6 +6,7 @@ use App\Http\Requests\UpdatePasswordRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use App\Notifications\EmailChangedNotification;
 use App\Notifications\PasswordChangedNotification;
+use App\Services\Lava\LavaMemberships;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -78,7 +79,7 @@ class AccountController extends Controller
         return response()->json(['message' => 'Password updated.']);
     }
 
-    public function destroy(Request $request): JsonResponse
+    public function destroy(Request $request, LavaMemberships $memberships): JsonResponse
     {
         $user = $request->user();
 
@@ -101,6 +102,10 @@ class AccountController extends Controller
         // session can't continue acting on a "deleted" account. Release unique
         // identifiers first so the owner can re-register with the same email
         // and Google account later.
+        // Stop lava.top's monthly charges first, while the memberships still
+        // name the account; an unreachable lava.top alerts the admin.
+        $memberships->cancelForDeletedAccount($user);
+
         $user->tokens()->delete();
         $user->forceFill([
             'email' => 'deleted-'.$user->id.'-'.Str::uuid().'@deleted.gocast.local',

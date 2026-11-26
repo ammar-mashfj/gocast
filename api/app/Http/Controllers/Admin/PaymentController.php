@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\CardPaymentInterest;
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Services\Billing\Gateway\GatewayException;
 use App\Services\Billing\Gateway\PaymentGateway;
@@ -46,16 +47,42 @@ class PaymentController extends Controller
             ->paginate(50)
             ->withQueryString();
 
-        $live = Payment::where('sandbox', false)->whereNotNull('granted_at');
+        // Card and PayPal payments (lava.top): their own table, filtered the
+        // same way, and counted in every total below.
+        $cardPayments = LavaPayment::query()
+            ->with('user')
+            ->when($search !== '', function (Builder $query) use ($search) {
+                $query->where(function (Builder $query) use ($search) {
+                    $query->where('uuid', $search)
+                        ->orWhere('contract_id', $search)
+                        ->orWhere('discount_code', $search)
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('user', fn (Builder $user) => $user->withTrashed()->where('email', 'like', "%{$search}%"));
+                });
+            })
+            ->when($filter === 'review', fn (Builder $query) => $query->whereNotNull('review_reason'))
+            ->when($filter === 'granted', fn (Builder $query) => $query->whereNotNull('granted_at'))
+            ->when($filter === 'open', fn (Builder $query) => $query->where('status', LavaPayment::STATUS_NEW))
+            ->latest('id')
+            ->paginate(50, pageName: 'card_page')
+            ->withQueryString();
+
+        $live = Payment::where('sandbox', false)->whereNotNull('granted_at')
+            ->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED]);
+        $cardLive = LavaPayment::whereNotNull('granted_at')
+            ->whereNotIn('status', [LavaPayment::STATUS_REFUNDED, LavaPayment::STATUS_CHARGEBACK]);
+        $since = now()->subDays(30);
 
         return view('admin.payments', [
             'payments' => $payments,
+            'cardPayments' => $cardPayments,
             'search' => $search,
             'filter' => $filter,
-            'needsReview' => Payment::whereNotNull('review_reason')->count(),
-            'grantedCount' => (clone $live)->count(),
-            'revenueUsd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->sum('amount_usd'),
-            'last30Usd' => (clone $live)->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])->where('paid_at', '>=', now()->subDays(30))->sum('amount_usd'),
+            'needsReview' => Payment::whereNotNull('review_reason')->count() + LavaPayment::whereNotNull('review_reason')->count(),
+            'grantedCount' => Payment::where('sandbox', false)->whereNotNull('granted_at')->count() + LavaPayment::whereNotNull('granted_at')->count(),
+            'revenueUsd' => (float) (clone $live)->sum('amount_usd') + (float) (clone $cardLive)->sum('amount_usd'),
+            'last30Usd' => (float) (clone $live)->where('paid_at', '>=', $since)->sum('amount_usd') + (float) (clone $cardLive)->where('paid_at', '>=', $since)->sum('amount_usd'),
+            'cardRevenueUsd' => (float) (clone $cardLive)->sum('amount_usd'),
             'cardInterest' => CardPaymentInterest::latest('id')->get(['email', 'created_at', 'notified_at']),
             'gatewayReady' => filled(config('services.oxapay.merchant_key')),
             'gatewayMode' => config('services.oxapay.driver') === 'fake' ? 'fake' : (config('services.oxapay.sandbox') ? 'sandbox' : 'live'),
@@ -77,6 +104,13 @@ class PaymentController extends Controller
         $payment->refresh();
 
         return back()->with('status', "OxaPay says {$payment->status}.".($payment->granted_at ? ' Granted until '.$payment->granted_until?->toFormattedDateString().'.' : ''));
+    }
+
+    public function clearCardReview(LavaPayment $lavaPayment): RedirectResponse
+    {
+        $lavaPayment->forceFill(['review_reason' => null])->save();
+
+        return back()->with('status', 'Review flag cleared. Nothing about the account was changed.');
     }
 
     public function clearReview(Payment $payment): RedirectResponse

@@ -56,7 +56,8 @@ export interface LavaStatus {
     renews: boolean
     started_at: string
     cancelled_at: string | null
-    paid_until: string | null
+    /** When lava.top charges next, while any membership still renews. */
+    next_charge_at: string | null
   } | null
 }
 

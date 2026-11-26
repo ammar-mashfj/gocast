@@ -33,8 +33,10 @@ const POLL_FOR_MS = 3 * 60 * 60 * 1000
  * Pro upsell on the page goes away.
  *
  * `provider` says which API to poll: OxaPay's payments, or lava.top's (card
- * and PayPal). A declined card on lava.top is `failed`, and still polled:
- * the buyer can try again on the same page, and a later success grants.
+ * and PayPal). A declined card on lava.top is `failed`. The buyer can try
+ * again on the same page, so it isn't final, but the timer stops: it asks
+ * again only when this tab is shown, which is when they come back from
+ * retrying.
  *
  * Mounted with `key={uuid}` so a second payment starts from a clean state.
  */
@@ -80,8 +82,8 @@ export function PaymentStatusDialog({
           refreshed.current = true
           router.refresh()
         }
-        if (next.state === "pending" || next.state === "confirming" || next.state === "failed") schedule(POLL_MS)
-        else done = true
+        if (next.state === "pending" || next.state === "confirming") schedule(POLL_MS)
+        else if (next.state !== "failed") done = true
       } catch (err) {
         if (!live) return
         setError(billingError(err))
@@ -188,7 +190,7 @@ function describe(status: PaymentStatus | null): Copy {
         title: "You’re on Pro",
         body:
           status.kind === "membership" || status.kind === "renewal"
-            ? `${what}. Thanks! It renews every month by itself. You can turn that off any time on your Account page.`
+            ? `${what}. Thanks! It renews every month by itself. lava.top, our payment provider, emails you a receipt; you can turn auto-renew off from that email or on your Account page here.`
             : until
               ? `${what}. Thanks! It runs until ${until}, and we’ll email you a week before it ends.`
               : `${what}. Thanks! It has no end date, so there’s nothing to renew.`,

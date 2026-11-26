@@ -239,7 +239,9 @@ class LavaWebhook
             return;
         }
 
-        if (LavaPayment::where('contract_id', $contractId)->whereNotNull('granted_at')->exists()) {
+        $known = LavaPayment::where('contract_id', $contractId)->first();
+
+        if ($known !== null && ($known->granted_at !== null || self::isReversed($known))) {
             return;
         }
 
@@ -253,7 +255,9 @@ class LavaWebhook
         $product = Product::where('slug', config('services.lava.membership_product'))->first();
 
         $outcome = DB::transaction(function () use ($membership, $contractId, $data, $amount, $problem, $product) {
-            $payment = LavaPayment::firstOrCreate(
+            // createOrFirst: the same renewal delivered twice at once must
+            // not hit the unique contract id and fail one of them.
+            $payment = LavaPayment::createOrFirst(
                 ['contract_id' => $contractId],
                 [
                     'user_id' => $membership->user_id,
@@ -275,7 +279,7 @@ class LavaWebhook
             /** @var LavaPayment $locked */
             $locked = LavaPayment::whereKey($payment->id)->lockForUpdate()->first();
 
-            if ($locked->granted_at !== null) {
+            if ($locked->granted_at !== null || self::isReversed($locked)) {
                 return null;
             }
 
@@ -387,6 +391,22 @@ class LavaWebhook
         $what = $status === LavaPayment::STATUS_REFUNDED ? 'Refund' : 'Chargeback';
 
         if ($payment === null) {
+            if ($contractId !== '') {
+                // Most likely a renewal whose own webhook hasn't arrived yet
+                // (lava.top is still retrying it). Recorded as reversed, so
+                // when it does arrive it finds this row and grants nothing.
+                LavaPayment::createOrFirst(['contract_id' => $contractId], [
+                    'kind' => LavaPayment::KIND_RENEWAL,
+                    'product_name' => (string) ($body['product']['product_name'] ?? 'Unknown lava.top charge'),
+                    'list_price_usd' => (float) ($body['amount'] ?? 0),
+                    'amount_usd' => (float) ($body['amount'] ?? 0),
+                    'email' => (string) ($body['customer_email'] ?? ''),
+                    'status' => $status,
+                    'review_reason' => "{$what} on lava.top for a charge we had not seen yet. Nothing was granted for it.",
+                    'payload' => $data,
+                ]);
+            }
+
             $this->telegram->lavaNeedsReview(
                 "{$what} for a payment we do not know",
                 "lava.top charge {$contractId}, \$".($body['amount'] ?? '?').'.',

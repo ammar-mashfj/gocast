@@ -70,6 +70,21 @@ class LavaMembership extends Model
         return $this->hasMany(LavaPayment::class);
     }
 
+    /**
+     * When lava.top charges next: a month after the last charge. Not the
+     * account's plan end, which a pack bought on top pushes months out.
+     */
+    public function nextChargeAt(): ?Carbon
+    {
+        if (! $this->isActive()) {
+            return null;
+        }
+
+        $last = $this->payments()->whereNotNull('paid_at')->max('paid_at');
+
+        return $last ? Carbon::parse($last)->addMonthNoOverflow() : null;
+    }
+
     public function isActive(): bool
     {
         return $this->status === self::STATUS_ACTIVE;

@@ -123,6 +123,7 @@ Route::middleware(['auth:admin', EnsureAdminTwoFactor::class])->group(function (
     Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
     Route::post('payments/{payment}/recheck', [PaymentController::class, 'recheck'])->name('payments.recheck');
     Route::post('payments/{payment}/clear-review', [PaymentController::class, 'clearReview'])->name('payments.clear-review');
+    Route::post('card-payments/{lavaPayment}/clear-review', [PaymentController::class, 'clearCardReview'])->name('card-payments.clear-review');
     Route::get('billing/products', [ProductController::class, 'index'])->name('products.index');
     Route::post('billing/products', [ProductController::class, 'store'])->name('products.store');
     Route::post('billing/products/{product}', [ProductController::class, 'update'])->name('products.update');

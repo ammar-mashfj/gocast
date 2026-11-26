@@ -71,6 +71,9 @@ export function PlanCard() {
   if (!plan) return null
 
   const renews = pro && membership?.renews === true
+  const nextCharge = membership?.next_charge_at
+    ? new Date(membership.next_charge_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : null
   const ends = plan.expires_at
     ? new Date(plan.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
     : null
@@ -84,7 +87,7 @@ export function PlanCard() {
         </span>
         <span className="text-body-sm text-muted-foreground">
           {planIncludes(plan)}
-          {renews && " Renews every month."}
+          {renews && ` Renews every month${nextCharge ? `, next on ${nextCharge}` : ""}. You can also manage it from lava.top’s email.`}
           {ends && !renews && ` Ends ${ends}, then your account moves to Free.`}
           {!pro && " Your station plays only while you’re live."}
         </span>
