@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendAdminTelegramAlert;
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Models\Station;
 use App\Models\StreamSession;
@@ -123,6 +124,34 @@ class AdminTelegram
             .$this->e($payment->user?->email ?? 'unknown')."\n"
             .$this->e((string) $payment->review_reason)."\n"
             .'<a href="'.$this->e(route('admin.payments.index', ['search' => $payment->uuid])).'">Admin</a>'
+        );
+    }
+
+    /** A lava.top charge that has been granted: a pack, a new membership, or a renewal. */
+    public function lavaPaymentGranted(LavaPayment $payment): void
+    {
+        $label = match ($payment->kind) {
+            LavaPayment::KIND_MEMBERSHIP => 'New monthly membership',
+            LavaPayment::KIND_RENEWAL => 'Membership renewed',
+            default => 'Payment received',
+        };
+
+        $this->send(
+            '💳 <b>'.$this->e($label).'</b> (lava.top)'."\n"
+            .$this->e($payment->product_name).' — $'.$this->e($payment->amount_usd)
+            .($payment->discount_code ? ' (coupon '.$this->e($payment->discount_code).')' : '')."\n"
+            .$this->e($payment->user?->email ?? $payment->email)."\n"
+            .($payment->granted_until ? 'Until '.$this->e($payment->granted_until->toFormattedDateString()) : '')
+        );
+    }
+
+    /** Something on lava.top a human has to act on. `$reason` is plain text. */
+    public function lavaNeedsReview(string $title, string $reason, ?string $email = null): void
+    {
+        $this->send(
+            '⚠️ <b>'.$this->e($title).'</b> (lava.top)'."\n"
+            .($email ? $this->e($email)."\n" : '')
+            .$this->e($reason)
         );
     }
 

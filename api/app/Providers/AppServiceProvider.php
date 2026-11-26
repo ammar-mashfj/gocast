@@ -19,6 +19,9 @@ use App\Services\AdminTelegram;
 use App\Services\Billing\Gateway\FakeGateway;
 use App\Services\Billing\Gateway\OxaPayGateway;
 use App\Services\Billing\Gateway\PaymentGateway;
+use App\Services\Lava\FakeLavaClient;
+use App\Services\Lava\HttpLavaClient;
+use App\Services\Lava\LavaClient;
 use App\Services\LiquidsoapString;
 use App\Services\SecuritySignals;
 use Illuminate\Auth\Events\Verified;
@@ -57,6 +60,25 @@ class AppServiceProvider extends ServiceProvider
                 baseUrl: (string) ($config['base_url'] ?? 'https://api.oxapay.com/v1'),
                 sandbox: (bool) ($config['sandbox'] ?? false),
                 lifetimeMinutes: (int) ($config['invoice_lifetime_minutes'] ?? 60),
+            );
+        });
+
+        // Same rule for lava.top: the fake client grants Pro with no money
+        // moving, so production refuses to build it.
+        $this->app->bind(LavaClient::class, function () {
+            $config = (array) config('services.lava');
+
+            if (($config['driver'] ?? 'lava') === 'fake') {
+                if ($this->app->isProduction()) {
+                    throw new RuntimeException('LAVA_DRIVER=fake is not allowed in production.');
+                }
+
+                return new FakeLavaClient;
+            }
+
+            return new HttpLavaClient(
+                apiKey: (string) ($config['api_key'] ?? ''),
+                baseUrl: (string) ($config['base_url'] ?? 'https://gate.lava.top'),
             );
         });
     }

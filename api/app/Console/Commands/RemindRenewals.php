@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Models\LavaMembership;
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Models\User;
 use App\Notifications\PlanRenewalReminder;
@@ -18,6 +20,9 @@ use Illuminate\Console\Command;
  * Each reminder is stamped on the payment, and a renewal is a new payment
  * with a new end date, so every term gets its own two reminders and never a
  * repeat.
+ *
+ * Card payments (lava.top) count the same way, except while a monthly
+ * membership still renews: that term is about to be extended, not to end.
  */
 class RemindRenewals extends Command
 {
@@ -42,7 +47,8 @@ class RemindRenewals extends Command
                 ->where('granted_until', $user->plan_expires_at)
                 ->whereNotIn('status', [Payment::STATUS_REFUNDING, Payment::STATUS_REFUNDED])
                 ->latest('id')
-                ->first();
+                ->first()
+                ?? $this->cardPayment($user);
 
             if ($payment === null) {
                 continue;
@@ -68,5 +74,21 @@ class RemindRenewals extends Command
         $this->info("Sent {$sent} renewal reminder(s).");
 
         return self::SUCCESS;
+    }
+
+    /** The card payment whose term ends on the account's end date, unless a membership will renew it. */
+    private function cardPayment(User $user): ?LavaPayment
+    {
+        if (LavaMembership::activeFor($user) !== null) {
+            return null;
+        }
+
+        return LavaPayment::where('user_id', $user->id)
+            ->whereNotNull('granted_at')
+            ->where('plan_id', $user->plan_id)
+            ->where('granted_until', $user->plan_expires_at)
+            ->where('status', LavaPayment::STATUS_PAID)
+            ->latest('id')
+            ->first();
     }
 }

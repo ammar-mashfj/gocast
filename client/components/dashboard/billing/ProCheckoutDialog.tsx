@@ -6,22 +6,41 @@ import { RadioGroup } from "radix-ui"
 import { IconCircleCheckFilled } from "@tabler/icons-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { TextField } from "@/components/ds/Field"
+import { Segmented } from "@/components/ds/Segmented"
 import { ProTag } from "@/components/ds/Tag"
 import { cn } from "@/lib/utils"
 import { useCatalog } from "@/hooks/useCatalog"
 import {
   billingError,
   fetchCardInterest,
+  fetchLavaStatus,
   formatUsd,
   isLifetime,
   notifyCardPayments,
   quoteProduct,
   startCheckout,
+  startLavaCheckout,
   type CatalogProduct,
+  type LavaStatus,
+  type PaymentProvider,
 } from "@/lib/billing"
 
+type Method = "card" | "paypal" | "crypto"
+
 /**
- * Get Pro: pick a term, optionally a coupon, and pay on OxaPay's page.
+ * Get Pro: pick how to pay, a term, optionally a coupon, and pay on the
+ * provider's page.
+ *
+ * Three ways to pay, once card checkout is switched on (`/billing/lava`):
+ * - Card or PayPal, both through lava.top (each payment is tied to one
+ *   processor, so the buyer picks here). The one-month term is a membership
+ *   that lava.top charges again every month; it is shown at its full price
+ *   (lava.top owns that price, so no sale or coupon applies to it). Every
+ *   other term is paid once.
+ * - USDT, USDC or another digital currency, through OxaPay. Everything is
+ *   paid once.
+ * Until card checkout is on, the dialog is digital-currency only, with the
+ * "card payments are coming soon" line.
  *
  * Pay only creates the invoice and hands it to `onStarted`; the payment page
  * itself opens from a real link in the status dialog, in a new tab. The
@@ -46,7 +65,7 @@ export function ProCheckoutDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onStarted: (payment: { uuid: string; paymentUrl: string }) => void
+  onStarted: (payment: { uuid: string; paymentUrl: string; provider: PaymentProvider }) => void
   initialProduct?: string | null
   initialCoupon?: string | null
 }) {
@@ -60,11 +79,31 @@ export function ProCheckoutDialog({
   const [busy, setBusy] = useState<"quote" | "pay" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cards, setCards] = useState<"unknown" | "idle" | "saving" | "subscribed">("unknown")
+  const [lava, setLava] = useState<LavaStatus | null>(null)
+  const [method, setMethod] = useState<Method>("card")
+
+  // Whether card checkout is on, asked on every open: it is a server switch,
+  // and a membership bought in another tab changes what may be sold.
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    fetchLavaStatus()
+      .then((status) => live && setLava(status))
+      .catch(() => live && setLava(null))
+    return () => {
+      live = false
+    }
+  }, [open])
+
+  const cardOn = lava?.enabled === true
+  const viaCard = cardOn && method !== "crypto"
+  // The term lava.top sells as a monthly membership, when paying by card.
+  const membershipSlug = viaCard ? (lava?.membership_product ?? null) : null
 
   // Whether they already asked to hear about cards, so the line doesn't
-  // offer "Notify me" twice.
+  // offer "Notify me" twice. Only asked while cards aren't on.
   useEffect(() => {
-    if (!open || cards !== "unknown") return
+    if (!open || cards !== "unknown" || lava === null || lava.enabled) return
     let live = true
     fetchCardInterest()
       .then((subscribed) => live && setCards(subscribed ? "subscribed" : "idle"))
@@ -72,7 +111,7 @@ export function ProCheckoutDialog({
     return () => {
       live = false
     }
-  }, [open, cards])
+  }, [open, cards, lava])
 
   async function notifyCards() {
     setCards("saving")
@@ -150,7 +189,11 @@ export function ProCheckoutDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selected])
 
-  const chosen = (applied?.slug === selected ? applied : products?.find((p) => p.slug === selected)) ?? null
+  const isMembership = selected !== null && selected === membershipSlug
+  const listed = products?.find((p) => p.slug === selected) ?? null
+  const chosen = isMembership
+    ? listed && atFullPrice(listed)
+    : ((applied?.slug === selected ? applied : listed) ?? null)
 
   function reset() {
     setExtra(null)
@@ -161,6 +204,7 @@ export function ProCheckoutDialog({
     setCouponError(null)
     setBusy(null)
     setError(null)
+    setMethod("card")
   }
 
   function handleOpenChange(next: boolean) {
@@ -173,13 +217,18 @@ export function ProCheckoutDialog({
     // A code typed but never applied would otherwise be dropped and the
     // buyer charged full price. Apply it now; if it's refused, stop here so
     // the reason shows under the field and they choose: fix it or clear it.
-    const typed = code.trim()
+    // The membership takes no coupon (lava.top charges its own price), so
+    // one typed for another term is left out rather than refused.
+    const typed = isMembership ? "" : code.trim()
     if (typed && applied?.slug !== chosen.slug && !(await applyCoupon(chosen.slug, typed))) return
     setBusy("pay")
     setError(null)
     try {
-      const { payment, payment_url } = await startCheckout(chosen.slug, typed || null)
-      onStarted({ uuid: payment, paymentUrl: payment_url })
+      const provider: PaymentProvider = viaCard ? "lava" : "oxapay"
+      const { payment, payment_url } = viaCard
+        ? await startLavaCheckout(chosen.slug, typed || null, method === "paypal" ? "paypal" : "card")
+        : await startCheckout(chosen.slug, typed || null)
+      onStarted({ uuid: payment, paymentUrl: payment_url, provider })
       handleOpenChange(false)
     } catch (err) {
       setError(billingError(err))
@@ -196,7 +245,16 @@ export function ProCheckoutDialog({
           <DialogTitle>Get Pro</DialogTitle>
           {/* text-body, not the shared 14px/400 subtitle: this one has to be read before paying. */}
           <DialogDescription className="text-body text-muted-foreground">
-            Pay once with <span className="font-semibold text-pro-text">USDT, USDC or another digital currency</span>. Nothing renews by itself, and we’ll email you before it ends.
+            {viaCard ? (
+              <>
+                Pay {method === "paypal" ? "with " : "by "}
+                <span className="font-semibold text-pro-text">{method === "paypal" ? "PayPal" : "card"}</span>. Monthly renews by itself until you turn it off; longer terms are paid once.
+              </>
+            ) : (
+              <>
+                Pay once with <span className="font-semibold text-pro-text">USDT, USDC or another digital currency</span>. Nothing renews by itself, and we’ll email you before it ends.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -210,16 +268,30 @@ export function ProCheckoutDialog({
           </p>
         ) : (
           <>
-            <CardPaymentsSoon state={cards} onNotify={notifyCards} />
+            {cardOn ? (
+              <Segmented<Method>
+                aria-label="How to pay"
+                value={method}
+                onChange={setMethod}
+                options={[
+                  { value: "card", label: "Card" },
+                  { value: "paypal", label: "PayPal" },
+                  { value: "crypto", label: "Digital currency" },
+                ]}
+              />
+            ) : (
+              lava !== null && <CardPaymentsSoon state={cards} onNotify={notifyCards} />
+            )}
 
             <TermPicker
               products={products}
               applied={applied}
+              membershipSlug={membershipSlug}
               value={selected ?? defaultSlug(products, initialProduct)}
               onChange={setSelected}
             />
 
-            {couponOpen ? (
+            {isMembership ? null : couponOpen ? (
               <form
                 className="flex items-start gap-2"
                 onSubmit={(e) => {
@@ -258,7 +330,9 @@ export function ProCheckoutDialog({
             )}
 
             <p className="text-body text-muted-foreground">
-              You’ll pay on OxaPay, our payment provider. Pro switches on by itself as soon as the payment confirms, usually within a few minutes.
+              {viaCard
+                ? `You’ll pay ${method === "paypal" ? "with PayPal" : "by card"} on lava.top, our payment provider. Pro switches on by itself as soon as the payment goes through.`
+                : "You’ll pay on OxaPay, our payment provider. Pro switches on by itself as soon as the payment confirms, usually within a few minutes."}
             </p>
           </>
         )}
@@ -268,7 +342,11 @@ export function ProCheckoutDialog({
             Not now
           </Button>
           <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null}>
-            {busy === "pay" ? "Preparing payment…" : chosen ? `Pay ${formatUsd(chosen.price_usd)}` : "Pay"}
+            {busy === "pay"
+              ? "Preparing payment…"
+              : chosen
+                ? `Pay ${formatUsd(chosen.price_usd)}${isMembership ? " a month" : ""}`
+                : "Pay"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -276,7 +354,14 @@ export function ProCheckoutDialog({
   )
 }
 
-/** "25% off until 30 Oct" / "Coupon: 25% off". */
+/**
+ * The product at its list price, no sale: how the card membership is shown,
+ * since lava.top charges its own fixed price every month.
+ */
+function atFullPrice(p: CatalogProduct): CatalogProduct {
+  return { ...p, price_usd: p.list_price_usd, discount_usd: "0.00", discount: null, coupon_error: null }
+}
+
 /**
  * What the dialog opens on: the product a link asked for, else the term the
  * admin badged (the one we recommend), else the first term. A lifetime is
@@ -292,6 +377,7 @@ function defaultSlug(products: CatalogProduct[], initialProduct: string | null |
   ).slug
 }
 
+/** "25% off until 30 Oct" / "Coupon: 25% off". */
 function saleLine(p: CatalogProduct): string {
   if (!p.discount) return ""
   if (p.discount.code) return `Coupon: ${p.discount.label}`
@@ -339,11 +425,14 @@ function CardPaymentsSoon({
 function TermPicker({
   products,
   applied,
+  membershipSlug,
   value,
   onChange,
 }: {
   products: CatalogProduct[]
   applied: CatalogProduct | null
+  /** The term sold as a monthly membership (card checkout), or null. */
+  membershipSlug: string | null
   value: string
   onChange: (slug: string) => void
 }) {
@@ -359,7 +448,8 @@ function TermPicker({
       className="grid grid-cols-2 gap-x-2.5 gap-y-5"
     >
       {ordered.map((p) => {
-        const shown = applied?.slug === p.slug ? applied : p
+        const renews = p.slug === membershipSlug
+        const shown = renews ? atFullPrice(p) : applied?.slug === p.slug ? applied : p
         const lifetime = isLifetime(p)
         const perMonth = Number(shown.per_month_usd ?? shown.price_usd)
         const isMonthly = p === monthly
@@ -420,6 +510,9 @@ function TermPicker({
                   <span className={cn("font-display text-base font-bold", featured && "text-pro-text")}>
                     {p.duration.label ?? p.name}
                   </span>
+                  {renews && (
+                    <span className="rounded-tag bg-pro/15 px-1.5 py-0.5 text-caption font-bold text-pro-text">Subscription</span>
+                  )}
                   {saving > 0 && (
                     <span className="rounded-tag bg-ok/15 px-1.5 py-0.5 text-caption font-bold text-ok-text">Save {saving}%</span>
                   )}
@@ -432,7 +525,7 @@ function TermPicker({
                   {onSale && <s className="text-body text-muted-foreground">{formatUsd(shown.list_price_usd)}</s>}
                 </span>
                 <span className="text-body text-muted-foreground">
-                  {isMonthly ? "Paid once" : `${formatUsd(perMonth)} / month, paid once`}
+                  {renews ? "Every month, until you turn it off" : isMonthly ? "Paid once" : `${formatUsd(perMonth)} / month, paid once`}
                 </span>
               </>
             )}

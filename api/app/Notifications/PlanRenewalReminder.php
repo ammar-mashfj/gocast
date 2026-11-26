@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Notifications\Bell\BellNotification;
 use App\Notifications\Bell\BellPayload;
@@ -27,7 +28,7 @@ class PlanRenewalReminder extends BellNotification implements ShouldQueue
     use Queueable;
 
     public function __construct(
-        private readonly Payment $payment,
+        private readonly Payment|LavaPayment $payment,
         private readonly bool $lastDay,
     ) {}
 
@@ -75,7 +76,9 @@ class PlanRenewalReminder extends BellNotification implements ShouldQueue
             ->subject($this->lastDay ? "Your GoCast {$plan} ends tomorrow" : "Your GoCast {$plan} ends on {$this->endsOn()}")
             ->greeting("Hey {$notifiable->name},")
             ->line("Your GoCast {$plan} runs until **{$this->endsOn()}**. After that your account goes back to Free on its own, and AutoDJ stops when you're not live.")
-            ->line('Once it has ended you can get Pro again from your dashboard, paying with USDT, USDC or another digital currency.')
+            ->line($this->payment instanceof LavaPayment
+                ? 'Once it has ended you can get Pro again from your dashboard, by card or PayPal.'
+                : 'Once it has ended you can get Pro again from your dashboard, paying with USDT, USDC or another digital currency.')
             ->action('See your plan', $frontendUrl.'/dashboard/settings')
             ->line('Reply to this email if anything looks wrong — it comes straight to us.')
             ->salutation('— The GoCast team');

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ds/Button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { StatusLamp } from "@/components/ds/StatusLamp"
-import { billingError, fetchPayment, formatUsd, type PaymentStatus } from "@/lib/billing"
+import { billingError, fetchPayment, formatUsd, type PaymentProvider, type PaymentStatus } from "@/lib/billing"
 
 /**
  * How often to ask while the payment is in flight, and for how long at most.
@@ -32,14 +32,20 @@ const POLL_FOR_MS = 3 * 60 * 60 * 1000
  * granted it refreshes the route so the layout re-reads the plan, and every
  * Pro upsell on the page goes away.
  *
+ * `provider` says which API to poll: OxaPay's payments, or lava.top's (card
+ * and PayPal). A declined card on lava.top is `failed`, and still polled:
+ * the buyer can try again on the same page, and a later success grants.
+ *
  * Mounted with `key={uuid}` so a second payment starts from a clean state.
  */
 export function PaymentStatusDialog({
   uuid,
+  provider = "oxapay",
   startedUrl,
   onClose,
 }: {
   uuid: string | null
+  provider?: PaymentProvider
   startedUrl?: string | null
   onClose: () => void
 }) {
@@ -66,7 +72,7 @@ export function PaymentStatusDialog({
       if (inFlight || done) return
       inFlight = true
       try {
-        const next = await fetchPayment(uuid)
+        const next = await fetchPayment(uuid, provider)
         if (!live) return
         setStatus(next)
         setError(null)
@@ -74,7 +80,7 @@ export function PaymentStatusDialog({
           refreshed.current = true
           router.refresh()
         }
-        if (next.state === "pending" || next.state === "confirming") schedule(POLL_MS)
+        if (next.state === "pending" || next.state === "confirming" || next.state === "failed") schedule(POLL_MS)
         else done = true
       } catch (err) {
         if (!live) return
@@ -96,13 +102,14 @@ export function PaymentStatusDialog({
       if (timer) clearTimeout(timer)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [uuid, router])
+  }, [uuid, provider, router])
 
   // The link exists only while the invoice can still be paid.
   const pending = status === null || status.state === "pending"
-  const paymentUrl = pending ? (status?.payment_url ?? startedUrl ?? null) : null
+  const payable = pending || status?.state === "failed"
+  const paymentUrl = payable ? (status?.payment_url ?? startedUrl ?? null) : null
   const ready = Boolean(startedUrl) && !opened && pending
-  const copy = ready ? readyCopy(status) : describe(status)
+  const copy = ready ? readyCopy(status, provider) : describe(status)
 
   return (
     <Dialog open={uuid !== null} onOpenChange={(next) => !next && onClose()}>
@@ -154,13 +161,14 @@ export function PaymentStatusDialog({
 type Copy = { tone: "onair" | "warn" | "off"; lamp: string; title: string; body: string }
 
 /** Checkout just made the invoice; nothing has been paid. */
-function readyCopy(status: PaymentStatus | null): Copy {
+function readyCopy(status: PaymentStatus | null, provider: PaymentProvider): Copy {
   const what = status ? `${status.product_name} · ${formatUsd(status.amount_usd)}. ` : ""
+  const where = provider === "lava" ? "on lava.top, our payment provider," : "on OxaPay"
   return {
     tone: "off",
     lamp: "Ready",
     title: "Your payment is ready",
-    body: `${what}It opens on OxaPay in a new tab. Keep this tab open: it updates by itself once the payment arrives.`,
+    body: `${what}It opens ${where} in a new tab. Keep this tab open: it updates by itself once the payment arrives.`,
   }
 }
 
@@ -178,9 +186,19 @@ function describe(status: PaymentStatus | null): Copy {
         tone: "onair",
         lamp: "Paid",
         title: "You’re on Pro",
-        body: until
-          ? `${what}. Thanks! It runs until ${until}, and we’ll email you a week before it ends.`
-          : `${what}. Thanks! It has no end date, so there’s nothing to renew.`,
+        body:
+          status.kind === "membership" || status.kind === "renewal"
+            ? `${what}. Thanks! It renews every month by itself. You can turn that off any time on your Account page.`
+            : until
+              ? `${what}. Thanks! It runs until ${until}, and we’ll email you a week before it ends.`
+              : `${what}. Thanks! It has no end date, so there’s nothing to renew.`,
+      }
+    case "failed":
+      return {
+        tone: "warn",
+        lamp: "Not paid",
+        title: "The payment didn’t go through",
+        body: `${what}. Nothing was charged. You can try again on the payment page, or open Get Pro again and pick another way to pay.`,
       }
     case "confirming":
       return {

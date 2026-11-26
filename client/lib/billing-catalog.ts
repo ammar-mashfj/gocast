@@ -27,7 +27,10 @@ export interface CatalogProduct {
  * What the buyer is told about one payment: not paid yet, paid and waiting on
  * confirmation, done, the invoice lapsed, or something a human must look at.
  */
-export type PaymentState = "pending" | "confirming" | "granted" | "expired" | "attention"
+export type PaymentState = "pending" | "confirming" | "granted" | "expired" | "attention" | "failed"
+
+/** Which provider a payment went through: OxaPay (digital currency) or lava.top (card / PayPal). */
+export type PaymentProvider = "oxapay" | "lava"
 
 export interface PaymentStatus {
   payment: string
@@ -36,6 +39,25 @@ export interface PaymentStatus {
   amount_usd: string
   granted_until: string | null
   payment_url: string | null
+  /** lava.top only: a one-off pack, the first month of the membership, or a renewal. */
+  kind?: "pack" | "membership" | "renewal"
+}
+
+/**
+ * Card checkout (lava.top), as LavaBillingController answers it.
+ * `membership_product` is the term sold as a monthly membership that renews
+ * by itself; every other term is paid once.
+ */
+export interface LavaStatus {
+  enabled: boolean
+  membership_product: string
+  membership: {
+    status: "active" | "cancelled"
+    renews: boolean
+    started_at: string
+    cancelled_at: string | null
+    paid_until: string | null
+  } | null
 }
 
 /** Bought once, never ends: no per-month price, no renewal. */

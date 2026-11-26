@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Models\Discount;
+use App\Models\LavaPayment;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
@@ -85,7 +86,11 @@ class Pricing
             $used = Payment::where('user_id', $user->id)
                 ->where('discount_id', $coupon->id)
                 ->whereNotNull('granted_at')
-                ->count();
+                ->count()
+                + LavaPayment::where('user_id', $user->id)
+                    ->where('discount_id', $coupon->id)
+                    ->whereNotNull('granted_at')
+                    ->count();
 
             if ($used >= $coupon->per_user_limit) {
                 return "You've already used this coupon.";

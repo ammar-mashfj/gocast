@@ -1,5 +1,5 @@
 import api from "@/lib/axios"
-import type { CatalogProduct, PaymentStatus } from "@/lib/billing-catalog"
+import type { CatalogProduct, LavaStatus, PaymentProvider, PaymentStatus } from "@/lib/billing-catalog"
 
 export * from "@/lib/billing-catalog"
 
@@ -30,9 +30,31 @@ export async function startCheckout(product: string, code: string | null): Promi
   return res.data.data
 }
 
-export async function fetchPayment(uuid: string): Promise<PaymentStatus> {
-  const res = await api.get<{ data: PaymentStatus }>(`/billing/payments/${encodeURIComponent(uuid)}`)
+export async function fetchPayment(uuid: string, provider: PaymentProvider = "oxapay"): Promise<PaymentStatus> {
+  const path = provider === "lava" ? "/billing/lava/payments/" : "/billing/payments/"
+  const res = await api.get<{ data: PaymentStatus }>(`${path}${encodeURIComponent(uuid)}`)
   return res.data.data
+}
+
+/** Whether card checkout is on, and this account's monthly membership, if any. */
+export async function fetchLavaStatus(): Promise<LavaStatus> {
+  const res = await api.get<{ data: LavaStatus }>("/billing/lava")
+  return res.data.data
+}
+
+/** Card or PayPal checkout: creates the lava.top payment; its page opens from the status dialog. */
+export async function startLavaCheckout(
+  product: string,
+  code: string | null,
+  method: "card" | "paypal",
+): Promise<{ payment: string; payment_url: string }> {
+  const res = await api.post<{ data: { payment: string; payment_url: string } }>("/billing/lava/checkout", { product, code, method })
+  return res.data.data
+}
+
+/** Turns the monthly membership's auto-renew off. Pro stays to the end of the paid month. */
+export async function cancelLavaMembership(): Promise<void> {
+  await api.post("/billing/lava/membership/cancel")
 }
 
 /** The message the API put on a refusal, or a fallback for anything else. */
