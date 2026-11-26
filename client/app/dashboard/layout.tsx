@@ -11,6 +11,7 @@ import { StationStatusProvider } from "@/contexts/StationStatusContext"
 import { ProCheckoutProvider } from "@/contexts/ProCheckoutContext"
 import { RealtimeProvider } from "@/contexts/RealtimeContext"
 import { IdleShowGuard } from "@/components/studio/IdleShowGuard"
+import { YearlyOffer } from "@/components/dashboard/billing/YearlyOffer"
 import { apiFetch, redirectIfSessionExpired } from "@/lib/api-server"
 import { getMyStation } from "@/lib/station-server"
 import { User } from "@/interfaces/User"
@@ -116,6 +117,8 @@ export default async function DashboardLayout({
                   here, not in the studio, so it follows the host around the
                   dashboard mid-show. See lib/idleShow.ts. */}
               <IdleShowGuard />
+              {/* The yearly Pro offer while it's on sale; Free accounts only. */}
+              <YearlyOffer />
               <StationStatusProvider>
                 <SidebarProvider data-surface="dashboard">
                   <AppSidebar user={user} />
