@@ -65,14 +65,14 @@ export default async function DashboardLayout({
   // critical path where one is enough.
   const [account, station] = await Promise.all([
     apiFetch<{ data: User }>("/user")
-      .then(({ data }): Account => ({ email: data.email, plan: data.plan ?? null }))
+      .then(({ data }): Account => ({ id: String(data.id), email: data.email, plan: data.plan ?? null }))
       .catch((err): Account => {
         // Every dashboard route renders under here, the client-rendered studio
         // included, so this is the one place an expired session is caught for
         // all of them. The pages check too, since they render in parallel.
         redirectIfSessionExpired(err)
         console.error("[dashboard] account fetch failed:", err)
-        return { email: user.email, plan: null }
+        return { id: String(user.id), email: user.email, plan: null }
       }),
     // The station's IDENTITY, for the chrome — see StationContext. Resolving
     // it here is what lets the header name the station without a fetch of its

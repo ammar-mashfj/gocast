@@ -68,6 +68,9 @@ class UserResource extends JsonResource
                 // an open-ended plan, which is every plan not granted by a
                 // time-limited invite. Display only; plans:expire enforces it.
                 'expires_at' => $this->plan_expires_at,
+                // Billed monthly by lava.top, so the Account page offers to
+                // cancel (POST /billing/subscription/cancel).
+                'subscribed' => $this->lava_subscription_contract_id !== null,
                 // The studio's "Still at the desk?" check, in seconds, or
                 // null where it doesn't apply: a plan with AutoDJ, or the
                 // check switched off. Configured in config/studio.php.

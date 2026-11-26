@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ds/Button"
 import { RadioGroup } from "radix-ui"
-import { IconCircleCheckFilled } from "@tabler/icons-react"
+import { IconArrowUpRight, IconCircleCheckFilled, IconMail } from "@tabler/icons-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ds/Dialog"
 import { TextField } from "@/components/ds/Field"
 import { ProTag } from "@/components/ds/Tag"
+import { Segmented } from "@/components/ds/Segmented"
+import { useAccount } from "@/contexts/AccountContext"
 import { cn } from "@/lib/utils"
 import { useCatalog } from "@/hooks/useCatalog"
 import {
@@ -21,7 +23,21 @@ import {
 } from "@/lib/billing"
 
 /**
- * Get Pro: pick a term, optionally a coupon, and pay on OxaPay's page.
+ * Card and PayPal: plain links to lava.top, which owns the price, the
+ * checkout and the subscription. The webhook matches the payment to an
+ * account by the buyer's email. Both unset = no card tab, just OxaPay.
+ */
+const LAVA_SUBSCRIPTION_URL = process.env.NEXT_PUBLIC_LAVA_SUBSCRIPTION_URL ?? ""
+const LAVA_PRODUCT_URL = process.env.NEXT_PUBLIC_LAVA_PRODUCT_URL ?? ""
+const CARDS_ON = LAVA_SUBSCRIPTION_URL !== "" && LAVA_PRODUCT_URL !== ""
+
+type Method = "card" | "crypto"
+
+/**
+ * Get Pro, two ways:
+ * - Card or PayPal (first): links to lava.top's subscription and pay-once
+ *   pages, in a new tab.
+ * - Digital currency: pick a term, optionally a coupon, and pay on OxaPay's page.
  *
  * Pay only creates the invoice and hands it to `onStarted`; the payment page
  * itself opens from a real link in the status dialog, in a new tab. The
@@ -60,11 +76,17 @@ export function ProCheckoutDialog({
   const [busy, setBusy] = useState<"quote" | "pay" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cards, setCards] = useState<"unknown" | "idle" | "saving" | "subscribed">("unknown")
+  const account = useAccount()
+  // A link that names a term or a coupon is an OxaPay link (a renewal email,
+  // a coupon someone was sent): open on that tab. Everyone else starts on card.
+  const startOn: Method = CARDS_ON && !initialProduct && !initialCoupon ? "card" : "crypto"
+  const [picked, setPicked] = useState<Method | null>(null)
+  const method = picked ?? startOn
 
   // Whether they already asked to hear about cards, so the line doesn't
   // offer "Notify me" twice.
   useEffect(() => {
-    if (!open || cards !== "unknown") return
+    if (!open || CARDS_ON || cards !== "unknown") return
     let live = true
     fetchCardInterest()
       .then((subscribed) => live && setCards(subscribed ? "subscribed" : "idle"))
@@ -161,6 +183,7 @@ export function ProCheckoutDialog({
     setCouponError(null)
     setBusy(null)
     setError(null)
+    setPicked(null)
   }
 
   function handleOpenChange(next: boolean) {
@@ -196,11 +219,33 @@ export function ProCheckoutDialog({
           <DialogTitle>Get Pro</DialogTitle>
           {/* text-body, not the shared 14px/400 subtitle: this one has to be read before paying. */}
           <DialogDescription className="text-body text-muted-foreground">
-            Pay once with <span className="font-semibold text-pro-text">USDT, USDC or another digital currency</span>. Nothing renews by itself, and we’ll email you before it ends.
+            {method === "card" ? (
+              <>
+                Card and PayPal payments are handled by <span className="font-semibold text-foreground">lava.top</span>, our payment partner. You’ll pay on their page, in a new tab.
+              </>
+            ) : (
+              <>
+                Pay once with <span className="font-semibold text-pro-text">USDT, USDC or another digital currency</span>. Nothing renews by itself, and we’ll email you before it ends.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        {!products ? (
+        {CARDS_ON && (
+          <Segmented
+            aria-label="How to pay"
+            value={method}
+            onChange={setPicked}
+            options={[
+              { value: "card", label: "Card or PayPal" },
+              { value: "crypto", label: "Digital currency" },
+            ]}
+          />
+        )}
+
+        {method === "card" ? (
+          <CardOrPayPal email={account?.email ?? null} accountId={account?.id ?? null} onLeave={() => handleOpenChange(false)} />
+        ) : !products ? (
           <p role="status" className="text-body text-muted-foreground">
             {error ?? "Loading prices…"}
           </p>
@@ -210,7 +255,7 @@ export function ProCheckoutDialog({
           </p>
         ) : (
           <>
-            <CardPaymentsSoon state={cards} onNotify={notifyCards} />
+            {!CARDS_ON && <CardPaymentsSoon state={cards} onNotify={notifyCards} />}
 
             <TermPicker
               products={products}
@@ -267,12 +312,99 @@ export function ProCheckoutDialog({
           <Button size="lg" variant="ghost" onClick={() => handleOpenChange(false)}>
             Not now
           </Button>
-          <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null}>
-            {busy === "pay" ? "Preparing payment…" : chosen ? `Pay ${formatUsd(chosen.price_usd)}` : "Pay"}
-          </Button>
+          {method === "crypto" && (
+            <Button size="lg" variant="pro" onClick={pay} disabled={!chosen || busy !== null}>
+              {busy === "pay" ? "Preparing payment…" : chosen ? `Pay ${formatUsd(chosen.price_usd)}` : "Pay"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The link with this account's id as `utm_content`, which lava.top hands back
+ * in the webhook (clientUtm): the payment then finds the account even when
+ * the buyer types another email. The email stays the fallback.
+ */
+function withAccount(link: string, accountId: string | null): string {
+  if (!accountId) return link
+  const url = new URL(link)
+  url.searchParams.set("utm_source", "gocast")
+  url.searchParams.set("utm_medium", "dashboard")
+  url.searchParams.set("utm_content", accountId)
+  return url.toString()
+}
+
+/** The pay-once plans as lava.top prices them, in USD. */
+const PAY_ONCE = [
+  ["3 months", "$52"],
+  ["6 months", "$96"],
+  ["12 months", "$160"],
+] as const
+
+/**
+ * The two lava.top links. Prices are lava.top's; these labels only describe
+ * them, so a price change there needs the matching change here.
+ * Real links, not window.open, so nothing blocks the new tab, and never this
+ * tab: leaving /dashboard would end a live show.
+ */
+function CardOrPayPal({ email, accountId, onLeave }: { email: string | null; accountId: string | null; onLeave: () => void }) {
+  return (
+    <>
+      <div className="flex flex-col gap-3 rounded-well bg-surface-raised px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="font-display text-base font-bold">Monthly</span>
+          <span className="flex items-baseline gap-1.5">
+            <span className="font-display text-title-lg">$20</span>
+            <span className="text-body text-muted-foreground">/ month</span>
+          </span>
+          <span className="text-body text-muted-foreground">Renews every month. Cancel any time.</span>
+        </span>
+        <Button asChild size="lg" variant="subtle" className="shrink-0">
+          <a href={withAccount(LAVA_SUBSCRIPTION_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
+            Subscribe for $20
+            <IconArrowUpRight aria-hidden />
+          </a>
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-well bg-pro-tint px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="font-display text-base font-bold text-pro-text">Pay once</span>
+          <span className="grid grid-cols-3 gap-3">
+            {PAY_ONCE.map(([length, price]) => (
+              <span key={length} className="flex flex-col">
+                <span className="font-display text-title-lg">{price}</span>
+                <span className="text-body-sm text-muted-foreground">{length}</span>
+              </span>
+            ))}
+          </span>
+          <span className="text-body text-muted-foreground">Paid once. Nothing renews.</span>
+        </span>
+        <Button asChild size="lg" variant="subtle" className="shrink-0">
+          <a href={withAccount(LAVA_PRODUCT_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
+            Choose a plan
+            <IconArrowUpRight aria-hidden />
+          </a>
+        </Button>
+      </div>
+
+      <p className="flex items-start gap-2.5 rounded-well bg-surface-inset px-4 py-3 text-body text-muted-foreground">
+        <IconMail aria-hidden className="mt-0.5 size-4 shrink-0" />
+        <span>
+          {email ? (
+            <>
+              Pay with <span className="font-semibold text-foreground">{email}</span>, the email of your GoCast account,
+            </>
+          ) : (
+            "Pay with the email of your GoCast account,"
+          )}{" "}
+          and Pro switches on by itself within a minute or two.
+        </span>
+      </p>
+    </>
   )
 }
 

@@ -32,7 +32,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property Carbon|null $plan_expires_at
  */
 #[Fillable(['name', 'email', 'password', 'google_id', 'avatar_url', 'plan_id'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'lava_subscription_contract_id', 'lava_subscription_email'])]
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */

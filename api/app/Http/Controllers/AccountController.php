@@ -6,6 +6,7 @@ use App\Http\Requests\UpdatePasswordRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use App\Notifications\EmailChangedNotification;
 use App\Notifications\PasswordChangedNotification;
+use App\Services\LavaSales;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -78,7 +79,7 @@ class AccountController extends Controller
         return response()->json(['message' => 'Password updated.']);
     }
 
-    public function destroy(Request $request): JsonResponse
+    public function destroy(Request $request, LavaSales $lava): JsonResponse
     {
         $user = $request->user();
 
@@ -96,6 +97,11 @@ class AccountController extends Controller
                 'confirmation' => 'Type your account email exactly as shown to confirm.',
             ]);
         }
+
+        // A running lava.top subscription would keep charging a closed
+        // account. Cancelled first, while the row still has the email it was
+        // bought with; a failure alerts the admin and never blocks this.
+        $lava->cancelForDeletedAccount($user);
 
         // Soft-delete (User uses SoftDeletes). Tokens revoked so the current
         // session can't continue acting on a "deleted" account. Release unique
