@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendAdminTelegramAlert;
+use App\Models\LavaSale;
 use App\Models\Payment;
 use App\Models\Station;
 use App\Models\StreamSession;
@@ -123,6 +124,69 @@ class AdminTelegram
             .$this->e($payment->user?->email ?? 'unknown')."\n"
             .$this->e((string) $payment->review_reason)."\n"
             .'<a href="'.$this->e(route('admin.payments.index', ['search' => $payment->uuid])).'">Admin</a>'
+        );
+    }
+
+    /** A lava.top charge that extended an account's Pro. */
+    public function lavaSaleGranted(LavaSale $sale, User $user): void
+    {
+        $what = match (true) {
+            $sale->event_type === 'subscription.recurring.payment.success' => 'Monthly renewal',
+            $sale->months === 1 => 'New monthly subscriber',
+            default => "{$sale->months} months, paid once",
+        };
+
+        $this->send(
+            "💳 <b>lava.top: {$this->e($what)}</b>\n"
+            .$this->e(trim(($sale->amount ?? '?').' '.($sale->currency ?? '')))."\n"
+            .$this->e($user->email)."\n"
+            .($sale->granted_until ? 'Pro until '.$this->e($sale->granted_until->toFormattedDateString()) : '')
+        );
+    }
+
+    /** A subscriber cancelled. Their Pro runs to the end of what they paid for. */
+    public function lavaSubscriptionCancelled(User $user, string $where): void
+    {
+        $this->send(
+            "👋 <b>lava.top subscription cancelled</b> ({$this->e($where)})\n"
+            .$this->e($user->email)."\n"
+            .($user->plan_expires_at ? 'Pro until '.$this->e($user->plan_expires_at->toFormattedDateString()) : '')
+        );
+    }
+
+    /** A deleted account's subscription lava.top wouldn't cancel: do it by hand. */
+    public function lavaCancelFailed(string $accountEmail, string $contractId, string $buyerEmail, string $reason): void
+    {
+        $this->send(
+            "⚠️ <b>Cancel a lava.top subscription by hand</b>\n"
+            .$this->e($accountEmail).' deleted their account, but lava.top did not cancel the subscription, so it will keep charging.'."\n"
+            .'Buyer: '.$this->e($buyerEmail)."\n"
+            .'Contract '.$this->e($contractId)."\n"
+            .$this->e($reason)
+        );
+    }
+
+    /** A subscriber started a second subscription: only one can be cancelled from the Account page. */
+    public function lavaSecondSubscription(LavaSale $sale, User $user): void
+    {
+        $this->send(
+            "⚠️ <b>Second lava.top subscription</b>\n"
+            .$this->e($user->email).' is paying for two monthly subscriptions. Cancel this one on lava.top by hand. It added a month of Pro: if you refund it, take the month back in the admin too.'."\n"
+            .'Buyer: '.$this->e($sale->email ?? 'unknown')."\n"
+            .'Contract '.$this->e((string) ($sale->payload['parentContractId'] ?? $sale->contract_id))
+        );
+    }
+
+    /** A lava.top charge that granted nothing: the reason says what to do. */
+    public function lavaSaleNeedsReview(LavaSale $sale): void
+    {
+        $this->send(
+            "⚠️ <b>lava.top payment needs you</b>\n"
+            .$this->e(trim(($sale->amount ?? '?').' '.($sale->currency ?? '')))
+            .' · '.$this->e((string) ($sale->payload['product']['title'] ?? $sale->product_id ?? 'unknown product'))."\n"
+            .'Buyer: '.$this->e($sale->email ?? 'unknown')."\n"
+            .$this->e((string) $sale->review_reason)."\n"
+            .'Contract '.$this->e($sale->contract_id)
         );
     }
 

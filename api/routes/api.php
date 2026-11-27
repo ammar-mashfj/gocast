@@ -12,6 +12,8 @@ use App\Http\Controllers\HarborAuthController;
 use App\Http\Controllers\IcecastCallbackController;
 use App\Http\Controllers\IdleCheckController;
 use App\Http\Controllers\InviteController;
+use App\Http\Controllers\LavaSubscriptionController;
+use App\Http\Controllers\LavaWebhookController;
 use App\Http\Controllers\ListenerCountController;
 use App\Http\Controllers\ListenerSessionController;
 use App\Http\Controllers\MetricsController;
@@ -342,6 +344,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('throttle:30,1,billing-card-interest');
     Route::post('/billing/card-interest', [BillingController::class, 'notifyCards'])
         ->middleware('throttle:10,1,billing-card-notify');
+    Route::post('/billing/subscription/cancel', LavaSubscriptionController::class)
+        ->middleware('throttle:10,1,billing-subscription-cancel');
 });
 
 // Liquidsoap harbor auth callback and the now-playing push. Both are
@@ -396,3 +400,9 @@ Route::post('/webhooks/resend', ResendWebhookController::class)
 Route::post('/webhooks/oxapay', OxaPayWebhookController::class)
     ->middleware('throttle:120,1,oxapay-webhook')
     ->name('webhooks.oxapay');
+
+// lava.top payments (card and PayPal links). Public, but every request must
+// carry LAVA_WEBHOOK_SECRET; see LavaWebhookController.
+Route::post('/webhooks/lava', LavaWebhookController::class)
+    ->middleware('throttle:120,1,lava-webhook')
+    ->name('webhooks.lava');

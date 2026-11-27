@@ -30,6 +30,12 @@ export async function startCheckout(product: string, code: string | null): Promi
   return res.data.data
 }
 
+/** Stop the lava.top monthly subscription. Pro stays until `pro_until`. */
+export async function cancelSubscription(): Promise<{ pro_until: string | null }> {
+  const res = await api.post<{ data: { pro_until: string | null } }>("/billing/subscription/cancel")
+  return res.data.data
+}
+
 export async function fetchPayment(uuid: string): Promise<PaymentStatus> {
   const res = await api.get<{ data: PaymentStatus }>(`/billing/payments/${encodeURIComponent(uuid)}`)
   return res.data.data

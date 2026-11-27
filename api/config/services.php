@@ -62,6 +62,29 @@ return [
         'invoice_lifetime_minutes' => (int) env('OXAPAY_INVOICE_LIFETIME', 60),
     ],
 
+    // Card and PayPal through lava.top links (App\Services\LavaSales). No API
+    // key: buyers pay on lava.top's own pages and the webhook at
+    // /api/webhooks/lava extends Pro. `webhook_secret` is what lava.top sends
+    // (X-Api-Key, or the Basic-auth password); blank = the webhook refuses.
+    //
+    // `pay_once` maps the USD amount paid for the pay-once product to its
+    // months, since the webhook names the product but not the plan picked.
+    // Keep it in step with the prices in lava.top.
+    'lava' => [
+        // Only for cancelling a subscription from the Account page; buying
+        // never touches the API. Blank = cancelling there is refused.
+        'api_key' => env('LAVA_API_KEY'),
+        'base_url' => env('LAVA_BASE_URL', 'https://gate.lava.top'),
+        'webhook_secret' => env('LAVA_WEBHOOK_SECRET'),
+        'subscription_product_id' => env('LAVA_SUBSCRIPTION_PRODUCT_ID', '3cf32536-429c-473e-8fde-ae3403b35dd7'),
+        'pay_once_product_id' => env('LAVA_PAY_ONCE_PRODUCT_ID', '52eb6015-701b-40ec-a45d-f93d93320927'),
+        'pay_once' => [
+            '52.00' => 3,
+            '96.00' => 6,
+            '160.00' => 12,
+        ],
+    ],
+
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'admin_chat_id' => env('TELEGRAM_ADMIN_CHAT_ID'),

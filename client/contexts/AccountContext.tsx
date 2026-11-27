@@ -20,6 +20,7 @@ import type { Plan } from "@/interfaces/Plan"
  * state alone.
  */
 export interface Account {
+  id: string
   email: string
   /** Null when the fetch failed — "don't know", never "free". See usePlan. */
   plan: Plan | null
