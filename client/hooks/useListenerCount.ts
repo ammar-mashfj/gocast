@@ -10,9 +10,11 @@ import { usePublicStationStats } from "./usePublicStationStats"
  * should not have to know that air state and now-playing arrive on the same
  * response.
  *
- * Reads the PUBLIC endpoint rather than the owner's status endpoint, because
- * the count lives there and nowhere else: `GET /stations/{slug}/status`
- * reports the audio graph, not the audience. The Icecast half of the number
+ * For the owner's screens (Overview, status band), so it reads the owner's
+ * copy of the listeners feed: the public one sends no count when the station
+ * hides it from listeners, and the owner must still see it. Not
+ * `GET /stations/{slug}/status`, which reports the audio graph, not the
+ * audience. The Icecast half of the number
  * is written by `stations:sync-listeners` once a minute, so it moves in
  * minute-sized steps however often we ask.
  *
@@ -21,5 +23,5 @@ import { usePublicStationStats } from "./usePublicStationStats"
  * yet should not claim one either way.
  */
 export function useListenerCount(slug: string, enabled = true): number | null {
-  return usePublicStationStats(slug, { enabled })?.count ?? null
+  return usePublicStationStats(slug, { enabled, owner: true })?.count ?? null
 }

@@ -280,6 +280,7 @@ class StationResource extends JsonResource
             // and not a canary): the switch would do nothing, so the
             // dashboard hides it.
             'crossfade_available' => $this->resource->crossfadeAvailable(),
+            'show_listener_count' => (bool) ($this->show_listener_count ?? true),
             'jingle_mode' => $this->jingle_mode,
             'jingle_interval_seconds' => (int) $this->jingle_interval_seconds,
             'jingle_every_tracks' => (int) $this->jingle_every_tracks,

@@ -139,9 +139,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
     slug: "your-player-page",
     title: "Your player page",
     description:
-      "The page listeners land on, what it shows when you are off air, and the link you hand out.",
+      "The page listeners land on, what it shows when you are off air, how to hide your listener count, and the link you hand out.",
     category: "getting-started",
-    updated: "2026-10-18",
+    updated: "2026-11-27",
     Body: PlayerPageBody,
     related: ["share-your-station", "embed-the-player"],
   },
@@ -251,7 +251,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     description:
       "Putting a working player on your own page with a snippet of HTML.",
     category: "listeners",
-    updated: "2026-10-18",
+    updated: "2026-11-27",
     pro: true,
     Body: EmbedBody,
     related: ["share-your-station", "free-and-pro"],

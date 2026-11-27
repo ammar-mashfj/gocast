@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Station;
 use App\Services\ListenerAnalytics;
 use App\Services\StationStatusService;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Redis;
 
@@ -16,15 +17,43 @@ use Illuminate\Support\Facades\Redis;
  * actually happening rather than inferring it from owner intent. The cost is
  * one HTTP call per station, already collapsed by StationStatusService's short
  * TTL cache, and it is only ever one station.
+ *
+ * Two routes, one payload. The public one withholds the count when the owner
+ * keeps it private; the owner's own (signed in, `view` policy) always carries
+ * it, so the studio, Overview and status band keep their numbers. The public
+ * endpoint answers the same for everyone, owner included.
  */
 class ListenerCountController extends Controller
 {
+    use AuthorizesRequests;
+
     public function show(
         string $slug,
         StationStatusService $statusService,
         ListenerAnalytics $analytics,
     ): JsonResponse {
         $station = Station::where('slug', $slug)->firstOrFail();
+
+        return $this->payload($station, $statusService, $analytics, $station->show_listener_count);
+    }
+
+    /** The owner's copy: the same payload with the count always included. */
+    public function owner(
+        Station $station,
+        StationStatusService $statusService,
+        ListenerAnalytics $analytics,
+    ): JsonResponse {
+        $this->authorize('view', $station);
+
+        return $this->payload($station, $statusService, $analytics, true);
+    }
+
+    private function payload(
+        Station $station,
+        StationStatusService $statusService,
+        ListenerAnalytics $analytics,
+        bool $withCount,
+    ): JsonResponse {
 
         // Both transports, added together. HLS listeners are the ones whose
         // players have checked in within the live window — a real-time figure,
@@ -49,7 +78,11 @@ class ListenerCountController extends Controller
         }
 
         return response()->json(['data' => [
-            'count' => $count,
+            // Null on the public route when the owner keeps the figure
+            // private. Withheld here, not just hidden by the player, because
+            // that endpoint is public: hiding it in the UI alone would leave
+            // the number one request away.
+            'count' => $withCount ? $count : null,
             'state' => $state,
             'is_live' => $state === StationStatusService::STATE_LIVE,
             // True whenever a listener who presses play will get audio —

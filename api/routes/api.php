@@ -216,6 +216,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/stations/{station:slug}/status', StationStatusController::class)
             ->middleware('throttle:120,1,station-status');
 
+        // The owner's copy of the public listeners feed: same payload, but
+        // the count is always there, even when the station hides it from the
+        // public. Polled every 10s by the studio, Overview and status band.
+        Route::get('/stations/{station:slug}/listeners', [ListenerCountController::class, 'owner'])
+            ->middleware('throttle:120,1,station-listeners');
+
         // The owner's audience report. Read-only and a handful of grouped
         // scans over indexed windows, but not free either — throttled at a
         // rate that comfortably covers switching between the 7/30/90 ranges

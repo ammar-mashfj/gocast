@@ -139,7 +139,9 @@ export function useBroadcastStats(
     // the broadcast they are in the middle of. Affordable because it is one
     // broadcaster per station — the public player, which is one per LISTENER,
     // takes the default and pauses.
-    { enabled: isLive, pauseWhenHidden: false },
+    // `owner`: the public feed sends no count when the station hides it
+    // from listeners, and the studio would read 0 for the whole show.
+    { enabled: isLive, pauseWhenHidden: false, owner: true },
   )
 
   return { elapsed, listeners, peak: session.peak, history: session.history, startedAt: liveSince }

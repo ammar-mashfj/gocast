@@ -288,6 +288,7 @@ class Station extends Model
             'storage_cap_bytes' => 'integer',
             'jingles_enabled' => 'boolean',
             'crossfade_enabled' => 'boolean',
+            'show_listener_count' => 'boolean',
             'jingle_interval_seconds' => 'integer',
             'jingle_every_tracks' => 'integer',
             'jingle_times' => 'array',

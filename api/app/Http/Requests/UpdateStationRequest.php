@@ -70,6 +70,8 @@ class UpdateStationRequest extends FormRequest
             'jingles_enabled' => ['sometimes', 'boolean'],
             // Applied live, from the next song change (StationObserver).
             'crossfade_enabled' => ['sometimes', 'boolean'],
+            // Off hides "N listening" on the public player and embed.
+            'show_listener_count' => ['sometimes', 'boolean'],
             'jingle_mode' => ['sometimes', Rule::in(Station::JINGLE_MODES)],
             // 1 minute floor: below that the delay operator stops being a
             // spacing rule and starts being "a jingle between every track",
