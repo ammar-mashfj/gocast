@@ -58,6 +58,19 @@ describe("PlanCard: cancel subscription", () => {
     expect(screen.queryByRole("button", { name: "Cancel subscription" })).toBeNull()
   })
 
+  it("gives no day count when a day or less is left", async () => {
+    const tomorrow = new Date(Date.now() + 20 * 3_600_000).toISOString()
+    h.plan = pro({ subscribed: true, expires_at: tomorrow })
+    h.cancel.mockResolvedValue({ pro_until: tomorrow })
+    render(<PlanCard />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel subscription" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel subscription" }).at(-1)!)
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/cancelled\. You still have Pro until \d/))
+    expect(screen.getByRole("status").textContent).not.toMatch(/days?,/)
+  })
+
   it("keeps the button and shows why when it couldn't cancel", async () => {
     h.plan = pro({ subscribed: true })
     h.cancel.mockRejectedValue(new Error("down"))

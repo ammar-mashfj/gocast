@@ -27,8 +27,19 @@ import {
  * checkout and the subscription. The webhook matches the payment to an
  * account by the buyer's email. Both unset = no card tab, just OxaPay.
  */
-const LAVA_SUBSCRIPTION_URL = process.env.NEXT_PUBLIC_LAVA_SUBSCRIPTION_URL ?? ""
-const LAVA_PRODUCT_URL = process.env.NEXT_PUBLIC_LAVA_PRODUCT_URL ?? ""
+/** The link if it parses as a URL, else "": a mistyped env value turns the card tab off instead of crashing the dialog. */
+function lavaLink(value: string | undefined): string {
+  if (!value) return ""
+  try {
+    new URL(value)
+    return value
+  } catch {
+    return ""
+  }
+}
+
+const LAVA_SUBSCRIPTION_URL = lavaLink(process.env.NEXT_PUBLIC_LAVA_SUBSCRIPTION_URL)
+const LAVA_PRODUCT_URL = lavaLink(process.env.NEXT_PUBLIC_LAVA_PRODUCT_URL)
 const CARDS_ON = LAVA_SUBSCRIPTION_URL !== "" && LAVA_PRODUCT_URL !== ""
 
 type Method = "card" | "crypto"

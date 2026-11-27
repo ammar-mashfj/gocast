@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\LavaSaleFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -26,6 +28,9 @@ use Illuminate\Support\Carbon;
  */
 class LavaSale extends Model
 {
+    /** @use HasFactory<LavaSaleFactory> */
+    use HasFactory;
+
     protected $guarded = [];
 
     /**

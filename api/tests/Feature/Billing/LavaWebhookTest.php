@@ -341,8 +341,72 @@ it('forgets a subscription cancelled on lava.top’s side', function (array $eve
         ->plan_expires_at->toDateString()->toBe(now()->addDays(12)->toDateString());
 })->with([
     'by its contract' => [['contractId' => 'c5a0cacc-3453-44b0-9532-aa492f1ba191', 'buyer' => ['email' => 'someone@else.com']]],
-    'by the email it was bought with' => [['contractId' => '04f152b7-63ec-46ff-958e-8a6f5869acd6']],
+    'by a renewal of it' => [['contractId' => '9b1f3c2e-5d47-4a8e-9f0b-2c6d8e1a7b34', 'parentContractId' => 'c5a0cacc-3453-44b0-9532-aa492f1ba191']],
 ]);
+
+it('keeps the subscription when lava.top cancels another one bought with the same email', function () {
+    $user = subscriber();
+
+    lavaWebhook(['eventType' => 'subscription.cancelled', 'product' => ['id' => LAVA_SUBSCRIPTION], 'contractId' => (string) Str::uuid()])->assertOk();
+
+    expect($user->fresh()->lava_subscription_contract_id)->toBe('c5a0cacc-3453-44b0-9532-aa492f1ba191');
+});
+
+it('grants a second subscription, keeps the first for Cancel, and asks the admin to cancel the second', function () {
+    $user = subscriber(['plan_expires_at' => now()->addDays(12)]);
+
+    lavaWebhook(['product' => ['id' => LAVA_SUBSCRIPTION], 'amount' => 20.0, 'clientUtm' => ['utm_content' => (string) $user->id]])->assertOk();
+
+    expect($user->fresh())
+        ->lava_subscription_contract_id->toBe('c5a0cacc-3453-44b0-9532-aa492f1ba191')
+        ->plan_expires_at->toDateString()->toBe(now()->addDays(12)->addMonthNoOverflow()->toDateString());
+    expect(lavaAlerts('Second lava.top subscription'))->toBe(1);
+});
+
+it('remembers a subscription whose charge was flagged, so it can still be cancelled', function () {
+    $user = User::factory()->onPlan('pro')->create(['email' => 'buyer@example.com', 'plan_expires_at' => null]);
+    $contract = (string) Str::uuid();
+
+    lavaWebhook(['product' => ['id' => LAVA_SUBSCRIPTION], 'amount' => 20.0, 'contractId' => $contract])->assertOk();
+
+    expect(LavaSale::sole()->review_reason)->not->toBeNull()
+        ->and($user->fresh()->lava_subscription_contract_id)->toBe($contract);
+});
+
+it('flags a renewal of a deleted account’s subscription instead of giving it to a new account with the email', function () {
+    $gone = subscriber();
+    $gone->delete();
+    $newcomer = User::factory()->create(['email' => 'buyer@example.com']);
+
+    lavaWebhook([
+        'eventType' => 'subscription.recurring.payment.success',
+        'product' => ['id' => LAVA_SUBSCRIPTION],
+        'parentContractId' => 'c5a0cacc-3453-44b0-9532-aa492f1ba191',
+        'amount' => 20.0,
+    ])->assertOk();
+
+    expect($newcomer->fresh())
+        ->plan_expires_at->toBeNull()
+        ->lava_subscription_contract_id->toBeNull();
+    expect(LavaSale::sole()->review_reason)->toContain('deleted');
+});
+
+it('answers 200 and keeps the grant when the Pro email can’t be queued', function () {
+    $user = User::factory()->create(['email' => 'buyer@example.com']);
+    Notification::shouldReceive('send')->andThrow(new RuntimeException('queue down'));
+
+    lavaWebhook()->assertOk();
+
+    expect($user->fresh()->plan_id)->toBe(proId());
+});
+
+it('answers 503 when cancelling isn’t set up', function () {
+    $user = subscriber();
+    config(['services.lava.api_key' => '']);
+
+    $this->actingAs($user)->postJson('/api/billing/subscription/cancel')->assertStatus(503);
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'gate.lava.top'));
+});
 
 it('cancels a running subscription when the account is deleted', function () {
     $user = subscriber();

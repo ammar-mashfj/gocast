@@ -32,6 +32,14 @@ function daysUntil(iso: string): number {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000))
 }
 
+/** "You still have Pro for 3 days, until 30 Nov 2026." Singular for one day, and no count when under a day is left. */
+function proLeft(iso: string): string {
+  const days = daysUntil(iso)
+  const day = formatDay(iso)
+  if (days <= 1) return `You still have Pro until ${day}.`
+  return `You still have Pro for ${days} days, until ${day}.`
+}
+
 /**
  * Which plan this account is on. Pro is the amber card (amber = Pro); Free is
  * a plain card with Get Pro, which opens checkout. A time-limited plan (a
@@ -101,7 +109,7 @@ export function PlanCard() {
       {cancelled && (
         <p role="status" className="text-body text-foreground">
           {cancelled.until
-            ? `Your subscription is cancelled. You still have Pro for ${daysUntil(cancelled.until)} days, until ${formatDay(cancelled.until)}.`
+            ? `Your subscription is cancelled. ${proLeft(cancelled.until)}`
             : "Your subscription is cancelled. You won’t be charged again."}
         </p>
       )}

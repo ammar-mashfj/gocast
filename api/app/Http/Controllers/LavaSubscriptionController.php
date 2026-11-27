@@ -18,7 +18,13 @@ class LavaSubscriptionController extends Controller
         $refusal = $sales->cancel($user);
 
         if ($refusal !== null) {
-            return response()->json(['message' => $refusal], $user->lava_subscription_contract_id === null ? 409 : 502);
+            $status = match (true) {
+                $user->lava_subscription_contract_id === null => 409,
+                blank(config('services.lava.api_key')) => 503,
+                default => 502,
+            };
+
+            return response()->json(['message' => $refusal], $status);
         }
 
         return response()->json(['data' => ['pro_until' => $user->fresh()->plan_expires_at]]);

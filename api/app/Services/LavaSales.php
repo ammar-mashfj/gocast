@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Turns a lava.top payment webhook into Pro time.
@@ -96,10 +97,22 @@ class LavaSales
                 return null;
             }
 
+            if ($this->heldByDeletedAccount($data)) {
+                return $this->flag($sale, 'A renewal of a subscription whose GoCast account was deleted. Cancel it on lava.top by hand and refund this charge.');
+            }
+
             $user = $this->account($data);
+            $another = false;
 
             if ($user !== null) {
                 $sale->user_id = $user->id;
+
+                // Before anything can be flagged: a subscriber whose charge
+                // grants nothing (say they already have permanent Pro) still
+                // needs Cancel on the Account page.
+                if ($sale->product_id === config('services.lava.subscription_product_id')) {
+                    $another = $this->remember($user, $sale, $event, $data);
+                }
             }
 
             $months = $this->months($sale);
@@ -141,18 +154,7 @@ class LavaSales
             $sale->granted_until = $until;
             $sale->save();
 
-            if ($sale->product_id === config('services.lava.subscription_product_id')) {
-                // What the cancel call needs: the first charge's contract and
-                // the email it was bought with. A renewal fills it in only if
-                // it's missing, so it never points at a renewal's contract.
-                $first = $event === self::EVENT_RENEWAL ? (string) ($data['parentContractId'] ?? '') : $sale->contract_id;
-
-                if ($user->lava_subscription_contract_id === null && $first !== '') {
-                    $user->forceFill(['lava_subscription_contract_id' => $first, 'lava_subscription_email' => $sale->email])->save();
-                }
-            }
-
-            return [$user, $plan, $label, $until, $extended];
+            return [$user, $plan, $label, $until, $extended, $another];
         });
 
         if ($outcome === null) {
@@ -161,22 +163,33 @@ class LavaSales
 
         $sale = LavaSale::where('contract_id', $contractId)->first();
 
-        if ($outcome === 'flagged') {
-            $this->telegram->lavaSaleNeedsReview($sale);
+        // The sale is saved, so lava.top's retry would stop at it: a failure
+        // to queue an email or alert must not turn into a 500 that asks for
+        // one. It is reported instead.
+        try {
+            if ($outcome === 'flagged') {
+                $this->telegram->lavaSaleNeedsReview($sale);
 
-            return $sale;
+                return $sale;
+            }
+
+            /** @var array{0: User, 1: Plan, 2: string, 3: Carbon, 4: bool, 5: bool} $outcome */
+            [$user, $plan, $label, $until, $extended, $another] = $outcome;
+
+            // A renewal is the same month every month: the receipt is lava.top's,
+            // and an email from us each time would only be noise.
+            if ($event === self::EVENT_PAYMENT) {
+                $user->notify(new ProAccessGranted($plan, $until, $label, paid: true, extended: $extended));
+            }
+
+            $this->telegram->lavaSaleGranted($sale, $user);
+
+            if ($another) {
+                $this->telegram->lavaSecondSubscription($sale, $user);
+            }
+        } catch (Throwable $e) {
+            report($e);
         }
-
-        /** @var array{0: User, 1: Plan, 2: string, 3: Carbon, 4: bool} $outcome */
-        [$user, $plan, $label, $until, $extended] = $outcome;
-
-        // A renewal is the same month every month: the receipt is lava.top's,
-        // and an email from us each time would only be noise.
-        if ($event === self::EVENT_PAYMENT) {
-            $user->notify(new ProAccessGranted($plan, $until, $label, paid: true, extended: $extended));
-        }
-
-        $this->telegram->lavaSaleGranted($sale, $user);
 
         return $sale;
     }
@@ -256,11 +269,11 @@ class LavaSales
      */
     private function forget(array $data): void
     {
+        // By contract only: an email match could clear a different
+        // subscription the same buyer still pays for.
         $contracts = array_filter([(string) ($data['contractId'] ?? ''), (string) ($data['parentContractId'] ?? '')]);
-        $email = trim((string) ($data['buyer']['email'] ?? ''));
 
         $user = $contracts === [] ? null : User::whereIn('lava_subscription_contract_id', $contracts)->first();
-        $user ??= $email === '' ? null : User::where('lava_subscription_email', $email)->whereNotNull('lava_subscription_contract_id')->first();
 
         if ($user === null) {
             return;
@@ -268,6 +281,46 @@ class LavaSales
 
         $user->forceFill(['lava_subscription_contract_id' => null, 'lava_subscription_email' => null])->save();
         $this->telegram->lavaSubscriptionCancelled($user, 'on lava.top');
+    }
+
+    /**
+     * Keep the subscription on the account, for the cancel call: the first
+     * charge's contract and the email it was bought with (a renewal names
+     * its first charge as parentContractId).
+     *
+     * @param  array<string, mixed>  $data
+     * @return bool Whether the account already holds a different one: a second
+     *              subscription, which the admin has to cancel by hand.
+     */
+    private function remember(User $user, LavaSale $sale, string $event, array $data): bool
+    {
+        $first = $event === self::EVENT_RENEWAL ? (string) ($data['parentContractId'] ?? '') : $sale->contract_id;
+
+        if ($first === '') {
+            return false;
+        }
+
+        if ($user->lava_subscription_contract_id === null) {
+            $user->forceFill(['lava_subscription_contract_id' => $first, 'lava_subscription_email' => $sale->email])->save();
+
+            return false;
+        }
+
+        return $user->lava_subscription_contract_id !== $first;
+    }
+
+    /**
+     * A renewal of a subscription held by a deleted account. Its cancel
+     * failed at deletion (the admin was told), and it must not fall through
+     * to whoever has since signed up with the buyer's email.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function heldByDeletedAccount(array $data): bool
+    {
+        $parent = (string) ($data['parentContractId'] ?? '');
+
+        return $parent !== '' && User::onlyTrashed()->where('lava_subscription_contract_id', $parent)->exists();
     }
 
     /**

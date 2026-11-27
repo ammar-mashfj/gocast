@@ -166,6 +166,17 @@ class AdminTelegram
         );
     }
 
+    /** A subscriber started a second subscription: only one can be cancelled from the Account page. */
+    public function lavaSecondSubscription(LavaSale $sale, User $user): void
+    {
+        $this->send(
+            "⚠️ <b>Second lava.top subscription</b>\n"
+            .$this->e($user->email).' is paying for two monthly subscriptions. Cancel this one on lava.top by hand and refund it.'."\n"
+            .'Buyer: '.$this->e($sale->email ?? 'unknown')."\n"
+            .'Contract '.$this->e((string) ($sale->payload['parentContractId'] ?? $sale->contract_id))
+        );
+    }
+
     /** A lava.top charge that granted nothing: the reason says what to do. */
     public function lavaSaleNeedsReview(LavaSale $sale): void
     {
