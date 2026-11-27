@@ -97,6 +97,12 @@
                         </a>
                     </li>
                     <li>
+                        <a href="{{ route('admin.spotlights.index') }}"
+                           @class(['menu-active' => request()->routeIs('admin.spotlights.*')])>
+                            Spotlights
+                        </a>
+                    </li>
+                    <li>
                         <a href="{{ route('admin.emails.index') }}"
                            @class(['menu-active' => request()->routeIs('admin.emails.*')])>
                             Send email

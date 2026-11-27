@@ -10,10 +10,12 @@ import { formatStationClock } from "@/lib/format"
 import { Button } from "@/components/ds/Button"
 import { SetupMenu } from "./SetupMenu"
 import { UpdatesMenu } from "./UpdatesMenu"
+import { Spotlights } from "@/components/dashboard/spotlight/Spotlights"
 
 /**
  * The dashboard's top bar: sidebar toggle, the page's name, the time where
- * the station is, the setup chip while anything is left, and Updates. The
+ * the station is, the spotlight chips (components/dashboard/spotlight), the setup chip
+ * while anything is left, and Updates. The
  * status band sits directly under it and scrolls with it (DashboardShell).
  */
 export function TopBar() {
@@ -41,6 +43,7 @@ export function TopBar() {
 
       <div className="ml-auto flex items-center gap-3.5">
         {station?.timezone && <StationClock timeZone={station.timezone} />}
+        <Spotlights />
         <SetupMenu />
         <UpdatesMenu />
       </div>

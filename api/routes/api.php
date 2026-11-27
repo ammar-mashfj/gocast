@@ -27,6 +27,7 @@ use App\Http\Controllers\PlaylistTrackController;
 use App\Http\Controllers\PublicEmbedController;
 use App\Http\Controllers\PublicStationController;
 use App\Http\Controllers\ResendWebhookController;
+use App\Http\Controllers\SpotlightController;
 use App\Http\Controllers\StationController;
 use App\Http\Controllers\StationEventController;
 use App\Http\Controllers\StationNotifyController;
@@ -123,6 +124,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
     Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
+
+    // The spotlight dialog: offers, new features, notices. Next to the bell
+    // and outside `verified` for the same reason. Who sees which is decided
+    // on every read (SpotlightController), so the GET is cheap and unpolled:
+    // the dashboard asks once per load. The action route has its own limiter
+    // name; see the note above this group.
+    Route::get('/spotlights', [SpotlightController::class, 'index']);
+    Route::post('/spotlights/{key}/{action}', [SpotlightController::class, 'record'])
+        ->whereIn('action', ['seen', 'minimize', 'click'])
+        ->middleware('throttle:60,1,spotlight-actions');
 
     // Account self-service — kept outside `verified` so a user who mistyped their
     // email on signup can correct it (UpdateProfileRequest clears verification on

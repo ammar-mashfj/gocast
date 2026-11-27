@@ -20,6 +20,7 @@ import {
   quoteProduct,
   startCheckout,
   type CatalogProduct,
+  withLavaAccount,
 } from "@/lib/billing"
 
 /**
@@ -334,20 +335,6 @@ export function ProCheckoutDialog({
   )
 }
 
-/**
- * The link with this account's id as `utm_content`, which lava.top hands back
- * in the webhook (clientUtm): the payment then finds the account even when
- * the buyer types another email. The email stays the fallback.
- */
-function withAccount(link: string, accountId: string | null): string {
-  if (!accountId) return link
-  const url = new URL(link)
-  url.searchParams.set("utm_source", "gocast")
-  url.searchParams.set("utm_medium", "dashboard")
-  url.searchParams.set("utm_content", accountId)
-  return url.toString()
-}
-
 /** The pay-once plans as lava.top prices them, in USD. */
 const PAY_ONCE = [
   ["3 months", "$52"],
@@ -374,7 +361,7 @@ function CardOrPayPal({ email, accountId, onLeave }: { email: string | null; acc
           <span className="text-body text-muted-foreground">Renews every month. Cancel any time.</span>
         </span>
         <Button asChild size="lg" variant="subtle" className="shrink-0">
-          <a href={withAccount(LAVA_SUBSCRIPTION_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
+          <a href={withLavaAccount(LAVA_SUBSCRIPTION_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
             Subscribe for $20
             <IconArrowUpRight aria-hidden />
           </a>
@@ -395,7 +382,7 @@ function CardOrPayPal({ email, accountId, onLeave }: { email: string | null; acc
           <span className="text-body text-muted-foreground">Paid once. Nothing renews.</span>
         </span>
         <Button asChild size="lg" variant="subtle" className="shrink-0">
-          <a href={withAccount(LAVA_PRODUCT_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
+          <a href={withLavaAccount(LAVA_PRODUCT_URL, accountId)} target="_blank" rel="noopener noreferrer" onClick={onLeave}>
             Choose a plan
             <IconArrowUpRight aria-hidden />
           </a>

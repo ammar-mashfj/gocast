@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\InviteController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RawEmailController;
+use App\Http\Controllers\Admin\SpotlightController;
 use App\Http\Controllers\Admin\StationController;
 use App\Http\Controllers\Admin\TwoFactorChallengeController;
 use App\Http\Controllers\Admin\TwoFactorSetupController;
@@ -108,6 +109,15 @@ Route::middleware(['auth:admin', EnsureAdminTwoFactor::class])->group(function (
     Route::get('announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('announcements/preview', [AnnouncementController::class, 'preview'])->name('announcements.preview');
     Route::post('announcements', [AnnouncementController::class, 'store'])->name('announcements.store');
+
+    // Spotlights — the dialog a matching account gets on its next dashboard
+    // load. Unlike announcements these can be taken back (switch off, move the
+    // end date), so it is the Discounts shape: create and edit in place, with
+    // a test list of addresses that see it while it is still off.
+    Route::get('spotlights', [SpotlightController::class, 'index'])->name('spotlights.index');
+    Route::post('spotlights', [SpotlightController::class, 'store'])->name('spotlights.store');
+    Route::post('spotlights/{spotlight}', [SpotlightController::class, 'update'])->name('spotlights.update');
+    Route::post('spotlights/{spotlight}/reset-preview', [SpotlightController::class, 'resetPreview'])->name('spotlights.reset-preview');
 
     // One-off email. Same two-POST shape as announcements and for a harder
     // version of the same reason: mail does not come back at all, and what the
