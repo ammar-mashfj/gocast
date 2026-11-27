@@ -21,8 +21,8 @@ use Throwable;
  * email, the amount and currency, and the UTM tags of the link they came
  * from, but not which of the product's plans they picked.
  *
- * - Which account: the id in `utm_content` (the dashboard puts it on its
- *   links), else the account with the buyer's email.
+ * - Which account: the one with the buyer's email, else the id in
+ *   `utm_content` (the dashboard puts it on its links).
  * - How long: the subscription is one calendar month a charge, first payment
  *   and every renewal alike, plus one day when it starts from today (see
  *   handle()). The pay-once product is told apart by the USD
@@ -110,7 +110,7 @@ class LavaSales
                 // Before anything can be flagged: a subscriber whose charge
                 // grants nothing (say they already have permanent Pro) still
                 // needs Cancel on the Account page.
-                if ($sale->product_id === config('services.lava.subscription_product_id')) {
+                if ($this->isProduct($sale, 'subscription_product_id')) {
                     $another = $this->remember($user, $sale, $event, $data);
                 }
             }
@@ -142,7 +142,7 @@ class LavaSales
 
             [$until, $extended] = $applied;
 
-            if ($months === self::SUBSCRIPTION_MONTHS && $sale->product_id === config('services.lava.subscription_product_id') && ! $extended) {
+            if ($months === self::SUBSCRIPTION_MONTHS && $this->isProduct($sale, 'subscription_product_id') && ! $extended) {
                 // A day of slack on a subscription that starts now, so the
                 // next charge (due at about the same minute a month on) lands
                 // before plans:expire can switch AutoDJ off. Renewals extend
@@ -168,7 +168,7 @@ class LavaSales
         // one. It is reported instead.
         try {
             if ($outcome === 'flagged') {
-                $this->telegram->lavaSaleNeedsReview($sale);
+                $this->alert(fn () => $this->telegram->lavaSaleNeedsReview($sale));
 
                 return $sale;
             }
@@ -182,10 +182,10 @@ class LavaSales
                 $user->notify(new ProAccessGranted($plan, $until, $label, paid: true, extended: $extended));
             }
 
-            $this->telegram->lavaSaleGranted($sale, $user);
+            $this->alert(fn () => $this->telegram->lavaSaleGranted($sale, $user));
 
             if ($another) {
-                $this->telegram->lavaSecondSubscription($sale, $user);
+                $this->alert(fn () => $this->telegram->lavaSecondSubscription($sale, $user));
             }
         } catch (Throwable $e) {
             report($e);
@@ -235,7 +235,7 @@ class LavaSales
         }
 
         $user->forceFill(['lava_subscription_contract_id' => null, 'lava_subscription_email' => null])->save();
-        $this->telegram->lavaSubscriptionCancelled($user, $where);
+        $this->alert(fn () => $this->telegram->lavaSubscriptionCancelled($user, $where));
 
         return null;
     }
@@ -256,7 +256,7 @@ class LavaSales
         $refusal = $this->cancel($user, 'account deleted');
 
         if ($refusal !== null) {
-            $this->telegram->lavaCancelFailed($user->email, $contractId, $email, $refusal);
+            $this->alert(fn () => $this->telegram->lavaCancelFailed($user->email, $contractId, $email, $refusal));
         }
     }
 
@@ -273,14 +273,14 @@ class LavaSales
         // subscription the same buyer still pays for.
         $contracts = array_filter([(string) ($data['contractId'] ?? ''), (string) ($data['parentContractId'] ?? '')]);
 
-        $user = $contracts === [] ? null : User::whereIn('lava_subscription_contract_id', $contracts)->first();
+        $user = $contracts === [] ? null : User::withTrashed()->whereIn('lava_subscription_contract_id', $contracts)->first();
 
         if ($user === null) {
             return;
         }
 
         $user->forceFill(['lava_subscription_contract_id' => null, 'lava_subscription_email' => null])->save();
-        $this->telegram->lavaSubscriptionCancelled($user, 'on lava.top');
+        $this->alert(fn () => $this->telegram->lavaSubscriptionCancelled($user, 'on lava.top'));
     }
 
     /**
@@ -325,8 +325,11 @@ class LavaSales
 
     /**
      * For a renewal, the account holding its subscription; otherwise the
-     * account the dashboard link named, else the one with the buyer's
-     * email. Locked: PlanTerm::apply writes its plan dates.
+     * account with the buyer's email (the dialog asks them to pay with it),
+     * else the one the dashboard link named. The email goes first because a
+     * link can be forwarded: a friend paying with their own GoCast email
+     * gets the Pro, not whoever shared the link. Locked: PlanTerm::apply
+     * writes its plan dates.
      *
      * @param  array<string, mixed>  $data
      */
@@ -340,15 +343,15 @@ class LavaSales
             return $user;
         }
 
-        $id = (string) ($data['clientUtm']['utm_content'] ?? '');
+        $email = trim((string) ($data['buyer']['email'] ?? ''));
 
-        if (ctype_digit($id) && ($user = User::whereKey((int) $id)->lockForUpdate()->first()) !== null) {
+        if ($email !== '' && ($user = User::where('email', $email)->lockForUpdate()->first()) !== null) {
             return $user;
         }
 
-        $email = trim((string) ($data['buyer']['email'] ?? ''));
+        $id = (string) ($data['clientUtm']['utm_content'] ?? '');
 
-        return $email === '' ? null : User::where('email', $email)->lockForUpdate()->first();
+        return ctype_digit($id) ? User::whereKey((int) $id)->lockForUpdate()->first() : null;
     }
 
     /**
@@ -358,11 +361,11 @@ class LavaSales
     {
         $paid = trim(($sale->amount ?? '?').' '.($sale->currency ?? ''));
 
-        if ($sale->product_id === config('services.lava.subscription_product_id')) {
+        if ($this->isProduct($sale, 'subscription_product_id')) {
             return self::SUBSCRIPTION_MONTHS;
         }
 
-        if ($sale->product_id !== config('services.lava.pay_once_product_id')) {
+        if (! $this->isProduct($sale, 'pay_once_product_id')) {
             return "Paid {$paid} for a lava.top product we don't sell through the dashboard. Grant it by hand.";
         }
 
@@ -371,6 +374,26 @@ class LavaSales
             : null;
 
         return $months ?? "Paid {$paid} for the pay-once product, which matches none of its USD prices. Work out the plan and grant it by hand.";
+    }
+
+    private function isProduct(LavaSale $sale, string $key): bool
+    {
+        return $sale->product_id !== null && strcasecmp($sale->product_id, (string) config("services.lava.{$key}")) === 0;
+    }
+
+    /**
+     * Send an admin alert without letting a queue failure undo what was
+     * already done (a cancel at lava.top, a deletion, a saved sale).
+     *
+     * @param  callable(): void  $send
+     */
+    private function alert(callable $send): void
+    {
+        try {
+            $send();
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     private function flag(LavaSale $sale, string $reason): string

@@ -171,7 +171,7 @@ class AdminTelegram
     {
         $this->send(
             "⚠️ <b>Second lava.top subscription</b>\n"
-            .$this->e($user->email).' is paying for two monthly subscriptions. Cancel this one on lava.top by hand and refund it.'."\n"
+            .$this->e($user->email).' is paying for two monthly subscriptions. Cancel this one on lava.top by hand. It added a month of Pro: if you refund it, take the month back in the admin too.'."\n"
             .'Buyer: '.$this->e($sale->email ?? 'unknown')."\n"
             .'Contract '.$this->e((string) ($sale->payload['parentContractId'] ?? $sale->contract_id))
         );

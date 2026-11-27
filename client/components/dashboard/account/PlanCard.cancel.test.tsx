@@ -83,6 +83,18 @@ describe("PlanCard: cancel subscription", () => {
     expect(screen.getByRole("button", { name: "Cancel subscription" })).toBeTruthy()
   })
 
+  it("lets a subscriber who lapsed to Free cancel, instead of offering Get Pro", async () => {
+    h.plan = { ...pro({ subscribed: true, expires_at: null }), slug: "free", name: "Free" } as Plan
+    h.cancel.mockResolvedValue({ pro_until: null })
+    render(<PlanCard />)
+
+    expect(screen.queryByRole("button", { name: "Get Pro" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel subscription" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel subscription" }).at(-1)!)
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Your subscription is cancelled. You won’t be charged again."))
+  })
+
   it("offers no cancel to Pro that was paid once", () => {
     h.plan = pro({ subscribed: false })
     render(<PlanCard />)

@@ -61,8 +61,11 @@ export function PlanCard() {
   if (!plan) return null
 
   const pro = plan.slug !== "free"
-  const subscribed = pro && plan.subscribed === true && cancelled === null
+  // Not only while on Pro: a renewal that failed lets the account lapse to
+  // Free while lava.top still means to charge it, and it must stay stoppable.
+  const subscribed = plan.subscribed === true && cancelled === null
   const ends = plan.expires_at ? formatDay(plan.expires_at) : null
+  const proLeftAfterCancel = pro && plan.expires_at !== null && plan.expires_at !== undefined
 
   async function cancel() {
     setBusy(true)
@@ -90,11 +93,12 @@ export function PlanCard() {
           </span>
           <span className="text-body-sm text-muted-foreground">
             {planIncludes(plan)}
-            {subscribed ? " Billed monthly." : ends && ` Ends ${ends}, then your account moves to Free.`}
+            {pro && (subscribed ? " Billed monthly." : ends && ` Ends ${ends}, then your account moves to Free.`)}
             {!pro && " Your station plays only while you’re live."}
+            {!pro && subscribed && " Your monthly Pro subscription is still active: its next charge switches Pro back on."}
           </span>
         </div>
-        {!pro && (
+        {!pro && !subscribed && (
           <Button variant="pro" className="shrink-0 self-start sm:self-auto" onClick={() => checkout.open()}>
             Get Pro
           </Button>
@@ -108,7 +112,7 @@ export function PlanCard() {
 
       {cancelled && (
         <p role="status" className="text-body text-foreground">
-          {cancelled.until
+          {cancelled.until && pro && new Date(cancelled.until).getTime() > Date.now()
             ? `Your subscription is cancelled. ${proLeft(cancelled.until)}`
             : "Your subscription is cancelled. You won’t be charged again."}
         </p>
@@ -126,8 +130,8 @@ export function PlanCard() {
         busy={busy}
         title="Cancel your subscription?"
         description={
-          plan.expires_at
-            ? `You won’t be charged again. You keep Pro until ${formatDay(plan.expires_at)}, then your account moves to Free.`
+          proLeftAfterCancel
+            ? `You won’t be charged again. You keep Pro until ${formatDay(plan.expires_at!)}, then your account moves to Free.`
             : "You won’t be charged again."
         }
         confirmLabel="Cancel subscription"

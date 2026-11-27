@@ -19,7 +19,7 @@ return new class extends Migration
         }
 
         Schema::table('users', function (Blueprint $table) {
-            $table->uuid('lava_subscription_contract_id')->nullable();
+            $table->uuid('lava_subscription_contract_id')->nullable()->index();
             $table->string('lava_subscription_email')->nullable();
         });
     }
@@ -27,6 +27,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
+            $table->dropIndex(['lava_subscription_contract_id']);
             $table->dropColumn(['lava_subscription_contract_id', 'lava_subscription_email']);
         });
     }

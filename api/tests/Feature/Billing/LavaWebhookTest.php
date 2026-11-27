@@ -4,6 +4,7 @@ use App\Models\LavaSale;
 use App\Models\Plan;
 use App\Models\User;
 use App\Notifications\ProAccessGranted;
+use App\Services\AdminTelegram;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
@@ -133,22 +134,32 @@ it('adds pay-once time after a running Pro term', function () {
     expect($user->fresh()->plan_expires_at->toDateString())->toBe(now()->addDays(10)->addMonthsNoOverflow(6)->toDateString());
 });
 
-it('finds the account by the link’s utm_content before the email', function () {
+it('gives a forwarded link’s payment to the buyer’s own account, not the one that shared it', function () {
+    $sharer = User::factory()->create(['email' => 'dj@example.com']);
+    $buyer = User::factory()->create(['email' => 'buyer@example.com']);
+
+    lavaWebhook(['product' => ['id' => LAVA_SUBSCRIPTION], 'amount' => 20.0, 'clientUtm' => ['utm_content' => (string) $sharer->id]])->assertOk();
+
+    expect($buyer->fresh())->plan_id->toBe(proId())->lava_subscription_contract_id->not->toBeNull();
+    expect($sharer->fresh())->plan_id->not->toBe(proId())->lava_subscription_contract_id->toBeNull();
+});
+
+it('falls back to the link’s utm_content when no account has the buyer’s email', function () {
     $linked = User::factory()->create(['email' => 'dj@example.com']);
-    $other = User::factory()->create(['email' => 'buyer@example.com']);
 
     lavaWebhook(['clientUtm' => ['utm_content' => (string) $linked->id]])->assertOk();
 
-    expect($linked->fresh()->plan_id)->toBe(proId())
-        ->and($other->fresh()->plan_id)->not->toBe(proId());
+    expect($linked->fresh()->plan_id)->toBe(proId());
 });
 
-it('falls back to the email when utm_content names no account', function () {
+it('matches the product ids whatever their case', function () {
     $user = User::factory()->create(['email' => 'buyer@example.com']);
+    config(['services.lava.subscription_product_id' => strtoupper(LAVA_SUBSCRIPTION)]);
 
-    lavaWebhook(['clientUtm' => ['utm_content' => '999999']])->assertOk();
+    lavaWebhook(['product' => ['id' => LAVA_SUBSCRIPTION], 'amount' => 20.0])->assertOk();
 
-    expect($user->fresh()->plan_id)->toBe(proId());
+    expect($user->fresh()->plan_id)->toBe(proId())
+        ->and(LavaSale::sole()->review_reason)->toBeNull();
 });
 
 it('counts a charge once however many times lava.top retries it', function () {
@@ -398,6 +409,27 @@ it('answers 200 and keeps the grant when the Pro email can’t be queued', funct
     lavaWebhook()->assertOk();
 
     expect($user->fresh()->plan_id)->toBe(proId());
+});
+
+it('clears a cancelled subscription off a deleted account', function () {
+    $gone = subscriber();
+    $gone->delete();
+
+    lavaWebhook(['eventType' => 'subscription.cancelled', 'product' => ['id' => LAVA_SUBSCRIPTION], 'contractId' => 'c5a0cacc-3453-44b0-9532-aa492f1ba191'])->assertOk();
+
+    expect(User::withTrashed()->find($gone->id)->lava_subscription_contract_id)->toBeNull();
+});
+
+it('still deletes the account when the cancel alert can’t be queued', function () {
+    $user = subscriber();
+    Http::fake(['gate.lava.top/*' => Http::response(null, 204)]);
+    config(['services.lava.api_key' => 'test-api-key']);
+    $this->mock(AdminTelegram::class)
+        ->shouldReceive('lavaSubscriptionCancelled')->andThrow(new RuntimeException('queue down'));
+
+    $this->actingAs($user)->deleteJson('/api/account', ['confirmation' => 'dj@example.com'])->assertOk();
+
+    expect(User::withTrashed()->find($user->id))->trashed()->toBeTrue()->lava_subscription_contract_id->toBeNull();
 });
 
 it('answers 503 when cancelling isn’t set up', function () {
