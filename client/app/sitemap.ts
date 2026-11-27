@@ -3,9 +3,10 @@ import { env } from "@/lib/env"
 import { ARTICLES } from "./(marketing)/blog/_content/articles"
 import { HELP_ARTICLES } from "./(marketing)/help/_content/articles"
 import { LEGAL_UPDATED } from "@/lib/legal"
+import { USE_CASE_PAGES } from "@/lib/use-cases"
 
 /**
- * The site's own pages: home, blog, help, legal.
+ * The site's own pages: home, audience pages, blog, help, legal.
  *
  * Stations live in their own file, app/station/sitemap.ts, served at
  * /station/sitemap.xml and listed beside this one in robots.txt. They change
@@ -50,7 +51,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.5,
   }))
 
-  return [...staticRoutes, ...articleRoutes, ...helpRoutes]
+  // Audience pages (/for/churches …): only the ones built, from their registry.
+  // Priority under the homepage, above an article: they are landing pages.
+  const useCaseRoutes: MetadataRoute.Sitemap = USE_CASE_PAGES.map((p) => ({
+    url: `${base}/for/${p.slug}`,
+    lastModified: new Date(p.updated),
+    changeFrequency: "monthly",
+    priority: 0.8,
+  }))
+
+  return [...staticRoutes, ...useCaseRoutes, ...articleRoutes, ...helpRoutes]
 }
 
 /** The most recent of a list of ISO dates, or undefined for an empty list. */
