@@ -62,3 +62,34 @@ export async function fetchCardInterest(): Promise<boolean> {
 export async function notifyCardPayments(): Promise<void> {
   await api.post("/billing/card-interest")
 }
+
+/**
+ * The link with this account's id as `utm_content`, which lava.top hands back
+ * in the webhook (clientUtm): the payment then finds the account even when
+ * the buyer types another email (LavaSales::account). The email stays the
+ * fallback. `medium` and `campaign` are only for reading lava.top's own
+ * stats: where in the dashboard the buyer came from.
+ */
+export function withLavaAccount(
+  link: string,
+  accountId: string | null,
+  { medium = "dashboard", campaign }: { medium?: string; campaign?: string } = {},
+): string {
+  if (!accountId) return link
+  const url = new URL(link)
+  url.searchParams.set("utm_source", "gocast")
+  url.searchParams.set("utm_medium", medium)
+  if (campaign) url.searchParams.set("utm_campaign", campaign)
+  url.searchParams.set("utm_content", accountId)
+  return url.toString()
+}
+
+/** A link to lava.top's checkout pages (any lava.top host). */
+export function isLavaLink(link: string): boolean {
+  try {
+    const host = new URL(link).hostname
+    return host === "lava.top" || host.endsWith(".lava.top")
+  } catch {
+    return false
+  }
+}

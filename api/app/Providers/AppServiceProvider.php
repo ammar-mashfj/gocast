@@ -7,6 +7,7 @@ use App\Models\Discount;
 use App\Models\Invite;
 use App\Models\Plan;
 use App\Models\Product;
+use App\Models\Spotlight;
 use App\Models\Station;
 use App\Models\StreamSession;
 use App\Models\User;
@@ -158,6 +159,7 @@ class AppServiceProvider extends ServiceProvider
             'invite' => Invite::class,
             'product' => Product::class,
             'discount' => Discount::class,
+            'spotlight' => Spotlight::class,
         ]);
 
         // Drive per-station Liquidsoap containers from the Station model
