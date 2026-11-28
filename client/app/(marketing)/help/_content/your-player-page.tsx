@@ -53,6 +53,28 @@ export default function Body() {
         width={2352}
         height={196}
       />
+
+      <h2 id="hide-listener-count">Hiding Your Listener Count</h2>
+      <p>
+        While you are on air, the player shows how many people are listening
+        next to <strong>Now playing</strong>. If you would rather keep that
+        number to yourself, you can hide it:
+      </p>
+      <ol>
+        <li>
+          Open <strong>Station settings</strong>{" "}in the sidebar.
+        </li>
+        <li>
+          Under <strong>Where listeners find you</strong>, turn off{" "}
+          <strong>Show listener count</strong>. It saves straight away.
+        </li>
+      </ol>
+      <p>
+        Your player page then says just <strong>Now playing</strong>, and the
+        player you embed on your own site stops showing the count too. You
+        still see it everywhere in your dashboard: the studio, your Overview
+        and the Audience page. Turn the switch back on to show it again.
+      </p>
     </>
   )
 }

@@ -57,6 +57,11 @@ export default function Body() {
         name and the embed updates on its own; there is nothing to re-paste.
         And when you are off air it says so, the same as your player page does.
       </p>
+      <p>
+        It shows how many people are listening while you are on air. If you{" "}
+        <Link href="/help/your-player-page#hide-listener-count">hide your listener count</Link>,
+        the embed hides it too.
+      </p>
     </>
   )
 }
