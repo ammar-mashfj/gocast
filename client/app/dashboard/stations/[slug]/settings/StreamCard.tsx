@@ -1,11 +1,13 @@
 import { env } from "@/lib/env"
 import type { Station } from "@/interfaces/Station"
 import { Card, CardHeader } from "@/components/ds/Card"
+import { ListenerCountSwitch } from "./ListenerCountSwitch"
 import { StreamLink } from "./StreamLink"
 
 /**
  * Where listeners come out: the player page to share, and the raw stream for
- * radio apps. Read-only.
+ * radio apps. Read-only apart from the one switch about what the player page
+ * shows.
  */
 export function StreamCard({ station }: { station: Station }) {
   const playerUrl = `${env.appUrl}/station/${station.slug}`
@@ -18,6 +20,7 @@ export function StreamCard({ station }: { station: Station }) {
     <Card>
       <CardHeader title="Where listeners find you" />
       <StreamLink label="Player page" value={playerUrl} note="The link to share. Listeners press play here." open />
+      <ListenerCountSwitch station={station} />
       <StreamLink label="Direct stream" value={directUrl} note="For radio apps and smart speakers. Works only while you’re on air." />
     </Card>
   )

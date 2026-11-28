@@ -199,6 +199,8 @@ export interface Station {
   crossfade_enabled: boolean
   /** False while crossfade is off for the whole install: the switch would do nothing. */
   crossfade_available: boolean
+  /** Show "N listening" on the public player and embed. Off, the public endpoint sends no count. */
+  show_listener_count: boolean
   /**
    * How jingles are spaced. "interval" is predictable in wall-clock terms
    * (legal IDs, sponsor reads) but drifts on stations with long tracks;

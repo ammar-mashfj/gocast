@@ -49,7 +49,11 @@ class ListenerCountController extends Controller
         }
 
         return response()->json(['data' => [
-            'count' => $count,
+            // Null when the owner has chosen to keep the figure private.
+            // Withheld here, not just hidden by the player, because this
+            // endpoint is public: hiding it in the UI alone would leave the
+            // number one request away.
+            'count' => $station->show_listener_count ? $count : null,
             'state' => $state,
             'is_live' => $state === StationStatusService::STATE_LIVE,
             // True whenever a listener who presses play will get audio —

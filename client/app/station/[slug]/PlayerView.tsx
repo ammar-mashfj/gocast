@@ -208,7 +208,10 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   const [station, setStation] = useState(initialStation)
   const [playing, setPlaying] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [listeners, setListeners] = useState(0)
+  // Null when the owner keeps the count private: the poll sends no figure
+  // then. Seeded from the page's own copy of the setting so a private count
+  // never flashes "0 listening" before the first poll lands.
+  const [listeners, setListeners] = useState<number | null>(initialStation.show_listener_count === false ? null : 0)
   const [nowPlaying, setNowPlaying] = useState<{ title: string | null; artist: string | null }>({ title: null, artist: null })
   const [recentTracks, setRecentTracks] = useState<{ title: string; artist: string | null; at: number }[]>([])
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -463,7 +466,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
   usePublicStationFeed(station.slug, (stats) => {
     if (stats.icecast_only !== null) icecastOnlyRef.current = stats.icecast_only
     if (stats.switched_off !== null) switchedOffRef.current = stats.switched_off
-    setListeners(stats.count ?? 0)
+    setListeners(stats.count)
     setStation((prev) => ({
       ...prev,
       is_live: stats.is_live ?? prev.is_live,
@@ -782,7 +785,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
 
   const genres = splitGenres(station.genre)
   const links = (Array.isArray(station.social_links) ? station.social_links : []).map(resolveSocialLink).filter((link) => link !== null)
-  const listeningLine = `${listeners.toLocaleString()} listening`
+  const nowPlayingLine = listeners === null ? "Now playing" : `Now playing · ${listeners.toLocaleString()} listening`
   // The sheet holds everything the page has no room for, so it is offered
   // whenever there is any of that to show.
   const hasAbout = !!station.description || links.length > 0 || genres.length > 2 || recentTracks.length > 0
@@ -1012,7 +1015,7 @@ export function PlayerView({ station: initialStation, isOwner = false }: PlayerV
                   />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.75">
-                  <span className="eyebrow truncate text-on-air-text">Now playing · {listeningLine}</span>
+                  <span className="eyebrow truncate text-on-air-text">{nowPlayingLine}</span>
                   <span
                     // Keyed on the title alone: the key replays the slide-in
                     // when the TRACK changes, and an artist landing in a

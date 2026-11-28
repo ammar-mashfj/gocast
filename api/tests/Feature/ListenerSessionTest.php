@@ -47,6 +47,33 @@ it('counts a session as live as soon as it is opened', function () {
         ->assertJsonPath('data.count', 1);
 });
 
+it('withholds the count when the owner keeps it private', function () {
+    $this->station->update(['show_listener_count' => false]);
+    $this->postJson('/api/public/stations/jazz/listen')->assertCreated();
+
+    // Null from the endpoint itself, not just a hidden line in the player:
+    // anyone can call this, so the figure must not be in the response.
+    $this->getJson('/api/public/stations/jazz/listeners')
+        ->assertOk()
+        ->assertJsonPath('data.count', null);
+});
+
+it('lets the owner switch the public count off and back on', function () {
+    $this->actingAs($this->station->user);
+
+    $this->patchJson('/api/stations/jazz', ['show_listener_count' => false])
+        ->assertOk()
+        ->assertJsonPath('data.show_listener_count', false);
+    expect($this->station->fresh()->show_listener_count)->toBeFalse();
+
+    $this->patchJson('/api/stations/jazz', ['show_listener_count' => true])
+        ->assertJsonPath('data.show_listener_count', true);
+});
+
+it('shows the count by default', function () {
+    expect($this->station->fresh()->show_listener_count)->toBeTrue();
+});
+
 it('records device, browser and referrer from the request that opened it', function () {
     $token = $this->postJson('/api/public/stations/jazz/listen', [], [
         'User-Agent' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
