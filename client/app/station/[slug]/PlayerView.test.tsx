@@ -71,21 +71,42 @@ function stats(overrides: Partial<PublicStationStats>): PublicStationStats {
   } as PublicStationStats
 }
 
-describe("PlayerView on a relay run it was not rendered for", () => {
-  beforeEach(() => {
-    feed = null
-    hls.last = null
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {})
-    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {})
-    // jsdom has no ResizeObserver; the volume slider shown while playing needs one.
-    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
-    // jsdom has no text tracks; the in-band metadata watcher needs the list.
-    Object.defineProperty(HTMLMediaElement.prototype, "textTracks", {
-      configurable: true,
-      get: () => Object.assign([], { addEventListener() {}, removeEventListener() {} }),
-    })
+beforeEach(() => {
+  feed = null
+  hls.last = null
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined)
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {})
+  // jsdom has no ResizeObserver; the volume slider shown while playing needs one.
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
+  // jsdom has no text tracks; the in-band metadata watcher needs the list.
+  Object.defineProperty(HTMLMediaElement.prototype, "textTracks", {
+    configurable: true,
+    get: () => Object.assign([], { addEventListener() {}, removeEventListener() {} }),
   })
+})
+
+describe("PlayerView listener count", () => {
+  it("says how many are listening when the station shows its count", () => {
+    render(<PlayerView station={{ ...station, show_listener_count: true } as Station} />)
+    act(() => feed!(stats({ count: 12 })))
+
+    expect(screen.getByText("Now playing · 12 listening")).toBeTruthy()
+  })
+
+  it("says just Now playing when the owner hides the count, from the first render on", () => {
+    render(<PlayerView station={{ ...station, show_listener_count: false } as Station} />)
+    // Before any poll: no "0 listening" flash.
+    expect(screen.getByText("Now playing")).toBeTruthy()
+
+    // The public endpoint sends null for a hidden count. It must not read as 0.
+    act(() => feed!(stats({ count: null })))
+    expect(screen.getByText("Now playing")).toBeTruthy()
+    expect(screen.queryByText(/listening/)).toBeNull()
+  })
+})
+
+describe("PlayerView on a relay run it was not rendered for", () => {
 
   it("goes to Icecast on the first missing playlist once the feed says relay", () => {
     render(<PlayerView station={station} />)

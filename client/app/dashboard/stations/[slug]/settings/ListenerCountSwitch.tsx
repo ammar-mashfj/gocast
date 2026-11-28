@@ -10,8 +10,10 @@ import api from "@/lib/axios"
 /**
  * Whether the public player and embed say "N listening". Saves on the flip,
  * like any other switch, and puts it back if the save fails. Off, the public
- * endpoint stops sending the figure at all; the owner's own numbers (studio,
- * Overview, Audience) are untouched.
+ * listeners endpoint stops sending the figure; the owner's own screens read
+ * the signed-in copy of that feed, so their numbers are untouched. The copy
+ * does not promise nobody else can see it: a relay station's count is still
+ * on Icecast's own status page.
  */
 export function ListenerCountSwitch({ station }: { station: Station }) {
   const router = useRouter()
@@ -23,7 +25,7 @@ export function ListenerCountSwitch({ station }: { station: Station }) {
     setSaving(true)
     try {
       await api.patch(`/stations/${station.slug}`, { show_listener_count: next })
-      toast.success(next ? "Listener count shown on your player page." : "Listener count hidden. Only you can see it now.")
+      toast.success(next ? "Listener count shown on your player page." : "Listener count hidden from your player page.")
       router.refresh()
     } catch {
       setShown(!next)
@@ -36,7 +38,7 @@ export function ListenerCountSwitch({ station }: { station: Station }) {
   return (
     <SwitchRow
       title="Show listener count"
-      description="Shows how many people are listening on your player page and embed. Off, only you can see it."
+      description="Off, it’s hidden from your player page and embed. You still see it in your dashboard."
       checked={shown}
       onCheckedChange={change}
       disabled={saving}

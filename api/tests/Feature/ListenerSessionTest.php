@@ -58,6 +58,27 @@ it('withholds the count when the owner keeps it private', function () {
         ->assertJsonPath('data.count', null);
 });
 
+it('still gives the owner the count when it is hidden from the public', function () {
+    $this->station->update(['show_listener_count' => false]);
+    $this->postJson('/api/public/stations/jazz/listen')->assertCreated();
+
+    $this->actingAs($this->station->user)
+        ->getJson('/api/stations/jazz/listeners')
+        ->assertOk()
+        ->assertJsonPath('data.count', 1);
+
+    // The public endpoint answers the same for the owner as for anyone.
+    $this->getJson('/api/public/stations/jazz/listeners')->assertJsonPath('data.count', null);
+});
+
+it('keeps the owner listeners endpoint to the owner', function () {
+    $this->getJson('/api/stations/jazz/listeners')->assertUnauthorized();
+
+    $this->actingAs(User::factory()->create())
+        ->getJson('/api/stations/jazz/listeners')
+        ->assertForbidden();
+});
+
 it('lets the owner switch the public count off and back on', function () {
     $this->actingAs($this->station->user);
 

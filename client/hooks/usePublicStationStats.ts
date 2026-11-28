@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { env } from "@/lib/env"
+import { getCookie } from "@/lib/cookies"
 
 /**
  * One cadence for every consumer of `/public/stations/{slug}/listeners`.
@@ -46,6 +47,9 @@ type Subscriber = {
 }
 
 interface Feed {
+  slug: string
+  /** Read the owner's copy (signed in), which always carries the count. */
+  owner: boolean
   subscribers: Set<Subscriber>
   timer: ReturnType<typeof setInterval> | null
   /** Last payload, handed to a late subscriber so it renders without waiting. */
@@ -64,8 +68,14 @@ interface Feed {
  * all in one provider would mean a provider above the whole app for a number
  * most pages never read. The registry gives the same guarantee — one timer
  * and one request per station — without one.
+ *
+ * Keyed by slug AND audience: the owner's screens and the public player read
+ * different endpoints (see `owner` on the hook), so an owner with their own
+ * player page open in the same tab gets two feeds, never one that mixes them.
  */
 const feeds = new Map<string, Feed>()
+
+const feedKey = (slug: string, owner: boolean) => (owner ? `owner:${slug}` : slug)
 
 function normalise(body: unknown): PublicStationStats {
   const data = (body as { data?: Record<string, unknown> })?.data ?? {}
@@ -88,14 +98,32 @@ function normalise(body: unknown): PublicStationStats {
   }
 }
 
-async function read(slug: string, feed: Feed): Promise<void> {
+/**
+ * The owner's copy goes through plain fetch with the bearer token rather than
+ * the axios client: this module also ships in the public player and the embed,
+ * which have no business pulling in the dashboard's auth and redirect code. A
+ * 401 or 403 is simply ignored like any other failed read; the dashboard's
+ * own requests handle an expired session.
+ */
+function request(feed: Feed): Promise<Response> {
+  if (!feed.owner) {
+    return fetch(`${env.apiUrl}/public/stations/${feed.slug}/listeners`, {
+      headers: { Accept: "application/json" },
+    })
+  }
+  const token = getCookie("token")
+  return fetch(`${env.apiUrl}/stations/${feed.slug}/listeners`, {
+    credentials: "include",
+    headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+}
+
+async function read(feed: Feed): Promise<void> {
   if (feed.inFlight) return
   feed.inFlight = true
 
   try {
-    const response = await fetch(`${env.apiUrl}/public/stations/${slug}/listeners`, {
-      headers: { Accept: "application/json" },
-    })
+    const response = await request(feed)
     // 404 is not a hiccup: the station was deleted (or renamed) under an open
     // page. Say it is off air, or a player keeps trusting the `is_on_air` it
     // was rendered with and plays whatever segments are left on disk.
@@ -139,16 +167,16 @@ function shouldRun(feed: Feed): boolean {
   return Array.from(feed.subscribers).some((s) => !s.pauseWhenHidden)
 }
 
-function sync(slug: string, feed: Feed): void {
+function sync(feed: Feed): void {
   const running = feed.timer !== null
 
   if (shouldRun(feed)) {
-    if (!running) feed.timer = setInterval(() => void read(slug, feed), POLL_MS)
+    if (!running) feed.timer = setInterval(() => void read(feed), POLL_MS)
     // Catch up only when the held value is actually stale. This runs on every
     // return to the tab, and alt-tabbing produces dozens of visibility
     // transitions a minute — each one an immediate request otherwise, against
     // an endpoint whose own throttle is 60/minute per IP.
-    if (Date.now() - feed.readAt >= POLL_MS) void read(slug, feed)
+    if (Date.now() - feed.readAt >= POLL_MS) void read(feed)
     return
   }
 
@@ -165,7 +193,7 @@ function bindVisibility(): void {
   visibilityBound = true
 
   document.addEventListener("visibilitychange", () => {
-    for (const [slug, feed] of feeds) sync(slug, feed)
+    for (const feed of feeds.values()) sync(feed)
   })
 }
 
@@ -192,11 +220,19 @@ function bindVisibility(): void {
  *   mid-show would otherwise come back to a sparkline full of holes and a
  *   peak that missed its own high point. One broadcaster per station makes
  *   that affordable in a way an audience never is.
+ * @param owner Read the signed-in owner endpoint instead of the public one.
+ *   Same payload, but `count` is always there: the public endpoint sends null
+ *   when the station hides its listener count, and the owner's own screens
+ *   (studio, Overview, status band) must keep the number.
  */
 export function usePublicStationFeed(
   slug: string | null,
   onUpdate: (stats: PublicStationStats) => void,
-  { enabled = true, pauseWhenHidden = true }: { enabled?: boolean; pauseWhenHidden?: boolean } = {},
+  {
+    enabled = true,
+    pauseWhenHidden = true,
+    owner = false,
+  }: { enabled?: boolean; pauseWhenHidden?: boolean; owner?: boolean } = {},
 ): void {
   // The "latest ref" pattern: the subscription below closes over this rather
   // than over `onUpdate`, so an inline arrow from a caller does not tear the
@@ -213,10 +249,11 @@ export function usePublicStationFeed(
 
     bindVisibility()
 
-    let feed = feeds.get(slug)
+    const key = feedKey(slug, owner)
+    let feed = feeds.get(key)
     if (!feed) {
-      feed = { subscribers: new Set(), timer: null, latest: null, readAt: 0, inFlight: false }
-      feeds.set(slug, feed)
+      feed = { slug, owner, subscribers: new Set(), timer: null, latest: null, readAt: 0, inFlight: false }
+      feeds.set(key, feed)
     }
 
     const subscriber: Subscriber = {
@@ -229,19 +266,19 @@ export function usePublicStationFeed(
     // held value immediately rather than sitting empty until the next tick.
     if (feed.latest) subscriber.notify(feed.latest)
 
-    sync(slug, feed)
+    sync(feed)
 
     return () => {
       feed.subscribers.delete(subscriber)
-      sync(slug, feed)
+      sync(feed)
 
       // Drop the feed once nothing wants it, so a long session that visits
       // many stations does not accumulate an entry each. `latest` goes with
       // it, which is correct — a count held across a navigation would be
       // shown as current when it is minutes old.
-      if (feed.subscribers.size === 0) feeds.delete(slug)
+      if (feed.subscribers.size === 0) feeds.delete(key)
     }
-  }, [slug, enabled, pauseWhenHidden])
+  }, [slug, enabled, pauseWhenHidden, owner])
 }
 
 /**
@@ -257,7 +294,7 @@ export function usePublicStationFeed(
  */
 export function usePublicStationStats(
   slug: string | null,
-  options: { enabled?: boolean; pauseWhenHidden?: boolean } = {},
+  options: { enabled?: boolean; pauseWhenHidden?: boolean; owner?: boolean } = {},
 ): PublicStationStats | null {
   const [stats, setStats] = useState<PublicStationStats | null>(null)
 
